@@ -5,9 +5,14 @@ export default function RepaySlider() {
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Settlement Simulator</h3>
-      <div className="muted">
-        Preview seize vs release paths at unlock time.
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Settlement Simulator</h3>
+          <div className="section-subtitle">
+            Preview seize vs release paths.
+          </div>
+        </div>
+        <span className="chip">What-if</span>
       </div>
       <div className="slider-row">
         <input
@@ -18,12 +23,23 @@ export default function RepaySlider() {
           value={amount}
           onChange={(event) => setAmount(Number(event.target.value))}
         />
-        <span className="pill">{amount}% repay</span>
+        <span className="chip">{amount}% repay</span>
       </div>
-      <div className="muted">
-        Estimated release: {amount >= 70 ? 'Full' : 'Partial'} collateral
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${amount}%` }} />
       </div>
-      <button className="button">Simulate</button>
+      <div className="progress-meta">
+        <span>Release</span>
+        <span>{amount >= 70 ? 'Full' : 'Partial'} collateral</span>
+      </div>
+      <div className="inline-actions">
+        <button className="button" type="button">
+          Simulate
+        </button>
+        <button className="button ghost" type="button">
+          Save Scenario
+        </button>
+      </div>
     </div>
   );
 }

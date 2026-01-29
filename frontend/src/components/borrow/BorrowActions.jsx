@@ -126,26 +126,42 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Borrow Actions</h3>
-      <p className="muted">
-        Escrow the vesting claim, then create a loan against it.
-      </p>
-      <div className="stack">
-        <div className="pill">
-          {detailsError
-            ? 'Verification failed. Check collateral ID.'
-            : verified
-              ? 'Vesting details verified.'
-              : isDetailsLoading
-                ? 'Reading vesting details...'
-                : 'Awaiting vesting details.'}
-        </div>
-        {verified && (
-          <div className="pill">
-            Unlocks:{' '}
-            {new Date(Number(unlockTimeRaw) * 1000).toLocaleString()}
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Borrow Actions</h3>
+          <div className="section-subtitle">
+            Escrow the vesting claim, then create a loan.
           </div>
-        )}
+        </div>
+        <span className={`tag ${verified ? 'success' : ''}`}>
+          {verified ? 'Verified' : 'Pending'}
+        </span>
+      </div>
+      <div className="data-table">
+        <div className="table-row header">
+          <div>Status</div>
+          <div>Unlock</div>
+          <div>Collateral</div>
+          <div>Token</div>
+        </div>
+        <div className="table-row">
+          <div>
+            {detailsError
+              ? 'Error'
+              : verified
+                ? 'Verified'
+                : isDetailsLoading
+                  ? 'Reading'
+                  : 'Waiting'}
+          </div>
+          <div>
+            {verified
+              ? new Date(Number(unlockTimeRaw) * 1000).toLocaleDateString()
+              : '--'}
+          </div>
+          <div>{collateralId || '--'}</div>
+          <div>{tokenAddressValid ? tokenAddress : '--'}</div>
+        </div>
       </div>
       {error && <div className="error-banner">{error.message}</div>}
       <div className="form-grid">
@@ -180,7 +196,7 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
           />
         </label>
       </div>
-      <div className="faucet-quick">
+      <div className="inline-actions">
         <button
           className="button"
           type="button"
@@ -201,7 +217,7 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
           {autoBorrow ? 'Auto-fill On' : 'Auto-fill Off'}
         </button>
       </div>
-      <div className="faucet-quick">
+      <div className="inline-actions">
         <button className="button" onClick={handleEscrow} disabled={isPending}>
           Escrow
         </button>

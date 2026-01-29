@@ -613,10 +613,15 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Token Assessment</h3>
-      <p className="muted">
-        Simulate pricing inputs and apply risk haircuts to estimate loan value.
-      </p>
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Token Assessment</h3>
+          <div className="section-subtitle">
+            Simulate pricing inputs and apply risk haircuts.
+          </div>
+        </div>
+        <span className="chip">{priceSource}</span>
+      </div>
       <div className="form-grid">
         <label className="form-field">
           Token Address
@@ -656,17 +661,6 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           </select>
         </label>
         <label className="form-field">
-          Uniswap V3
-          <button
-            className="button"
-            type="button"
-            onClick={fetchUniswapPrice}
-            disabled={isFetchingDex}
-          >
-            {isFetchingDex ? 'Loading...' : 'Fetch DEX'}
-          </button>
-        </label>
-        <label className="form-field">
           TWAP (seconds)
           <input
             className="form-input"
@@ -683,38 +677,6 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
             checked={preferTwap}
             onChange={(event) => setPreferTwap(event.target.checked)}
           />
-        </label>
-        <label className="form-field">
-          CoinGecko
-          <button
-            className="button"
-            type="button"
-            onClick={fetchCoinGeckoPrice}
-            disabled={isFetchingCex}
-          >
-            {isFetchingCex ? 'Loading...' : 'Fetch CEX'}
-          </button>
-        </label>
-        <label className="form-field">
-          DEX (alt)
-          <button
-            className="button"
-            type="button"
-            onClick={fetchDexTerminalPrice}
-            disabled={isFetchingDex}
-          >
-            {isFetchingDex ? 'Loading...' : 'GeckoTerminal'}
-          </button>
-        </label>
-        <label className="form-field">
-          Mock Oracle
-          <button
-            className="button"
-            type="button"
-            onClick={fetchMockOraclePrice}
-          >
-            Testnet Price
-          </button>
         </label>
         <label className="form-field">
           Live Price (USD)
@@ -870,32 +832,79 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           />
         </label>
       </div>
-      <div className="stack">
-        <div className="pill">
-          Vesting Amount: {quantity ? quantity.toLocaleString() : '—'}
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Price Feeds</h3>
+          <div className="section-subtitle">DEX / CEX / Oracle sources</div>
         </div>
-        <div className="pill">Unlock: {unlockLabel}</div>
-        <div className="pill">
-          Effective Lock: {pricing.effectiveLockMonths.toFixed(1)} months
-        </div>
-        <div className="pill">Base Price: ${formatUsd(pricing.basePrice)}</div>
-        <div className="pill">Haircut: {(pricing.haircut * 100).toFixed(1)}%</div>
-        <div className="pill">
-          Risk-Adjusted Price: ${formatUsd(pricing.adjustedPrice)}
-        </div>
-        <div className="pill">
-          Collateral Value: ${formatUsd(pricing.collateralValue)}
-        </div>
-        <div className="pill">
-          Max Loan @ LTV: ${formatUsd(pricing.maxLoan)}
-        </div>
-        {poolAddress && (
-          <div className="muted">Uniswap Pool: {poolAddress}</div>
-        )}
-        {feedStatus && <div className="muted">{feedStatus}</div>}
-        <div className="muted">{MIN_TWAP_SAMPLE_NOTE}</div>
-        <div className="muted">Source: {priceSource}</div>
+        <span className="tag">Live</span>
       </div>
+      <div className="inline-actions">
+        <button
+          className="button ghost"
+          type="button"
+          onClick={fetchUniswapPrice}
+          disabled={isFetchingDex}
+        >
+          {isFetchingDex ? 'Loading...' : 'Uniswap V3'}
+        </button>
+        <button
+          className="button ghost"
+          type="button"
+          onClick={fetchDexTerminalPrice}
+          disabled={isFetchingDex}
+        >
+          {isFetchingDex ? 'Loading...' : 'GeckoTerminal'}
+        </button>
+        <button
+          className="button ghost"
+          type="button"
+          onClick={fetchCoinGeckoPrice}
+          disabled={isFetchingCex}
+        >
+          {isFetchingCex ? 'Loading...' : 'CoinGecko'}
+        </button>
+        <button
+          className="button ghost"
+          type="button"
+          onClick={fetchMockOraclePrice}
+        >
+          Mock Oracle
+        </button>
+      </div>
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-label">Vesting Amount</div>
+          <div className="stat-value">
+            {quantity ? quantity.toLocaleString() : '—'}
+          </div>
+          <div className="stat-delta">Unlock: {unlockLabel}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Risk Haircut</div>
+          <div className="stat-value">
+            {(pricing.haircut * 100).toFixed(1)}%
+          </div>
+          <div className="stat-delta">
+            Effective lock: {pricing.effectiveLockMonths.toFixed(1)} mo
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Adj Price</div>
+          <div className="stat-value">${formatUsd(pricing.adjustedPrice)}</div>
+          <div className="stat-delta">Base ${formatUsd(pricing.basePrice)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Max Loan</div>
+          <div className="stat-value">${formatUsd(pricing.maxLoan)}</div>
+          <div className="stat-delta">
+            Collateral ${formatUsd(pricing.collateralValue)}
+          </div>
+        </div>
+      </div>
+      {poolAddress && <div className="muted">Uniswap Pool: {poolAddress}</div>}
+      {feedStatus && <div className="muted">{feedStatus}</div>}
+      <div className="muted">{MIN_TWAP_SAMPLE_NOTE}</div>
     </div>
   );
 }

@@ -98,10 +98,15 @@ export default function RepayActions() {
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Repay Live Loan</h3>
-      <p className="muted">
-        Approve USDC then submit a repayment transaction.
-      </p>
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Repay Live Loan</h3>
+          <div className="section-subtitle">
+            Approve USDC then submit a repayment.
+          </div>
+        </div>
+        <span className="tag">USDC</span>
+      </div>
       {(error || actionError) && (
         <div className="error-banner">
           {actionError || error?.message}
@@ -127,18 +132,21 @@ export default function RepayActions() {
           />
         </label>
       </div>
-      <div className="stack">
-        <div className="pill">
-          Allowance: {allowance ? allowance.toString() : '--'}
-          {repayUnits ? ` | Needed: ${repayUnits.toString()}` : ''}
+      <div className="data-table">
+        <div className="table-row header">
+          <div>Allowance</div>
+          <div>Needed</div>
+          <div>Principal</div>
+          <div>Interest</div>
         </div>
-        {loan && (
-          <div className="pill">
-            Principal: {loan[1].toString()} | Interest: {loan[2].toString()}
-          </div>
-        )}
+        <div className="table-row">
+          <div>{allowance ? allowance.toString() : '--'}</div>
+          <div>{repayUnits ? repayUnits.toString() : '--'}</div>
+          <div>{loan ? loan[1].toString() : '--'}</div>
+          <div>{loan ? loan[2].toString() : '--'}</div>
+        </div>
       </div>
-      <div className="faucet-quick">
+      <div className="inline-actions">
         <button className="button" onClick={handleApprove} disabled={isPending}>
           Approve
         </button>

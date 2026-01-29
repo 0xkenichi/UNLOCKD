@@ -829,7 +829,8 @@ a {
 
 .slider {
   width: 100%;
-  accent-color: #c0c0c0;
+  accent-color: #5b8dff;
+  height: 6px;
 }
 
 .faucet-row {
