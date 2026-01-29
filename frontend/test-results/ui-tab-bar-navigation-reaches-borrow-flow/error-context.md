@@ -2,32 +2,305 @@
 
 ```yaml
 - generic [ref=e4]:
-  - main [ref=e5]:
+  - banner [ref=e5]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: VESTRA
+      - generic [ref=e10]: Astra-grade vesting credit
     - generic [ref=e11]:
-      - heading "VESTRA" [level=1] [ref=e12]
-      - paragraph [ref=e13]: Borrow against your vested & locked tokens — on-chain, no custody, auto-settled.
-      - paragraph [ref=e14]: Liquidity for the future you already own.
+      - generic [ref=e12]:
+        - generic [ref=e13]: ⌕
+        - textbox "Search" [ref=e14]:
+          - /placeholder: Search vaults, loans, assets
       - generic [ref=e15]:
-        - button "Launch App (Testnet)" [ref=e16]
-        - link "Read Docs" [ref=e17] [cursor=pointer]:
-          - /url: /docs
-      - generic [ref=e18]:
-        - generic [ref=e19]:
-          - generic [ref=e20]: Active Markets
-          - generic [ref=e21]: "12"
-          - generic [ref=e22]: Testnet sample
-        - generic [ref=e23]:
-          - generic [ref=e24]: Total Borrowed
-          - generic [ref=e25]: $6.8M
-          - generic [ref=e26]: Across vesting vaults
-        - generic [ref=e27]:
-          - generic [ref=e28]: Avg LTV
-          - generic [ref=e29]: 38.4%
-          - generic [ref=e30]: Conservative target
-      - generic [ref=e31]:
-        - generic [ref=e32]: Network
-        - generic [ref=e33]: Sepolia
-        - generic [ref=e34]: Auto-switch supported
-      - paragraph [ref=e35]: Testnet only — Base Sepolia • No real funds at risk
-  - contentinfo [ref=e36]: Testnet MVP — Not financial advice. Use at own risk. VESTRA is experimental. No real funds involved.
+        - button "Write" [ref=e16] [cursor=pointer]
+        - button "Tour" [ref=e17] [cursor=pointer]
+        - button "Sign in" [ref=e18] [cursor=pointer]
+        - button "Sign up" [ref=e19] [cursor=pointer]
+        - button "Connect Wallet" [ref=e21] [cursor=pointer]
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - heading "Borrow" [level=1] [ref=e25]
+        - generic [ref=e26]: Escrow a vesting position, preview risk, and confirm conservative terms.
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Available Borrow
+          - generic [ref=e30]: $92,110
+          - generic [ref=e31]: Based on DPV
+        - generic [ref=e32]:
+          - generic [ref=e33]: Avg LTV
+          - generic [ref=e34]: 38.4%
+          - generic [ref=e35]: Conservative target
+        - generic [ref=e36]:
+          - generic [ref=e37]: Unlock Window
+          - generic [ref=e38]: 6-12 mo
+          - generic [ref=e39]: Sample schedule
+      - generic [ref=e40]:
+        - heading "Testnet Notice" [level=3] [ref=e41]
+        - generic [ref=e42]: This flow is a prototype. Risk previews are illustrative and depend on the connected testnet contracts.
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - button "1 Escrow Vault" [ref=e45] [cursor=pointer]:
+            - generic [ref=e46]: "1"
+            - generic [ref=e47]: Escrow Vault
+          - button "2 Valuation" [ref=e48] [cursor=pointer]:
+            - generic [ref=e49]: "2"
+            - generic [ref=e50]: Valuation
+          - button "3 Terms" [ref=e51] [cursor=pointer]:
+            - generic [ref=e52]: "3"
+            - generic [ref=e53]: Terms
+          - button "4 Confirm" [ref=e54] [cursor=pointer]:
+            - generic [ref=e55]: "4"
+            - generic [ref=e56]: Confirm
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]:
+                - heading "Escrow Vault" [level=3] [ref=e61]
+                - generic [ref=e62]: Step 1 of 4
+              - generic [ref=e63]: Escrow Position
+            - generic [ref=e64]:
+              - generic [ref=e65]: Progress
+              - generic [ref=e66]: 25%
+            - paragraph [ref=e69]: Attach your vesting contract and verify unlock schedule.
+            - button "Escrow Position" [ref=e70] [cursor=pointer]
+          - generic [ref=e71]:
+            - heading "Checklist" [level=3] [ref=e72]
+            - list [ref=e73]:
+              - listitem [ref=e74]: Verify vesting contract
+              - listitem [ref=e75]: Confirm unlock timestamp
+              - listitem [ref=e76]: Review conservative LTV
+              - listitem [ref=e77]: Accept settlement terms
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - heading "Valuation Engine" [level=3] [ref=e80]
+          - paragraph [ref=e81]: Live DPV + LTV from on-chain risk model.
+          - generic [ref=e82]:
+            - generic [ref=e83]:
+              - text: Quantity
+              - textbox "Quantity" [ref=e84]: "1000"
+            - generic [ref=e85]:
+              - text: Token Decimals
+              - textbox "Token Decimals" [ref=e86]: "18"
+            - generic [ref=e87]:
+              - text: Unlock Date
+              - textbox "Unlock Date" [ref=e88]
+            - generic [ref=e89]:
+              - text: Token Address
+              - textbox "Token Address" [ref=e90]: "0x0000000000000000000000000000000000000000"
+          - generic [ref=e91]:
+            - generic [ref=e92]: "PV (raw): 0"
+            - generic [ref=e93]: "LTV: 0.00%"
+            - generic [ref=e94]: "Max Borrow (raw): 0"
+        - generic [ref=e95]:
+          - heading "Borrow Actions" [level=3] [ref=e96]
+          - paragraph [ref=e97]: Escrow the vesting claim, then create a loan against it.
+          - generic [ref=e99]: Reading vesting details...
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - text: Collateral ID
+              - textbox "Collateral ID" [ref=e102]: "1"
+            - generic [ref=e103]:
+              - text: Vesting Contract
+              - textbox "Vesting Contract" [ref=e104]:
+                - /placeholder: 0x...
+            - generic [ref=e105]:
+              - text: Borrow Amount (USDC)
+              - textbox "Borrow Amount (USDC)" [ref=e106]: "200"
+          - generic [ref=e107]:
+            - button "Use Max Borrow" [disabled] [ref=e108]
+            - button "Auto-fill On" [ref=e109] [cursor=pointer]
+          - generic [ref=e110]:
+            - button "Escrow" [ref=e111] [cursor=pointer]
+            - button "Create Loan" [ref=e112] [cursor=pointer]
+      - generic [ref=e113]:
+        - heading "Token Assessment" [level=3] [ref=e114]
+        - paragraph [ref=e115]: Simulate pricing inputs and apply risk haircuts to estimate loan value.
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - text: Token Address
+            - textbox "Token Address" [ref=e118]:
+              - /placeholder: 0x...
+          - generic [ref=e119]:
+            - text: Token Status
+            - combobox "Token Status" [ref=e120]:
+              - option "Live & trading" [selected]
+              - option "Presale"
+              - option "Pre-launch estimate"
+              - option "Unknown"
+          - generic [ref=e121]:
+            - text: Price Source
+            - combobox "Price Source" [ref=e122]:
+              - option "DEX" [selected]
+              - option "CEX"
+              - option "Oracle"
+              - option "Manual"
+          - generic [ref=e123]:
+            - text: Uniswap V3
+            - button "Uniswap V3" [ref=e124] [cursor=pointer]: Fetch DEX
+          - generic [ref=e125]:
+            - text: TWAP (seconds)
+            - textbox "TWAP (seconds)" [ref=e126]: "3600"
+          - generic [ref=e127]:
+            - text: Prefer TWAP
+            - checkbox "Prefer TWAP" [checked] [ref=e128]
+          - generic [ref=e129]:
+            - text: CoinGecko
+            - button "CoinGecko" [ref=e130] [cursor=pointer]: Fetch CEX
+          - generic [ref=e131]:
+            - text: DEX (alt)
+            - button "DEX (alt)" [ref=e132] [cursor=pointer]: GeckoTerminal
+          - generic [ref=e133]:
+            - text: Mock Oracle
+            - button "Mock Oracle" [ref=e134] [cursor=pointer]: Testnet Price
+          - generic [ref=e135]:
+            - text: Live Price (USD)
+            - textbox "Live Price (USD)" [ref=e136]: "0.80"
+          - generic [ref=e137]:
+            - text: Presale Price (USD)
+            - textbox "Presale Price (USD)" [ref=e138]: "0.45"
+          - generic [ref=e139]:
+            - text: Expected Launch (USD)
+            - textbox "Expected Launch (USD)" [ref=e140]: "0.60"
+          - generic [ref=e141]:
+            - text: DEX Liquidity (USD)
+            - textbox "DEX Liquidity (USD)" [ref=e142]: "2000000"
+          - generic [ref=e143]:
+            - text: 24h Volume (USD)
+            - textbox "24h Volume (USD)" [ref=e144]: "750000"
+          - generic [ref=e145]:
+            - text: Volatility (0-100)
+            - textbox "Volatility (0-100)" [ref=e146]: "35"
+          - generic [ref=e147]:
+            - text: Total Supply
+            - textbox "Total Supply" [ref=e148]: "100000000"
+          - generic [ref=e149]:
+            - text: Circulating Supply
+            - textbox "Circulating Supply" [ref=e150]: "25000000"
+          - generic [ref=e151]:
+            - text: Inflation (%/yr)
+            - textbox "Inflation (%/yr)" [ref=e152]: "12"
+          - generic [ref=e153]:
+            - text: Release (%/mo)
+            - textbox "Release (%/mo)" [ref=e154]: "1.5"
+          - generic [ref=e155]:
+            - text: Lockup (months)
+            - textbox "Lockup (months)" [ref=e156]: "6"
+          - generic [ref=e157]:
+            - text: TGE Lock (months)
+            - textbox "TGE Lock (months)" [ref=e158]: "3"
+          - generic [ref=e159]:
+            - text: Cliff (months)
+            - textbox "Cliff (months)" [ref=e160]: "3"
+          - generic [ref=e161]:
+            - text: Tranches
+            - textbox "Tranches" [ref=e162]: "6"
+          - generic [ref=e163]:
+            - text: Tranche Interval (mo)
+            - textbox "Tranche Interval (mo)" [ref=e164]: "1"
+          - generic [ref=e165]:
+            - text: TGE Unlock (%)
+            - textbox "TGE Unlock (%)" [ref=e166]: "10"
+          - generic [ref=e167]:
+            - text: Staking Locked
+            - checkbox "Staking Locked" [ref=e168]
+        - generic [ref=e169]:
+          - generic [ref=e170]: "Vesting Amount: —"
+          - generic [ref=e171]: "Unlock: Unknown"
+          - generic [ref=e172]: "Effective Lock: 6.0 months"
+          - generic [ref=e173]: "Base Price: $0.80"
+          - generic [ref=e174]: "Haircut: 29.0%"
+          - generic [ref=e175]: "Risk-Adjusted Price: $0.23"
+          - generic [ref=e176]: "Collateral Value: $0.00"
+          - generic [ref=e177]: "Max Loan @ LTV: $0.00"
+          - generic [ref=e178]: TWAP uses Uniswap V3 pool observe when available.
+          - generic [ref=e179]: "Source: DEX"
+      - generic [ref=e180]:
+        - generic [ref=e181]:
+          - generic [ref=e182]:
+            - generic [ref=e183]:
+              - heading "Borrow Checklist" [level=3] [ref=e184]
+              - generic [ref=e185]: Before minting a loan
+            - generic [ref=e186]: Step 2/4
+          - generic [ref=e187]:
+            - generic [ref=e188]: Verify vesting ownership
+            - generic [ref=e189]: Confirm unlock schedule
+            - generic [ref=e190]: Review valuation + LTV
+            - generic [ref=e191]: Sign loan terms
+        - generic [ref=e192]:
+          - generic [ref=e193]:
+            - generic [ref=e194]:
+              - heading "Risk Summary" [level=3] [ref=e195]
+              - generic [ref=e196]: Auto-generated from inputs
+            - generic [ref=e197]: Low Risk
+          - generic [ref=e198]:
+            - generic [ref=e199]: "Haircut: 29.0%"
+            - generic [ref=e200]: "Adj Price: $0.23"
+            - generic [ref=e201]: "Max Borrow: --"
+      - generic [ref=e202]:
+        - generic [ref=e203]:
+          - heading "Mock USDC Faucet" [level=3] [ref=e204]
+          - button "Copy address" [ref=e205] [cursor=pointer]
+        - paragraph [ref=e206]: Mint test USDC for demo flows. Uses the deployed mock USDC address.
+        - generic [ref=e207]:
+          - button "1k" [ref=e208]
+          - button "10k" [ref=e209]
+          - button "50k" [ref=e210]
+        - generic [ref=e211]:
+          - textbox "Amount (USDC)" [ref=e212]: "10000"
+          - button "Mint" [disabled] [ref=e213]
+        - generic [ref=e215]: "Chain ID: 11155111"
+      - generic [ref=e216]:
+        - generic:
+          - heading "Risk Simulation" [level=3]
+  - generic [ref=e223]:
+    - generic [ref=e224]:
+      - generic [ref=e225]: CRDT AI
+      - button "Minimize CRDT AI" [ref=e226] [cursor=pointer]: "-"
+    - generic [ref=e227]:
+      - textbox "Ask about risk or unlocks" [ref=e228]
+      - button "Send" [ref=e229] [cursor=pointer]
+  - navigation [ref=e230]:
+    - generic [ref=e233]:
+      - generic [ref=e234]: VESTRA
+      - generic [ref=e235]: Astra-grade vesting credit
+    - generic [ref=e236]:
+      - link "Dashboard" [ref=e237] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e239]
+        - generic [ref=e241]: Dashboard
+      - link "Borrow" [active] [ref=e242] [cursor=pointer]:
+        - /url: /borrow
+        - img [ref=e244]
+        - generic [ref=e246]: Borrow
+      - link "Repay" [ref=e247] [cursor=pointer]:
+        - /url: /repay
+        - img [ref=e249]
+        - generic [ref=e251]: Repay
+      - link "Auction" [ref=e252] [cursor=pointer]:
+        - /url: /auction
+        - img [ref=e254]
+        - generic [ref=e256]: Auction
+      - link "Governance" [ref=e257] [cursor=pointer]:
+        - /url: /governance
+        - img [ref=e259]
+        - generic [ref=e261]: Governance
+      - link "Identity" [ref=e262] [cursor=pointer]:
+        - /url: /identity
+        - img [ref=e264]
+        - generic [ref=e266]: Identity
+    - generic [ref=e268]:
+      - link "Features" [ref=e269] [cursor=pointer]:
+        - /url: /features
+        - img [ref=e271]
+        - generic [ref=e273]: Features
+      - link "Docs" [ref=e274] [cursor=pointer]:
+        - /url: /docs
+        - img [ref=e276]
+        - generic [ref=e278]: Docs
+      - link "About" [ref=e279] [cursor=pointer]:
+        - /url: /about
+        - img [ref=e281]
+        - generic [ref=e283]: About
+  - contentinfo [ref=e284]: Testnet MVP — Not financial advice. Use at own risk. VESTRA is experimental. No real funds involved.
 ```
