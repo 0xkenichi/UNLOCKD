@@ -25,6 +25,7 @@ const steps = [
 
 export default function BorrowWizard() {
   const [activeStep, setActiveStep] = useState(0);
+  const progress = ((activeStep + 1) / steps.length) * 100;
 
   const handleCta = () => {
     setActiveStep((prev) => Math.min(prev + 1, steps.length - 1));
@@ -46,15 +47,30 @@ export default function BorrowWizard() {
       </div>
       <div className="grid-2">
         <div className="holo-card">
-          <h3 className="holo-title">{steps[activeStep].title}</h3>
+          <div className="section-head">
+            <div>
+              <h3 className="section-title">{steps[activeStep].title}</h3>
+              <div className="section-subtitle">
+                Step {activeStep + 1} of {steps.length}
+              </div>
+            </div>
+            <span className="chip">{steps[activeStep].cta}</span>
+          </div>
+          <div className="progress-meta">
+            <span>Progress</span>
+            <span>{Math.round(progress)}%</span>
+          </div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
+          </div>
           <p className="muted">{steps[activeStep].description}</p>
           <button className="button" type="button" onClick={handleCta}>
             {steps[activeStep].cta}
           </button>
         </div>
         <div className="holo-card">
-          <h3 className="holo-title">Checklist</h3>
-          <ul className="muted">
+          <h3 className="section-title">Checklist</h3>
+          <ul className="list-plain">
             <li>Verify vesting contract</li>
             <li>Confirm unlock timestamp</li>
             <li>Review conservative LTV</li>

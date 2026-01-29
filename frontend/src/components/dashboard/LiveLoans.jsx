@@ -44,22 +44,42 @@ export default function LiveLoans() {
   return (
     <div className="grid-2">
       <div className="holo-card">
-        <h3 className="holo-title">Latest Loan</h3>
-        <div className="muted">Live contract read.</div>
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Latest Loan</h3>
+            <div className="section-subtitle">Live contract read</div>
+          </div>
+          <span className="tag">On-chain</span>
+        </div>
         {lastLoan ? (
-          <div className="stack">
-            <div className="pill">Borrower: {lastLoan[0]}</div>
-            <div className="pill">Principal: {lastLoan[1].toString()}</div>
-            <div className="pill">Interest: {lastLoan[2].toString()}</div>
-            <div className="pill">Unlock: {formatDate(lastLoan[4])}</div>
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Borrower</div>
+              <div>Principal</div>
+              <div>Interest</div>
+              <div>Unlock</div>
+            </div>
+            <div className="table-row">
+              <div>{lastLoan[0]}</div>
+              <div>{lastLoan[1].toString()}</div>
+              <div>{lastLoan[2].toString()}</div>
+              <div>{formatDate(lastLoan[4])}</div>
+            </div>
           </div>
         ) : (
           <div className="muted">No loans yet.</div>
         )}
       </div>
       <div className="holo-card">
-        <h3 className="holo-title">Loan Inspector</h3>
-        <div className="muted">Inspect a specific loan ID.</div>
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Loan Inspector</h3>
+            <div className="section-subtitle">Inspect a specific loan ID</div>
+          </div>
+          <button className="button ghost" type="button">
+            Refresh
+          </button>
+        </div>
         <div className="form-grid">
           <label className="form-field">
             Loan ID
@@ -72,11 +92,23 @@ export default function LiveLoans() {
           </label>
         </div>
         {selectedLoan && (
-          <div className="stack">
-            <div className="pill">Borrower: {selectedLoan[0]}</div>
-            <div className="pill">Principal: {selectedLoan[1].toString()}</div>
-            <div className="pill">Interest: {selectedLoan[2].toString()}</div>
-            <div className="pill">Active: {selectedLoan[5] ? 'Yes' : 'No'}</div>
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Borrower</div>
+              <div>Principal</div>
+              <div>Interest</div>
+              <div>Status</div>
+            </div>
+            <div className="table-row">
+              <div>{selectedLoan[0]}</div>
+              <div>{selectedLoan[1].toString()}</div>
+              <div>{selectedLoan[2].toString()}</div>
+              <div>
+                <span className={`tag ${selectedLoan[5] ? 'success' : ''}`}>
+                  {selectedLoan[5] ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>

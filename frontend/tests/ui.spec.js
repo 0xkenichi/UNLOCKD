@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('crdt-onboarding-seen', 'true');
+  });
+});
+
 test('landing CTA routes to dashboard', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'VESTRA' })).toBeVisible();
