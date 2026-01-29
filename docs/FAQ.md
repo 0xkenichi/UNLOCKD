@@ -1,0 +1,16 @@
+# FAQ
+
+## Is this custodial?
+No. Users keep wallet control. The protocol only escrows claim rights.
+
+## Are there margin calls?
+No. Settlement happens at unlock time based on repayment status.
+
+## What happens on default?
+The protocol seizes the required amount and liquidates it to repay the pool.
+
+## How is the borrow limit set?
+`PV = Q * P * D`, then apply LTV caps derived from risk models.
+
+## Can you integrate other DEXs?
+Yes. Uniswap V3 is the default; adapters can be added for others.

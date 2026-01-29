@@ -1,0 +1,12 @@
+export const routeImports = {
+  landing: () => import('./pages/Landing.jsx'),
+  dashboard: () => import('./pages/Dashboard.jsx'),
+  borrow: () => import('./pages/Borrow.jsx'),
+  repay: () => import('./pages/Repay.jsx'),
+  auction: () => import('./pages/Auction.jsx'),
+  governance: () => import('./pages/Governance.jsx'),
+  identity: () => import('./pages/Identity.jsx'),
+  features: () => import('./pages/Features.jsx'),
+  docs: () => import('./pages/Docs.jsx'),
+  about: () => import('./pages/About.jsx')
+};

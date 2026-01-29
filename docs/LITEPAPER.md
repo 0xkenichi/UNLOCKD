@@ -1,0 +1,106 @@
+# Credit Markets for Time-Locked Digital Assets
+## Litepaper (v2.0)
+
+Date: January 28, 2026  
+Authors: Protocol Genesis Team
+
+### Summary
+Web3 vesting and lockups protect long-term alignment but trap billions in illiquid value. This protocol enables borrowing against the discounted present value (DPV) of time-locked tokens without transferring ownership or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and can optionally use identity signals to improve credit terms.
+
+### Problem
+- Locked tokens have real market value but zero immediate utility.
+- Existing DeFi lending requires liquid collateral.
+- OTC sales and centralized loans are costly or custodial.
+
+### Solution
+Borrow against vested or locked token claims, valued conservatively via DPV:
+
+PV = Q * P * D
+
+Where Q is token quantity, P is oracle price, and D is a composite discount factor (time, volatility, liquidity, unlock impact, protocol risk). LTV is capped and time-aware.
+
+### Key Features
+- Non-custodial escrow of claim rights
+- On-chain enforcement at unlock
+- Conservative valuation curves (20-40% LTV caps)
+- Optional identity layer for better rates
+- Composable adapters for common vesting standards
+- Optional auction primitive for selling claim rights at market-clearing discounts
+
+### Architecture
+Core modules:
+- Vesting and lock adapters
+- Valuation and risk engine
+- Lending pools
+- Loan manager
+- Optional identity and reputation module
+- DAO governance and risk committees
+- Optional auction module (Dutch, English, Sealed Bid) for claim-right NFTs
+
+### Loan Lifecycle
+1. Escrow claim rights.
+2. Borrow stablecoins against DPV.
+3. Repay anytime with interest.
+4. At unlock: release on full repay, partial seize on underpayment, full liquidation on default.
+
+### Optional Auction Path (Non-Loan Exit)
+Users who prefer a debt-free exit can sell their claim rights via a time-bound auction:
+1. Escrow claim rights as an NFT.
+2. Run a Dutch, English, or Sealed Bid auction for 1-7 days.
+3. Winner pays stablecoins; seller receives proceeds minus fee.
+4. Winner holds the claim and receives tokens at unlock.
+
+### Auction Types (Current + Future)
+Current implementations:
+- Dutch (descending price): Fast resolution, low gas; risk of underselling if demand is thin.
+- English (ascending bids): Maximizes seller revenue; slower and higher gas if many bids.
+- Sealed Bid (first-price): Private bidding with commit/reveal; reduces collusion but adds complexity.
+
+Future variants (modular extensions):
+- Vickrey (second-price sealed bid): Truthful bidding incentives; winner pays second-highest.
+- Reverse (buyer-driven): Treasury posts desired price; sellers compete to fill at discounts.
+
+### Ensuring Lender Safety and Enforcement in CRDT Loans
+This section expands on Whitepaper Sections 5–6 (Collateral Valuation, Loan Lifecycle, and Enforcement). The goal is a binding, on-chain system where lenders are protected by conservative math and automatic settlement, without relying on off-chain trust.
+
+#### 1. Protocol Control of Vested Tokens (No Swap/Sell Until Settled)
+- Escrow of claim rights (not tokens): When a borrower takes a loan, they escrow claim rights via a vesting adapter. The underlying tokens remain locked in the original vesting contract until the unlock timestamp.
+- Non-transferability during vesting: Standard vesting contracts enforce that tokens cannot be transferred before unlock.
+- At unlock: The protocol intercepts release. The loan contract checks outstanding debt before tokens are released.
+- Permissionless settlement: Once `block.timestamp >= unlockTime`, anyone can call `settleAtUnlock(loanId)`.
+- Enforcement outcomes:
+  - Full repay: Tokens are released to the borrower.
+  - Partial repay: The protocol seizes only the amount needed to cover remaining debt + interest and returns the excess.
+  - Default: The protocol seizes the full unlocked amount for liquidation to repay lenders.
+
+#### 2. Lender Safety Mechanisms
+- Conservative DPV and LTV caps: Discounted present value applies time, volatility, liquidity, unlock impact, and protocol risk factors. LTV is capped (20–40% in the litepaper, adjustable by governance).
+- Interest accrual: Interest compounds in the loan manager and is added to the repayment amount at settlement.
+- Liquidation on default: Seized tokens are liquidated via DEX/OTC routes to repay lenders in stablecoins.
+- Governance controls: High-volatility tokens can receive lower LTV, higher discounts, or temporary pauses.
+- Cross-chain reputation: Defaults can reduce credit terms on other supported chains.
+
+#### 3. Scenario Coverage (Up, Down, Default)
+Example: 50,000 tokens at $1 today, 12-month vesting, 10% APR.
+- DPV example: `PV = Q * P * D` with a conservative discount (e.g., 0.407) gives ~$20,350.
+- Max borrow at 30% LTV: ~$6,105; debt at unlock with interest: ~$6,715.
+
+Outcomes at unlock:
+- Price up ($5): Full repay releases tokens; partial repay seizes only the amount needed; default seizes all tokens and repays lenders with surplus.
+- Price down ($0.50): Full repay releases tokens; partial/default seizes enough tokens to cover debt; discounts are set to withstand major drops.
+- Extreme tail risk: If price collapses beyond the modeled discount, governance can pause or reprice the asset class.
+
+#### 4. NFT Loan Agreement (Binding Proof)
+Optional enhancement: mint a non-transferable ERC-721 loan agreement at loan creation.
+- Metadata can encode principal, rate, unlock time, and settlement terms.
+- Transfer is disabled (soulbound), and the NFT can be burned on full repay.
+- Provides immutable, on-chain evidence of terms for borrowers, lenders, and auditors.
+
+### Roadmap
+- Q1 2026: MVP on Ethereum; pilot with 1-2 DAOs.
+- Phase 2: Multi-chain + identity module.
+- Phase 3: Institutional pools and composability.
+
+### Why It Matters
+This protocol converts locked token value into usable liquidity while preserving vesting integrity and long-term incentives. It creates a new DeFi primitive for DAOs, startups, and contributors.
+
