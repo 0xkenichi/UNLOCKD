@@ -16,6 +16,8 @@ test('landing CTA routes to dashboard', async ({ page }) => {
 test('tab bar navigation reaches borrow flow', async ({ page }) => {
   await page.goto('/dashboard');
   await page.getByRole('link', { name: 'Borrow' }).click();
-  await expect(page.getByRole('heading', { name: 'Borrow' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Borrow', exact: true })
+  ).toBeVisible();
   await expect(page.getByText('Borrow Actions')).toBeVisible();
 });
