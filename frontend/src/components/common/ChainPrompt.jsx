@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
-import { sepolia, baseSepolia } from 'viem/chains';
+import {
+  ALL_EVM_CHAINS,
+  DEFAULT_EVM_CHAIN,
+  EVM_MAINNET_CHAINS,
+  EVM_TESTNET_CHAINS
+} from '../../utils/chains.js';
 import { getContractAddress } from '../../utils/contracts.js';
 
-const supportedChains = [sepolia, baseSepolia];
+const supportedChains = [...EVM_MAINNET_CHAINS, ...EVM_TESTNET_CHAINS];
 
 export default function ChainPrompt() {
   const { isConnected } = useAccount();
@@ -12,13 +17,17 @@ export default function ChainPrompt() {
   const [attempted, setAttempted] = useState(false);
   const currentSupported = supportedChains.some((chain) => chain.id === chainId);
   const hasContracts = Boolean(getContractAddress(chainId, 'loanManager'));
+  const activeChain = useMemo(
+    () => ALL_EVM_CHAINS.find((chain) => chain.id === chainId),
+    [chainId]
+  );
 
   useEffect(() => {
     if (!isConnected || attempted || (currentSupported && hasContracts)) {
       return;
     }
     setAttempted(true);
-    switchChain({ chainId: sepolia.id });
+    switchChain({ chainId: DEFAULT_EVM_CHAIN.id });
   }, [attempted, currentSupported, hasContracts, isConnected, switchChain]);
 
   if (currentSupported && hasContracts) {
@@ -31,11 +40,16 @@ export default function ChainPrompt() {
         <div>
           <h3 className="section-title">Network Switch</h3>
           <div className="section-subtitle">
-            Supported testnets required for live contract calls.
+            Select a supported chain with deployed contracts.
           </div>
         </div>
         <span className="tag warn">Action required</span>
       </div>
+      {activeChain && !hasContracts && (
+        <div className="muted">
+          {activeChain.name} is supported, but contracts are not deployed yet.
+        </div>
+      )}
       <div className="data-table">
         <div className="table-row header">
           <div>Network</div>
@@ -54,7 +68,7 @@ export default function ChainPrompt() {
                   {isActive ? 'Connected' : 'Available'}
                 </span>
               </div>
-              <div>{contractsReady ? 'Deployed' : 'Missing'}</div>
+              <div>{contractsReady ? 'Deployed' : 'Coming soon'}</div>
               <div>
                 <button
                   className="button ghost"
