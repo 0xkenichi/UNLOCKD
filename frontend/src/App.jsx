@@ -1,5 +1,11 @@
 import { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  useLocation,
+  useNavigate
+} from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
 import { baseSepolia, sepolia } from 'viem/chains';
@@ -29,6 +35,7 @@ function RouteFallback() {
 
 function AppShell() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isLanding = location.pathname === '/';
   const chainId = useChainId();
   const { isConnecting, isReconnecting } = useAccount();
@@ -41,7 +48,7 @@ function AppShell() {
       {!isLanding && (
         <header className="app-header">
           <div className="brand">
-            <span className="brand-mark" />
+            <span className="brand-crest-global" aria-hidden="true" />
             <div>
               <div className="brand-title">VESTRA</div>
               <div className="brand-subtitle">Astra-grade vesting credit</div>
@@ -59,7 +66,13 @@ function AppShell() {
               />
             </div>
             <div className="header-actions">
-              <button className="button ghost">Write</button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/docs')}
+              >
+                Write
+              </button>
               <button
                 className="button ghost tour-button"
                 onClick={() =>
@@ -69,8 +82,20 @@ function AppShell() {
               >
                 Tour
               </button>
-              <button className="button ghost">Sign in</button>
-              <button className="button">Sign up</button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/dashboard')}
+              >
+                Dashboard
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={() => navigate('/borrow')}
+              >
+                Borrow now
+              </button>
               <ConnectButton />
             </div>
           </div>

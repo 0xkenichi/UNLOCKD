@@ -34,6 +34,12 @@ async function deployFixture() {
     deployer
   );
 
+  // Allow the lending pool to move USDC from the issuance treasury when funding loans
+  const poolAddress = await pool.getAddress();
+  const issuanceTreasury = await pool.issuanceTreasury();
+  const issuanceSigner = await ethers.getSigner(issuanceTreasury);
+  await usdc.connect(issuanceSigner).approve(poolAddress, ethers.MaxUint256);
+
   return { deployer, lender, borrower, usdc, valuation, pool, loanManager };
 }
 
