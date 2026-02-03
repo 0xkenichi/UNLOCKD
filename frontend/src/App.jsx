@@ -8,7 +8,7 @@ import {
 } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
-import { baseSepolia, sepolia } from 'viem/chains';
+import { ALL_EVM_CHAINS, EVM_MAINNET_CHAINS } from './utils/chains.js';
 import { routeImports } from './routes.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
@@ -39,9 +39,10 @@ function AppShell() {
   const isLanding = location.pathname === '/';
   const chainId = useChainId();
   const { isConnecting, isReconnecting } = useAccount();
-  const desiredChainIds = [sepolia.id, baseSepolia.id];
+  const desiredChainIds = EVM_MAINNET_CHAINS.map((chain) => chain.id);
+  const allChainIds = ALL_EVM_CHAINS.map((chain) => chain.id);
   const showChainWarning =
-    chainId && !desiredChainIds.includes(chainId);
+    chainId && !allChainIds.includes(chainId);
   const publicDocsUrl =
     import.meta.env.VITE_PUBLIC_DOCS_URL || 'http://localhost:3000';
 
@@ -113,7 +114,7 @@ function AppShell() {
       )}
       {showChainWarning && (
         <div className="chain-warning">
-          Please switch to Sepolia/Base Sepolia
+          Please switch to Base, Arbitrum, or Avalanche to continue.
         </div>
       )}
       <main className={`app-main ${isLanding ? 'app-main--landing' : ''}`}>

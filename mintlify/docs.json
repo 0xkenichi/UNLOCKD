@@ -10,7 +10,11 @@
     "dark": "#0b1220"
   },
   "navigation": {
-    "default": [
+    "tabs": [],
+    "dropdowns": [],
+    "anchors": [],
+    "pages": [],
+    "groups": [
       {
         "group": "Start Here",
         "pages": ["index"]

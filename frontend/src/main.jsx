@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './styles.css';
 import '@rainbow-me/rainbowkit/styles.css';
+import '@solana/wallet-adapter-react-ui/styles.css';
 import {
   connectorsForWallets,
   getDefaultConfig,
