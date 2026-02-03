@@ -23,8 +23,9 @@
     "wagmi": "^3.4.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
     "@playwright/test": "^1.55.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "js-yaml": "^4.1.1",
     "vite": "^5.1.4"
   }
 }

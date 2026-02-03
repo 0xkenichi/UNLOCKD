@@ -1,0 +1,10 @@
+name: Identity connect prompt
+steps:
+  - goto: /identity
+  - expectRole:
+      role: heading
+      name: Identity
+      exact: true
+  - expectVisible:
+      role: button
+      name: Connect Wallet

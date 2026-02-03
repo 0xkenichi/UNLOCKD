@@ -1,11 +1,41 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import RepaySlider from '../components/repay/RepaySlider.jsx';
 import RepayActions from '../components/repay/RepayActions.jsx';
 import ChainPrompt from '../components/common/ChainPrompt.jsx';
+import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
 
 export default function Repay() {
+  const [schedule, setSchedule] = useState([]);
+  const [scheduleError, setScheduleError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const items = await fetchRepaySchedule();
+        if (active) {
+          setSchedule(items);
+          setScheduleError('');
+        }
+      } catch (error) {
+        if (active) {
+          setScheduleError(error?.message || 'Failed to load schedule.');
+        }
+      }
+    };
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleDownload = () => {
+    apiDownload('/api/exports/repay-schedule', 'vestra-repayment-schedule.csv');
+  };
   const holoFallback = (
     <div className="holo-card">
       <div className="loading-row">
@@ -59,30 +89,39 @@ export default function Repay() {
             <h3 className="section-title">Repayment Schedule</h3>
             <div className="section-subtitle">Upcoming obligations</div>
           </div>
-          <button className="button ghost" type="button">
+          <button className="button ghost" type="button" onClick={handleDownload}>
             Download
           </button>
         </div>
-        <div className="data-table">
-          <div className="table-row header">
-            <div>Loan</div>
-            <div>Due</div>
-            <div>Amount</div>
-            <div>Status</div>
+        {scheduleError ? (
+          <div className="muted">{scheduleError}</div>
+        ) : schedule.length ? (
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Loan</div>
+              <div>Asset</div>
+              <div>Due</div>
+              <div>Status</div>
+            </div>
+            {schedule.map((row) => (
+              <div key={row.loanId} className="table-row">
+                <div>#{row.loanId}</div>
+                <div className="asset-cell">
+                  <span className="asset-icon usdc" />
+                  USDC
+                </div>
+                <div>
+                  {row.unlockTime
+                    ? new Date(row.unlockTime * 1000).toLocaleDateString()
+                    : '--'}
+                </div>
+                <div className="tag">{row.status || 'Scheduled'}</div>
+              </div>
+            ))}
           </div>
-          <div className="table-row">
-            <div>#1021</div>
-            <div>May 21</div>
-            <div>$4,200</div>
-            <div className="tag">Scheduled</div>
-          </div>
-          <div className="table-row">
-            <div>#1013</div>
-            <div>Jun 04</div>
-            <div>$2,850</div>
-            <div className="tag warn">Needs Review</div>
-          </div>
-        </div>
+        ) : (
+          <div className="muted">No scheduled repayments yet.</div>
+        )}
       </div>
     </div>
   );

@@ -8,13 +8,15 @@ This doc describes modules, responsibilities, and the core data flows.
 - **LendingPool**: holds liquidity and tracks total deposits/borrows.
 - **LoanManager**: issues loans, accrues interest, and enforces settlement at unlock.
 - **Identity (optional)**: boosts LTV for verified borrowers.
+- **Privacy Relay (optional)**: relays escrow, borrow, and settlement actions to reduce linkability while preserving on-chain enforcement.
 
 ## Data Flow (Borrow)
 1. Borrower escrows a vesting position.
-2. Adapter exposes quantity + unlock time.
+2. Adapter exposes quantity and unlock time.
 3. ValuationEngine returns PV + LTV.
 4. LoanManager verifies max borrow and mints the loan.
 5. LendingPool transfers stablecoins to borrower.
+6. (Optional) Privacy Relay can proxy steps 1-5 on behalf of the borrower.
 
 ## Data Flow (Repay/Settle)
 1. Borrower repays principal + interest over time.

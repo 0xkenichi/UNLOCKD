@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 const types = [
   {
     id: 'dutch',
@@ -17,13 +19,35 @@ const types = [
 ];
 
 export default function AuctionTypeSelector() {
+  const [selected, setSelected] = useState('dutch');
+
+  const handleSelect = (id) => {
+    setSelected(id);
+    const target = document.getElementById('auction-control');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <div className="grid-2">
       {types.map((type) => (
         <div key={type.id} className="holo-card">
-          <h3 className="holo-title">{type.title}</h3>
+          <div className="section-head">
+            <div>
+              <h3 className="section-title">{type.title}</h3>
+              <div className="section-subtitle">{type.id.toUpperCase()}</div>
+            </div>
+            {selected === type.id && <span className="tag success">Selected</span>}
+          </div>
           <p className="muted">{type.description}</p>
-          <button className="button">Select</button>
+          <button
+            className="button"
+            type="button"
+            onClick={() => handleSelect(type.id)}
+          >
+            {selected === type.id ? 'Selected' : 'Select'}
+          </button>
         </div>
       ))}
     </div>

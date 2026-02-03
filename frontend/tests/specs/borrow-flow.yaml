@@ -1,0 +1,32 @@
+name: Borrow flow (UI)
+steps:
+  - goto: /borrow
+  - expectText: Borrow Actions
+  - expectText: Valuation Engine
+  - fill:
+      label: Collateral ID
+      value: "1770076022"
+  - fill:
+      label: Vesting Contract
+      value: "0xFF5F4903F8093E3b7cC15a4503159880B478622E"
+  - expectText: "1770076022"
+  - expectText: Connect a wallet to create a loan.
+  - expectRole:
+      role: button
+      name: Escrow
+      exact: true
+  - expectRole:
+      role: button
+      name: Create Loan
+      exact: true
+  - click:
+      role: button
+      name: Escrow Position
+  - click:
+      role: button
+      name: Lock Valuation
+  - click:
+      role: button
+      name: Review Terms
+  - expectDisabled:
+      selector: ".inline-actions button:has-text('Create Loan')"

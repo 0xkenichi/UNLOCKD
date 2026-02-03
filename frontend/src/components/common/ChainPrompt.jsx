@@ -27,11 +27,48 @@ export default function ChainPrompt() {
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Network Switch</h3>
-      <div className="muted">
-        Switch to a supported testnet for live contract interactions.
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Network Switch</h3>
+          <div className="section-subtitle">
+            Supported testnets required for live contract calls.
+          </div>
+        </div>
+        <span className="tag warn">Action required</span>
       </div>
-      <div className="faucet-quick">
+      <div className="data-table">
+        <div className="table-row header">
+          <div>Network</div>
+          <div>Status</div>
+          <div>Contracts</div>
+          <div>Action</div>
+        </div>
+        {supportedChains.map((chain) => {
+          const isActive = chain.id === chainId;
+          const contractsReady = Boolean(getContractAddress(chain.id, 'loanManager'));
+          return (
+            <div key={chain.id} className="table-row">
+              <div>{chain.name}</div>
+              <div>
+                <span className={`tag ${isActive ? 'success' : ''}`}>
+                  {isActive ? 'Connected' : 'Available'}
+                </span>
+              </div>
+              <div>{contractsReady ? 'Deployed' : 'Missing'}</div>
+              <div>
+                <button
+                  className="button ghost"
+                  onClick={() => switchChain({ chainId: chain.id })}
+                  disabled={isPending}
+                >
+                  Switch
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="inline-actions">
         {supportedChains.map((chain) => (
           <button
             key={chain.id}

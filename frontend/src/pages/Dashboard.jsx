@@ -1,19 +1,24 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useAccount,
   useChainId,
+  usePublicClient,
   useReadContract,
-  useReadContracts
+  useReadContracts,
+  useWatchContractEvent
 } from 'wagmi';
 import ChainPrompt from '../components/common/ChainPrompt.jsx';
 import LiveLoans from '../components/dashboard/LiveLoans.jsx';
+import LiveVestedContracts from '../components/dashboard/LiveVestedContracts.jsx';
+import SpotlightVestedContracts from '../components/dashboard/SpotlightVestedContracts.jsx';
 import {
   getContractAddress,
   loanManagerAbi,
   usdcAbi
 } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
+import { apiDownload, fetchActivity } from '../utils/api.js';
 
 const HoloCard = lazy(() => import('../components/common/HoloCard.jsx'));
 const DashboardHolo = lazy(() => import('../components/dashboard/DashboardHolo.jsx'));
@@ -22,8 +27,48 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { address } = useAccount();
   const chainId = useChainId();
+  const publicClient = usePublicClient({ chainId });
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
+  const [activity, setActivity] = useState([]);
+  const [activityMeta, setActivityMeta] = useState(null);
+  const [activityError, setActivityError] = useState('');
+
+  const mergeActivity = (incoming) => {
+    setActivity((prev) => {
+      const merged = new Map();
+      [...incoming, ...prev].forEach((item) => {
+        if (!item) return;
+        const key = `${item.txHash || ''}-${item.logIndex || item.type}-${item.loanId || ''}`;
+        merged.set(key, item);
+      });
+      return Array.from(merged.values()).slice(0, 12);
+    });
+  };
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const { items, meta } = await fetchActivity();
+        if (active) {
+          setActivity(items.slice(0, 12));
+          setActivityMeta(meta);
+          setActivityError('');
+        }
+      } catch (error) {
+        if (active) {
+          setActivityError(error?.message || 'Failed to load activity.');
+        }
+      }
+    };
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const { data: loanCount } = useReadContract({
     address: loanManager,
@@ -83,6 +128,97 @@ export default function Dashboard() {
       .filter(Boolean)
       .sort()[0];
   }, [positions]);
+
+  const handleExportActivity = () => {
+    apiDownload('/api/exports/activity', 'vestra-activity.csv');
+  };
+
+  useWatchContractEvent({
+    address: loanManager,
+    abi: loanManagerAbi,
+    eventName: 'LoanCreated',
+    enabled: Boolean(loanManager && publicClient),
+    onLogs: async (logs) => {
+      if (!publicClient) return;
+      const incoming = await Promise.all(
+        logs.map(async (log) => {
+          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+          return {
+            type: 'LoanCreated',
+            loanId: log.args?.loanId?.toString?.() || '',
+            borrower: log.args?.borrower,
+            amount: log.args?.amount?.toString?.() || '',
+            txHash: log.transactionHash,
+            logIndex: Number(log.logIndex),
+            timestamp: Number(block?.timestamp || 0)
+          };
+        })
+      );
+      mergeActivity(incoming);
+    }
+  });
+
+  useWatchContractEvent({
+    address: loanManager,
+    abi: loanManagerAbi,
+    eventName: 'LoanRepaid',
+    enabled: Boolean(loanManager && publicClient),
+    onLogs: async (logs) => {
+      if (!publicClient) return;
+      const incoming = await Promise.all(
+        logs.map(async (log) => {
+          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+          return {
+            type: 'LoanRepaid',
+            loanId: log.args?.loanId?.toString?.() || '',
+            amount: log.args?.amount?.toString?.() || '',
+            txHash: log.transactionHash,
+            logIndex: Number(log.logIndex),
+            timestamp: Number(block?.timestamp || 0)
+          };
+        })
+      );
+      mergeActivity(incoming);
+    }
+  });
+
+  useWatchContractEvent({
+    address: loanManager,
+    abi: loanManagerAbi,
+    eventName: 'LoanSettled',
+    enabled: Boolean(loanManager && publicClient),
+    onLogs: async (logs) => {
+      if (!publicClient) return;
+      const incoming = await Promise.all(
+        logs.map(async (log) => {
+          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
+          return {
+            type: 'LoanSettled',
+            loanId: log.args?.loanId?.toString?.() || '',
+            defaulted: Boolean(log.args?.defaulted),
+            txHash: log.transactionHash,
+            logIndex: Number(log.logIndex),
+            timestamp: Number(block?.timestamp || 0)
+          };
+        })
+      );
+      mergeActivity(incoming);
+    }
+  });
+
+  const activityRows = useMemo(() => {
+    if (!activity.length) return [];
+    return activity.map((item) => ({
+      event: item.type === 'LoanCreated'
+        ? 'Borrowed'
+        : item.type === 'LoanRepaid'
+          ? 'Repayment'
+          : 'Settlement',
+      asset: 'USDC',
+      amount: item.amount ? item.amount : '--',
+      status: item.type === 'LoanSettled' && item.defaulted ? 'Defaulted' : 'Confirmed'
+    }));
+  }, [activity]);
 
   const holoFallback = (
     <div className="holo-card">
@@ -150,6 +286,8 @@ export default function Dashboard() {
         </HoloCard>
       </Suspense>
       <LiveLoans />
+      <LiveVestedContracts />
+      <SpotlightVestedContracts />
       <div className="grid-2">
         <div className="holo-card">
           <div className="section-head">
@@ -157,7 +295,11 @@ export default function Dashboard() {
               <h3 className="section-title">Market Overview</h3>
               <div className="section-subtitle">Top collateral markets</div>
             </div>
-            <button className="button ghost" type="button">
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => navigate('/features')}
+            >
               View Markets
             </button>
           </div>
@@ -169,19 +311,28 @@ export default function Dashboard() {
               <div>Utilization</div>
             </div>
             <div className="table-row">
-              <div>ETH</div>
+              <div className="asset-cell">
+                <span className="asset-icon eth" />
+                ETH
+              </div>
               <div>$8.2M</div>
               <div>6.1%</div>
               <div>72%</div>
             </div>
             <div className="table-row">
-              <div>USDC</div>
+              <div className="asset-cell">
+                <span className="asset-icon usdc" />
+                USDC
+              </div>
               <div>$5.4M</div>
               <div>4.3%</div>
               <div>64%</div>
             </div>
             <div className="table-row">
-              <div>ARB</div>
+              <div className="asset-cell">
+                <span className="asset-icon arb" />
+                ARB
+              </div>
               <div>$2.1M</div>
               <div>9.8%</div>
               <div>81%</div>
@@ -194,36 +345,43 @@ export default function Dashboard() {
               <h3 className="section-title">Recent Activity</h3>
               <div className="section-subtitle">Vault & loan events</div>
             </div>
-            <button className="button ghost" type="button">
+            <button
+              className="button ghost"
+              type="button"
+              onClick={handleExportActivity}
+            >
               Export
             </button>
           </div>
-          <div className="data-table">
-            <div className="table-row header">
-              <div>Event</div>
-              <div>Asset</div>
-              <div>Amount</div>
-              <div>Status</div>
+          {activityError ? (
+            <div className="muted">{activityError}</div>
+          ) : activityRows.length ? (
+            <div className="data-table">
+              <div className="table-row header">
+                <div>Event</div>
+                <div>Asset</div>
+                <div>Amount</div>
+                <div>Status</div>
+              </div>
+              {activityRows.map((row, index) => (
+                <div key={`${row.event}-${index}`} className="table-row">
+                  <div>{row.event}</div>
+                  <div className="asset-cell">
+                    <span className="asset-icon usdc" />
+                    {row.asset}
+                  </div>
+                  <div>{row.amount}</div>
+                  <div className="tag success">{row.status}</div>
+                </div>
+              ))}
             </div>
-            <div className="table-row">
-              <div>Borrowed</div>
-              <div>USDC</div>
-              <div>$12,500</div>
-              <div className="tag success">Confirmed</div>
+          ) : (
+            <div className="muted">
+              {activityMeta?.lookbackBlocks
+                ? `No recent activity in the last ${activityMeta.lookbackBlocks} blocks.`
+                : 'No recent activity yet.'}
             </div>
-            <div className="table-row">
-              <div>Collateral Added</div>
-              <div>CRDT</div>
-              <div>42,000</div>
-              <div className="tag">Pending</div>
-            </div>
-            <div className="table-row">
-              <div>Repayment</div>
-              <div>USDC</div>
-              <div>$2,000</div>
-              <div className="tag success">Settled</div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
       <div className="grid-2">

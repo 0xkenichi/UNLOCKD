@@ -12,7 +12,7 @@ const DEFAULT_AMOUNT = '10000';
 const USDC_DECIMALS = 6;
 
 export default function FaucetCard() {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const [amount, setAmount] = useState(DEFAULT_AMOUNT);
   const [copied, setCopied] = useState(false);
@@ -72,8 +72,13 @@ export default function FaucetCard() {
           <div className="spinner" />
         </div>
       )}
-      <div className="faucet-header">
-        <h3 className="holo-title">Mock USDC Faucet</h3>
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Mock USDC Faucet</h3>
+          <div className="section-subtitle">
+            Mint test USDC for demo flows.
+          </div>
+        </div>
         <button
           className="button ghost faucet-copy"
           onClick={handleCopy}
@@ -83,33 +88,51 @@ export default function FaucetCard() {
           {copied ? 'Copied' : 'Copy address'}
         </button>
       </div>
-      <p className="muted">
-        Mint test USDC for demo flows. Uses the deployed mock USDC address.
-      </p>
-      <div className="faucet-quick">
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-label">Chain</div>
+          <div className="stat-value">{chainId || '—'}</div>
+          <div className="stat-delta">Testnet only</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Wallet</div>
+          <div className="stat-value">
+            {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '—'}
+          </div>
+          <div className="stat-delta">Connected address</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Faucet</div>
+          <div className="stat-value">
+            {faucetAddress ? `${faucetAddress.slice(0, 6)}...${faucetAddress.slice(-4)}` : '—'}
+          </div>
+          <div className="stat-delta">Mock USDC</div>
+        </div>
+      </div>
+      <div className="inline-actions">
         <button
-          className="pill"
+          className="chip"
           type="button"
           onClick={() => setAmount('1000')}
         >
           1k
         </button>
         <button
-          className="pill"
+          className="chip"
           type="button"
           onClick={() => setAmount('10000')}
         >
           10k
         </button>
         <button
-          className="pill"
+          className="chip"
           type="button"
           onClick={() => setAmount('50000')}
         >
           50k
         </button>
       </div>
-      <div className="faucet-row">
+      <div className="inline-actions">
         <input
           className="faucet-input"
           value={amount}
@@ -121,9 +144,9 @@ export default function FaucetCard() {
           {isPending || isConfirming ? 'Minting...' : 'Mint'}
         </button>
       </div>
-      <div className="faucet-meta">
-        <span>Chain ID: {chainId || '—'}</span>
+      <div className="progress-meta">
         <span>{isSuccess ? 'Minted.' : error ? 'Mint failed.' : ''}</span>
+        <span>{isConnected ? 'Wallet ready' : 'Connect wallet'}</span>
       </div>
     </div>
   );

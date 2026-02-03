@@ -45,37 +45,58 @@ export default function Governance() {
           <p className="muted">
             No on-chain proposals are enabled on testnet.
           </p>
-          <button className="button" type="button" disabled>
-            Coming Soon
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              const target = document.getElementById('governance-feed');
+              if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }}
+          >
+            View Feed
           </button>
         </div>
       </div>
-      <div className="holo-card">
+      <div className="holo-card" id="governance-feed">
         <div className="section-head">
           <div>
             <h3 className="section-title">Governance Feed</h3>
             <div className="section-subtitle">Latest protocol updates</div>
           </div>
-          <button className="button ghost" type="button">
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() =>
+              window.open('mailto:governance@vestra.xyz?subject=Governance%20updates')
+            }
+          >
             View All
           </button>
         </div>
         <div className="data-table">
           <div className="table-row header">
             <div>Proposal</div>
-            <div>Type</div>
+            <div>Asset</div>
             <div>Timeline</div>
             <div>Status</div>
           </div>
           <div className="table-row">
             <div>Risk Curve v2</div>
-            <div>Parameter</div>
+            <div className="asset-cell">
+              <span className="asset-icon crdt" />
+              CRDT
+            </div>
             <div>Q3 2026</div>
             <div className="tag">Draft</div>
           </div>
           <div className="table-row">
             <div>Oracle Upgrade</div>
-            <div>Tech</div>
+            <div className="asset-cell">
+              <span className="asset-icon eth" />
+              ETH
+            </div>
             <div>Q4 2026</div>
             <div className="tag warn">Review</div>
           </div>

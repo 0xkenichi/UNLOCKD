@@ -104,8 +104,32 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
 
   const { writeContract, isPending, error } = useWriteContract();
 
+  const hasWallet = Boolean(address);
+  const collateralIdValid = Boolean(collateralId) && Number(collateralId) > 0;
+  const vestingContractValid = isAddress(vestingContract);
+  const borrowValid = Boolean(borrowUnits) && borrowUnits > 0n;
+  const canEscrow =
+    Boolean(vestingAdapter) && hasWallet && collateralIdValid && vestingContractValid;
+  const canBorrow =
+    Boolean(loanManager) &&
+    hasWallet &&
+    collateralIdValid &&
+    vestingContractValid &&
+    borrowValid &&
+    verified;
+
+  const borrowDisabledReason = (() => {
+    if (!hasWallet) return 'Connect a wallet to create a loan.';
+    if (!loanManager) return 'Unsupported network for loan creation.';
+    if (!collateralIdValid) return 'Enter a valid collateral ID.';
+    if (!vestingContractValid) return 'Enter a valid vesting contract address.';
+    if (!verified) return 'Escrow a vesting position to verify collateral.';
+    if (!borrowValid) return 'Enter a borrow amount.';
+    return '';
+  })();
+
   const handleEscrow = () => {
-    if (!vestingAdapter || !address) return;
+    if (!canEscrow) return;
     writeContract({
       address: vestingAdapter,
       abi: vestingAdapterAbi,
@@ -115,7 +139,7 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
   };
 
   const handleBorrow = () => {
-    if (!loanManager || !borrowUnits) return;
+    if (!canBorrow) return;
     writeContract({
       address: loanManager,
       abi: loanManagerAbi,
@@ -164,6 +188,9 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
         </div>
       </div>
       {error && <div className="error-banner">{error.message}</div>}
+      {borrowDisabledReason && (
+        <div className="muted">{borrowDisabledReason}</div>
+      )}
       <div className="form-grid">
         <label className="form-field">
           Collateral ID
@@ -221,7 +248,11 @@ export default function BorrowActions({ onDetails, maxBorrowUsd }) {
         <button className="button" onClick={handleEscrow} disabled={isPending}>
           Escrow
         </button>
-        <button className="button" onClick={handleBorrow} disabled={isPending}>
+        <button
+          className="button"
+          onClick={handleBorrow}
+          disabled={isPending || !canBorrow}
+        >
           Create Loan
         </button>
       </div>

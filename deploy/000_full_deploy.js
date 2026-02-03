@@ -65,6 +65,8 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const identityBoostBps = Number(process.env.IDENTITY_BOOST_BPS || 500);
   const poolFee = Number(process.env.UNISWAP_POOL_FEE || 3000);
   const slippageBps = Number(process.env.LIQUIDATION_SLIPPAGE_BPS || 9000);
+  const issuanceTreasury = process.env.ISSUANCE_TREASURY || deployer;
+  const returnsTreasury = process.env.RETURNS_TREASURY || deployer;
 
   const loanManager = await deploy("LoanManager", {
     from: deployer,
@@ -116,6 +118,14 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     await ethers.getSigner(deployer)
   );
   await poolInstance.setLoanManager(loanManager.address);
+  await poolInstance.setTreasuries(issuanceTreasury, returnsTreasury);
+
+  const loanManagerInstance = await ethers.getContractAt(
+    "LoanManager",
+    loanManager.address,
+    await ethers.getSigner(deployer)
+  );
+  await loanManagerInstance.setTreasuries(issuanceTreasury, returnsTreasury);
 
   log("Deployment complete!");
 };

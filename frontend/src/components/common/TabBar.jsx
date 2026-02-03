@@ -74,7 +74,7 @@ export default function TabBar() {
   return (
     <nav className="tab-bar">
       <div className="tab-brand">
-        <span className="brand-mark" />
+        <span className="brand-crest-global" aria-hidden="true" />
         <div>
           <div className="brand-title">VESTRA</div>
           <div className="brand-subtitle">Astra-grade vesting credit</div>
