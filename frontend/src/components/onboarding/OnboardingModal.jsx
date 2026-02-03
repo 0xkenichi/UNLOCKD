@@ -56,7 +56,15 @@ export default function OnboardingModal() {
   return (
     <div className="onboarding-backdrop" role="dialog" aria-modal="true">
       <div className="onboarding-modal">
-        <div className="onboarding-title">{step.title}</div>
+        <div className="section-head">
+          <div>
+            <div className="section-title">{step.title}</div>
+            <div className="section-subtitle">
+              Step {stepIndex + 1} of {steps.length}
+            </div>
+          </div>
+          <span className="chip">Onboarding</span>
+        </div>
         {step.image && (
           <img
             src={step.image}
@@ -92,8 +100,13 @@ export default function OnboardingModal() {
             </button>
           )}
         </div>
-        <div className="onboarding-footer">
-          Step {stepIndex + 1} of {steps.length}
+        <div className="progress-track">
+          <div
+            className="progress-fill"
+            style={{
+              width: `${((stepIndex + 1) / steps.length) * 100}%`
+            }}
+          />
         </div>
       </div>
     </div>

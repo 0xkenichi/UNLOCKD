@@ -1,6 +1,13 @@
 import AuctionTypeSelector from '../components/auction/AuctionTypeSelector.jsx';
 
 export default function Auction() {
+  const scrollTo = (id) => {
+    const target = document.getElementById(id);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-header">
@@ -27,22 +34,32 @@ export default function Auction() {
         </div>
       </div>
       <AuctionTypeSelector />
-      <div className="holo-card">
+      <div className="holo-card" id="auction-control">
         <h3 className="holo-title">Auction Control</h3>
         <p className="muted">
           Prototype UI for future auctions (no on-chain execution yet).
         </p>
-        <button className="button" type="button" disabled>
-          Coming Soon
+        <button
+          className="button"
+          type="button"
+          onClick={() => scrollTo('auction-pipeline')}
+        >
+          View Pipeline
         </button>
       </div>
-      <div className="holo-card">
+      <div className="holo-card" id="auction-pipeline">
         <div className="section-head">
           <div>
             <h3 className="section-title">Auction Pipeline</h3>
             <div className="section-subtitle">Upcoming collateral claims</div>
           </div>
-          <button className="button ghost" type="button">
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() =>
+              window.open('mailto:alerts@vestra.xyz?subject=Auction%20alerts')
+            }
+          >
             Notify Me
           </button>
         </div>
@@ -54,13 +71,19 @@ export default function Auction() {
             <div>Status</div>
           </div>
           <div className="table-row">
-            <div>CRDT Vault</div>
+            <div className="asset-cell">
+              <span className="asset-icon crdt" />
+              CRDT Vault
+            </div>
             <div>Jun 10</div>
             <div>$18,200</div>
             <div className="tag">Queued</div>
           </div>
           <div className="table-row">
-            <div>ARB Vault</div>
+            <div className="asset-cell">
+              <span className="asset-icon arb" />
+              ARB Vault
+            </div>
             <div>Jul 02</div>
             <div>$9,450</div>
             <div className="tag">Monitoring</div>

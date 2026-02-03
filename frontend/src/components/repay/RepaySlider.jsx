@@ -2,6 +2,23 @@ import { useState } from 'react';
 
 export default function RepaySlider() {
   const [amount, setAmount] = useState(45);
+  const [saved, setSaved] = useState(false);
+  const [simulated, setSimulated] = useState(false);
+
+  const handleSave = () => {
+    const payload = {
+      amount,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('vestra-repay-scenario', JSON.stringify(payload));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const handleSimulate = () => {
+    setSimulated(true);
+    setTimeout(() => setSimulated(false), 1500);
+  };
 
   return (
     <div className="holo-card">
@@ -33,11 +50,11 @@ export default function RepaySlider() {
         <span>{amount >= 70 ? 'Full' : 'Partial'} collateral</span>
       </div>
       <div className="inline-actions">
-        <button className="button" type="button">
-          Simulate
+        <button className="button" type="button" onClick={handleSimulate}>
+          {simulated ? 'Simulated' : 'Simulate'}
         </button>
-        <button className="button ghost" type="button">
-          Save Scenario
+        <button className="button ghost" type="button" onClick={handleSave}>
+          {saved ? 'Saved' : 'Save Scenario'}
         </button>
       </div>
     </div>

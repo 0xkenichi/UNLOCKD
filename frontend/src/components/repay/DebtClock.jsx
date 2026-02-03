@@ -2,11 +2,23 @@ import { Canvas } from '@react-three/fiber';
 import HoloCard from '../common/HoloCard.jsx';
 
 export default function DebtClock() {
+  const handleRepay = () => {
+    const target = document.getElementById('repay-actions');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <HoloCard distort={0.3}>
-      <h3 className="holo-title holo-glow">Debt Clock</h3>
-      <div className="muted">
-        Accrued interest ticks until settlement. Repay to stop the clock.
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Debt Clock</h3>
+          <div className="section-subtitle">
+            Accrued interest ticks until settlement.
+          </div>
+        </div>
+        <span className="chip">Live</span>
       </div>
       <Canvas className="holo-canvas">
         <ambientLight intensity={0.7} />
@@ -15,7 +27,9 @@ export default function DebtClock() {
           <meshStandardMaterial color="#C0C0C0" emissive="#1f3b5a" />
         </mesh>
       </Canvas>
-      <button className="button">Repay Partial</button>
+      <button className="button" type="button" onClick={handleRepay}>
+        Repay Partial
+      </button>
     </HoloCard>
   );
 }

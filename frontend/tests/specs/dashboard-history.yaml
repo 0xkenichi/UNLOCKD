@@ -1,0 +1,12 @@
+name: Dashboard history
+steps:
+  - goto: /dashboard
+  - expectRole:
+      role: heading
+      name: Dashboard
+      exact: true
+  - expectText: Recent Activity
+  - expectText: Recent Activity
+  - expectRole:
+      role: button
+      name: Export

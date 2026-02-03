@@ -39,6 +39,9 @@ async function main() {
   const depositAmount = ethers.parseUnits("1000", 6);
   const borrowAmount = ethers.parseUnits("200", 6);
   const repayAmount = ethers.parseUnits("50", 6);
+  const collateralId = process.env.COLLATERAL_ID
+    ? BigInt(process.env.COLLATERAL_ID)
+    : BigInt(Math.floor(Date.now() / 1000));
 
   console.log("Using MockUSDC:", usdcAddress);
   console.log("LoanManager:", loanManagerAddress);
@@ -48,6 +51,8 @@ async function main() {
   await ensureBalance(usdc, deployer, lender.address, depositAmount, "lender");
   await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
   await (await pool.connect(lender).deposit(depositAmount)).wait();
+  // Allow pool to lend from issuance treasury after deposit.
+  await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
 
   // Deploy mock vesting wallet for borrower
   const now = (await ethers.provider.getBlock("latest")).timestamp;
@@ -70,13 +75,14 @@ async function main() {
   console.log("Identity linked with mock proof:", mockProof);
 
   // Create loan
+  const loanId = await loanManager.loanCount();
   await (
     await loanManager
       .connect(borrower)
-      .createLoan(1, vestingAddress, borrowAmount)
+      .createLoan(collateralId, vestingAddress, borrowAmount)
   ).wait();
 
-  console.log("Loan created. Loan ID: 0");
+  console.log("Loan created. Loan ID:", loanId.toString());
 
   // Partial repay
   await ensureBalance(
@@ -89,7 +95,7 @@ async function main() {
   await (
     await usdc.connect(borrower).approve(loanManagerAddress, repayAmount)
   ).wait();
-  await (await loanManager.connect(borrower).repayLoan(0, repayAmount)).wait();
+  await (await loanManager.connect(borrower).repayLoan(loanId, repayAmount)).wait();
 
   console.log("Partial repayment complete.");
 }

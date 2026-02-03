@@ -24,6 +24,7 @@ Where Q is token quantity, P is oracle price, and D is a composite discount fact
 - On-chain enforcement at unlock
 - Conservative valuation curves (20-40% LTV caps)
 - Optional identity layer for better rates
+- Privacy-preserving participation: optional identity, selective disclosure, and private auctions to protect users who choose to exit early
 - Composable adapters for common vesting standards
 - Optional auction primitive for selling claim rights at market-clearing discounts
 
@@ -49,6 +50,33 @@ Users who prefer a debt-free exit can sell their claim rights via a time-bound a
 2. Run a Dutch, English, or Sealed Bid auction for 1-7 days.
 3. Winner pays stablecoins; seller receives proceeds minus fee.
 4. Winner holds the claim and receives tokens at unlock.
+
+### Privacy and Safety for Early Exits
+Some communities penalize members who exit vesting early. The protocol supports opt-in privacy that protects participants while keeping claims and settlement verifiable.
+
+Privacy model summary:
+- Goal: conceal borrower or seller identity and intent; preserve enforceability at unlock.
+- Scope: protect against social pressure, targeted harassment, and coordination around early exits.
+- Non-goal: hide the existence of the claim itself or bypass pool-level compliance.
+
+Mechanisms:
+- Optional identity: users can reveal identity signals for better terms or remain pseudonymous.
+- Selective disclosure: proofs attest to eligibility (vesting schedule, unlock time, claim validity) without exposing the participant.
+- Relayed actions: escrow, borrow, and settlement can be routed through relayers to reduce linkability.
+- Private auctions: sealed-bid with commit/reveal limits signaling, collusion, and social pressure.
+- Pool controls: DAOs can enable privacy modes per pool without weakening enforcement or lender protections.
+
+Assumptions and tradeoffs:
+- Privacy is opt-in; pools may price higher risk for fully private exits.
+- Some pools require limited disclosures due to governance or compliance.
+- Timing metadata may still leak behavioral signals.
+
+### Privacy Model (Appendix Summary)
+This litepaper provides a high-level view. The full privacy model defines threat assumptions, adversaries, mitigations, and compliance modes.
+- Goals: conceal participant identity and intent while keeping claims and settlement verifiable.
+- Mechanisms: selective disclosure proofs, sealed-bid auctions, and relayer-based execution.
+- Constraints: on-chain data remains public; privacy is opt-in and policy-driven per pool.
+- Details: see `docs/PRIVACY_MODEL.md` and `docs/TECHNICAL_SPEC.md`.
 
 ### Auction Types (Current + Future)
 Current implementations:

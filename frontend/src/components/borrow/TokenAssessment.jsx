@@ -52,6 +52,7 @@ const formatUsd = (value) =>
 export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) {
   const chainId = useChainId();
   const publicClient = usePublicClient();
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [status, setStatus] = useState('live');
   const [priceSource, setPriceSource] = useState('DEX');
   const [livePrice, setLivePrice] = useState('0.80');
@@ -79,6 +80,31 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
   const [preferTwap, setPreferTwap] = useState(true);
   const [poolAddress, setPoolAddress] = useState('');
   const loadedKey = useRef('');
+
+  const applyConservativeDefaults = () => {
+    setStatus('live');
+    setPriceSource('DEX');
+    setLivePrice('0.80');
+    setPresalePrice('0.45');
+    setLaunchPrice('0.60');
+    setLiquidity('2000000');
+    setVolume('750000');
+    setVolatility('35');
+    setLockupMonths('6');
+    setTgeLockMonths('3');
+    setStakingLocked(false);
+    setTotalSupply('100000000');
+    setCirculatingSupply('25000000');
+    setInflationPct('12');
+    setReleasePctMonthly('1.5');
+    setCliffMonths('3');
+    setTrancheCount('6');
+    setTrancheIntervalMonths('1');
+    setTgeUnlockPct('10');
+    setTwapSeconds('3600');
+    setPreferTwap(true);
+    setShowAdvanced(false);
+  };
 
   const quantity = useMemo(() => {
     if (!vestingDetails?.quantity || vestingDetails?.tokenDecimals == null) {
@@ -622,6 +648,18 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
         </div>
         <span className="chip">{priceSource}</span>
       </div>
+      <div className="inline-actions">
+        <button className="button ghost" type="button" onClick={applyConservativeDefaults}>
+          Auto-fill Conservative
+        </button>
+        <button
+          className="button ghost"
+          type="button"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+        >
+          {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
+        </button>
+      </div>
       <div className="form-grid">
         <label className="form-field">
           Token Address
@@ -661,6 +699,72 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           </select>
         </label>
         <label className="form-field">
+          Live Price (USD)
+          <input
+            className="form-input"
+            value={livePrice}
+            onChange={(event) => setLivePrice(event.target.value)}
+            inputMode="decimal"
+          />
+        </label>
+        <label className="form-field">
+          Lockup (months)
+          <input
+            className="form-input"
+            value={lockupMonths}
+            onChange={(event) => setLockupMonths(event.target.value)}
+            inputMode="numeric"
+          />
+        </label>
+        <label className="form-field">
+          Cliff (months)
+          <input
+            className="form-input"
+            value={cliffMonths}
+            onChange={(event) => setCliffMonths(event.target.value)}
+            inputMode="numeric"
+          />
+        </label>
+        <label className="form-field">
+          Tranches
+          <input
+            className="form-input"
+            value={trancheCount}
+            onChange={(event) => setTrancheCount(event.target.value)}
+            inputMode="numeric"
+          />
+        </label>
+        <label className="form-field">
+          Tranche Interval (mo)
+          <input
+            className="form-input"
+            value={trancheIntervalMonths}
+            onChange={(event) => setTrancheIntervalMonths(event.target.value)}
+            inputMode="numeric"
+          />
+        </label>
+        <label className="form-field">
+          Circulating Supply
+          <input
+            className="form-input"
+            value={circulatingSupply}
+            onChange={(event) => setCirculatingSupply(event.target.value)}
+            inputMode="decimal"
+          />
+        </label>
+        <label className="form-field">
+          Total Supply
+          <input
+            className="form-input"
+            value={totalSupply}
+            onChange={(event) => setTotalSupply(event.target.value)}
+            inputMode="decimal"
+          />
+        </label>
+      </div>
+      {showAdvanced && (
+        <div className="form-grid">
+        <label className="form-field">
           TWAP (seconds)
           <input
             className="form-input"
@@ -676,15 +780,6 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
             className="form-checkbox"
             checked={preferTwap}
             onChange={(event) => setPreferTwap(event.target.checked)}
-          />
-        </label>
-        <label className="form-field">
-          Live Price (USD)
-          <input
-            className="form-input"
-            value={livePrice}
-            onChange={(event) => setLivePrice(event.target.value)}
-            inputMode="decimal"
           />
         </label>
         <label className="form-field">
@@ -733,24 +828,6 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           />
         </label>
         <label className="form-field">
-          Total Supply
-          <input
-            className="form-input"
-            value={totalSupply}
-            onChange={(event) => setTotalSupply(event.target.value)}
-            inputMode="decimal"
-          />
-        </label>
-        <label className="form-field">
-          Circulating Supply
-          <input
-            className="form-input"
-            value={circulatingSupply}
-            onChange={(event) => setCirculatingSupply(event.target.value)}
-            inputMode="decimal"
-          />
-        </label>
-        <label className="form-field">
           Inflation (%/yr)
           <input
             className="form-input"
@@ -769,47 +846,11 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           />
         </label>
         <label className="form-field">
-          Lockup (months)
-          <input
-            className="form-input"
-            value={lockupMonths}
-            onChange={(event) => setLockupMonths(event.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-        <label className="form-field">
           TGE Lock (months)
           <input
             className="form-input"
             value={tgeLockMonths}
             onChange={(event) => setTgeLockMonths(event.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-        <label className="form-field">
-          Cliff (months)
-          <input
-            className="form-input"
-            value={cliffMonths}
-            onChange={(event) => setCliffMonths(event.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-        <label className="form-field">
-          Tranches
-          <input
-            className="form-input"
-            value={trancheCount}
-            onChange={(event) => setTrancheCount(event.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-        <label className="form-field">
-          Tranche Interval (mo)
-          <input
-            className="form-input"
-            value={trancheIntervalMonths}
-            onChange={(event) => setTrancheIntervalMonths(event.target.value)}
             inputMode="numeric"
           />
         </label>
@@ -832,6 +873,7 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           />
         </label>
       </div>
+      )}
       <div className="section-head">
         <div>
           <h3 className="section-title">Price Feeds</h3>

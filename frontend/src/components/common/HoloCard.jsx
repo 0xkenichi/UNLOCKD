@@ -3,12 +3,12 @@ import { MeshDistortMaterial, OrbitControls } from '@react-three/drei';
 
 export default function HoloCard({ children, distort = 0.25 }) {
   return (
-    <div className="holo-card">
+    <div className="holo-card holo-card--mesh">
       <Canvas className="holo-canvas">
         <ambientLight intensity={0.5} />
         <mesh>
           <planeGeometry args={[5, 3]} />
-          <MeshDistortMaterial distort={distort} speed={2} color="#C0C0C0" />
+          <MeshDistortMaterial distort={distort} speed={2} color="#4b8dff" />
         </mesh>
         <OrbitControls enableZoom={false} enablePan={false} />
       </Canvas>

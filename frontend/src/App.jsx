@@ -42,6 +42,8 @@ function AppShell() {
   const desiredChainIds = [sepolia.id, baseSepolia.id];
   const showChainWarning =
     chainId && !desiredChainIds.includes(chainId);
+  const publicDocsUrl =
+    import.meta.env.VITE_PUBLIC_DOCS_URL || 'http://localhost:3000';
 
   return (
     <div className="app-shell">
@@ -66,12 +68,20 @@ function AppShell() {
               />
             </div>
             <div className="header-actions">
+              <a
+                className="button ghost"
+                href={publicDocsUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Docs site
+              </a>
               <button
                 className="button ghost"
                 type="button"
                 onClick={() => navigate('/docs')}
               >
-                Write
+                In-app docs
               </button>
               <button
                 className="button ghost tour-button"

@@ -2,11 +2,23 @@ import { Canvas } from '@react-three/fiber';
 import HoloCard from '../common/HoloCard.jsx';
 
 export default function CrdtOrb() {
+  const handleStake = () => {
+    const target = document.getElementById('governance-feed');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   return (
     <HoloCard distort={0.2}>
-      <h3 className="holo-title holo-glow">CRDT Orb</h3>
-      <div className="muted">
-        Stake CRDT to unlock risk committee privileges.
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">CRDT Orb</h3>
+          <div className="section-subtitle">
+            Stake CRDT to unlock committee privileges.
+          </div>
+        </div>
+        <span className="chip">Stake</span>
       </div>
       <Canvas className="holo-canvas">
         <ambientLight intensity={0.7} />
@@ -15,7 +27,9 @@ export default function CrdtOrb() {
           <meshStandardMaterial color="#C0C0C0" emissive="#274060" />
         </mesh>
       </Canvas>
-      <button className="button">Stake CRDT</button>
+      <button className="button" type="button" onClick={handleStake}>
+        Stake CRDT
+      </button>
     </HoloCard>
   );
 }

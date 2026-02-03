@@ -15,9 +15,15 @@ This is a step-by-step guide to test the full borrow flow on Sepolia testnet: co
    - https://staging.aave.com/faucet → Sepolia → claim USDC.
 3. Open the frontend:
    - Local: http://localhost:5173
-4. (Optional) Deploy a short vesting mock for testing:
-   - `npx hardhat console --network sepolia`
-   - Deploy a mock vesting wallet with a short unlock (e.g., 1 hour).
+4. (Optional) Seed a realistic vesting position:
+   - `npx hardhat run scripts/vestra-realistic-setup.js --network sepolia`
+   - Uses a mock VEST token, 24-month vesting, and real-ish price data.
+5. (Optional) Seed multiple standards (OZ, Sablier v2, Superfluid, Timelock):
+   - `npx hardhat run scripts/vestra-standards-setup.js --network sepolia`
+   - Mocks mirror real interfaces but include release hooks for settlement.
+6. (Optional) Seed claim-rights wrappers for real standards:
+   - `npx hardhat run scripts/vestra-claim-rights-setup.js --network sepolia`
+   - Uses wrapper contracts that expose `releaseTo` for settlement.
 
 ## Flow: Escrow → Borrow → Repay → Settle
 1. Connect wallet in the frontend (RainbowKit).

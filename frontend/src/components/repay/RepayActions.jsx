@@ -97,7 +97,7 @@ export default function RepayActions() {
   };
 
   return (
-    <div className="holo-card">
+    <div className="holo-card" id="repay-actions">
       <div className="section-head">
         <div>
           <h3 className="section-title">Repay Live Loan</h3>

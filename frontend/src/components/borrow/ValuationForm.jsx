@@ -98,8 +98,15 @@ export default function ValuationForm({ onUpdate, prefill }) {
 
   return (
     <div className="holo-card">
-      <h3 className="holo-title">Valuation Engine</h3>
-      <p className="muted">Live DPV + LTV from on-chain risk model.</p>
+      <div className="section-head">
+        <div>
+          <h3 className="section-title">Valuation Engine</h3>
+          <div className="section-subtitle">
+            Live DPV + LTV from on-chain risk model.
+          </div>
+        </div>
+        <span className="chip">DPV</span>
+      </div>
       <div className="form-grid">
         <label className="form-field">
           Quantity
@@ -137,10 +144,22 @@ export default function ValuationForm({ onUpdate, prefill }) {
           />
         </label>
       </div>
-      <div className="stack">
-        <div className="pill">PV (raw): {pv.toString()}</div>
-        <div className="pill">LTV: {ltvPercent}%</div>
-        <div className="pill">Max Borrow (raw): {maxBorrow.toString()}</div>
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-label">Present Value</div>
+          <div className="stat-value">{pv.toString()}</div>
+          <div className="stat-delta">Raw on-chain PV</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">LTV</div>
+          <div className="stat-value">{ltvPercent}%</div>
+          <div className="stat-delta">Risk-adjusted</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Max Borrow</div>
+          <div className="stat-value">{maxBorrow.toString()}</div>
+          <div className="stat-delta">Raw units</div>
+        </div>
       </div>
     </div>
   );

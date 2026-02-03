@@ -15,11 +15,27 @@ export default function ChainStatus() {
 
   return (
     <div className="chain-status">
-      <div className="pill">Network</div>
-      <div className="chain-name">
-        {chain ? chain.name : `Chain ${chainId || 'unknown'}`}
+      <div className="section-head">
+        <div>
+          <div className="section-title">Network Status</div>
+          <div className="section-subtitle">Auto-switch supported</div>
+        </div>
+        <span className="tag">Live</span>
       </div>
-      <div className="muted">Auto-switch supported</div>
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-label">Active Chain</div>
+          <div className="stat-value">
+            {chain ? chain.name : `Chain ${chainId || 'unknown'}`}
+          </div>
+          <div className="stat-delta">Connected</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Mode</div>
+          <div className="stat-value">Testnet</div>
+          <div className="stat-delta">Safe preview</div>
+        </div>
+      </div>
     </div>
   );
 }

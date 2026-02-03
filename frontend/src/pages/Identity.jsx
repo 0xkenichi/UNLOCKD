@@ -45,8 +45,17 @@ export default function Identity() {
               Placeholder for future zk-proof verification.
             </div>
             <MaskHolo />
-            <button className="button" type="button" disabled>
-              Coming Soon
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                const target = document.getElementById('identity-checklist');
+                if (target) {
+                  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+            >
+              View Checklist
             </button>
           </HoloCard>
         </Suspense>
@@ -59,12 +68,21 @@ export default function Identity() {
             <div className="pill">Current Tier: Anonymous</div>
             <div className="pill">Target Tier: Verified</div>
           </div>
-          <button className="button" type="button" disabled>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              const target = document.getElementById('identity-checklist');
+              if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }}
+          >
             View Requirements
           </button>
         </div>
       </div>
-      <div className="holo-card">
+      <div className="holo-card" id="identity-checklist">
         <div className="section-head">
           <div>
             <h3 className="section-title">Verification Checklist</h3>

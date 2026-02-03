@@ -1,0 +1,22 @@
+name: Repay flow (UI)
+steps:
+  - goto: /repay
+  - expectRole:
+      role: heading
+      name: Repay
+      exact: true
+  - expectText: Repay Live Loan
+  - fill:
+      label: Loan ID
+      value: "0"
+  - fill:
+      label: Repay Amount (USDC)
+      value: "50"
+  - expectRole:
+      role: button
+      name: Approve
+  - expectRole:
+      role: button
+      name: Repay
+      exact: true
+  - expectText: Repayment Schedule

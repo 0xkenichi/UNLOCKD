@@ -3,9 +3,9 @@ import { sepolia, baseSepolia } from 'viem/chains';
 export const CONTRACTS = {
   [sepolia.id]: {
     valuationEngine: '0x99F15E90aB6EDe24afa5Da28a1f4E10cd620b351',
-    loanManager: '0xb961Bc8AAeCC1B32C4ec2341F99cD802b95862f2',
-    vestingAdapter: '0x96966cA06C6AD57aa45A8D25a322849ec975B282',
-    usdc: '0x0A204F3f3e65F7a0ec6Db731DfF28012c5a61Ee6',
+    loanManager: '0xE747FC57F6B3F0EA9aDc1CdECe5DDe56d7C726ce',
+    vestingAdapter: '0xF366308b18156bAd74B1274EB1fFECCA2a1B7959',
+    usdc: '0xc9c9083f4794165E9baA920fc9FcBc462864d992',
     mockPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762'
   },
   [baseSepolia.id]: {
@@ -35,6 +35,31 @@ export const valuationEngineAbi = [
 ];
 
 export const loanManagerAbi = [
+  {
+    name: 'LoanCreated',
+    type: 'event',
+    inputs: [
+      { name: 'loanId', type: 'uint256', indexed: true },
+      { name: 'borrower', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    name: 'LoanRepaid',
+    type: 'event',
+    inputs: [
+      { name: 'loanId', type: 'uint256', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    name: 'LoanSettled',
+    type: 'event',
+    inputs: [
+      { name: 'loanId', type: 'uint256', indexed: true },
+      { name: 'defaulted', type: 'bool', indexed: false }
+    ]
+  },
   {
     name: 'loanCount',
     type: 'function',

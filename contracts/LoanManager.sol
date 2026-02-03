@@ -27,6 +27,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     IERC20 public usdc;
     uint24 public poolFee;
     uint256 public liquidationSlippageBps;
+    address public issuanceTreasury;
+    address public returnsTreasury;
 
     uint256 public constant BPS_DENOMINATOR = 10000;
 
@@ -49,6 +51,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     event IdentityLinked(address indexed borrower, uint256 boostBps);
     event IdentityConfigUpdated(address verifier, uint256 boostBps);
     event LiquidationConfigUpdated(address router, uint24 poolFee, uint256 slippageBps);
+    event TreasuryConfigUpdated(address issuanceTreasury, address returnsTreasury);
     event CollateralLiquidated(
         uint256 indexed loanId,
         address indexed token,
@@ -75,6 +78,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         poolFee = _poolFee;
         liquidationSlippageBps = _slippageBps;
         usdc = pool.usdc();
+        issuanceTreasury = msg.sender;
+        returnsTreasury = msg.sender;
     }
 
     function setIdentityConfig(address verifier, uint256 boostBps) external onlyOwner {
@@ -95,6 +100,14 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         poolFee = newPoolFee;
         liquidationSlippageBps = slippageBps;
         emit LiquidationConfigUpdated(router, newPoolFee, slippageBps);
+    }
+
+    function setTreasuries(address issuance, address returnsAddr) external onlyOwner {
+        require(issuance != address(0), "issuance=0");
+        require(returnsAddr != address(0), "returns=0");
+        issuanceTreasury = issuance;
+        returnsTreasury = returnsAddr;
+        emit TreasuryConfigUpdated(issuance, returnsAddr);
     }
 
     function linkIdentity(bytes calldata proof) external whenNotPaused nonReentrant returns (bool) {
@@ -150,7 +163,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         require(msg.sender == loan.borrower, "not borrower");
         require(amount > 0, "amount=0");
 
-        require(usdc.transferFrom(msg.sender, address(pool), amount), "transfer failed");
+        address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+        require(usdc.transferFrom(msg.sender, paymentTreasury, amount), "transfer failed");
         pool.repay(amount);
 
         uint256 remainingInterest = loan.interest;
@@ -181,9 +195,10 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         bool defaulted = remainingDebt > 0;
         (uint256 quantity, address token, ) = adapter.getDetails(loan.collateralId);
 
+        address unlockTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
         if (!defaulted) {
             if (quantity > 0) {
-                adapter.releaseTo(loan.collateralId, loan.borrower, quantity);
+                adapter.releaseTo(loan.collateralId, unlockTreasury, quantity);
             }
         } else if (quantity > 0) {
             uint256 seizeAmount = _calculateSeizeAmount(token, remainingDebt);
@@ -204,18 +219,22 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                     if (repayAmount > poolDebt) {
                         repayAmount = poolDebt;
                     }
+                    address payout = returnsTreasury == address(0)
+                        ? address(pool)
+                        : returnsTreasury;
+                    require(usdc.transfer(payout, usdcReceived), "usdc transfer failed");
                     if (repayAmount > 0) {
-                        require(
-                            usdc.transfer(address(pool), repayAmount),
-                            "usdc transfer failed"
-                        );
                         pool.repay(repayAmount);
                     }
                 }
             }
 
             if (quantity > seizeAmount) {
-                adapter.releaseTo(loan.collateralId, loan.borrower, quantity - seizeAmount);
+                adapter.releaseTo(
+                    loan.collateralId,
+                    unlockTreasury,
+                    quantity - seizeAmount
+                );
             }
         }
 
