@@ -1,4 +1,11 @@
-import { sepolia, baseSepolia } from 'viem/chains';
+import {
+  arbitrum,
+  avalanche,
+  avalancheFuji,
+  base,
+  baseSepolia,
+  sepolia
+} from 'viem/chains';
 
 export const CONTRACTS = {
   [sepolia.id]: {
@@ -9,6 +16,34 @@ export const CONTRACTS = {
     mockPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762'
   },
   [baseSepolia.id]: {
+    valuationEngine: '',
+    loanManager: '',
+    vestingAdapter: '',
+    usdc: '',
+    mockPriceFeed: ''
+  },
+  [base.id]: {
+    valuationEngine: '',
+    loanManager: '',
+    vestingAdapter: '',
+    usdc: '',
+    mockPriceFeed: ''
+  },
+  [arbitrum.id]: {
+    valuationEngine: '',
+    loanManager: '',
+    vestingAdapter: '',
+    usdc: '',
+    mockPriceFeed: ''
+  },
+  [avalanche.id]: {
+    valuationEngine: '',
+    loanManager: '',
+    vestingAdapter: '',
+    usdc: '',
+    mockPriceFeed: ''
+  },
+  [avalancheFuji.id]: {
     valuationEngine: '',
     loanManager: '',
     vestingAdapter: '',
