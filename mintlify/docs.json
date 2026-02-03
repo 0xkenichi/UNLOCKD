@@ -1,7 +1,7 @@
 {
   "name": "Vestra Protocol Docs",
-  "logo": "",
-  "favicon": "",
+  "logo": "/logo.svg",
+  "favicon": "/favicon.svg",
   "mode": "light",
   "theme": "mint",
   "colors": {
@@ -9,24 +9,26 @@
     "light": "#f5f8ff",
     "dark": "#0b1220"
   },
-  "navigation": [
-    {
-      "group": "Start Here",
-      "pages": ["index"]
-    },
-    {
-      "group": "Protocol",
-      "pages": ["overview", "litepaper", "whitepaper"]
-    },
-    {
-      "group": "Risk & Spec",
-      "pages": ["risk-models"]
-    },
-    {
-      "group": "Support",
-      "pages": ["faq"]
-    }
-  ],
+  "navigation": {
+    "default": [
+      {
+        "group": "Start Here",
+        "pages": ["index"]
+      },
+      {
+        "group": "Protocol",
+        "pages": ["overview", "litepaper", "whitepaper"]
+      },
+      {
+        "group": "Risk & Spec",
+        "pages": ["risk-models"]
+      },
+      {
+        "group": "Support",
+        "pages": ["faq"]
+      }
+    ]
+  },
   "topbarLinks": [
     {
       "name": "App",
