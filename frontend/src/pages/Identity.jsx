@@ -1,4 +1,6 @@
 import { lazy, Suspense } from 'react';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 
 const HoloCard = lazy(() => import('../components/common/HoloCard.jsx'));
 const MaskHolo = lazy(() => import('../components/identity/MaskHolo.jsx'));
@@ -19,6 +21,10 @@ export default function Identity() {
         <div className="page-subtitle">
           Optional identity linking is a prototype UX flow.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="identity" />
       </div>
       <div className="stat-row">
         <div className="stat-card">

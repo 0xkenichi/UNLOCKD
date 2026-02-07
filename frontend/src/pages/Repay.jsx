@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import RepaySlider from '../components/repay/RepaySlider.jsx';
 import RepayActions from '../components/repay/RepayActions.jsx';
-import ChainPrompt from '../components/common/ChainPrompt.jsx';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+import FundWallet from '../components/common/FundWallet.jsx';
 import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
@@ -9,6 +11,7 @@ const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
 export default function Repay() {
   const [schedule, setSchedule] = useState([]);
   const [scheduleError, setScheduleError] = useState('');
+  const [fundingStatus, setFundingStatus] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -52,7 +55,10 @@ export default function Repay() {
           Reduce debt early, unlock collateral, or settle at unlock.
         </div>
       </div>
-      <ChainPrompt />
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="repay" />
+      </div>
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Outstanding Debt</div>
@@ -76,13 +82,14 @@ export default function Repay() {
           Repayments are simulated against testnet contracts only.
         </div>
       </div>
+      <FundWallet mode="repay" onStatusChange={setFundingStatus} />
       <div className="grid-2">
         <Suspense fallback={holoFallback}>
           <DebtClock />
         </Suspense>
         <RepaySlider />
       </div>
-      <RepayActions />
+      <RepayActions fundingStatus={fundingStatus} />
       <div className="holo-card">
         <div className="section-head">
           <div>

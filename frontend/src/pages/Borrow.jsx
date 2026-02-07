@@ -1,11 +1,14 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import BorrowWizard from '../components/borrow/BorrowWizard.jsx';
 import FaucetCard from '../components/borrow/FaucetCard.jsx';
 import BorrowActions from '../components/borrow/BorrowActions.jsx';
 import TokenAssessment from '../components/borrow/TokenAssessment.jsx';
 import ValuationForm from '../components/borrow/ValuationForm.jsx';
-import ChainPrompt from '../components/common/ChainPrompt.jsx';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+import FundWallet from '../components/common/FundWallet.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
+import { requestMatchQuote } from '../utils/api.js';
 
 const ValuationPreview3D = lazy(() =>
   import('../components/borrow/ValuationPreview3D.jsx')
@@ -17,7 +20,30 @@ export default function Borrow() {
     ltvBps: 0n
   });
   const [vestingDetails, setVestingDetails] = useState(null);
-  const [assessment, setAssessment] = useState({ maxLoan: 0 });
+  const [assessment, setAssessment] = useState({
+    maxLoan: 0,
+    coverageP1: 0,
+    coverageP5: 0,
+    adjustedPrice: 0,
+    haircut: 0
+  });
+  const [fundingStatus, setFundingStatus] = useState(null);
+  const [matchOffers, setMatchOffers] = useState([]);
+  const [matchError, setMatchError] = useState('');
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [selectedOffer, setSelectedOffer] = useState(null);
+
+  const coverageP5 = Number(assessment.coverageP5 || 0);
+  const riskLabel =
+    coverageP5 > 0
+      ? coverageP5 >= 1.2
+        ? 'Low Risk'
+        : coverageP5 >= 1
+          ? 'Moderate Risk'
+          : 'High Risk'
+      : 'Risk Pending';
+  const riskTagClass =
+    coverageP5 > 0 ? (coverageP5 >= 1.2 ? 'success' : 'warn') : '';
 
   const simPaths = useMemo(
     () =>
@@ -27,6 +53,55 @@ export default function Borrow() {
       }),
     [valuationState]
   );
+
+  const matchKey = `${vestingDetails?.verified ? '1' : '0'}:${vestingDetails?.collateralId || ''}:${assessment.maxLoan || 0}`;
+
+  useEffect(() => {
+    let active = true;
+    const loadOffers = async () => {
+      const collateralId = vestingDetails?.collateralId;
+      const desiredAmountUsd = Number(assessment.maxLoan || 0);
+      if (!vestingDetails?.verified || !collateralId || desiredAmountUsd <= 0) {
+        if (active) {
+          setMatchOffers([]);
+          setSelectedOffer(null);
+          setMatchError('');
+        }
+        return;
+      }
+      setMatchLoading(true);
+      try {
+        const data = await requestMatchQuote({
+          chain: 'base',
+          desiredAmountUsd,
+          collateralId: String(collateralId)
+        });
+        if (!active) return;
+        const offers = data?.offers || [];
+        setMatchOffers(offers);
+        setMatchError('');
+        if (!selectedOffer && offers.length) {
+          setSelectedOffer(offers[0]);
+        }
+      } catch (error) {
+        if (!active) return;
+        setMatchError(error?.message || 'Unable to fetch matching offers.');
+        setMatchOffers([]);
+      } finally {
+        if (active) {
+          setMatchLoading(false);
+        }
+      }
+    };
+    loadOffers();
+    return () => {
+      active = false;
+    };
+  }, [matchKey]);
+
+  const offerBorrowUsd = selectedOffer
+    ? Math.min(Number(assessment.maxLoan || 0), Number(selectedOffer.maxBorrowUsd || 0))
+    : null;
 
   const holoFallback = (
     <div className="holo-card">
@@ -44,7 +119,10 @@ export default function Borrow() {
           Escrow a vesting position, preview risk, and confirm conservative terms.
         </div>
       </div>
-      <ChainPrompt />
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="borrow" />
+      </div>
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Available Borrow</div>
@@ -69,6 +147,7 @@ export default function Borrow() {
           the connected testnet contracts.
         </div>
       </div>
+      <FundWallet mode="borrow" onStatusChange={setFundingStatus} />
       <BorrowWizard />
       <div className="grid-2">
         <ValuationForm
@@ -78,6 +157,8 @@ export default function Borrow() {
         <BorrowActions
           onDetails={setVestingDetails}
           maxBorrowUsd={assessment.maxLoan}
+          fundingStatus={fundingStatus}
+          offerBorrowUsd={offerBorrowUsd}
         />
       </div>
       <TokenAssessment
@@ -85,6 +166,55 @@ export default function Borrow() {
         ltvBps={valuationState.ltvBps}
         onEstimate={setAssessment}
       />
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Matching Offers</h3>
+            <div className="section-subtitle">
+              Advisory pool matches based on your vesting profile.
+            </div>
+          </div>
+          <span className="tag">{matchLoading ? 'Matching' : `${matchOffers.length} offers`}</span>
+        </div>
+        {matchError && <div className="error-banner">{matchError}</div>}
+        {!matchLoading && !matchOffers.length && (
+          <div className="muted">
+            No offers available yet. Create a lender pool to unlock matching.
+          </div>
+        )}
+        {Boolean(matchOffers.length) && (
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Pool</div>
+              <div>Risk</div>
+              <div>Interest</div>
+              <div>Max Borrow</div>
+              <div>Action</div>
+            </div>
+            {matchOffers.map((offer) => (
+              <div key={offer.offerId} className="table-row">
+                <div>{offer.poolId.slice(0, 8)}...</div>
+                <div>{offer.riskTier}</div>
+                <div>{offer.interestBps} bps</div>
+                <div>${Number(offer.maxBorrowUsd || 0).toFixed(2)}</div>
+                <div>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => setSelectedOffer(offer)}
+                  >
+                    Use offer
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="card-list">
+          <div className="pill">Offers are advisory; final terms settle onchain.</div>
+          <div className="pill">Solana offers are informational only in this MVP.</div>
+        </div>
+      </div>
       <div className="grid-2">
         <div className="holo-card">
           <div className="section-head">
@@ -105,14 +235,16 @@ export default function Borrow() {
           <div className="section-head">
             <div>
               <h3 className="section-title">Risk Summary</h3>
-              <div className="section-subtitle">Auto-generated from inputs</div>
+              <div className="section-subtitle">Auto-generated from data inputs</div>
             </div>
-            <span className="tag success">Low Risk</span>
+            <span className={`tag ${riskTagClass}`}>{riskLabel}</span>
           </div>
           <div className="card-list">
             <div className="pill">Haircut: {assessment.haircut ? `${(assessment.haircut * 100).toFixed(1)}%` : '--'}</div>
             <div className="pill">Adj Price: {assessment.adjustedPrice ? `$${assessment.adjustedPrice.toFixed(2)}` : '--'}</div>
             <div className="pill">Max Borrow: {assessment.maxLoan ? `$${assessment.maxLoan.toFixed(2)}` : '--'}</div>
+            <div className="pill">Coverage P5: {assessment.coverageP5 ? `${assessment.coverageP5.toFixed(2)}x` : '--'}</div>
+            <div className="pill">Coverage P1: {assessment.coverageP1 ? `${assessment.coverageP1.toFixed(2)}x` : '--'}</div>
           </div>
         </div>
       </div>

@@ -1,4 +1,6 @@
 import { lazy, Suspense } from 'react';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 
 const CrdtOrb = lazy(() => import('../components/governance/CrdtOrb.jsx'));
 
@@ -18,6 +20,10 @@ export default function Governance() {
         <div className="page-subtitle">
           Governance UI is read-only in the MVP.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="governance" />
       </div>
       <div className="stat-row">
         <div className="stat-card">

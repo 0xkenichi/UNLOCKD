@@ -60,6 +60,15 @@ async function main() {
   await usdc.connect(lender).faucet(depositAmount);
   await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
   await (await pool.connect(lender).deposit(depositAmount)).wait();
+  // Allow the pool to lend from the issuance treasury after deposit.
+  const issuanceTreasury = await pool.issuanceTreasury();
+  const issuanceSigner =
+    issuanceTreasury.toLowerCase() === deployer.address.toLowerCase()
+      ? deployer
+      : lender;
+  await (
+    await usdc.connect(issuanceSigner).approve(poolAddress, depositAmount)
+  ).wait();
 
   let nextCollateral = BigInt(Math.floor(Date.now() / 1000));
   const logCollateral = (label, collateralId, vestingAddress) => {
@@ -92,7 +101,8 @@ async function main() {
   const OZVestingClaimWrapper = await ethers.getContractFactory(
     "OZVestingClaimWrapper"
   );
-  const ozAllocation = ethers.parseUnits("400000", 18);
+  // Keep allocations tiny to avoid ValuationEngine overflow on local networks.
+  const ozAllocation = ethers.parseUnits("0.000001", 18);
   const ozWrapper = await OZVestingClaimWrapper.connect(deployer).deploy(
     borrower.address,
     vestTokenAddress,
@@ -117,7 +127,7 @@ async function main() {
   const TokenTimelockClaimWrapper = await ethers.getContractFactory(
     "TokenTimelockClaimWrapper"
   );
-  const tlAllocation = ethers.parseUnits("220000", 18);
+  const tlAllocation = ethers.parseUnits("0.000001", 18);
   const tlDuration = 180 * ONE_DAY;
   const tlWrapper = await TokenTimelockClaimWrapper.connect(deployer).deploy(
     borrower.address,
@@ -144,7 +154,7 @@ async function main() {
   const sablier = await MockSablierV2Lockup.connect(deployer).deploy();
   await sablier.waitForDeployment();
 
-  const sablierAllocation = ethers.parseUnits("260000", 18);
+  const sablierAllocation = ethers.parseUnits("0.000001", 18);
   await (await vestToken.mint(deployer.address, sablierAllocation)).wait();
   await (await vestToken.approve(await sablier.getAddress(), sablierAllocation)).wait();
   const sablierStart = now - 15 * ONE_DAY;
@@ -174,7 +184,7 @@ async function main() {
   const SuperfluidClaimWrapper = await ethers.getContractFactory(
     "SuperfluidClaimWrapper"
   );
-  const sfAllocation = ethers.parseUnits("180000", 18);
+  const sfAllocation = ethers.parseUnits("0.000001", 18);
   const sfStart = now - 20 * ONE_DAY;
   const sfDuration = 300 * ONE_DAY;
   const sfWrapper = await SuperfluidClaimWrapper.connect(deployer).deploy(

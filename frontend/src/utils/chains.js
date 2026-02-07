@@ -4,13 +4,14 @@ import {
   avalancheFuji,
   base,
   baseSepolia,
+  hardhat,
   sepolia
 } from 'viem/chains';
 
 export const EVM_MAINNET_CHAINS = [base, arbitrum, avalanche];
-export const EVM_TESTNET_CHAINS = [sepolia, baseSepolia, avalancheFuji];
+export const EVM_TESTNET_CHAINS = [sepolia, baseSepolia, avalancheFuji, hardhat];
 export const ALL_EVM_CHAINS = [...EVM_MAINNET_CHAINS, ...EVM_TESTNET_CHAINS];
-export const DEFAULT_EVM_CHAIN = base;
+export const DEFAULT_EVM_CHAIN = sepolia;
 
 export const SOLANA_NETWORKS = [
   {

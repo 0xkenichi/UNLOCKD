@@ -1,4 +1,6 @@
 import AuctionTypeSelector from '../components/auction/AuctionTypeSelector.jsx';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 
 export default function Auction() {
   const scrollTo = (id) => {
@@ -15,6 +17,10 @@ export default function Auction() {
         <div className="page-subtitle">
           Claims auction module is planned and not live on testnet.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="auction" />
       </div>
       <div className="stat-row">
         <div className="stat-card">

@@ -1,74 +1,31 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useAccount,
   useChainId,
-  usePublicClient,
-  useReadContract,
-  useReadContracts,
-  useWatchContractEvent
+  useReadContract
 } from 'wagmi';
 import ChainPrompt from '../components/common/ChainPrompt.jsx';
-import LiveLoans from '../components/dashboard/LiveLoans.jsx';
-import LiveVestedContracts from '../components/dashboard/LiveVestedContracts.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import SpotlightVestedContracts from '../components/dashboard/SpotlightVestedContracts.jsx';
+import { ALL_EVM_CHAINS } from '../utils/chains.js';
 import {
   getContractAddress,
   loanManagerAbi,
   usdcAbi
 } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
-import { apiDownload, fetchActivity } from '../utils/api.js';
-
-const HoloCard = lazy(() => import('../components/common/HoloCard.jsx'));
-const DashboardHolo = lazy(() => import('../components/dashboard/DashboardHolo.jsx'));
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { address } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient({ chainId });
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
-  const [activity, setActivity] = useState([]);
-  const [activityMeta, setActivityMeta] = useState(null);
-  const [activityError, setActivityError] = useState('');
-
-  const mergeActivity = (incoming) => {
-    setActivity((prev) => {
-      const merged = new Map();
-      [...incoming, ...prev].forEach((item) => {
-        if (!item) return;
-        const key = `${item.txHash || ''}-${item.logIndex || item.type}-${item.loanId || ''}`;
-        merged.set(key, item);
-      });
-      return Array.from(merged.values()).slice(0, 12);
-    });
-  };
-
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const { items, meta } = await fetchActivity();
-        if (active) {
-          setActivity(items.slice(0, 12));
-          setActivityMeta(meta);
-          setActivityError('');
-        }
-      } catch (error) {
-        if (active) {
-          setActivityError(error?.message || 'Failed to load activity.');
-        }
-      }
-    };
-    load();
-    const interval = setInterval(load, 15000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
+  const activeChain = useMemo(
+    () => ALL_EVM_CHAINS.find((chain) => chain.id === chainId),
+    [chainId]
+  );
 
   const { data: loanCount } = useReadContract({
     address: loanManager,
@@ -76,15 +33,6 @@ export default function Dashboard() {
     functionName: 'loanCount',
     query: { enabled: Boolean(loanManager) }
   });
-
-  const recentIds = useMemo(() => {
-    if (!loanCount || loanCount === 0n) {
-      return [];
-    }
-    const count = Number(loanCount);
-    const start = Math.max(count - 3, 0);
-    return Array.from({ length: count - start }, (_, idx) => BigInt(start + idx));
-  }, [loanCount]);
 
   const { data: usdcBalance } = useReadContract({
     address: usdc,
@@ -94,341 +42,129 @@ export default function Dashboard() {
     query: { enabled: Boolean(usdc && address) }
   });
 
-  const { data: loanReads } = useReadContracts({
-    contracts: recentIds.map((id) => ({
-      address: loanManager,
-      abi: loanManagerAbi,
-      functionName: 'loans',
-      args: [id]
-    })),
-    query: { enabled: Boolean(loanManager && recentIds.length) }
-  });
-
-  const positions = useMemo(() => {
-    if (!loanReads) return [];
-    return loanReads
-      .filter((read) => read.status === 'success')
-      .map((read, index) => {
-        const loan = read.result;
-        return {
-          id: `Loan-${recentIds[index]?.toString() || index}`,
-          token: 'USDC',
-          quantity: loan ? loan[1].toString() : '0',
-          pv: loan ? loan[1].toString() : '0',
-          ltv: loan ? `${(Number(loan[2]) / 100).toFixed(2)}%` : '--',
-          unlock: loan ? new Date(Number(loan[4]) * 1000).toLocaleDateString() : '--'
-        };
-      });
-  }, [loanReads, recentIds]);
-
-  const nextUnlock = useMemo(() => {
-    if (!positions.length) return '--';
-    return positions
-      .map((pos) => pos.unlock)
-      .filter(Boolean)
-      .sort()[0];
-  }, [positions]);
-
-  const handleExportActivity = () => {
-    apiDownload('/api/exports/activity', 'vestra-activity.csv');
-  };
-
-  useWatchContractEvent({
-    address: loanManager,
-    abi: loanManagerAbi,
-    eventName: 'LoanCreated',
-    enabled: Boolean(loanManager && publicClient),
-    onLogs: async (logs) => {
-      if (!publicClient) return;
-      const incoming = await Promise.all(
-        logs.map(async (log) => {
-          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
-          return {
-            type: 'LoanCreated',
-            loanId: log.args?.loanId?.toString?.() || '',
-            borrower: log.args?.borrower,
-            amount: log.args?.amount?.toString?.() || '',
-            txHash: log.transactionHash,
-            logIndex: Number(log.logIndex),
-            timestamp: Number(block?.timestamp || 0)
-          };
-        })
-      );
-      mergeActivity(incoming);
-    }
-  });
-
-  useWatchContractEvent({
-    address: loanManager,
-    abi: loanManagerAbi,
-    eventName: 'LoanRepaid',
-    enabled: Boolean(loanManager && publicClient),
-    onLogs: async (logs) => {
-      if (!publicClient) return;
-      const incoming = await Promise.all(
-        logs.map(async (log) => {
-          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
-          return {
-            type: 'LoanRepaid',
-            loanId: log.args?.loanId?.toString?.() || '',
-            amount: log.args?.amount?.toString?.() || '',
-            txHash: log.transactionHash,
-            logIndex: Number(log.logIndex),
-            timestamp: Number(block?.timestamp || 0)
-          };
-        })
-      );
-      mergeActivity(incoming);
-    }
-  });
-
-  useWatchContractEvent({
-    address: loanManager,
-    abi: loanManagerAbi,
-    eventName: 'LoanSettled',
-    enabled: Boolean(loanManager && publicClient),
-    onLogs: async (logs) => {
-      if (!publicClient) return;
-      const incoming = await Promise.all(
-        logs.map(async (log) => {
-          const block = await publicClient.getBlock({ blockNumber: log.blockNumber });
-          return {
-            type: 'LoanSettled',
-            loanId: log.args?.loanId?.toString?.() || '',
-            defaulted: Boolean(log.args?.defaulted),
-            txHash: log.transactionHash,
-            logIndex: Number(log.logIndex),
-            timestamp: Number(block?.timestamp || 0)
-          };
-        })
-      );
-      mergeActivity(incoming);
-    }
-  });
-
-  const activityRows = useMemo(() => {
-    if (!activity.length) return [];
-    return activity.map((item) => ({
-      event: item.type === 'LoanCreated'
-        ? 'Borrowed'
-        : item.type === 'LoanRepaid'
-          ? 'Repayment'
-          : 'Settlement',
-      asset: 'USDC',
-      amount: item.amount ? item.amount : '--',
-      status: item.type === 'LoanSettled' && item.defaulted ? 'Defaulted' : 'Confirmed'
-    }));
-  }, [activity]);
-
-  const holoFallback = (
-    <div className="holo-card">
-      <div className="loading-row">
-        <div className="spinner" />
-      </div>
-    </div>
+  const formattedBalance = useMemo(
+    () => formatValue(usdcBalance, 6),
+    [usdcBalance]
   );
+  const loanCountValue = loanCount ? loanCount.toString() : '0';
+  const shortAddress = address
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : '--';
 
   return (
-    <div className="stack">
-      <div className="page-header">
-        <h1 className="page-title holo-glow">Dashboard</h1>
-        <div className="page-subtitle">
-          Track positions, unlock timelines, and conservative borrow power.
-        </div>
-      </div>
-      <ChainPrompt />
-      <div className="stat-row">
-        <div className="stat-card">
-          <div className="stat-label">Portfolio Value</div>
-          <div className="stat-value">$184,220</div>
-          <div className="stat-delta">+2.4% weekly</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Borrow Capacity</div>
-          <div className="stat-value">$92,110</div>
-          <div className="stat-delta">Conservative LTV</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Health Factor</div>
-          <div className="stat-value">1.74</div>
-          <div className="stat-delta">Low risk</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Next Unlock</div>
-          <div className="stat-value">{nextUnlock}</div>
-          <div className="stat-delta">Earliest vest</div>
-        </div>
-      </div>
-      <div className="grid-2">
-        <div className="holo-card">
-          <h3 className="holo-title">Active Loans</h3>
-          <div className="metric-value">
-            {loanCount ? loanCount.toString() : '0'}
+    <div className="stack dashboard-shell">
+      <section className="dashboard-hero">
+        <div className="dashboard-hero-main">
+          <div className="dashboard-eyebrow">Account overview</div>
+          <h1 className="page-title holo-glow">Dashboard</h1>
+          <div className="page-subtitle">
+            Track your vesting credit health, balances, and next best actions.
           </div>
-          <div className="muted">Loan count from LoanManager</div>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">Next Unlock</h3>
-          <div className="metric-value">{nextUnlock}</div>
-          <div className="muted">Earliest unlock date</div>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">USDC Balance</h3>
-          <div className="metric-value">
-            {formatValue(usdcBalance, 6)}
-          </div>
-          <div className="muted">Wallet balance (6 decimals)</div>
-        </div>
-      </div>
-      <Suspense fallback={holoFallback}>
-        <HoloCard>
-          <DashboardHolo positions={positions} />
-        </HoloCard>
-      </Suspense>
-      <LiveLoans />
-      <LiveVestedContracts />
-      <SpotlightVestedContracts />
-      <div className="grid-2">
-        <div className="holo-card">
-          <div className="section-head">
-            <div>
-              <h3 className="section-title">Market Overview</h3>
-              <div className="section-subtitle">Top collateral markets</div>
-            </div>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => navigate('/features')}
-            >
-              View Markets
-            </button>
-          </div>
-          <div className="data-table">
-            <div className="table-row header">
-              <div>Asset</div>
-              <div>Supply</div>
-              <div>Borrow APY</div>
-              <div>Utilization</div>
-            </div>
-            <div className="table-row">
-              <div className="asset-cell">
-                <span className="asset-icon eth" />
-                ETH
-              </div>
-              <div>$8.2M</div>
-              <div>6.1%</div>
-              <div>72%</div>
-            </div>
-            <div className="table-row">
-              <div className="asset-cell">
-                <span className="asset-icon usdc" />
-                USDC
-              </div>
-              <div>$5.4M</div>
-              <div>4.3%</div>
-              <div>64%</div>
-            </div>
-            <div className="table-row">
-              <div className="asset-cell">
-                <span className="asset-icon arb" />
-                ARB
-              </div>
-              <div>$2.1M</div>
-              <div>9.8%</div>
-              <div>81%</div>
-            </div>
-          </div>
-        </div>
-        <div className="holo-card">
-          <div className="section-head">
-            <div>
-              <h3 className="section-title">Recent Activity</h3>
-              <div className="section-subtitle">Vault & loan events</div>
-            </div>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={handleExportActivity}
-            >
-              Export
-            </button>
-          </div>
-          {activityError ? (
-            <div className="muted">{activityError}</div>
-          ) : activityRows.length ? (
-            <div className="data-table">
-              <div className="table-row header">
-                <div>Event</div>
-                <div>Asset</div>
-                <div>Amount</div>
-                <div>Status</div>
-              </div>
-              {activityRows.map((row, index) => (
-                <div key={`${row.event}-${index}`} className="table-row">
-                  <div>{row.event}</div>
-                  <div className="asset-cell">
-                    <span className="asset-icon usdc" />
-                    {row.asset}
-                  </div>
-                  <div>{row.amount}</div>
-                  <div className="tag success">{row.status}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="muted">
-              {activityMeta?.lookbackBlocks
-                ? `No recent activity in the last ${activityMeta.lookbackBlocks} blocks.`
-                : 'No recent activity yet.'}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="grid-2">
-        {positions.length ? (
-          positions.map((position) => (
-          <div key={position.id} className="holo-card">
-            <div className="holo-title">{position.token} Vault</div>
-            <div className="muted">Unlocks: {position.unlock}</div>
-            <div className="stack">
-              <div>Quantity: {position.quantity}</div>
-              <div>PV: {position.pv}</div>
-              <div>LTV: {position.ltv}</div>
-            </div>
-          </div>
-          ))
-        ) : (
-          <div className="holo-card">
-            <h3 className="holo-title">No Live Loans</h3>
-            <div className="muted">
-              Create a loan on Sepolia to populate live positions.
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="grid-2">
-        <div className="holo-card">
-          <h3 className="holo-title">Quick Actions</h3>
-          <div className="muted">Move fast with prefilled flows.</div>
-          <div className="stack">
+          <div className="dashboard-hero-actions">
             <button className="button" onClick={() => navigate('/borrow')}>
-              Start Borrow Flow
+              Start Borrow
             </button>
             <button className="button ghost" onClick={() => navigate('/repay')}>
-              Repay or Settle
+              Make a Repay
+            </button>
+            <button className="button ghost" onClick={() => navigate('/portfolio')}>
+              Open Portfolio
             </button>
           </div>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">Protocol Health</h3>
-          <div className="muted">Testnet metrics not yet available.</div>
-          <div className="stack">
-            <div className="pill">Utilization: --</div>
-            <div className="pill">Avg LTV: --</div>
-            <div className="pill">Defaults: --</div>
+          <div className="dashboard-hero-pills">
+            <span className="pill">Wallet: {shortAddress}</span>
+            <span className="pill">
+              Network: {activeChain?.name || 'Not connected'}
+            </span>
+            <span className="pill">Chain ID: {chainId || '--'}</span>
           </div>
         </div>
-      </div>
+        <div className="dashboard-hero-aside">
+          <div className="holo-card dashboard-summary-card">
+            <div className="section-head">
+              <div>
+                <h3 className="section-title">Account Snapshot</h3>
+                <div className="section-subtitle">Live on-chain highlights</div>
+              </div>
+              <span className="tag">Live</span>
+            </div>
+            <div className="dashboard-summary-grid">
+              <div className="stat-card">
+                <div className="stat-label">Active Loans</div>
+                <div className="stat-value">{loanCountValue}</div>
+                <div className="stat-delta">On-chain count</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">USDC Balance</div>
+                <div className="stat-value">{formattedBalance}</div>
+                <div className="stat-delta">Wallet balance</div>
+              </div>
+            </div>
+            <div className="dashboard-summary-footer">
+              <button className="button ghost" onClick={() => navigate('/docs')}>
+                View Docs
+              </button>
+              <button className="button ghost" onClick={() => navigate('/identity')}>
+                Identity Status
+              </button>
+            </div>
+          </div>
+          <PageIllustration variant="dashboard" />
+        </div>
+      </section>
+
+      <section className="dashboard-section">
+        <div className="section-head dashboard-section-head">
+          <div>
+            <h3 className="section-title">Portfolio Snapshot</h3>
+            <div className="section-subtitle">Key signals at a glance</div>
+          </div>
+          <span className="tag">Summary</span>
+        </div>
+        <div className="grid-3">
+          <div className="holo-card dashboard-mini-card">
+            <div className="dashboard-mini-label">Primary Wallet</div>
+            <div className="dashboard-mini-value">{shortAddress}</div>
+            <div className="muted">Connected address</div>
+          </div>
+          <div className="holo-card dashboard-mini-card">
+            <div className="dashboard-mini-label">Active Loans</div>
+            <div className="dashboard-mini-value">{loanCountValue}</div>
+            <div className="muted">Currently tracked</div>
+          </div>
+          <div className="holo-card dashboard-mini-card">
+            <div className="dashboard-mini-label">USDC Available</div>
+            <div className="dashboard-mini-value">{formattedBalance}</div>
+            <div className="muted">Ready for deployment</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-section">
+        <div className="section-head dashboard-section-head">
+          <div>
+            <h3 className="section-title">Network Readiness</h3>
+            <div className="section-subtitle">
+              Switch to supported chains or continue with Solana.
+            </div>
+          </div>
+          <span className="tag">Connectivity</span>
+        </div>
+        <ChainPrompt />
+      </section>
+
+      <section className="dashboard-section">
+        <div className="section-head dashboard-section-head">
+          <div>
+            <h3 className="section-title">Market Intelligence</h3>
+            <div className="section-subtitle">
+              Vested contract candidates and upcoming unlock coverage.
+            </div>
+          </div>
+          <span className="tag">Insights</span>
+        </div>
+        <SpotlightVestedContracts />
+      </section>
     </div>
   );
 }

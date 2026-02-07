@@ -14,7 +14,7 @@ const steps = [
   },
   {
     title: 'Terms',
-    description: 'Confirm borrow amount and interest rate.',
+    description: 'Confirm borrow amount, interest, and repayment waterfall.',
     cta: 'Review Terms'
   },
   {

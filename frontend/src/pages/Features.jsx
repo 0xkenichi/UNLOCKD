@@ -1,3 +1,6 @@
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+
 export default function Features() {
   return (
     <div className="stack">
@@ -6,6 +9,10 @@ export default function Features() {
         <div className="page-subtitle">
           Core capabilities planned for the MVP and beyond.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="features" />
       </div>
       <div className="stat-row">
         <div className="stat-card">

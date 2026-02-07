@@ -5,7 +5,11 @@ import {
   spotlightContracts,
   upcomingVestings
 } from '../../data/spotlightContracts.js';
-import { fetchVestedContracts, fetchVestedSnapshots } from '../../utils/api.js';
+import {
+  fetchSolanaUnmappedMints,
+  fetchVestedContracts,
+  fetchVestedSnapshots
+} from '../../utils/api.js';
 
 const NICHES = ['All', 'DeSci', 'DePIN', 'AI', 'AGI', 'DeSoc', 'DeFi'];
 const GECKO_TERMINAL_BASE = 'https://api.geckoterminal.com/api/v2';
@@ -36,6 +40,13 @@ function formatScore(score) {
 function formatUsd(value) {
   if (!value && value !== 0) return '--';
   return `$${Number(value).toLocaleString()}`;
+}
+
+function formatChainLabel(chain) {
+  if (!chain) return null;
+  if (chain === 'solana') return 'Solana';
+  if (chain === 'evm') return 'EVM';
+  return chain.toString().toUpperCase();
 }
 
 function riskTag(risk) {
@@ -129,6 +140,8 @@ export default function SpotlightVestedContracts() {
   const [isLoading, setIsLoading] = useState(false);
   const [liquidityByToken, setLiquidityByToken] = useState({});
   const [snapshotHistory, setSnapshotHistory] = useState([]);
+  const [unmappedMints, setUnmappedMints] = useState([]);
+  const [isLoadingUnmapped, setIsLoadingUnmapped] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
   const cardProps = {
@@ -160,6 +173,33 @@ export default function SpotlightVestedContracts() {
       });
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadUnmapped = async () => {
+      setIsLoadingUnmapped(true);
+      try {
+        const items = await fetchSolanaUnmappedMints();
+        if (isMounted) {
+          setUnmappedMints(items);
+        }
+      } catch {
+        if (isMounted) {
+          setUnmappedMints([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingUnmapped(false);
+        }
+      }
+    };
+    loadUnmapped();
+    const interval = setInterval(loadUnmapped, 60000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -367,7 +407,9 @@ export default function SpotlightVestedContracts() {
                       <h4 className="holo-title">{item.project}</h4>
                     </div>
                     <div className="muted">
-                      {item.niche} • {item.token} • {item.stage}
+                      {[item.niche, item.token, item.stage, formatChainLabel(item.chain)]
+                        .filter(Boolean)
+                        .join(' • ')}
                     </div>
                   </div>
                   <div className="stack">
@@ -551,6 +593,52 @@ export default function SpotlightVestedContracts() {
           </div>
         ) : (
           <div className="muted">No snapshots yet.</div>
+        )}
+      </motion.div>
+      <motion.div className="holo-card brand-spotlight" {...cardProps}>
+        <div className="section-head">
+          <div>
+            <div className="brand-title-row">
+              <span className="brand-crest brand-crest-alt" aria-hidden="true" />
+              <h3 className="section-title">Unmapped Solana Mints</h3>
+            </div>
+            <div className="section-subtitle">
+              Tokens without a resolved Pyth feed (pricing defaults to 0).
+            </div>
+          </div>
+          <span className="tag brand-tag">Coverage</span>
+        </div>
+        {isLoadingUnmapped && <div className="muted">Refreshing mint coverage…</div>}
+        {unmappedMints.length ? (
+          <div className="data-table brand-table">
+            <div className="table-row header">
+              <div>Symbol</div>
+              <div>Mint</div>
+              <div>Reason</div>
+            </div>
+            {unmappedMints.map((item) => (
+              <div className="table-row" key={item.mint}>
+                <div>{item.symbol || '--'}</div>
+                <div>
+                  {item.mint ? (
+                    <a
+                      className="button ghost"
+                      href={`https://solscan.io/token/${item.mint}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
+                    </a>
+                  ) : (
+                    '--'
+                  )}
+                </div>
+                <div>{item.reason || '--'}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="muted">All tracked mints have Pyth pricing.</div>
         )}
       </motion.div>
     </div>

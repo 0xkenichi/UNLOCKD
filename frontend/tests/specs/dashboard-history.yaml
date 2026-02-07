@@ -5,8 +5,6 @@ steps:
       role: heading
       name: Dashboard
       exact: true
-  - expectText: Recent Activity
-  - expectText: Recent Activity
-  - expectRole:
-      role: button
-      name: Export
+  - expectText: Quick Actions
+  - expectText: Getting Started
+  - expectText: Portfolio Snapshot

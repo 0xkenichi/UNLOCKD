@@ -49,6 +49,7 @@ async function main() {
   await usdc.connect(lender).faucet(depositAmount);
   await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
   await (await pool.connect(lender).deposit(depositAmount)).wait();
+  await (await usdc.connect(deployer).approve(poolAddress, depositAmount)).wait();
 
   const priceFeedAddress = await valuation.priceFeed();
   const priceFeed = await ethers.getContractAt(

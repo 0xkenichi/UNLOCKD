@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import {
   BrowserRouter,
   Routes,
@@ -6,16 +6,20 @@ import {
   useLocation,
   useNavigate
 } from 'react-router-dom';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId } from 'wagmi';
-import { ALL_EVM_CHAINS, EVM_MAINNET_CHAINS } from './utils/chains.js';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from './utils/chains.js';
+import { useOnchainSession } from './utils/onchainSession.js';
 import { routeImports } from './routes.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
+import UnifiedWalletModal from './components/common/UnifiedWalletModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
 import TabBar from './components/common/TabBar.jsx';
 
 const Landing = lazy(routeImports.landing);
 const Dashboard = lazy(routeImports.dashboard);
+const Portfolio = lazy(routeImports.portfolio);
+const Lender = lazy(routeImports.lender);
 const Borrow = lazy(routeImports.borrow);
 const Repay = lazy(routeImports.repay);
 const Auction = lazy(routeImports.auction);
@@ -37,17 +41,25 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const isLanding = location.pathname === '/';
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const { isConnecting, isReconnecting } = useAccount();
-  const desiredChainIds = EVM_MAINNET_CHAINS.map((chain) => chain.id);
+  const { session } = useOnchainSession();
+  const { wallet: solanaWallet, connected: solanaConnected } = useWallet();
   const allChainIds = ALL_EVM_CHAINS.map((chain) => chain.id);
-  const showChainWarning =
-    chainId && !allChainIds.includes(chainId);
+  const isEvm = session.chainType !== 'solana';
+  const showChainWarning = isEvm && chainId && !allChainIds.includes(chainId);
+  const solanaNetwork =
+    SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
+    SOLANA_NETWORKS[0];
   const publicDocsUrl =
     import.meta.env.VITE_PUBLIC_DOCS_URL || 'http://localhost:3000';
 
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-to-content">
+        Skip to main content
+      </a>
       {!isLanding && (
         <header className="app-header">
           <div className="brand">
@@ -101,13 +113,26 @@ function AppShell() {
                 Dashboard
               </button>
               <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/portfolio')}
+              >
+                Portfolio
+              </button>
+              <button
                 className="button"
                 type="button"
                 onClick={() => navigate('/borrow')}
               >
                 Borrow now
               </button>
-              <ConnectButton />
+              <button
+                className="button"
+                type="button"
+                onClick={() => setWalletModalOpen(true)}
+              >
+                Connect Wallet
+              </button>
             </div>
           </div>
         </header>
@@ -117,11 +142,23 @@ function AppShell() {
           Please switch to Base, Arbitrum, or Avalanche to continue.
         </div>
       )}
-      <main className={`app-main ${isLanding ? 'app-main--landing' : ''}`}>
+      {!showChainWarning &&
+        (session.chainType === 'solana' || solanaConnected || solanaWallet) &&
+        solanaNetwork && (
+        <div className="chain-warning">
+          Phantom wallet: switch to {solanaNetwork.name} to continue.
+        </div>
+      )}
+      <main
+        id="main-content"
+        className={`app-main ${isLanding ? 'app-main--landing' : ''}`}
+      >
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/lender" element={<Lender />} />
             <Route path="/borrow" element={<Borrow />} />
             <Route path="/repay" element={<Repay />} />
             <Route path="/auction" element={<Auction />} />
@@ -134,6 +171,10 @@ function AppShell() {
         </Suspense>
       </main>
       <OnboardingModal />
+      <UnifiedWalletModal
+        isOpen={walletModalOpen}
+        onClose={() => setWalletModalOpen(false)}
+      />
       {!isLanding && <AIBubble />}
       {!isLanding && <TabBar />}
       <footer className="app-footer">

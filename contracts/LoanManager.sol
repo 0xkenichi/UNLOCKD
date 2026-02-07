@@ -44,14 +44,23 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     mapping(uint256 => Loan) public loans;
     uint256 public loanCount;
     mapping(address => bool) public identityLinked;
+    mapping(address => uint256) public repayTokenPriority;
+    address[] public repayTokens;
 
     event LoanCreated(uint256 indexed loanId, address indexed borrower, uint256 amount);
     event LoanRepaid(uint256 indexed loanId, uint256 amount);
+    event LoanRepaidWithSwap(
+        uint256 indexed loanId,
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 usdcReceived
+    );
     event LoanSettled(uint256 indexed loanId, bool defaulted);
     event IdentityLinked(address indexed borrower, uint256 boostBps);
     event IdentityConfigUpdated(address verifier, uint256 boostBps);
     event LiquidationConfigUpdated(address router, uint24 poolFee, uint256 slippageBps);
     event TreasuryConfigUpdated(address issuanceTreasury, address returnsTreasury);
+    event RepayTokenPriorityUpdated(address[] tokens);
     event CollateralLiquidated(
         uint256 indexed loanId,
         address indexed token,
@@ -165,8 +174,145 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
 
         address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
         require(usdc.transferFrom(msg.sender, paymentTreasury, amount), "transfer failed");
-        pool.repay(amount);
+        _applyRepayment(loanId, amount);
+    }
 
+    function repayWithSwap(
+        uint256 loanId,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 minUsdcOut
+    ) external whenNotPaused nonReentrant {
+        Loan storage loan = loans[loanId];
+        require(loan.active, "inactive");
+        require(msg.sender == loan.borrower, "not borrower");
+        require(amountIn > 0, "amount=0");
+        require(tokenIn != address(0), "token=0");
+        require(repayTokenPriority[tokenIn] > 0, "token not allowed");
+
+        uint256 usdcReceived;
+        if (tokenIn == address(usdc)) {
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            require(usdc.transferFrom(msg.sender, paymentTreasury, amountIn), "transfer failed");
+            usdcReceived = amountIn;
+        } else {
+            require(address(uniswapRouter) != address(0), "router=0");
+            require(IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn), "transfer failed");
+            IERC20(tokenIn).approve(address(uniswapRouter), amountIn);
+
+            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+                .ExactInputSingleParams({
+                    tokenIn: tokenIn,
+                    tokenOut: address(usdc),
+                    fee: poolFee,
+                    recipient: address(this),
+                    deadline: block.timestamp + 300,
+                    amountIn: amountIn,
+                    amountOutMinimum: minUsdcOut,
+                    sqrtPriceLimitX96: 0
+                });
+
+            usdcReceived = uniswapRouter.exactInputSingle(params);
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            require(usdc.transfer(paymentTreasury, usdcReceived), "usdc transfer failed");
+        }
+
+        _applyRepayment(loanId, usdcReceived);
+        emit LoanRepaidWithSwap(loanId, tokenIn, amountIn, usdcReceived);
+    }
+
+    function repayWithSwapBatch(
+        uint256 loanId,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        uint256[] calldata minUsdcOut
+    ) external whenNotPaused nonReentrant {
+        require(tokens.length == amounts.length, "length mismatch");
+        require(tokens.length == minUsdcOut.length, "length mismatch");
+
+        Loan storage loan = loans[loanId];
+        require(loan.active, "inactive");
+        require(msg.sender == loan.borrower, "not borrower");
+
+        uint256 lastPriority = 0;
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address tokenIn = tokens[i];
+            uint256 amountIn = amounts[i];
+            if (amountIn == 0) continue;
+
+            uint256 priority = repayTokenPriority[tokenIn];
+            require(priority > 0, "token not allowed");
+            require(priority >= lastPriority, "priority order");
+            lastPriority = priority;
+
+            uint256 usdcReceived;
+            if (tokenIn == address(usdc)) {
+                address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+                require(usdc.transferFrom(msg.sender, paymentTreasury, amountIn), "transfer failed");
+                usdcReceived = amountIn;
+            } else {
+                require(address(uniswapRouter) != address(0), "router=0");
+                require(IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn), "transfer failed");
+                IERC20(tokenIn).approve(address(uniswapRouter), amountIn);
+
+                ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
+                    .ExactInputSingleParams({
+                        tokenIn: tokenIn,
+                        tokenOut: address(usdc),
+                        fee: poolFee,
+                        recipient: address(this),
+                        deadline: block.timestamp + 300,
+                        amountIn: amountIn,
+                        amountOutMinimum: minUsdcOut[i],
+                        sqrtPriceLimitX96: 0
+                    });
+
+                usdcReceived = uniswapRouter.exactInputSingle(params);
+                address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+                require(usdc.transfer(paymentTreasury, usdcReceived), "usdc transfer failed");
+            }
+
+            _applyRepayment(loanId, usdcReceived);
+            emit LoanRepaidWithSwap(loanId, tokenIn, amountIn, usdcReceived);
+
+            if (!loan.active) {
+                break;
+            }
+        }
+    }
+
+    function setRepayTokenPriority(address[] calldata tokens) external onlyOwner {
+        for (uint256 i = 0; i < repayTokens.length; i++) {
+            repayTokenPriority[repayTokens[i]] = 0;
+        }
+        delete repayTokens;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+            require(token != address(0), "token=0");
+            if (repayTokenPriority[token] == 0) {
+                repayTokens.push(token);
+                repayTokenPriority[token] = i + 1;
+            }
+        }
+        emit RepayTokenPriorityUpdated(tokens);
+    }
+
+    function getRepayTokenPriority() external view returns (address[] memory) {
+        return repayTokens;
+    }
+
+    function _applyRepayment(uint256 loanId, uint256 amount) internal {
+        if (amount == 0) {
+            return;
+        }
+        uint256 poolDebt = pool.totalBorrowed();
+        uint256 repayAmount = amount > poolDebt ? poolDebt : amount;
+        if (repayAmount > 0) {
+            pool.repay(repayAmount);
+        }
+
+        Loan storage loan = loans[loanId];
         uint256 remainingInterest = loan.interest;
         uint256 remainingPrincipal = loan.principal;
 

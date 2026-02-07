@@ -1,3 +1,6 @@
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+
 export default function About() {
   return (
     <div className="stack">
@@ -6,6 +9,10 @@ export default function About() {
         <div className="page-subtitle">
           An institutional-grade protocol for time-locked liquidity.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="about" />
       </div>
       <div className="stat-row">
         <div className="stat-card">

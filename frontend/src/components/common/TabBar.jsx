@@ -3,6 +3,8 @@ import { routeImports } from '../../routes.js';
 
 const prefetchByPath = {
   '/dashboard': routeImports.dashboard,
+  '/portfolio': routeImports.portfolio,
+  '/lender': routeImports.lender,
   '/borrow': routeImports.borrow,
   '/repay': routeImports.repay,
   '/auction': routeImports.auction,
@@ -24,6 +26,8 @@ function prefetchRoute(path) {
 
 const iconPaths = {
   dashboard: 'M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 0h11v8H10v-8z',
+  portfolio: 'M4 4h16v4H4V4zm0 6h16v10H4V10zm3 3h6v4H7v-4z',
+  lender: 'M4 6h16M6 10h12M8 14h8M10 18h4',
   borrow: 'M4 12h16M12 4v16',
   repay: 'M4 12h16M16 8l4 4-4 4',
   auction: 'M6 4h12M8 8h8M10 12h4M12 16v4',
@@ -36,6 +40,8 @@ const iconPaths = {
 
 const primaryTabs = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { to: '/portfolio', label: 'Portfolio', icon: 'portfolio' },
+  { to: '/lender', label: 'Lender', icon: 'lender' },
   { to: '/borrow', label: 'Borrow', icon: 'borrow' },
   { to: '/repay', label: 'Repay', icon: 'repay' },
   { to: '/auction', label: 'Auction', icon: 'auction' },
@@ -56,6 +62,7 @@ function TabItem({ tab }) {
       to={tab.to}
       onMouseEnter={() => prefetchRoute(tab.to)}
       onFocus={() => prefetchRoute(tab.to)}
+      data-testid={`tab-${tab.label.toLowerCase()}`}
       className={({ isActive }) =>
         `tab-item ${isActive ? 'active' : ''}`
       }

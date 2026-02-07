@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './styles.css';
+import './polyfills.js';
 import '@rainbow-me/rainbowkit/styles.css';
 import '@solana/wallet-adapter-react-ui/styles.css';
 import {
@@ -11,7 +12,6 @@ import {
 } from '@rainbow-me/rainbowkit';
 import {
   coinbaseWallet,
-  metaMaskWallet,
   rainbowWallet,
   safeWallet,
   walletConnectWallet
@@ -25,26 +25,21 @@ import SolanaProvider from './components/solana/SolanaProvider.jsx';
 const projectId =
   import.meta.env.VITE_WC_PROJECT_ID || 'YOUR_WALLETCONNECT_PROJECT_ID';
 
+const smartCoinbaseWallet = (args) =>
+  coinbaseWallet({
+    ...args,
+    preference: 'smartWalletOnly'
+  });
+
 const connectors = connectorsForWallets(
   [
     {
       groupName: 'Smart Accounts',
-      wallets: [
-        coinbaseWallet({
-          appName: 'VESTRA',
-          chains: ALL_EVM_CHAINS,
-          preference: 'smartWalletOnly'
-        })
-      ]
+      wallets: [smartCoinbaseWallet]
     },
     {
       groupName: 'Popular',
-      wallets: [
-        metaMaskWallet({ projectId, chains: ALL_EVM_CHAINS }),
-        rainbowWallet({ projectId, chains: ALL_EVM_CHAINS }),
-        walletConnectWallet({ projectId, chains: ALL_EVM_CHAINS }),
-        safeWallet({ chains: ALL_EVM_CHAINS })
-      ]
+      wallets: [rainbowWallet, walletConnectWallet, safeWallet]
     }
   ],
   {

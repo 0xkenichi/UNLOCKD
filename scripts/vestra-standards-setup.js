@@ -59,6 +59,15 @@ async function main() {
   await usdc.connect(lender).faucet(depositAmount);
   await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
   await (await pool.connect(lender).deposit(depositAmount)).wait();
+  // Allow the pool to lend from the issuance treasury after deposit.
+  const issuanceTreasury = await pool.issuanceTreasury();
+  const issuanceSigner =
+    issuanceTreasury.toLowerCase() === deployer.address.toLowerCase()
+      ? deployer
+      : lender;
+  await (
+    await usdc.connect(issuanceSigner).approve(poolAddress, depositAmount)
+  ).wait();
 
   const vestTokenAddress = await vestToken.getAddress();
 
@@ -93,7 +102,8 @@ async function main() {
   const MockOZVestingWallet = await ethers.getContractFactory("MockOZVestingWallet");
   const ozStart = now - 60 * ONE_DAY;
   const ozDuration = 720 * ONE_DAY;
-  const ozAllocation = ethers.parseUnits("500000", 18);
+  // Keep allocations tiny to avoid ValuationEngine overflow on local networks.
+  const ozAllocation = ethers.parseUnits("0.000001", 18);
   const ozVesting = await MockOZVestingWallet.connect(deployer).deploy(
     borrower.address,
     ozStart,
@@ -107,7 +117,7 @@ async function main() {
   const MockTokenTimelock = await ethers.getContractFactory("MockTokenTimelock");
   const tlStart = now - 30 * ONE_DAY;
   const tlDuration = 210 * ONE_DAY;
-  const tlAllocation = ethers.parseUnits("200000", 18);
+  const tlAllocation = ethers.parseUnits("0.000001", 18);
   const timelock = await MockTokenTimelock.connect(deployer).deploy(
     borrower.address,
     vestTokenAddress,
@@ -122,7 +132,7 @@ async function main() {
   const sablier = await MockSablierV2Lockup.connect(deployer).deploy();
   await sablier.waitForDeployment();
 
-  const sablierAllocation = ethers.parseUnits("300000", 18);
+  const sablierAllocation = ethers.parseUnits("0.000001", 18);
   await (await vestToken.mint(deployer.address, sablierAllocation)).wait();
   await (await vestToken.approve(await sablier.getAddress(), sablierAllocation)).wait();
   const sablierStart = now - 30 * ONE_DAY;
@@ -151,7 +161,7 @@ async function main() {
   const MockSuperfluidStream = await ethers.getContractFactory("MockSuperfluidStream");
   const sfStart = now - 45 * ONE_DAY;
   const sfEnd = now + 365 * ONE_DAY;
-  const sfAllocation = ethers.parseUnits("150000", 18);
+  const sfAllocation = ethers.parseUnits("0.000001", 18);
   const sfStream = await MockSuperfluidStream.connect(deployer).deploy(
     borrower.address,
     vestTokenAddress,
@@ -166,7 +176,7 @@ async function main() {
   const linearStart = now - 90 * ONE_DAY;
   const linearDuration = 540 * ONE_DAY;
   const linearCliff = 120 * ONE_DAY;
-  const linearAllocation = ethers.parseUnits("250000", 18);
+  const linearAllocation = ethers.parseUnits("0.000001", 18);
   const linearVesting = await MockLinearVestingWallet.connect(deployer).deploy(
     borrower.address,
     linearStart,

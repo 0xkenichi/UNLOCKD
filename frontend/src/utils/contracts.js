@@ -11,6 +11,7 @@ export const CONTRACTS = {
   [sepolia.id]: {
     valuationEngine: '0x99F15E90aB6EDe24afa5Da28a1f4E10cd620b351',
     loanManager: '0xE747FC57F6B3F0EA9aDc1CdECe5DDe56d7C726ce',
+    lendingPool: '0x8eD7Cc3cE764B7BA57d8DeD29A13F1fD2Fd02a2A',
     vestingAdapter: '0xF366308b18156bAd74B1274EB1fFECCA2a1B7959',
     usdc: '0xc9c9083f4794165E9baA920fc9FcBc462864d992',
     mockPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762'
@@ -18,6 +19,7 @@ export const CONTRACTS = {
   [baseSepolia.id]: {
     valuationEngine: '',
     loanManager: '',
+    lendingPool: '',
     vestingAdapter: '',
     usdc: '',
     mockPriceFeed: ''
@@ -25,6 +27,7 @@ export const CONTRACTS = {
   [base.id]: {
     valuationEngine: '',
     loanManager: '',
+    lendingPool: '',
     vestingAdapter: '',
     usdc: '',
     mockPriceFeed: ''
@@ -32,6 +35,7 @@ export const CONTRACTS = {
   [arbitrum.id]: {
     valuationEngine: '',
     loanManager: '',
+    lendingPool: '',
     vestingAdapter: '',
     usdc: '',
     mockPriceFeed: ''
@@ -39,6 +43,7 @@ export const CONTRACTS = {
   [avalanche.id]: {
     valuationEngine: '',
     loanManager: '',
+    lendingPool: '',
     vestingAdapter: '',
     usdc: '',
     mockPriceFeed: ''
@@ -46,6 +51,7 @@ export const CONTRACTS = {
   [avalancheFuji.id]: {
     valuationEngine: '',
     loanManager: '',
+    lendingPool: '',
     vestingAdapter: '',
     usdc: '',
     mockPriceFeed: ''
@@ -88,6 +94,16 @@ export const loanManagerAbi = [
     ]
   },
   {
+    name: 'LoanRepaidWithSwap',
+    type: 'event',
+    inputs: [
+      { name: 'loanId', type: 'uint256', indexed: true },
+      { name: 'tokenIn', type: 'address', indexed: true },
+      { name: 'amountIn', type: 'uint256', indexed: false },
+      { name: 'usdcReceived', type: 'uint256', indexed: false }
+    ]
+  },
+  {
     name: 'LoanSettled',
     type: 'event',
     inputs: [
@@ -122,6 +138,44 @@ export const loanManagerAbi = [
       { name: 'amount', type: 'uint256' }
     ],
     outputs: []
+  },
+  {
+    name: 'repayWithSwap',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'loanId', type: 'uint256' },
+      { name: 'tokenIn', type: 'address' },
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'minUsdcOut', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
+    name: 'repayWithSwapBatch',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'loanId', type: 'uint256' },
+      { name: 'tokens', type: 'address[]' },
+      { name: 'amounts', type: 'uint256[]' },
+      { name: 'minUsdcOut', type: 'uint256[]' }
+    ],
+    outputs: []
+  },
+  {
+    name: 'setRepayTokenPriority',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'tokens', type: 'address[]' }],
+    outputs: []
+  },
+  {
+    name: 'getRepayTokenPriority',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address[]' }]
   },
   {
     name: 'loans',
@@ -201,6 +255,65 @@ export const usdcAbi = [
   }
 ];
 
+export const lendingPoolAbi = [
+  {
+    name: 'deposit',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: []
+  },
+  {
+    name: 'withdraw',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: []
+  },
+  {
+    name: 'deposits',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'totalDeposits',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'totalBorrowed',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'utilizationRateBps',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'availableLiquidity',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'getInterestRateBps',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  }
+];
+
 export const erc20Abi = [
   {
     name: 'decimals',
@@ -235,7 +348,9 @@ export const mockPriceFeedAbi = [
 ];
 
 export function getContractAddress(chainId, name) {
+  const envKeyChain = `VITE_${name.toUpperCase()}_ADDRESS_${chainId}`;
   const envKey = `VITE_${name.toUpperCase()}_ADDRESS`;
+  const envValueChain = import.meta.env?.[envKeyChain];
   const envValue = import.meta.env?.[envKey];
-  return CONTRACTS[chainId]?.[name] || envValue || '';
+  return CONTRACTS[chainId]?.[name] || envValueChain || envValue || '';
 }

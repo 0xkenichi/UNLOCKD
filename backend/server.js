@@ -1,19 +1,39 @@
 const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const { fetch } = require('undici');
 const fs = require('fs');
-const Database = require('better-sqlite3');
 const { ethers } = require('ethers');
+const { z } = require('zod');
 const { initAgent, answerAgent } = require('./agent');
+const persistence = require('./persistence');
+const {
+  fetchStreamflowVestingContracts,
+  getUnmappedMints
+} = require('./solana/streamflow');
+const {
+  getRepayConfig,
+  buildRepayPlan,
+  executeRepaySweep
+} = require('./solana/repay');
 
 const app = express();
 const port = process.env.PORT || 4000;
 
+const trustProxy = process.env.TRUST_PROXY;
+if (trustProxy !== undefined) {
+  app.set('trust proxy', trustProxy === 'true' ? true : Number(trustProxy));
+}
+
 const RPC_URL =
+  process.env.RPC_URL ||
   process.env.ALCHEMY_SEPOLIA_URL ||
   process.env.INFURA_SEPOLIA_URL ||
   'https://rpc.sepolia.org';
+const INDEXER_ENABLED = process.env.INDEXER_ENABLED !== 'false';
 const INDEXER_LOOKBACK_BLOCKS = Number(
   process.env.INDEXER_LOOKBACK_BLOCKS || 2000
 );
@@ -26,8 +46,19 @@ const INDEXER_SNAPSHOT_INTERVAL_MS = Number(
   process.env.INDEXER_SNAPSHOT_INTERVAL_MS || 60000
 );
 const INDEXER_SNAPSHOT_LIMIT = Number(process.env.INDEXER_SNAPSHOT_LIMIT || 24);
+const VESTED_CACHE_TTL_MS = Number(process.env.VESTED_CACHE_TTL_MS || 30000);
+const VESTED_FETCH_TIMEOUT_MS = Number(
+  process.env.VESTED_FETCH_TIMEOUT_MS || 8000
+);
+const SOLANA_STREAMFLOW_TIMEOUT_MS = Number(
+  process.env.SOLANA_STREAMFLOW_TIMEOUT_MS || 6000
+);
 const EXPLORER_BASE_URL =
   process.env.EXPLORER_BASE_URL || 'https://sepolia.etherscan.io';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
+const TURNSTILE_BYPASS = process.env.TURNSTILE_BYPASS === 'true';
+const SESSION_TTL_MINUTES = Number(process.env.SESSION_TTL_MINUTES || 60);
+const NONCE_TTL_MINUTES = Number(process.env.NONCE_TTL_MINUTES || 10);
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const agent = initAgent();
@@ -40,104 +71,55 @@ let lastPollAt = 0;
 let cachedRepaySchedule = [];
 let lastScheduleRefresh = 0;
 const vestedSnapshots = [];
+let cachedVestedContracts = [];
+let cachedVestedContractsAt = 0;
 
-const dbDir = path.join(__dirname, 'data');
-fs.mkdirSync(dbDir, { recursive: true });
-const dbPath = process.env.INDEXER_DB_PATH || path.join(dbDir, 'indexer.sqlite');
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS events (
-    txHash TEXT NOT NULL,
-    logIndex INTEGER NOT NULL,
-    blockNumber INTEGER NOT NULL,
-    timestamp INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    loanId TEXT,
-    borrower TEXT,
-    amount TEXT,
-    defaulted INTEGER,
-    PRIMARY KEY (txHash, logIndex)
-  );
-  CREATE TABLE IF NOT EXISTS snapshots (
-    timestamp INTEGER PRIMARY KEY,
-    total INTEGER,
-    active INTEGER,
-    avgLtvBps INTEGER,
-    avgPv INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-`);
-
-const getMeta = (key) => {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
-  return row ? row.value : null;
-};
-
-const setMeta = (key, value) => {
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, String(value));
-};
-
-const loadPersistedEvents = () => {
-  const rows = db
-    .prepare(
-      'SELECT txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted FROM events ORDER BY blockNumber DESC, logIndex DESC LIMIT ?'
+const withTimeout = (promise, ms, fallback) =>
+  Promise.race([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve(fallback), Math.max(0, ms))
     )
-    .all(INDEXER_MAX_EVENTS);
+  ]);
+
+const sanitizeForJson = (value) =>
+  JSON.parse(
+    JSON.stringify(value, (_key, item) =>
+      typeof item === 'bigint' ? item.toString() : item
+    )
+  );
+
+const loadPersistedEvents = async () => {
+  const rows = await persistence.loadEvents(INDEXER_MAX_EVENTS);
   rows.forEach((row) => {
-    activityEvents.push({
-      txHash: row.txHash,
-      logIndex: Number(row.logIndex),
-      blockNumber: Number(row.blockNumber),
-      timestamp: Number(row.timestamp),
-      type: row.type,
-      loanId: row.loanId || '',
-      borrower: row.borrower || '',
-      amount: row.amount || '',
-      defaulted: row.defaulted ? Boolean(row.defaulted) : false
-    });
+    activityEvents.push(row);
     seenEvents.add(`${row.txHash}-${row.logIndex}`);
   });
 };
 
-const loadPersistedSnapshots = () => {
-  const rows = db
-    .prepare(
-      'SELECT timestamp, total, active, avgLtvBps, avgPv FROM snapshots ORDER BY timestamp DESC LIMIT ?'
-    )
-    .all(INDEXER_SNAPSHOT_LIMIT);
-  rows.forEach((row) => {
-    vestedSnapshots.push({
-      timestamp: Number(row.timestamp),
-      summary: {
-        total: Number(row.total || 0),
-        active: Number(row.active || 0),
-        avgLtvBps: Number(row.avgLtvBps || 0),
-        avgPv: Number(row.avgPv || 0)
-      },
-      items: []
-    });
-  });
+const loadPersistedSnapshots = async () => {
+  const rows = await persistence.loadSnapshots(INDEXER_SNAPSHOT_LIMIT);
+  rows.forEach((row) => vestedSnapshots.push(row));
 };
 
-const persistedLastIndexed = getMeta('lastIndexedBlock');
-if (persistedLastIndexed !== null) {
-  lastIndexedBlock = Number(persistedLastIndexed);
-}
-loadPersistedEvents();
-loadPersistedSnapshots();
+const initPersistence = async () => {
+  await persistence.init();
+  const persistedLastIndexed = await persistence.getMeta('lastIndexedBlock');
+  if (persistedLastIndexed !== null) {
+    lastIndexedBlock = Number(persistedLastIndexed);
+  }
+  await loadPersistedEvents();
+  await loadPersistedSnapshots();
+};
+
+const DEPLOYMENTS_NETWORK = process.env.DEPLOYMENTS_NETWORK || 'sepolia';
 
 const loadDeployment = (name) => {
   const filePath = path.join(
     __dirname,
     '..',
     'deployments',
-    'sepolia',
+    DEPLOYMENTS_NETWORK,
     `${name}.json`
   );
   const raw = fs.readFileSync(filePath, 'utf8');
@@ -174,6 +156,14 @@ const erc20Abi = [
   'function decimals() view returns (uint8)'
 ];
 
+const getEventTopic = (iface, name) => {
+  try {
+    return iface.getEvent(name).topicHash;
+  } catch (error) {
+    return null;
+  }
+};
+
 const normalizeEvent = async (log) => {
   const parsed = loanManager.iface.parseLog(log);
   const blockNumber = Number(log.blockNumber);
@@ -206,6 +196,16 @@ const normalizeEvent = async (log) => {
       amount: parsed.args.amount.toString()
     };
   }
+  if (parsed.name === 'LoanRepaidWithSwap') {
+    return {
+      ...base,
+      type: 'LoanRepaidWithSwap',
+      loanId: parsed.args.loanId.toString(),
+      amount: parsed.args.usdcReceived?.toString?.() || '0',
+      tokenIn: parsed.args.tokenIn,
+      amountIn: parsed.args.amountIn?.toString?.() || '0'
+    };
+  }
   if (parsed.name === 'LoanSettled') {
     return {
       ...base,
@@ -217,33 +217,19 @@ const normalizeEvent = async (log) => {
   return null;
 };
 
-const persistEvent = (event) => {
-  db.prepare(
-    `INSERT OR IGNORE INTO events
-      (txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    event.txHash,
-    event.logIndex,
-    event.blockNumber,
-    event.timestamp,
-    event.type,
-    event.loanId || '',
-    event.borrower || '',
-    event.amount || '',
-    event.defaulted ? 1 : 0
-  );
-};
-
-const pushEvents = (events) => {
+const pushEvents = async (events) => {
+  const newEvents = [];
   events.forEach((event) => {
     if (!event) return;
     const key = `${event.txHash}-${event.logIndex}`;
     if (seenEvents.has(key)) return;
-    persistEvent(event);
     seenEvents.add(key);
     activityEvents.push(event);
+    newEvents.push(event);
   });
+  if (newEvents.length) {
+    await persistence.saveEvents(newEvents);
+  }
   activityEvents.sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) {
       return b.blockNumber - a.blockNumber;
@@ -252,15 +238,6 @@ const pushEvents = (events) => {
   });
   if (activityEvents.length > INDEXER_MAX_EVENTS) {
     activityEvents.splice(INDEXER_MAX_EVENTS);
-  }
-  if (activityEvents.length === INDEXER_MAX_EVENTS) {
-    const oldest = activityEvents[activityEvents.length - 1];
-    const cutoff = oldest ? oldest.blockNumber - 10000 : 0;
-    for (const key of seenEvents) {
-      if (key.includes(`-${oldest?.logIndex}`) && cutoff > 0) {
-        seenEvents.delete(key);
-      }
-    }
   }
 };
 
@@ -279,63 +256,663 @@ const pollEvents = async () => {
     const chunkSize = 10;
     for (let from = startBlock; from <= latestBlock; from += chunkSize) {
       const to = Math.min(from + chunkSize - 1, latestBlock);
-      const loanCreatedLogs = await provider.getLogs({
-        address: loanManager.address,
-        fromBlock: from,
-        toBlock: to,
-        topics: [loanManager.iface.getEvent('LoanCreated').topicHash]
-      });
-      const loanRepaidLogs = await provider.getLogs({
-        address: loanManager.address,
-        fromBlock: from,
-        toBlock: to,
-        topics: [loanManager.iface.getEvent('LoanRepaid').topicHash]
-      });
-      const loanSettledLogs = await provider.getLogs({
-        address: loanManager.address,
-        fromBlock: from,
-        toBlock: to,
-        topics: [loanManager.iface.getEvent('LoanSettled').topicHash]
-      });
+      const loanCreatedTopic = getEventTopic(loanManager.iface, 'LoanCreated');
+      const loanRepaidTopic = getEventTopic(loanManager.iface, 'LoanRepaid');
+      const loanRepaidSwapTopic = getEventTopic(loanManager.iface, 'LoanRepaidWithSwap');
+      const loanSettledTopic = getEventTopic(loanManager.iface, 'LoanSettled');
+
+      const loanCreatedLogs = loanCreatedTopic
+        ? await provider.getLogs({
+            address: loanManager.address,
+            fromBlock: from,
+            toBlock: to,
+            topics: [loanCreatedTopic]
+          })
+        : [];
+      const loanRepaidLogs = loanRepaidTopic
+        ? await provider.getLogs({
+            address: loanManager.address,
+            fromBlock: from,
+            toBlock: to,
+            topics: [loanRepaidTopic]
+          })
+        : [];
+      const loanRepaidSwapLogs = loanRepaidSwapTopic
+        ? await provider.getLogs({
+            address: loanManager.address,
+            fromBlock: from,
+            toBlock: to,
+            topics: [loanRepaidSwapTopic]
+          })
+        : [];
+      const loanSettledLogs = loanSettledTopic
+        ? await provider.getLogs({
+            address: loanManager.address,
+            fromBlock: from,
+            toBlock: to,
+            topics: [loanSettledTopic]
+          })
+        : [];
 
       const normalized = await Promise.all(
-        [...loanCreatedLogs, ...loanRepaidLogs, ...loanSettledLogs].map(
-          normalizeEvent
-        )
+        [
+          ...loanCreatedLogs,
+          ...loanRepaidLogs,
+          ...loanRepaidSwapLogs,
+          ...loanSettledLogs
+        ].map(normalizeEvent)
       );
-      pushEvents(normalized.filter(Boolean));
+      await pushEvents(normalized.filter(Boolean));
     }
     lastIndexedBlock = latestBlock;
-    setMeta('lastIndexedBlock', lastIndexedBlock);
+    await persistence.setMeta('lastIndexedBlock', lastIndexedBlock);
   } catch (error) {
     console.error('[indexer] poll error', error?.message || error);
   }
 };
 
-app.use(cors());
-app.use(express.json());
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const corsOptions = corsOrigins.length
+  ? { origin: corsOrigins, credentials: true }
+  : null;
+app.use(corsOptions ? cors(corsOptions) : cors());
+
+const jsonLimit = process.env.JSON_BODY_LIMIT || '200kb';
+app.use(express.json({ limit: jsonLimit }));
+
+const isPlainObject = (value) =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeText = (value, maxLen) => {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, maxLen);
+};
+
+const normalizeEmail = (value, maxLen) => {
+  if (typeof value !== 'string') return '';
+  return value.trim().toLowerCase().slice(0, maxLen);
+};
+
+const toNumber = (value, fallback = 0) => {
+  const num = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const toBigIntSafe = (value) => {
+  try {
+    if (typeof value === 'bigint') return value;
+    if (typeof value === 'number') return BigInt(Math.floor(value));
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+};
+
+const requireJsonBody = (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  if (!req.is('application/json')) {
+    return res.status(415).json({ ok: false, error: 'Expected JSON payload' });
+  }
+  if (!isPlainObject(req.body)) {
+    return res.status(400).json({ ok: false, error: 'Invalid payload' });
+  }
+  return next();
+};
+
+const honeypotCheck = (req, res, next) => {
+  if (req.body?.website) {
+    return res.status(400).json({ ok: false, error: 'Invalid payload' });
+  }
+  return next();
+};
+
+const validateBody = (schema) => (req, res, next) => {
+  const result = schema.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Invalid payload',
+      details: result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message
+      }))
+    });
+  }
+  req.body = result.data;
+  return next();
+};
+
+const getClientIp = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.length) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || '';
+};
+
+const hashIp = (ip) => {
+  if (!ip) return '';
+  return crypto.createHash('sha256').update(ip).digest('hex');
+};
+
+const verifyTurnstile = async (req, res, next) => {
+  if (TURNSTILE_BYPASS) return next();
+  if (!TURNSTILE_SECRET_KEY) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[turnstile] bypassed: TURNSTILE_SECRET_KEY missing');
+      return next();
+    }
+    return res.status(503).json({ ok: false, error: 'Turnstile not configured' });
+  }
+  const token = req.body?.captchaToken;
+  if (!token) {
+    return res.status(400).json({ ok: false, error: 'Captcha required' });
+  }
+  try {
+    const body = new URLSearchParams();
+    body.set('secret', TURNSTILE_SECRET_KEY);
+    body.set('response', token);
+    const ip = getClientIp(req);
+    if (ip) body.set('remoteip', ip);
+    const response = await fetch(
+      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      {
+        method: 'POST',
+        body
+      }
+    );
+    const data = await response.json();
+    if (!data?.success) {
+      return res.status(403).json({ ok: false, error: 'Captcha failed' });
+    }
+    if (req.body) {
+      delete req.body.captchaToken;
+    }
+    return next();
+  } catch (error) {
+    console.error('[turnstile] verification error', error?.message || error);
+    return res.status(502).json({ ok: false, error: 'Captcha unavailable' });
+  }
+};
+
+const getSessionToken = (req) => {
+  const authHeader = req.headers.authorization || '';
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  const tokenHeader = req.headers['x-session-token'];
+  if (typeof tokenHeader === 'string' && tokenHeader.trim()) {
+    return tokenHeader.trim();
+  }
+  return '';
+};
+
+const requireSession = async (req, res, next) => {
+  const token = getSessionToken(req);
+  if (!token) {
+    return res.status(401).json({ ok: false, error: 'Session required' });
+  }
+  try {
+    const session = await persistence.getSessionByToken(token);
+    if (!session) {
+      return res.status(401).json({ ok: false, error: 'Invalid session' });
+    }
+    if (session.expiresAt && Date.now() > session.expiresAt) {
+      return res.status(401).json({ ok: false, error: 'Session expired' });
+    }
+    const ipHash = hashIp(getClientIp(req));
+    if (session.ipHash && ipHash && session.ipHash !== ipHash) {
+      return res.status(401).json({ ok: false, error: 'Session mismatch' });
+    }
+    req.user = session.user || null;
+    return next();
+  } catch (error) {
+    console.error('[auth] session lookup failed', error?.message || error);
+    return res.status(500).json({ ok: false, error: 'Session lookup failed' });
+  }
+};
+
+const attachSession = async (req, _res, next) => {
+  const token = getSessionToken(req);
+  if (!token) return next();
+  try {
+    const session = await persistence.getSessionByToken(token);
+    if (session && (!session.expiresAt || Date.now() <= session.expiresAt)) {
+      req.user = session.user || null;
+    }
+  } catch (error) {
+    console.warn('[auth] optional session failed', error?.message || error);
+  }
+  return next();
+};
+
+const defaultLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX || 120),
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_STRICT_MAX || 8),
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_CHAT_MAX || 6),
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.use(defaultLimiter);
+app.use(requireJsonBody);
+app.use(honeypotCheck);
+app.use(attachSession);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'vestra-backend' });
 });
 
-app.post('/api/auth/signin', (req, res) => {
-  res.json({ ok: true, action: 'signin', data: req.body || {} });
-});
+const stringField = (max) => z.string().trim().min(1).max(max);
+const optionalString = (max) => z.string().trim().max(max).optional();
+const optionalEmail = (max) =>
+  z
+    .preprocess(
+      (value) =>
+        typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.string().trim().max(max).email().optional()
+    )
+    .transform((value) => (value ? normalizeEmail(value, max) : undefined));
+const optionalAddress = z
+  .preprocess(
+    (value) =>
+      typeof value === 'string' && value.trim() === '' ? undefined : value,
+    z.string().trim().optional()
+  )
+  .refine((value) => !value || ethers.isAddress(value), 'Invalid wallet address')
+  .transform((value) => (value ? ethers.getAddress(value) : undefined));
 
-app.post('/api/auth/signup', (req, res) => {
-  res.json({ ok: true, action: 'signup', data: req.body || {} });
-});
+const poolPreferencesSchema = z
+  .object({
+    riskTier: z.enum(['conservative', 'balanced', 'aggressive']).optional(),
+    maxLtvBps: z.number().int().min(0).max(10000).optional(),
+    interestBps: z.number().int().min(0).max(4000).optional(),
+    minLiquidityUsd: z.number().min(0).optional(),
+    minWalletAgeDays: z.number().min(0).optional(),
+    minVolumeUsd: z.number().min(0).optional(),
+    unlockWindowDays: z
+      .object({
+        min: z.number().min(0).optional(),
+        max: z.number().min(0).optional()
+      })
+      .optional(),
+    tokenCategories: z.array(z.string().min(1).max(40)).max(20).optional(),
+    allowedTokens: z.array(z.string().min(1).max(120)).max(50).optional(),
+    chains: z.array(z.enum(['base', 'solana'])).max(2).optional(),
+    maxLoanUsd: z.number().min(0).optional(),
+    minLoanUsd: z.number().min(0).optional()
+  })
+  .strip();
 
-app.post('/api/agent/chat', async (req, res) => {
+const createPoolSchema = z
+  .object({
+    name: stringField(120),
+    chain: optionalString(40),
+    preferences: poolPreferencesSchema.optional(),
+    status: optionalString(40)
+  })
+  .strip();
+
+const updatePoolSchema = z
+  .object({
+    preferences: poolPreferencesSchema,
+    status: optionalString(40)
+  })
+  .strip();
+
+const matchQuoteSchema = z
+  .object({
+    chain: z.enum(['base', 'solana']),
+    desiredAmountUsd: z.number().positive(),
+    collateralId: optionalString(200),
+    vestingContract: optionalString(200),
+    token: optionalString(200),
+    quantity: z.union([z.string(), z.number()]).optional(),
+    unlockTime: z.number().int().positive().optional(),
+    streamId: optionalString(200),
+    maxOffers: z.number().int().min(1).max(10).optional()
+  })
+  .strip();
+
+const matchAcceptSchema = z
+  .object({
+    offerId: stringField(120),
+    poolId: stringField(120),
+    chain: z.enum(['base', 'solana']),
+    borrower: optionalAddress,
+    collateralId: optionalString(200),
+    desiredAmountUsd: z.number().positive(),
+    terms: z.record(z.unknown()).optional()
+  })
+  .strip();
+
+const walletNonceSchema = z
+  .object({
+    walletAddress: stringField(120)
+  })
+  .strip();
+
+const walletVerifySchema = z
+  .object({
+    walletAddress: stringField(120),
+    nonce: stringField(256),
+    signature: stringField(500)
+  })
+  .strip();
+
+const chatSchema = z
+  .object({
+    message: stringField(2000),
+    history: z
+      .array(
+        z.object({
+          role: stringField(32),
+          content: stringField(2000)
+        })
+      )
+      .max(10)
+      .optional(),
+    captchaToken: optionalString(2048)
+  })
+  .strip();
+
+const analyticsSchema = z
+  .object({
+    event: stringField(120),
+    page: optionalString(200),
+    walletAddress: optionalAddress,
+    properties: z.record(z.unknown()).optional()
+  })
+  .strip();
+
+const notifySchema = z
+  .object({
+    email: optionalEmail(320),
+    walletAddress: optionalAddress,
+    channel: optionalString(120),
+    payload: z.record(z.unknown()).optional(),
+    captchaToken: optionalString(2048)
+  })
+  .strip();
+
+const governanceSchema = z
+  .object({
+    email: optionalEmail(320),
+    walletAddress: optionalAddress,
+    message: optionalString(2000),
+    captchaToken: optionalString(2048)
+  })
+  .strip()
+  .refine(
+    (value) => Boolean(value.email || value.walletAddress || value.message),
+    'Provide email, wallet address, or message'
+  );
+
+const contactSchema = z
+  .object({
+    name: optionalString(120),
+    email: optionalEmail(320),
+    message: optionalString(2000),
+    company: optionalString(120),
+    walletAddress: optionalAddress,
+    context: optionalString(500),
+    captchaToken: optionalString(2048)
+  })
+  .strip()
+  .refine(
+    (value) => Boolean(value.email || value.message || value.walletAddress),
+    'Provide email, wallet address, or message'
+  );
+
+const writeSchema = z
+  .object({
+    action: optionalString(120),
+    payload: z.record(z.unknown()).optional()
+  })
+  .strip();
+
+const docsOpenSchema = z
+  .object({
+    document: optionalString(200),
+    section: optionalString(200)
+  })
+  .strip();
+
+const buildWalletMessage = (walletAddress, nonce) => {
+  return [
+    'Vestra authentication request',
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Issued at: ${new Date().toISOString()}`,
+    'Only sign if you trust this request.'
+  ].join('\n');
+};
+
+const getDaysToUnlock = (unlockTime) => {
+  if (!unlockTime) return null;
+  const millis = Number(unlockTime) * 1000 - Date.now();
+  return Math.max(0, Math.round(millis / 86400000));
+};
+
+const getPoolInterestBps = async () => {
   try {
+    const contract = new ethers.Contract(
+      lendingPool.address,
+      lendingPoolDeployment.abi,
+      provider
+    );
+    const rate = await contract.getInterestRateBps();
+    return Number(rate);
+  } catch {
+    return 800;
+  }
+};
+
+const computeEvmDpv = async ({ quantity, token, unlockTime }) => {
+  try {
+    const contract = new ethers.Contract(
+      valuationEngine.address,
+      valuationDeployment.abi,
+      provider
+    );
+    const pv = await contract.computeDPV(
+      toBigIntSafe(quantity),
+      token,
+      Number(unlockTime)
+    );
+    const pvValue = pv?.[0] ?? 0n;
+    const ltvValue = pv?.[1] ?? 0n;
+    return {
+      pv: toNumber(pvValue.toString(), 0),
+      ltvBps: toNumber(ltvValue.toString(), 0)
+    };
+  } catch {
+    return { pv: 0, ltvBps: 0 };
+  }
+};
+
+const normalizePoolPreferences = (pool) => ({
+  riskTier: pool?.preferences?.riskTier || 'balanced',
+  maxLtvBps: pool?.preferences?.maxLtvBps,
+  interestBps: pool?.preferences?.interestBps,
+  minLiquidityUsd: pool?.preferences?.minLiquidityUsd,
+  minWalletAgeDays: pool?.preferences?.minWalletAgeDays,
+  minVolumeUsd: pool?.preferences?.minVolumeUsd,
+  unlockWindowDays: pool?.preferences?.unlockWindowDays,
+  tokenCategories: pool?.preferences?.tokenCategories || [],
+  allowedTokens: pool?.preferences?.allowedTokens || [],
+  chains: pool?.preferences?.chains || [],
+  maxLoanUsd: pool?.preferences?.maxLoanUsd,
+  minLoanUsd: pool?.preferences?.minLoanUsd
+});
+
+const buildPoolOffers = ({ pools, desiredAmountUsd, pvUsd, ltvBps, chain, unlockTime, baseRateBps }) => {
+  const daysToUnlock = getDaysToUnlock(unlockTime);
+  return pools
+    .map((pool) => {
+      const prefs = normalizePoolPreferences(pool);
+      if (prefs.chains.length && !prefs.chains.includes(chain)) return null;
+      const maxLtv = prefs.maxLtvBps || ltvBps;
+      const effectiveLtv = Math.min(maxLtv, ltvBps || maxLtv || 0);
+      const maxBorrowUsd = pvUsd > 0 && effectiveLtv > 0 ? (pvUsd * effectiveLtv) / 10000 : 0;
+      if (prefs.minLoanUsd && desiredAmountUsd < prefs.minLoanUsd) return null;
+      if (prefs.maxLoanUsd && desiredAmountUsd > prefs.maxLoanUsd) return null;
+      if (desiredAmountUsd > maxBorrowUsd) return null;
+      if (prefs.unlockWindowDays?.min && daysToUnlock !== null && daysToUnlock < prefs.unlockWindowDays.min) {
+        return null;
+      }
+      if (prefs.unlockWindowDays?.max && daysToUnlock !== null && daysToUnlock > prefs.unlockWindowDays.max) {
+        return null;
+      }
+      const interestBps = prefs.interestBps ?? baseRateBps;
+      const scoreBase = prefs.riskTier === 'aggressive' ? 85 : prefs.riskTier === 'conservative' ? 70 : 80;
+      const ltvScore = ltvBps ? Math.min(15, Math.round((effectiveLtv / ltvBps) * 15)) : 0;
+      const score = scoreBase + ltvScore;
+      const warnings = [];
+      if (prefs.minLiquidityUsd) warnings.push('minLiquidityUsd not verified in MVP');
+      if (prefs.minWalletAgeDays) warnings.push('wallet age not verified in MVP');
+      if (prefs.minVolumeUsd) warnings.push('volume not verified in MVP');
+      if (prefs.allowedTokens?.length) warnings.push('allowedTokens not enforced onchain');
+      return {
+        offerId: `${pool.id}:${chain}:${Date.now()}`,
+        poolId: pool.id,
+        ownerWallet: pool.ownerWallet,
+        chain,
+        riskTier: prefs.riskTier,
+        interestBps,
+        maxBorrowUsd,
+        score,
+        warnings
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+};
+
+app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) => {
+  try {
+    if (!ethers.isAddress(req.body.walletAddress)) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    const walletAddress = ethers.getAddress(req.body.walletAddress);
+    const user = await persistence.getOrCreateUserByWallet(walletAddress);
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + NONCE_TTL_MINUTES * 60 * 1000);
+    const ipHash = hashIp(getClientIp(req));
+    await persistence.clearSessionsByProvider(user.id, 'wallet_nonce');
+    await persistence.createSession({
+      userId: user.id,
+      provider: 'wallet_nonce',
+      nonce,
+      issuedAt: new Date(),
+      expiresAt,
+      ipHash
+    });
+    res.json({
+      ok: true,
+      walletAddress,
+      nonce,
+      message: buildWalletMessage(walletAddress, nonce),
+      expiresAt: expiresAt.toISOString()
+    });
+  } catch (error) {
+    console.error('[auth] nonce error', error?.message || error);
+    res.status(500).json({ ok: false, error: 'Unable to issue nonce' });
+  }
+});
+
+app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) => {
+  try {
+    if (!ethers.isAddress(req.body.walletAddress)) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    const walletAddress = ethers.getAddress(req.body.walletAddress);
+    const user = await persistence.getOrCreateUserByWallet(walletAddress);
+    const nonceSession = await persistence.getNonceSession(
+      user.id,
+      req.body.nonce
+    );
+    if (!nonceSession) {
+      return res.status(401).json({ ok: false, error: 'Nonce expired' });
+    }
+    if (nonceSession.expiresAt && Date.now() > nonceSession.expiresAt) {
+      return res.status(401).json({ ok: false, error: 'Nonce expired' });
+    }
+    const message = buildWalletMessage(walletAddress, req.body.nonce);
+    const recovered = ethers.verifyMessage(message, req.body.signature);
+    if (ethers.getAddress(recovered) !== walletAddress) {
+      return res.status(401).json({ ok: false, error: 'Signature invalid' });
+    }
+    await persistence.deleteSession(nonceSession.id);
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MINUTES * 60 * 1000);
+    const ipHash = hashIp(getClientIp(req));
+    await persistence.createSession({
+      userId: user.id,
+      provider: 'wallet_session',
+      nonce: sessionToken,
+      issuedAt: new Date(),
+      expiresAt,
+      ipHash
+    });
+    res.json({
+      ok: true,
+      walletAddress,
+      sessionToken,
+      expiresAt: expiresAt.toISOString()
+    });
+  } catch (error) {
+    console.error('[auth] verify error', error?.message || error);
+    res.status(500).json({ ok: false, error: 'Unable to verify signature' });
+  }
+});
+
+const sanitizePayload = (req, _res, next) => {
+  const payload = req.body || {};
+  const sanitized = {};
+  Object.entries(payload).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      sanitized[key] = value.trim().slice(0, 500);
+    } else {
+      sanitized[key] = value;
+    }
+  });
+  req.body = sanitized;
+  next();
+};
+
+app.post(
+  '/api/agent/chat',
+  chatLimiter,
+  validateBody(chatSchema),
+  verifyTurnstile,
+  async (req, res) => {
+  try {
+    const history = Array.isArray(req.body?.history) ? req.body.history : [];
     console.log('[agent] incoming chat', {
       message: req.body?.message?.slice?.(0, 80) || '',
-      historyCount: Array.isArray(req.body?.history) ? req.body.history.length : 0
+      historyCount: history.length
     });
     const result = await answerAgent(agent, {
       message: req.body?.message,
-      history: req.body?.history
+      history
     });
     res.json({ ok: true, ...result });
   } catch (error) {
@@ -345,27 +922,259 @@ app.post('/api/agent/chat', async (req, res) => {
       error: error?.message || 'Agent unavailable'
     });
   }
-});
+  }
+);
 
-app.post('/api/write', (req, res) => {
+app.post('/api/write', requireSession, validateBody(writeSchema), (req, res) => {
   res.json({ ok: true, action: 'write', data: req.body || {} });
 });
 
-app.post('/api/docs/open', (req, res) => {
-  res.json({ ok: true, action: 'docs_open', data: req.body || {} });
+app.post(
+  '/api/docs/open',
+  requireSession,
+  validateBody(docsOpenSchema),
+  (req, res) => {
+    res.json({ ok: true, action: 'docs_open', data: req.body || {} });
+  }
+);
+
+app.post('/api/pools', requireSession, validateBody(createPoolSchema), async (req, res) => {
+  try {
+    const ownerWallet = req.user?.walletAddress;
+    if (!ownerWallet) {
+      return res.status(401).json({ ok: false, error: 'Wallet session required' });
+    }
+    const pool = await persistence.createPool({
+      ownerWallet,
+      name: req.body.name,
+      chain: req.body.chain || '',
+      preferences: req.body.preferences || {},
+      status: req.body.status || 'active'
+    });
+    res.json({ ok: true, pool });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Pool create failed' });
+  }
 });
 
-app.post('/api/notify/auction', (req, res) => {
-  res.json({ ok: true, action: 'auction_notify', data: req.body || {} });
+app.post(
+  '/api/pools/:id/preferences',
+  requireSession,
+  validateBody(updatePoolSchema),
+  async (req, res) => {
+    try {
+      const ownerWallet = req.user?.walletAddress;
+      if (!ownerWallet) {
+        return res.status(401).json({ ok: false, error: 'Wallet session required' });
+      }
+      const pool = await persistence.updatePoolPreferences({
+        id: req.params.id,
+        ownerWallet,
+        preferences: req.body.preferences,
+        status: req.body.status
+      });
+      if (!pool) {
+        return res.status(404).json({ ok: false, error: 'Pool not found' });
+      }
+      res.json({ ok: true, pool });
+    } catch (error) {
+      res.status(200).json({ ok: false, error: error?.message || 'Pool update failed' });
+    }
+  }
+);
+
+app.get('/api/pools', async (req, res) => {
+  try {
+    const pools = await persistence.listPools({
+      chain: normalizeText(req.query?.chain, 40),
+      ownerWallet: normalizeText(req.query?.ownerWallet, 120),
+      status: normalizeText(req.query?.status, 40)
+    });
+    res.json({ ok: true, pools });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Pool list failed' });
+  }
 });
 
-app.post('/api/governance/subscribe', (req, res) => {
-  res.json({ ok: true, action: 'governance_subscribe', data: req.body || {} });
+app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) => {
+  try {
+    const { chain, desiredAmountUsd } = req.body;
+    const pools = await persistence.listPools({ chain, status: 'active' });
+    if (!pools.length) {
+      return res.json({ ok: true, offers: [], reason: 'No pools available yet.' });
+    }
+    let pvUsd = 0;
+    let ltvBps = 0;
+    let unlockTime = req.body.unlockTime;
+    if (chain === 'base') {
+      if (req.body.collateralId) {
+        try {
+          const adapterContract = new ethers.Contract(
+            vestingAdapter.address,
+            vestingAdapterDeployment.abi,
+            provider
+          );
+          const details = await adapterContract.getDetails(
+            toBigIntSafe(req.body.collateralId)
+          );
+          const quantity = details?.[0];
+          const token = details?.[1];
+          const unlock = details?.[2];
+          unlockTime = unlockTime || Number(unlock || 0);
+          const valuation = await computeEvmDpv({
+            quantity: quantity || 0n,
+            token,
+            unlockTime: unlockTime || 0
+          });
+          pvUsd = valuation.pv;
+          ltvBps = valuation.ltvBps;
+        } catch {
+          pvUsd = 0;
+          ltvBps = 0;
+        }
+      } else if (req.body.token && req.body.quantity && req.body.unlockTime) {
+        const valuation = await computeEvmDpv({
+          quantity: req.body.quantity,
+          token: req.body.token,
+          unlockTime: req.body.unlockTime
+        });
+        pvUsd = valuation.pv;
+        ltvBps = valuation.ltvBps;
+      }
+    } else if (chain === 'solana') {
+      const items = await getVestedContracts();
+      const streamId = req.body.streamId || req.body.collateralId;
+      const entry = items.find(
+        (item) =>
+          item.chain === 'solana' &&
+          (item.streamId === streamId || item.collateralId === streamId)
+      );
+      if (entry) {
+        pvUsd = toNumber(entry.pv, 0);
+        ltvBps = toNumber(entry.ltvBps, 0);
+        unlockTime = unlockTime || Number(entry.unlockTime || 0);
+      }
+    }
+
+    const baseRateBps = await getPoolInterestBps();
+    const offers = buildPoolOffers({
+      pools,
+      desiredAmountUsd,
+      pvUsd,
+      ltvBps,
+      chain,
+      unlockTime,
+      baseRateBps
+    });
+
+    await persistence.createMatchEvent({
+      type: 'quote',
+      payload: {
+        chain,
+        desiredAmountUsd,
+        collateralId: req.body.collateralId,
+        streamId: req.body.streamId,
+        pvUsd,
+        ltvBps,
+        offers
+      }
+    });
+
+    res.json({
+      ok: true,
+      offers,
+      valuation: { pvUsd, ltvBps, unlockTime },
+      note:
+        chain === 'solana'
+          ? 'Solana offers are advisory only for this MVP; settlement is Base-only.'
+          : 'Offers are advisory; final loan terms are enforced onchain.'
+    });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Match quote failed' });
+  }
 });
 
-app.post('/api/contact', (req, res) => {
-  res.json({ ok: true, action: 'contact', data: req.body || {} });
+app.post('/api/match/accept', validateBody(matchAcceptSchema), async (req, res) => {
+  try {
+    const event = await persistence.createMatchEvent({
+      type: 'accept',
+      payload: req.body || {}
+    });
+    res.json({ ok: true, event });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Match accept failed' });
+  }
 });
+
+app.post(
+  '/api/analytics',
+  strictLimiter,
+  validateBody(analyticsSchema),
+  sanitizePayload,
+  (req, res) => {
+  res.json({ ok: true, action: 'analytics', data: req.body || {} });
+  }
+);
+
+app.post(
+  '/api/notify/auction',
+  strictLimiter,
+  validateBody(notifySchema),
+  verifyTurnstile,
+  sanitizePayload,
+  async (req, res) => {
+  try {
+    await recordNotification('auction', 'auction_notify', req.body || {}, req.user?.id);
+    res.json({ ok: true, action: 'auction_notify', data: req.body || {} });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to record notification',
+      data: req.body || {}
+    });
+  }
+  }
+);
+
+app.post(
+  '/api/governance/subscribe',
+  strictLimiter,
+  validateBody(governanceSchema),
+  verifyTurnstile,
+  sanitizePayload,
+  async (req, res) => {
+    try {
+      await recordSubmission('governance', req.body || {}, req.user?.id);
+      res.json({ ok: true, action: 'governance_subscribe', data: req.body || {} });
+    } catch (error) {
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'Unable to record governance subscription',
+        data: req.body || {}
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/contact',
+  strictLimiter,
+  validateBody(contactSchema),
+  verifyTurnstile,
+  sanitizePayload,
+  async (req, res) => {
+  try {
+    await recordSubmission('contact', req.body || {}, req.user?.id);
+    res.json({ ok: true, action: 'contact', data: req.body || {} });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to record contact submission',
+      data: req.body || {}
+    });
+  }
+  }
+);
 
 app.get('/api/activity', (_req, res) => {
   res.json({
@@ -464,31 +1273,49 @@ const summarizeSnapshot = (items) => {
   };
 };
 
-const storeSnapshot = (items) => {
+const storeSnapshot = async (items) => {
   const snapshot = {
     timestamp: Date.now(),
     summary: summarizeSnapshot(items),
-    items
+    items,
+    limit: INDEXER_SNAPSHOT_LIMIT
   };
-  db.prepare(
-    'INSERT OR REPLACE INTO snapshots (timestamp, total, active, avgLtvBps, avgPv) VALUES (?, ?, ?, ?, ?)'
-  ).run(
-    snapshot.timestamp,
-    snapshot.summary.total,
-    snapshot.summary.active,
-    snapshot.summary.avgLtvBps,
-    snapshot.summary.avgPv
-  );
-  db.prepare(
-    'DELETE FROM snapshots WHERE timestamp NOT IN (SELECT timestamp FROM snapshots ORDER BY timestamp DESC LIMIT ?)'
-  ).run(INDEXER_SNAPSHOT_LIMIT);
+  await persistence.saveSnapshot(snapshot);
   vestedSnapshots.unshift(snapshot);
   if (vestedSnapshots.length > INDEXER_SNAPSHOT_LIMIT) {
     vestedSnapshots.splice(INDEXER_SNAPSHOT_LIMIT);
   }
+  if (items?.length) {
+    cachedVestedContracts = items;
+    cachedVestedContractsAt = snapshot.timestamp;
+  }
 };
 
-const getVestedContracts = async () => {
+const recordSubmission = async (channel, payload, userId = null) => {
+  if (!persistence.useSupabase) return;
+  try {
+    await persistence.insertSubmission({ channel, payload, userId });
+  } catch (error) {
+    console.error('[persistence] submission insert failed', error?.message || error);
+  }
+};
+
+const recordNotification = async (channel, template, payload, userId = null) => {
+  if (!persistence.useSupabase) return;
+  try {
+    await persistence.insertNotification({
+      channel,
+      template,
+      payload,
+      userId,
+      status: 'pending'
+    });
+  } catch (error) {
+    console.error('[persistence] notification insert failed', error?.message || error);
+  }
+};
+
+const getEvmVestedContracts = async () => {
   const loanContract = new ethers.Contract(
     loanManager.address,
     loanManagerDeployment.abi,
@@ -574,20 +1401,61 @@ const getVestedContracts = async () => {
   return rows.reverse();
 };
 
+const getVestedContracts = async () => {
+  const [evmItems, solanaItems] = await Promise.all([
+    getEvmVestedContracts(),
+    withTimeout(fetchStreamflowVestingContracts(), SOLANA_STREAMFLOW_TIMEOUT_MS, [])
+  ]);
+  return [...evmItems, ...solanaItems];
+};
+
 const takeVestedSnapshot = async () => {
   try {
     const items = await getVestedContracts();
-    storeSnapshot(items);
+    await storeSnapshot(items);
   } catch (error) {
     console.error('[indexer] snapshot error', error?.message || error);
   }
 };
 
 app.get('/api/vested-contracts', async (_req, res) => {
+  const now = Date.now();
+  if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
+    res.json({
+      ok: true,
+      items: sanitizeForJson(cachedVestedContracts),
+      cached: true,
+      cachedAt: cachedVestedContractsAt
+    });
+    return;
+  }
   try {
-    const items = await getVestedContracts();
-    res.json({ ok: true, items });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(
+        () => reject(new Error('Vested contracts fetch timed out')),
+        VESTED_FETCH_TIMEOUT_MS
+      );
+    });
+    const items = await Promise.race([getVestedContracts(), timeoutPromise]);
+    cachedVestedContracts = items;
+    cachedVestedContractsAt = Date.now();
+    res.json({
+      ok: true,
+      items: sanitizeForJson(items),
+      cached: false,
+      cachedAt: cachedVestedContractsAt
+    });
   } catch (error) {
+    if (cachedVestedContracts.length) {
+      res.json({
+        ok: true,
+        items: sanitizeForJson(cachedVestedContracts),
+        cached: true,
+        cachedAt: cachedVestedContractsAt,
+        error: error?.message || 'error'
+      });
+      return;
+    }
     res.status(200).json({
       ok: false,
       error: error?.message || 'error',
@@ -605,6 +1473,50 @@ app.get('/api/vested-snapshots', (req, res) => {
         summary: snapshot.summary
       }));
   res.json({ ok: true, snapshots });
+});
+
+app.get('/api/solana/unmapped-mints', (_req, res) => {
+  res.json({ ok: true, items: getUnmappedMints() });
+});
+
+app.get('/api/solana/repay-config', (_req, res) => {
+  res.json({ ok: true, config: getRepayConfig() });
+});
+
+app.post('/api/solana/repay-plan', async (req, res) => {
+  try {
+    const owner = req.body?.owner;
+    const maxUsdc = req.body?.maxUsdc;
+    if (!owner) {
+      res.status(400).json({ ok: false, error: 'owner required' });
+      return;
+    }
+    const plan = await buildRepayPlan({ owner, maxUsdc });
+    res.json({ ok: true, plan });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'repay plan error'
+    });
+  }
+});
+
+app.post('/api/solana/repay-sweep', async (req, res) => {
+  try {
+    const owner = req.body?.owner;
+    const maxUsdc = req.body?.maxUsdc;
+    if (!owner) {
+      res.status(400).json({ ok: false, error: 'owner required' });
+      return;
+    }
+    const result = await executeRepaySweep({ owner, maxUsdc });
+    res.json(result);
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'repay sweep error'
+    });
+  }
 });
 
 app.get('/api/exports/repay-schedule', async (_req, res) => {
@@ -659,10 +1571,43 @@ app.get('/api/exports/repay-schedule', async (_req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Vestra backend running on http://localhost:${port}`);
-  pollEvents();
-  takeVestedSnapshot();
-  setInterval(pollEvents, INDEXER_POLL_INTERVAL_MS);
-  setInterval(takeVestedSnapshot, INDEXER_SNAPSHOT_INTERVAL_MS);
+const start = async () => {
+  try {
+    await initPersistence();
+    console.log(
+      `[persistence] using ${persistence.useSupabase ? 'Supabase' : 'local SQLite'}`
+    );
+  } catch (error) {
+    console.error('[bootstrap] persistence init failed', error?.message || error);
+    process.exit(1);
+  }
+
+  app.listen(port, () => {
+    console.log(`Vestra backend running on http://localhost:${port}`);
+    if (INDEXER_ENABLED) {
+      pollEvents().catch((error) =>
+        console.error('[indexer] initial poll error', error?.message || error)
+      );
+      takeVestedSnapshot().catch((error) =>
+        console.error('[indexer] initial snapshot error', error?.message || error)
+      );
+      setInterval(() => {
+        pollEvents().catch((error) =>
+          console.error('[indexer] poll error (interval)', error?.message || error)
+        );
+      }, INDEXER_POLL_INTERVAL_MS);
+      setInterval(() => {
+        takeVestedSnapshot().catch((error) =>
+          console.error('[indexer] snapshot error (interval)', error?.message || error)
+        );
+      }, INDEXER_SNAPSHOT_INTERVAL_MS);
+    } else {
+      console.log('[indexer] disabled via INDEXER_ENABLED=false');
+    }
+  });
+};
+
+start().catch((error) => {
+  console.error('[startup] fatal', error?.message || error);
+  process.exit(1);
 });

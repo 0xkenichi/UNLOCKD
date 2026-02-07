@@ -229,8 +229,8 @@
       ]
     },
     "/Users/mac/Protocol/UNLOCKD/contracts/LoanManager.sol": {
-      "lastModificationDate": 1770056072136,
-      "contentHash": "6752c5a516482fc63fb975a7f5f7f770",
+      "lastModificationDate": 1770437826991,
+      "contentHash": "12f65fb4d96dfd704df2b51b30e5c721",
       "sourceName": "contracts/LoanManager.sol",
       "solcConfig": {
         "version": "0.8.20",
