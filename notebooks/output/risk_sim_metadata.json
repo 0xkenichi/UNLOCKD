@@ -1,0 +1,56 @@
+{
+  "config": {
+    "P0": 10.0,
+    "Q": 1000.0,
+    "r": 0.05,
+    "vols": [
+      0.3,
+      0.5,
+      0.7
+    ],
+    "months": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21,
+      24,
+      27,
+      30,
+      33,
+      36
+    ],
+    "paths": 10000,
+    "seed": 42,
+    "percentiles": [
+      1,
+      5,
+      10
+    ],
+    "model": "gbm",
+    "model_params": {
+      "jump_lambda": 0.3,
+      "jump_mu": -0.02,
+      "jump_sigma": 0.15,
+      "kappa": 1.5,
+      "theta": null
+    },
+    "policy_percentile": 5,
+    "policy_ltv_bps": 3500,
+    "interest_bps": 600,
+    "coverage_target": 1.1,
+    "output_dir": "output"
+  },
+  "model": "gbm",
+  "model_params": {
+    "jump_lambda": 0.3,
+    "jump_mu": -0.02,
+    "jump_sigma": 0.15,
+    "kappa": 1.5,
+    "theta": null
+  },
+  "generated_at": "2026-02-07T03:35:47.618838+00:00Z"
+}

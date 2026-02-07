@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
 import whitepaperDoc from '../../../docs/WHITEPAPER.md?raw';
 import litepaperDoc from '../../../docs/LITEPAPER.md?raw';
@@ -92,6 +94,10 @@ export default function Docs() {
           Everything public about the VESTRA protocol, with full whitepaper
           preview and inline readers.
         </div>
+      </div>
+      <div className="grid-2 essentials-row">
+        <EssentialsPanel />
+        <PageIllustration variant="docs" />
       </div>
 
       <div className="stat-row">

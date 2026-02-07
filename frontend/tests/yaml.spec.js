@@ -67,19 +67,25 @@ const runStep = async (page, step) => {
   }
   if (step.expectRole) {
     const target = step.expectRole;
-    await expect(locatorFromTarget(page, target)).toBeVisible();
+    const locator = locatorFromTarget(page, target);
+    await locator.scrollIntoViewIfNeeded();
+    await expect(locator).toBeVisible();
     return;
   }
   if (step.expectText) {
     const target = typeof step.expectText === 'string'
       ? { text: step.expectText }
       : step.expectText;
-    await expect(locatorFromTarget(page, target)).toBeVisible();
+    const locator = locatorFromTarget(page, target);
+    await locator.scrollIntoViewIfNeeded();
+    await expect(locator).toBeVisible();
     return;
   }
   if (step.expectVisible) {
     const target = step.expectVisible;
-    await expect(locatorFromTarget(page, target)).toBeVisible();
+    const locator = locatorFromTarget(page, target);
+    await locator.scrollIntoViewIfNeeded();
+    await expect(locator).toBeVisible();
     return;
   }
   if (step.expectDisabled) {

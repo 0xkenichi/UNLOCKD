@@ -3,6 +3,7 @@ const path = require('path');
 const MiniSearch = require('minisearch');
 
 const DOC_DIR = path.join(__dirname, '..', 'docs');
+const RISK_DATA_PATH = path.join(__dirname, '..', 'notebooks', 'risk_sim_results.csv');
 const MAX_CHUNK_LENGTH = 900;
 const DEFAULT_QUERY = 'CRDT protocol risk unlock borrowing vesting governance';
 
@@ -51,6 +52,235 @@ const loadDocs = () => {
     console.error('[agent] unable to load docs:', error?.message || error);
   }
   return docs;
+};
+
+const loadRiskData = () => {
+  try {
+    const raw = fs.readFileSync(RISK_DATA_PATH, 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    const header = lines.shift();
+    if (!header) return [];
+    return lines.map((line) => {
+      const [
+        months,
+        vol30Mean,
+        vol30P1,
+        vol30P5,
+        vol30P10,
+        vol30Es5,
+        vol50Mean,
+        vol50P1,
+        vol50P5,
+        vol50P10,
+        vol50Es5,
+        vol70Mean,
+        vol70P1,
+        vol70P5,
+        vol70P10,
+        vol70Es5
+      ] = line.split(',').map((value) => Number(value));
+      return {
+        months,
+        vol30: { mean: vol30Mean, p1: vol30P1, p5: vol30P5, p10: vol30P10, es5: vol30Es5 },
+        vol50: { mean: vol50Mean, p1: vol50P1, p5: vol50P5, p10: vol50P10, es5: vol50Es5 },
+        vol70: { mean: vol70Mean, p1: vol70P1, p5: vol70P5, p10: vol70P10, es5: vol70Es5 }
+      };
+    });
+  } catch (error) {
+    console.error('[agent] unable to load risk data:', error?.message || error);
+    return [];
+  }
+};
+
+const selectClosestMonths = (riskData, months) => {
+  if (!riskData.length) return null;
+  return riskData.reduce((closest, row) => {
+    if (!closest) return row;
+    return Math.abs(row.months - months) < Math.abs(closest.months - months) ? row : closest;
+  }, null);
+};
+
+const inferMonths = (message) => {
+  if (!message) return 12;
+  const match = message.match(/(\d{1,2})\s*(?:months?|mos?|mo\b)/i);
+  if (match) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) return Math.max(0, Math.min(value, 36));
+  }
+  return 12;
+};
+
+const inferVolatility = (message) => {
+  if (!message) return 50;
+  if (/low\s*vol/i.test(message)) return 30;
+  if (/high\s*vol/i.test(message)) return 70;
+  if (/med(ium)?\s*vol/i.test(message)) return 50;
+  const explicit = message.match(/(\d{2})\s*%?\s*vol/i);
+  if (explicit) {
+    const value = Number(explicit[1]);
+    if (value <= 40) return 30;
+    if (value <= 60) return 50;
+    return 70;
+  }
+  return 50;
+};
+
+const extractNumber = (message, labelPatterns) => {
+  for (const pattern of labelPatterns) {
+    const match = message.match(pattern);
+    if (match) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+};
+
+const computeDpvEstimate = ({ quantity, price, months, sigma = 0.5 }) => {
+  const r = 0.05;
+  const t = Math.max(months, 0) / 12;
+  const dTime = Math.exp(-r * t);
+  const dVol = Math.max(1 - sigma * Math.sqrt(t), 0);
+  const liquidity = 0.9;
+  const shock = 0.95;
+  const discount = dTime * dVol * liquidity * shock;
+  const pv = quantity * price * discount;
+  const baseLtv = 0.4;
+  const minLtv = 0.25;
+  const tCap = Math.min(t, 3);
+  const ltv = Math.max(minLtv, baseLtv - (0.15 * tCap) / 3);
+  return {
+    pv,
+    ltv,
+    maxBorrow: pv * ltv,
+    params: { r, sigma, liquidity, shock }
+  };
+};
+
+const runAgentTools = (message, riskData) => {
+  const actions = [];
+  const normalized = String(message || '').toLowerCase();
+  const wantsRiskSim = /risk|monte|simulation|percentile|p5|p1|curve|volatility|stress/.test(normalized);
+  const wantsDpv = /dpv|present value|pv|ltv|loan-to-value|borrow limit/.test(normalized);
+  const wantsGovernance = /governance|proposal|vote|dao|committee|shock factor|risk parameter/.test(normalized);
+  const wantsPoolMatch = /pool|match|liquidity|lender|borrow offer/.test(normalized);
+
+  let summary = '';
+
+  if (wantsRiskSim && riskData.length) {
+    const months = inferMonths(message);
+    const volatility = inferVolatility(message);
+    const row = selectClosestMonths(riskData, months);
+    const bucket = volatility === 30 ? row?.vol30 : volatility === 70 ? row?.vol70 : row?.vol50;
+    if (row && bucket) {
+      actions.push({
+        type: 'risk_sim',
+        data: {
+          months: row.months,
+          volatility,
+          stats: {
+            meanPV: bucket.mean,
+            p1PV: bucket.p1,
+            p5PV: bucket.p5,
+            p10PV: bucket.p10,
+            es5PV: bucket.es5
+          }
+        }
+      });
+      summary += `Monte Carlo snapshot (${row.months} months, ${volatility}% vol): mean PV ~ ${bucket.mean.toFixed(
+        0
+      )}, P5 ~ ${bucket.p5.toFixed(0)}, ES5 ~ ${bucket.es5.toFixed(0)}. Use P5 for conservative caps.`;
+    }
+  }
+
+  if (wantsDpv) {
+    const quantity = extractNumber(message, [/quantity\s*[:=]?\s*([\d,.]+)/i, /(\d{2,})\s*tokens?/i]);
+    const price = extractNumber(message, [/price\s*[:=]?\s*\$?([\d,.]+)/i, /\$([\d,.]+)/i]);
+    const months = inferMonths(message);
+    if (quantity && price) {
+      const sigma = inferVolatility(message) / 100;
+      const estimate = computeDpvEstimate({ quantity, price, months, sigma });
+      actions.push({
+        type: 'dpv_estimate',
+        data: {
+          quantity,
+          price,
+          months,
+          volatility: Math.round(sigma * 100),
+          pv: estimate.pv,
+          ltv: estimate.ltv,
+          maxBorrow: estimate.maxBorrow,
+          params: estimate.params
+        }
+      });
+      summary += `${summary ? '\n\n' : ''}DPV estimate for ${quantity} tokens at $${price} unlocking in ${months} months: PV ~ ${estimate.pv.toFixed(
+        2
+      )}, suggested LTV ${Math.round(estimate.ltv * 100)}% (max borrow ~ ${estimate.maxBorrow.toFixed(2)}).`;
+    }
+  }
+
+  if (wantsGovernance) {
+    actions.push({
+      type: 'governance_suggestion',
+      data: {
+        title: 'Risk parameter review',
+        details:
+          'Consider updating volatility buckets and shock factor based on recent unlock schedules. Use Monte Carlo P5/ES5 to justify tighter LTV caps.',
+        nextSteps: ['Draft a proposal', 'Share simulation evidence', 'Open a DAO vote']
+      }
+    });
+    summary += `${summary ? '\n\n' : ''}Governance note: review volatility buckets and shock factor; use Monte Carlo P5/ES5 to justify conservative LTV caps.`;
+  }
+
+  if (wantsPoolMatch) {
+    const collateralId = extractNumber(message, [
+      /collateral\s*id\s*[:=]?\s*(\d+)/i,
+      /collateral\s*(\d+)/i,
+      /id\s*(\d+)/i
+    ]);
+    const desiredAmountUsd = extractNumber(message, [
+      /borrow\s*[:=]?\s*\$?([\d,.]+)/i,
+      /loan\s*[:=]?\s*\$?([\d,.]+)/i,
+      /\$([\d,.]+)/i
+    ]);
+    actions.push({
+      type: 'pool_match',
+      data: {
+        chain: 'base',
+        collateralId: collateralId ? String(collateralId) : '',
+        desiredAmountUsd: desiredAmountUsd || null
+      }
+    });
+    summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
+  }
+
+  if (wantsPoolMatch) {
+    const collateralId = extractNumber(message, [
+      /collateral\s*id\s*[:=]?\s*(\d+)/i,
+      /collateral\s*(\d+)/i,
+      /id\s*(\d+)/i
+    ]);
+    const desiredAmountUsd = extractNumber(message, [
+      /borrow\s*[:=]?\s*\$?([\d,.]+)/i,
+      /loan\s*[:=]?\s*\$?([\d,.]+)/i,
+      /\$([\d,.]+)/i
+    ]);
+    actions.push({
+      type: 'pool_match',
+      data: {
+        chain: 'base',
+        collateralId: collateralId ? String(collateralId) : '',
+        desiredAmountUsd: desiredAmountUsd || null
+      }
+    });
+    summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
+  }
+
+  if (!actions.length) {
+    return { actions: [], summary: '' };
+  }
+
+  return { actions, summary };
 };
 
 const initSearch = (docs) => {
@@ -220,31 +450,44 @@ const answerAgent = async (agent, input) => {
     throw new Error('Message is required');
   }
 
+  const toolOutput = runAgentTools(trimmed, agent.riskData || []);
   const snippets = selectSnippets(agent.search, agent.docs, trimmed, 5);
-  const systemPrompt = buildSystemPrompt(snippets, trimmed);
+  const toolContext = toolOutput.summary
+    ? `\n\nTool output (use as factual context):\n${toolOutput.summary}`
+    : '';
+  const systemPrompt = `${buildSystemPrompt(snippets, trimmed)}${toolContext}`;
   const prior = sanitizeHistory(history);
   const messages = [{ role: 'system', content: systemPrompt }, ...prior, { role: 'user', content: trimmed }];
 
   const llm = await callLLM(messages);
-  const fallback = !llm.usedLLM
-    ? `Context-only summary:\n${snippets
-        .map((snippet) => `- (${snippet.file}) ${snippet.heading}: ${snippet.text.slice(0, 160)}`)
-        .join('\n')}`
+  const fallback = `Context-only summary:\n${snippets
+    .map((snippet) => `- (${snippet.file}) ${snippet.heading}: ${snippet.text.slice(0, 160)}`)
+    .join('\n')}`;
+  const toolFallback = toolOutput.summary
+    ? `\n\n${toolOutput.summary}`
     : '';
+  const finalAnswer = llm.usedLLM
+    ? llm.answer || fallback
+    : `${fallback}${toolFallback}`;
 
   return {
-    answer: llm.answer || fallback,
+    answer: finalAnswer,
     sources: formatSources(snippets),
     mode: llm.usedLLM ? 'llm' : 'context-only',
-    provider: llm.provider || null
+    provider: llm.provider || null,
+    actions: toolOutput.actions || []
   };
 };
 
 const initAgent = () => {
   const docs = loadDocs();
   const search = initSearch(docs);
+  const riskData = loadRiskData();
   console.log(`[agent] loaded ${docs.length} doc chunks from ${DOC_DIR}`);
-  return { docs, search };
+  if (riskData.length) {
+    console.log(`[agent] loaded ${riskData.length} risk rows from ${RISK_DATA_PATH}`);
+  }
+  return { docs, search, riskData };
 };
 
 module.exports = {

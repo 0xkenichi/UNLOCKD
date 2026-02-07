@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VESTRA Dashboard - Redesign Wireframe</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: "Comic Sans MS", cursive;
+      background: #fff;
+      color: #333;
+      line-height: 1.6;
+    }
+
+    .wireframe-header {
+      background: #f5f5f5;
+      padding: 20px;
+      border-bottom: 2px solid #999;
+      text-align: center;
+    }
+
+    .wireframe-title {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #000;
+    }
+
+    .wireframe-desc {
+      font-size: 14px;
+      color: #666;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+
+    .section {
+      margin-bottom: 60px;
+      padding: 30px;
+      border: 3px solid #333;
+      border-radius: 8px;
+      background: #fafafa;
+      position: relative;
+    }
+
+    .section-label {
+      position: absolute;
+      top: -15px;
+      left: 20px;
+      background: #fff;
+      padding: 5px 15px;
+      font-size: 14px;
+      font-weight: bold;
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+
+    .badge {
+      position: absolute;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      z-index: 10;
+      color: white;
+    }
+
+    .badge-reuse {
+      background: #4caf50;
+    }
+
+    .badge-new {
+      background: #ff9800;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      border: 2px solid #666;
+      padding: 20px;
+      background: #fff;
+      border-radius: 6px;
+      position: relative;
+    }
+
+    .card-label {
+      font-size: 12px;
+      color: #999;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .card-value {
+      font-size: 26px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .button {
+      padding: 12px 22px;
+      border: 3px solid #333;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .button-primary {
+      background: #ccc;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .pill {
+      border: 2px solid #666;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #f5f5f5;
+    }
+
+    .placeholder {
+      border: 2px dashed #999;
+      padding: 30px;
+      text-align: center;
+      color: #999;
+      background: #fafafa;
+      min-height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @media (max-width: 768px) {
+      .hero-actions {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe-header">
+    <h1 class="wireframe-title">VESTRA Dashboard - Redesign Wireframe</h1>
+    <p class="wireframe-desc">
+      Modular dashboard layout with clear hierarchy, action-first hero, and rich
+      market intelligence follow-up.
+    </p>
+  </div>
+
+  <div class="container">
+    <!-- HERO OVERVIEW -->
+    <div class="section">
+      <span class="section-label">HERO OVERVIEW</span>
+      <div class="grid-2">
+        <div class="card">
+          <span class="badge badge-new" style="top: -10px; right: 10px;" title="New hero layout">[NEW] DashboardHero</span>
+          <div class="card-label">Account overview</div>
+          <div style="font-size: 28px; font-weight: bold; margin-bottom: 10px;">Dashboard</div>
+          <div style="color: #666;">
+            Track vesting credit health, balances, and next best actions.
+          </div>
+          <div class="hero-actions">
+            <button class="button button-primary">Start Borrow</button>
+            <button class="button">Make a Repay</button>
+            <button class="button">Open Portfolio</button>
+          </div>
+          <div class="pill-row">
+            <div class="pill">Wallet: 0x9f...2a4f</div>
+            <div class="pill">Network: Base Sepolia</div>
+            <div class="pill">Chain ID: 84532</div>
+          </div>
+        </div>
+
+        <div style="display: grid; gap: 16px;">
+          <div class="card">
+            <span class="badge badge-reuse" style="top: -10px; right: 10px;" title="src/components/common/EssentialsPanel.jsx">[REUSE] StatCard</span>
+            <div class="card-label">Account Snapshot</div>
+            <div class="grid-2" style="margin-top: 10px;">
+              <div>
+                <div class="card-label">Active Loans</div>
+                <div class="card-value">4</div>
+                <div style="color: #666; font-size: 12px;">On-chain count</div>
+              </div>
+              <div>
+                <div class="card-label">USDC Balance</div>
+                <div class="card-value">$22,450</div>
+                <div style="color: #666; font-size: 12px;">Wallet balance</div>
+              </div>
+            </div>
+          </div>
+          <div class="placeholder">
+            <span class="badge badge-reuse" style="top: -10px; right: 10px;" title="src/components/illustrations/PageIllustration.jsx">[REUSE] Illustration</span>
+            [Dashboard Illustration]
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PORTFOLIO SNAPSHOT -->
+    <div class="section">
+      <span class="section-label">PORTFOLIO SNAPSHOT</span>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-label">Primary Wallet</div>
+          <div class="card-value">0x9f...2a4f</div>
+          <div style="color: #666; font-size: 12px;">Connected address</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Active Loans</div>
+          <div class="card-value">4</div>
+          <div style="color: #666; font-size: 12px;">Currently tracked</div>
+        </div>
+        <div class="card">
+          <div class="card-label">USDC Available</div>
+          <div class="card-value">$22,450</div>
+          <div style="color: #666; font-size: 12px;">Ready for deployment</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NETWORK READINESS -->
+    <div class="section">
+      <span class="section-label">NETWORK READINESS</span>
+      <div class="placeholder">
+        <span class="badge badge-reuse" style="top: -10px; right: 10px;" title="src/components/common/ChainPrompt.jsx">[REUSE] ChainPrompt</span>
+        [Network switching + Solana wallet prompt]
+      </div>
+    </div>
+
+    <!-- MARKET INTELLIGENCE -->
+    <div class="section">
+      <span class="section-label">MARKET INTELLIGENCE</span>
+      <div class="placeholder" style="min-height: 220px;">
+        <span class="badge badge-reuse" style="top: -10px; right: 10px;" title="src/components/dashboard/SpotlightVestedContracts.jsx">[REUSE] SpotlightVestedContracts</span>
+        [Spotlight cards + upcoming vestings + snapshot history]
+      </div>
+    </div>
+  </div>
+
+  <div style="position: fixed; bottom: 20px; right: 20px; background: white; border: 2px solid #333; padding: 15px; border-radius: 6px; max-width: 250px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; font-family: Arial, sans-serif;">
+      Component Legend
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+      <span class="badge badge-reuse" style="position: static;">[REUSE]</span>
+      <span style="font-size: 12px; font-family: Arial, sans-serif;">Existing Component</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="badge badge-new" style="position: static;">[NEW]</span>
+      <span style="font-size: 12px; font-family: Arial, sans-serif;">New Component</span>
+    </div>
+  </div>
+</body>
+</html>

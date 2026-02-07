@@ -84,11 +84,18 @@ async function main() {
 
   const depositAmount = ethers.parseUnits("500000", 6); // 500k USDC liquidity
   const poolAddress = await pool.getAddress();
+  const issuanceTreasury = await pool.issuanceTreasury();
+  const issuanceSigner =
+    issuanceTreasury.toLowerCase() === deployer.address.toLowerCase()
+      ? deployer
+      : lender;
   await usdc.connect(lender).faucet(depositAmount);
   await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
   await (await pool.connect(lender).deposit(depositAmount)).wait();
-  // Allow the pool to lend from issuance treasury after deposit.
-  await (await usdc.connect(lender).approve(poolAddress, depositAmount)).wait();
+  // Allow the pool to lend from the issuance treasury after deposit.
+  await (
+    await usdc.connect(issuanceSigner).approve(poolAddress, depositAmount)
+  ).wait();
 
   const price = ethers.parseUnits("0.72", 8); // $0.72 per VEST
   await (await priceFeed.setPrice(price)).wait();

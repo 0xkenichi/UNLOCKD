@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   useAccount,
   useChainId,
   usePublicClient,
   useReadContract,
+  useSimulateContract,
+  useWaitForTransactionReceipt,
   useWriteContract
 } from 'wagmi';
 import {
@@ -12,10 +14,12 @@ import {
   usdcAbi
 } from '../../utils/contracts.js';
 import { toUnits } from '../../utils/format.js';
+import TxStatusBanner from '../common/TxStatusBanner.jsx';
+import { trackEvent } from '../../utils/analytics.js';
 
 const USDC_DECIMALS = 6;
 
-export default function RepayActions() {
+export default function RepayActions({ fundingStatus }) {
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
@@ -47,17 +51,40 @@ export default function RepayActions() {
     query: { enabled: Boolean(usdc && loanManager && address) }
   });
 
-  const { writeContract, isPending, error } = useWriteContract();
+  const {
+    data: approveHash,
+    writeContract: writeApprove,
+    isPending: isApprovePending,
+    error: approveError
+  } = useWriteContract();
+  const {
+    data: repayHash,
+    writeContract: writeRepay,
+    isPending: isRepayPending,
+    error: repayError
+  } = useWriteContract();
+
+  const {
+    isLoading: isApproveMining,
+    isSuccess: approveConfirmed,
+    error: approveReceiptError
+  } = useWaitForTransactionReceipt({ hash: approveHash });
+  const {
+    isLoading: isRepayMining,
+    isSuccess: repayConfirmed,
+    error: repayReceiptError
+  } = useWaitForTransactionReceipt({ hash: repayHash });
 
   const hasAllowance =
     allowance !== undefined && repayUnits !== null
       ? allowance >= repayUnits
       : false;
+  const fundingReady = fundingStatus?.ready ?? true;
 
   const handleApprove = () => {
     setActionError('');
     if (!usdc || !repayUnits || !loanManager) return;
-    writeContract({
+    writeApprove({
       address: usdc,
       abi: usdcAbi,
       functionName: 'approve',
@@ -84,7 +111,7 @@ export default function RepayActions() {
       if (blockGasLimit && gasLimit > blockGasLimit) {
         gasLimit = blockGasLimit;
       }
-      writeContract({
+      writeRepay({
         address: loanManager,
         abi: loanManagerAbi,
         functionName: 'repayLoan',
@@ -95,6 +122,29 @@ export default function RepayActions() {
       setActionError(err?.shortMessage || err?.message || 'Gas estimate failed.');
     }
   };
+
+  const { error: repaySimError } = useSimulateContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'repayLoan',
+    args: [BigInt(loanId || 0), repayUnits || 0n],
+    account: address,
+    query: {
+      enabled: Boolean(loanManager && repayUnits && address)
+    }
+  });
+
+  useEffect(() => {
+    if (approveConfirmed) {
+      trackEvent('repay_approve_confirmed', { chainId });
+    }
+  }, [approveConfirmed, chainId]);
+
+  useEffect(() => {
+    if (repayConfirmed) {
+      trackEvent('repay_confirmed', { chainId });
+    }
+  }, [repayConfirmed, chainId]);
 
   return (
     <div className="holo-card" id="repay-actions">
@@ -107,11 +157,50 @@ export default function RepayActions() {
         </div>
         <span className="tag">USDC</span>
       </div>
-      {(error || actionError) && (
+      {(approveError ||
+        repayError ||
+        approveReceiptError ||
+        repayReceiptError ||
+        actionError) && (
         <div className="error-banner">
-          {actionError || error?.message}
+          {actionError ||
+            repayReceiptError?.message ||
+            approveReceiptError?.message ||
+            repayError?.message ||
+            approveError?.message}
         </div>
       )}
+      {repaySimError && (
+        <div className="muted">
+          Simulation: {repaySimError.shortMessage || repaySimError.message}
+        </div>
+      )}
+      <TxStatusBanner
+        label="Approve Transaction"
+        hash={approveHash}
+        status={
+          approveConfirmed
+            ? 'Confirmed'
+            : isApproveMining
+              ? 'Confirming'
+              : isApprovePending
+                ? 'Pending'
+                : ''
+        }
+      />
+      <TxStatusBanner
+        label="Repay Transaction"
+        hash={repayHash}
+        status={
+          repayConfirmed
+            ? 'Confirmed'
+            : isRepayMining
+              ? 'Confirming'
+              : isRepayPending
+                ? 'Pending'
+                : ''
+        }
+      />
       <div className="form-grid">
         <label className="form-field">
           Loan ID
@@ -147,13 +236,17 @@ export default function RepayActions() {
         </div>
       </div>
       <div className="inline-actions">
-        <button className="button" onClick={handleApprove} disabled={isPending}>
+        <button
+          className="button"
+          onClick={handleApprove}
+          disabled={isApprovePending || !fundingReady}
+        >
           Approve
         </button>
         <button
           className="button"
           onClick={handleRepay}
-          disabled={isPending || !hasAllowance}
+          disabled={isRepayPending || !hasAllowance || !fundingReady}
         >
           Repay
         </button>

@@ -1,134 +1,98 @@
-# Credit Markets for Time-Locked Digital Assets
-## Litepaper (v2.0)
+# VESTRA: Credit Markets for Time-Locked Digital Assets
+## Litepaper (v2.1)
 
-Date: January 28, 2026  
+Date: February 7, 2026  
 Authors: Protocol Genesis Team
 
 ### Summary
-Web3 vesting and lockups protect long-term alignment but trap billions in illiquid value. This protocol enables borrowing against the discounted present value (DPV) of time-locked tokens without transferring ownership or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and can optionally use identity signals to improve credit terms.
+Vesting and lockups protect long-term alignment, but they trap real economic value. VESTRA enables borrowing or selling claim rights against time-locked tokens without taking custody or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and are priced with conservative risk controls. Optional identity signals and privacy modes improve terms while keeping settlement enforceable on-chain.
 
-### Problem
-- Locked tokens have real market value but zero immediate utility.
-- Existing DeFi lending requires liquid collateral.
-- OTC sales and centralized loans are costly or custodial.
+### The Problem
+- Locked tokens have market value but zero immediate utility.
+- DeFi lending requires liquid collateral and does not accept time-locked claims.
+- OTC sales and custodial lenders demand steep discounts or custody.
 
-### Solution
-Borrow against vested or locked token claims, valued conservatively via DPV:
+### The Solution
+Borrow against claim rights, valued using discounted present value (DPV):
 
 PV = Q * P * D
 
-Where Q is token quantity, P is oracle price, and D is a composite discount factor (time, volatility, liquidity, unlock impact, protocol risk). LTV is capped and time-aware.
+Where Q is quantity, P is oracle price, and D is a composite discount factor (time, volatility, liquidity, unlock impact, protocol risk). Borrowing is capped by time-aware LTV limits.
 
-### Key Features
-- Non-custodial escrow of claim rights
-- On-chain enforcement at unlock
-- Conservative valuation curves (20-40% LTV caps)
-- Optional identity layer for better rates
-- Privacy-preserving participation: optional identity, selective disclosure, and private auctions to protect users who choose to exit early
-- Composable adapters for common vesting standards
-- Optional auction primitive for selling claim rights at market-clearing discounts
+### What Makes VESTRA Different
+- Escrow of claim rights, not tokens.
+- Deterministic, on-chain settlement at unlock.
+- Conservative, risk-first valuation and LTV caps.
+- Optional identity and privacy controls per pool.
+- Composable adapters for common vesting standards.
+- Optional auction path for debt-free exits.
 
-### Architecture
-Core modules:
-- Vesting and lock adapters
-- Valuation and risk engine
-- Lending pools
-- Loan manager
-- Optional identity and reputation module
-- DAO governance and risk committees
-- Optional auction module (Dutch, English, Sealed Bid) for claim-right NFTs
+### How It Works (Loan Path)
+1. Escrow claim rights via a vesting adapter.
+2. Valuation engine computes PV and max borrow.
+3. Loan manager issues loan from a lending pool.
+4. Borrower can repay anytime pre-unlock.
+5. At unlock, settlement enforces repayment first.
 
-### Loan Lifecycle
-1. Escrow claim rights.
-2. Borrow stablecoins against DPV.
-3. Repay anytime with interest.
-4. At unlock: release on full repay, partial seize on underpayment, full liquidation on default.
-
-### Optional Auction Path (Non-Loan Exit)
-Users who prefer a debt-free exit can sell their claim rights via a time-bound auction:
-1. Escrow claim rights as an NFT.
-2. Run a Dutch, English, or Sealed Bid auction for 1-7 days.
-3. Winner pays stablecoins; seller receives proceeds minus fee.
-4. Winner holds the claim and receives tokens at unlock.
-
-### Privacy and Safety for Early Exits
-Some communities penalize members who exit vesting early. The protocol supports opt-in privacy that protects participants while keeping claims and settlement verifiable.
-
-Privacy model summary:
-- Goal: conceal borrower or seller identity and intent; preserve enforceability at unlock.
-- Scope: protect against social pressure, targeted harassment, and coordination around early exits.
-- Non-goal: hide the existence of the claim itself or bypass pool-level compliance.
-
-Mechanisms:
-- Optional identity: users can reveal identity signals for better terms or remain pseudonymous.
-- Selective disclosure: proofs attest to eligibility (vesting schedule, unlock time, claim validity) without exposing the participant.
-- Relayed actions: escrow, borrow, and settlement can be routed through relayers to reduce linkability.
-- Private auctions: sealed-bid with commit/reveal limits signaling, collusion, and social pressure.
-- Pool controls: DAOs can enable privacy modes per pool without weakening enforcement or lender protections.
-
-Assumptions and tradeoffs:
-- Privacy is opt-in; pools may price higher risk for fully private exits.
-- Some pools require limited disclosures due to governance or compliance.
-- Timing metadata may still leak behavioral signals.
-
-### Privacy Model (Appendix Summary)
-This litepaper provides a high-level view. The full privacy model defines threat assumptions, adversaries, mitigations, and compliance modes.
-- Goals: conceal participant identity and intent while keeping claims and settlement verifiable.
-- Mechanisms: selective disclosure proofs, sealed-bid auctions, and relayer-based execution.
-- Constraints: on-chain data remains public; privacy is opt-in and policy-driven per pool.
-- Details: see `docs/PRIVACY_MODEL.md` and `docs/TECHNICAL_SPEC.md`.
-
-### Auction Types (Current + Future)
-Current implementations:
-- Dutch (descending price): Fast resolution, low gas; risk of underselling if demand is thin.
-- English (ascending bids): Maximizes seller revenue; slower and higher gas if many bids.
-- Sealed Bid (first-price): Private bidding with commit/reveal; reduces collusion but adds complexity.
-
-Future variants (modular extensions):
-- Vickrey (second-price sealed bid): Truthful bidding incentives; winner pays second-highest.
-- Reverse (buyer-driven): Treasury posts desired price; sellers compete to fill at discounts.
-
-### Ensuring Lender Safety and Enforcement in CRDT Loans
-This section expands on Whitepaper Sections 5–6 (Collateral Valuation, Loan Lifecycle, and Enforcement). The goal is a binding, on-chain system where lenders are protected by conservative math and automatic settlement, without relying on off-chain trust.
-
-#### 1. Protocol Control of Vested Tokens (No Swap/Sell Until Settled)
-- Escrow of claim rights (not tokens): When a borrower takes a loan, they escrow claim rights via a vesting adapter. The underlying tokens remain locked in the original vesting contract until the unlock timestamp.
-- Non-transferability during vesting: Standard vesting contracts enforce that tokens cannot be transferred before unlock.
-- At unlock: The protocol intercepts release. The loan contract checks outstanding debt before tokens are released.
-- Permissionless settlement: Once `block.timestamp >= unlockTime`, anyone can call `settleAtUnlock(loanId)`.
-- Enforcement outcomes:
-  - Full repay: Tokens are released to the borrower.
-  - Partial repay: The protocol seizes only the amount needed to cover remaining debt + interest and returns the excess.
-  - Default: The protocol seizes the full unlocked amount for liquidation to repay lenders.
-
-#### 2. Lender Safety Mechanisms
-- Conservative DPV and LTV caps: Discounted present value applies time, volatility, liquidity, unlock impact, and protocol risk factors. LTV is capped (20–40% in the litepaper, adjustable by governance).
-- Interest accrual: Interest compounds in the loan manager and is added to the repayment amount at settlement.
-- Liquidation on default: Seized tokens are liquidated via DEX/OTC routes to repay lenders in stablecoins.
-- Governance controls: High-volatility tokens can receive lower LTV, higher discounts, or temporary pauses.
-- Cross-chain reputation: Defaults can reduce credit terms on other supported chains.
-
-#### 3. Scenario Coverage (Up, Down, Default)
-Example: 50,000 tokens at $1 today, 12-month vesting, 10% APR.
-- DPV example: `PV = Q * P * D` with a conservative discount (e.g., 0.407) gives ~$20,350.
-- Max borrow at 30% LTV: ~$6,105; debt at unlock with interest: ~$6,715.
+### Claim-Rights Escrow and Enforcement
+VESTRA does not custody tokens. Instead, adapters wrap vesting schedules and expose a callable release function:
+- Tokens remain in the original vesting contract until unlock.
+- At unlock, the loan contract settles debt before any release.
+- Settlement is permissionless once `block.timestamp >= unlockTime`.
 
 Outcomes at unlock:
-- Price up ($5): Full repay releases tokens; partial repay seizes only the amount needed; default seizes all tokens and repays lenders with surplus.
-- Price down ($0.50): Full repay releases tokens; partial/default seizes enough tokens to cover debt; discounts are set to withstand major drops.
-- Extreme tail risk: If price collapses beyond the modeled discount, governance can pause or reprice the asset class.
+- Full repay: tokens release to borrower.
+- Partial repay: protocol seizes only the amount needed.
+- Default: protocol seizes unlocked tokens for repayment.
 
-#### 4. NFT Loan Agreement (Binding Proof)
-Optional enhancement: mint a non-transferable ERC-721 loan agreement at loan creation.
-- Metadata can encode principal, rate, unlock time, and settlement terms.
-- Transfer is disabled (soulbound), and the NFT can be burned on full repay.
-- Provides immutable, on-chain evidence of terms for borrowers, lenders, and auditors.
+### Risk Model (Conservative by Design)
+VESTRA cannot liquidate early. Risk controls are front-loaded:
+- DPV discount incorporates time, volatility, liquidity, and unlock impact.
+- LTV caps are conservative (target 20-40%) and time-aware.
+- Pool governance can reprice or pause volatile assets.
+
+Example: 50,000 tokens at $1 with a 12-month unlock and 10% APR  
+If D = 0.407, PV = ~$20,350. At 30% LTV, max borrow is ~$6,105.  
+At unlock, debt with interest is ~$6,715.
+
+### Liquidity Sources and Incentives
+Primary liquidity providers:
+- DAOs and protocols seeking stable yield on conservative collateral.
+- Market makers and treasury managers optimizing idle stablecoin.
+- Token issuers providing community liquidity without forced sales.
+
+Incentives: time-locked collateral, conservative LTVs, deterministic settlement, and pool-level risk governance.
+
+### Optional Auction Path (Debt-Free Exit)
+Users can sell claim rights instead of borrowing:
+1. Escrow claim rights as a non-transferable NFT.
+2. Run a Dutch, English, or Sealed Bid auction (1-7 days).
+3. Winner pays stablecoins; seller receives proceeds minus fee.
+4. Winner receives tokens at unlock.
+
+### Privacy and Identity (Opt-In)
+Some communities discourage early exits. VESTRA supports:
+- Optional identity proofs for better terms.
+- Selective disclosure of eligibility without identity leakage.
+- Relayed transactions to reduce linkability.
+- Pool-level controls over privacy modes.
+
+Privacy is opt-in and policy-driven. Settlement remains public and enforceable.
+
+### Security and Safety Guarantees
+- Claim rights cannot be released before settlement.
+- Settlement always resolves outstanding debt first.
+- Loans cannot exceed max borrow at issuance.
+- Admin actions are minimized and policy-gated.
 
 ### Roadmap
-- Q1 2026: MVP on Ethereum; pilot with 1-2 DAOs.
-- Phase 2: Multi-chain + identity module.
-- Phase 3: Institutional pools and composability.
+- Testnet MVP live with public docs and demo flow.
+- Mainnet MVP with initial DAO pilots.
+- Multi-chain expansion and identity enhancements.
+- Institutional pools and composable extensions.
 
-### Why It Matters
-This protocol converts locked token value into usable liquidity while preserving vesting integrity and long-term incentives. It creates a new DeFi primitive for DAOs, startups, and contributors.
+### Why Now
+Locked token value is large, persistent, and cyclically painful in low-liquidity markets. VESTRA turns locked value into productive capital while preserving vesting integrity and long-term alignment.
+
+Note: This document is informational and not legal or financial advice.
 

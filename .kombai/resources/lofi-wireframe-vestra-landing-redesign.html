@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VESTRA Landing - Redesign Wireframe</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Comic Sans MS', cursive;
+      background: #fff;
+      color: #333;
+      line-height: 1.6;
+    }
+    
+    .wireframe-header {
+      background: #f5f5f5;
+      padding: 20px;
+      border-bottom: 2px solid #999;
+      text-align: center;
+    }
+    
+    .wireframe-title {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #000;
+    }
+    
+    .wireframe-desc {
+      font-size: 14px;
+      color: #666;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    .section {
+      margin-bottom: 60px;
+      padding: 30px;
+      border: 3px solid #333;
+      border-radius: 8px;
+      background: #fafafa;
+      position: relative;
+    }
+    
+    .section-label {
+      position: absolute;
+      top: -15px;
+      left: 20px;
+      background: #fff;
+      padding: 5px 15px;
+      font-size: 14px;
+      font-weight: bold;
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+    
+    .badge {
+      position: absolute;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      z-index: 10;
+      color: white;
+    }
+    
+    .badge-reuse {
+      background: #4CAF50;
+    }
+    
+    .badge-new {
+      background: #FF9800;
+    }
+    
+    /* Hero Section */
+    .hero-section {
+      min-height: 600px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      position: relative;
+    }
+    
+    .hero-background {
+      position: absolute;
+      inset: 0;
+      border: 2px dashed #999;
+      background: 
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 20px,
+          #e0e0e0 20px,
+          #e0e0e0 21px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 20px,
+          #e0e0e0 20px,
+          #e0e0e0 21px
+        );
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      font-size: 16px;
+    }
+    
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+      padding: 40px;
+    }
+    
+    .hero-title {
+      font-size: 72px;
+      margin-bottom: 20px;
+      letter-spacing: 8px;
+      border: 3px solid #333;
+      padding: 20px;
+      background: #fff;
+    }
+    
+    .hero-subtitle {
+      font-size: 28px;
+      margin-bottom: 15px;
+      color: #666;
+    }
+    
+    .hero-tagline {
+      font-size: 18px;
+      margin-bottom: 30px;
+      color: #999;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin: 30px 0;
+    }
+    
+    .button {
+      padding: 15px 30px;
+      border: 3px solid #333;
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      background: #fff;
+      position: relative;
+    }
+    
+    .button-primary {
+      background: #ccc;
+    }
+    
+    .button:hover {
+      background: #f0f0f0;
+    }
+    
+    /* Trust Section */
+    .trust-section {
+      background: #f9f9f9;
+    }
+    
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .trust-card {
+      border: 2px solid #666;
+      padding: 20px;
+      background: #fff;
+      border-radius: 6px;
+      position: relative;
+      min-height: 120px;
+    }
+    
+    .card-label {
+      font-size: 12px;
+      color: #999;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    
+    .card-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .card-meta {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    /* Features Section */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      margin-top: 30px;
+    }
+    
+    .feature-card {
+      border: 2px solid #666;
+      padding: 25px;
+      background: #fff;
+      border-radius: 6px;
+      position: relative;
+      min-height: 200px;
+    }
+    
+    .feature-icon {
+      width: 60px;
+      height: 60px;
+      border: 2px solid #333;
+      border-radius: 50%;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f5;
+      font-size: 24px;
+    }
+    
+    .feature-title {
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    
+    .feature-desc {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    /* How it Works */
+    .steps-container {
+      display: grid;
+      gap: 30px;
+      margin-top: 30px;
+    }
+    
+    .step-row {
+      display: grid;
+      grid-template-columns: 80px 1fr 1fr;
+      gap: 20px;
+      align-items: center;
+      padding: 20px;
+      border: 2px solid #666;
+      background: #fff;
+      border-radius: 6px;
+      position: relative;
+    }
+    
+    .step-number {
+      width: 60px;
+      height: 60px;
+      border: 3px solid #333;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: bold;
+      background: #f5f5f5;
+    }
+    
+    .step-content h3 {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    
+    .step-content p {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .step-visual {
+      border: 2px dashed #999;
+      padding: 20px;
+      text-align: center;
+      color: #999;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fafafa;
+    }
+    
+    /* CTA Section */
+    .cta-section {
+      background: #f0f0f0;
+      text-align: center;
+      padding: 60px 30px;
+    }
+    
+    .cta-title {
+      font-size: 42px;
+      margin-bottom: 20px;
+    }
+    
+    .cta-subtitle {
+      font-size: 20px;
+      color: #666;
+      margin-bottom: 30px;
+    }
+    
+    /* Footer */
+    .footer-section {
+      background: #e0e0e0;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    
+    .footer-links {
+      display: flex;
+      gap: 30px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    
+    .footer-link {
+      text-decoration: underline;
+      color: #333;
+    }
+    
+    .section-heading {
+      font-size: 36px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    
+    .section-subheading {
+      font-size: 18px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .placeholder-img {
+      border: 2px dashed #999;
+      padding: 40px;
+      text-align: center;
+      color: #999;
+      background: #fafafa;
+      margin: 20px 0;
+    }
+    
+    @media (max-width: 768px) {
+      .hero-title {
+        font-size: 42px;
+      }
+      
+      .step-row {
+        grid-template-columns: 1fr;
+      }
+      
+      .button-group {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wireframe-header">
+    <h1 class="wireframe-title">VESTRA Landing Page - Redesign Wireframe</h1>
+    <p class="wireframe-desc">Enhanced layout with stronger value proposition hierarchy, social proof integration, and clearer user journey flow</p>
+  </div>
+
+  <div class="container">
+    
+    <!-- HERO SECTION -->
+    <div class="section hero-section">
+      <span class="section-label">HERO SECTION</span>
+      <div class="hero-background">
+        <!-- REUSABLE: LandingScene from src/components/landing/LandingScene.jsx -->
+        <div style="position: relative; width: 100%; height: 100%;">
+          <span class="badge badge-reuse" style="top: 10px; right: 10px;" title="src/components/landing/LandingScene.jsx">[REUSE] LandingScene</span>
+          [3D Scene: Stars + Particles + Orb with parallax]
+        </div>
+      </div>
+      
+      <div class="hero-content">
+        <div class="hero-title">VESTRA</div>
+        <div class="hero-subtitle">
+          Unlock liquidity from your vested tokens.<br/>
+          Zero custody. Auto-settled. Multi-chain.
+        </div>
+        <p class="hero-tagline">
+          Turn tomorrow's tokens into today's capital
+        </p>
+        
+        <!-- REUSABLE: Button pattern from existing buttons -->
+        <div style="position: relative; display: inline-block; margin-bottom: 20px;">
+          <span class="badge badge-reuse" style="top: -10px; right: -10px;" title="src/styles.css .landing-primary-button">[REUSE] Button Styles</span>
+          <div class="button-group">
+            <button class="button button-primary">Launch App (Testnet)</button>
+            <button class="button">View Documentation</button>
+            <button class="button">Watch Demo (2min)</button>
+          </div>
+        </div>
+        
+        <!-- NEW: Trust Strip -->
+        <div style="position: relative; margin-top: 30px;">
+          <span class="badge badge-new" style="top: 5px; right: 5px;" title="New component for social proof">[NEW] TrustStrip</span>
+          <div style="display: flex; gap: 30px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 15px; border: 1px solid #ccc; background: rgba(255,255,255,0.8);">
+            <div style="font-size: 12px; color: #666;">SECURED BY</div>
+            <div style="width: 80px; height: 30px; border: 1px dashed #999; display: flex; align-items: center; justify-content: center; font-size: 10px;">[Chainlink]</div>
+            <div style="width: 80px; height: 30px; border: 1px dashed #999; display: flex; align-items: center; justify-content: center; font-size: 10px;">[OpenZeppelin]</div>
+            <div style="font-size: 12px; color: #666;">•</div>
+            <div style="font-size: 12px; font-weight: bold;">$6.8M+ Borrowed</div>
+            <div style="font-size: 12px; color: #666;">•</div>
+            <div style="font-size: 12px; font-weight: bold;">12 Active Vaults</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE METRICS SECTION -->
+    <div class="section trust-section">
+      <span class="section-label">PROTOCOL METRICS</span>
+      <h2 class="section-heading">Live Protocol Status</h2>
+      
+      <!-- REUSABLE: MetricCard pattern -->
+      <div style="position: relative;">
+        <span class="badge badge-reuse" style="top: -5px; right: 10px;" title="src/styles.css .metric-card">[REUSE] MetricCard</span>
+        <div class="trust-grid">
+          <div class="trust-card">
+            <div class="card-label">Total Value Locked</div>
+            <div class="card-value">$6.8M</div>
+            <div class="card-meta">↑ 24% this month</div>
+          </div>
+          <div class="trust-card">
+            <div class="card-label">Active Vaults</div>
+            <div class="card-value">12</div>
+            <div class="card-meta">Across 3 chains</div>
+          </div>
+          <div class="trust-card">
+            <div class="card-label">Average LTV</div>
+            <div class="card-value">38.4%</div>
+            <div class="card-meta">Conservative & safe</div>
+          </div>
+          <div class="trust-card">
+            <div class="card-label">Loans Issued</div>
+            <div class="card-value">247</div>
+            <div class="card-meta">100% auto-settled</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- REUSABLE: ChainStatus component -->
+      <div style="position: relative; margin-top: 30px;">
+        <span class="badge badge-reuse" style="top: 5px; right: 10px;" title="src/components/common/ChainStatus.jsx">[REUSE] ChainStatus</span>
+        <div style="border: 2px solid #666; padding: 20px; background: #fff; border-radius: 6px;">
+          <h3 style="margin-bottom: 10px;">Network Status</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <div>
+              <div style="font-size: 12px; color: #999;">Active Chain</div>
+              <div style="font-size: 18px; font-weight: bold;">Base Sepolia</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; color: #999;">Mode</div>
+              <div style="font-size: 18px; font-weight: bold;">Testnet</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FEATURES SECTION -->
+    <div class="section">
+      <span class="section-label">KEY FEATURES</span>
+      <h2 class="section-heading">Why VESTRA?</h2>
+      <p class="section-subheading">Borrow against locked tokens without giving up custody or future upside</p>
+      
+      <!-- NEW: Feature cards with icons -->
+      <div style="position: relative;">
+        <span class="badge badge-new" style="top: -5px; right: 10px;" title="New component for features">[NEW] FeatureCard</span>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🔒</div>
+            <div class="feature-title">Non-Custodial</div>
+            <div class="feature-desc">Your tokens stay in your vesting contract. We never take custody. Cryptographic proofs verify everything on-chain.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <div class="feature-title">Auto-Settled</div>
+            <div class="feature-desc">Loans automatically repay as tokens vest. No manual intervention. No liquidation risk from market volatility.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">🌐</div>
+            <div class="feature-title">Multi-Chain</div>
+            <div class="feature-desc">Works on Ethereum, Arbitrum, Base, Avalanche, and Solana. Bridge vesting schedules across ecosystems seamlessly.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">📊</div>
+            <div class="feature-title">Real-Time Pricing</div>
+            <div class="feature-desc">Chainlink oracles provide accurate valuations. Dynamic LTV based on vesting schedule velocity and token volatility.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">🛡️</div>
+            <div class="feature-title">Battle-Tested Security</div>
+            <div class="feature-desc">Audited by OpenZeppelin. Built with industry-standard libraries. Insurance fund covers edge cases.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">⚙️</div>
+            <div class="feature-title">Flexible Terms</div>
+            <div class="feature-desc">Borrow 20-60% LTV. Choose repayment schedule. No prepayment penalties. Full transparency in smart contracts.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW IT WORKS SECTION -->
+    <div class="section">
+      <span class="section-label">HOW IT WORKS</span>
+      <h2 class="section-heading">Get Liquidity in 3 Steps</h2>
+      <p class="section-subheading">From connection to funds in under 5 minutes</p>
+      
+      <!-- NEW: Step-by-step flow -->
+      <div style="position: relative;">
+        <span class="badge badge-new" style="top: -5px; right: 10px;" title="New component for process steps">[NEW] ProcessStep</span>
+        <div class="steps-container">
+          <div class="step-row">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h3>Connect Vesting Contract</h3>
+              <p>Link your wallet and authorize read access to your vesting schedule. We verify token unlock dates and amounts on-chain.</p>
+              <p style="margin-top: 8px; font-size: 12px; color: #999;">⏱️ ~1 minute</p>
+            </div>
+            <div class="step-visual">[UI Mock: Wallet connection + contract verification]</div>
+          </div>
+          
+          <div class="step-row">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h3>Get Instant Quote</h3>
+              <p>See your borrowing power based on vesting schedule. Choose loan amount, duration, and LTV. Review terms and APR.</p>
+              <p style="margin-top: 8px; font-size: 12px; color: #999;">⏱️ ~2 minutes</p>
+            </div>
+            <div class="step-visual">[UI Mock: Loan calculator with slider + terms]</div>
+          </div>
+          
+          <div class="step-row">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h3>Receive USDC</h3>
+              <p>Sign transaction to create loan vault. USDC instantly transferred to your wallet. Loan auto-repays as tokens vest.</p>
+              <p style="margin-top: 8px; font-size: 12px; color: #999;">⏱️ ~1-2 minutes</p>
+            </div>
+            <div class="step-visual">[UI Mock: Transaction confirmation + success]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- USE CASES SECTION -->
+    <div class="section">
+      <span class="section-label">USE CASES</span>
+      <h2 class="section-heading">Who Benefits?</h2>
+      
+      <!-- NEW: Use case cards -->
+      <div style="position: relative;">
+        <span class="badge badge-new" style="top: -5px; right: 10px;" title="New component for use cases">[NEW] UseCaseCard</span>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-title">🚀 Startup Employees</div>
+            <div class="feature-desc">Access your equity before IPO/exit. Pay for down payment, tuition, or living expenses without selling unvested tokens.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-title">💼 Token Contributors</div>
+            <div class="feature-desc">Bridge income gaps during vesting cliffs. Maintain upside exposure while accessing working capital today.</div>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-title">🏗️ Protocol Treasuries</div>
+            <div class="feature-desc">Unlock operational liquidity from ecosystem fund vesting. Deploy capital without diluting governance power.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TESTIMONIALS SECTION -->
+    <div class="section">
+      <span class="section-label">TESTIMONIALS</span>
+      <h2 class="section-heading">Trusted by Web3 Builders</h2>
+      
+      <!-- NEW: Testimonial cards -->
+      <div style="position: relative;">
+        <span class="badge badge-new" style="top: -5px; right: 10px;" title="New component for testimonials">[NEW] TestimonialCard</span>
+        <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));">
+          <div class="feature-card">
+            <p style="font-size: 16px; margin-bottom: 15px;">"Got $50K against my unvested tokens in 5 minutes. No paperwork, no phone calls. Just connected wallet and done."</p>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 40px; height: 40px; border: 2px solid #999; border-radius: 50%; background: #f5f5f5;"></div>
+              <div>
+                <div style="font-weight: bold;">Sarah Chen</div>
+                <div style="font-size: 12px; color: #666;">Protocol Engineer, Layer 2 Startup</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="feature-card">
+            <p style="font-size: 16px; margin-bottom: 15px;">"VESTRA let us access treasury funds without selling governance tokens. Game-changer for DAO operations."</p>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 40px; height: 40px; border: 2px solid #999; border-radius: 50%; background: #f5f5f5;"></div>
+              <div>
+                <div style="font-weight: bold;">Marcus Johnson</div>
+                <div style="font-size: 12px; color: #666;">Treasury Lead, DeFi DAO</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="feature-card">
+            <p style="font-size: 16px; margin-bottom: 15px;">"Finally, a way to unlock my equity without waiting 4 years. Paid off student loans without sacrificing upside."</p>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="width: 40px; height: 40px; border: 2px solid #999; border-radius: 50%; background: #f5f5f5;"></div>
+              <div>
+                <div style="font-weight: bold;">Alex Rivera</div>
+                <div style="font-size: 12px; color: #666;">Smart Contract Dev, Web3 Company</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FAQ SECTION -->
+    <div class="section">
+      <span class="section-label">FAQ</span>
+      <h2 class="section-heading">Common Questions</h2>
+      
+      <!-- NEW: FAQ Accordion -->
+      <div style="position: relative;">
+        <span class="badge badge-new" style="top: -5px; right: 10px;" title="New component for FAQ">[NEW] FAQAccordion</span>
+        <div style="display: grid; gap: 10px; margin-top: 20px;">
+          <div style="border: 2px solid #666; padding: 15px; background: #fff; border-radius: 6px;">
+            <div style="font-weight: bold; margin-bottom: 5px;">▼ What happens if token price crashes?</div>
+            <div style="font-size: 14px; color: #666; margin-left: 20px;">Loans auto-repay from vested tokens, not market value. No liquidations.</div>
+          </div>
+          <div style="border: 2px solid #666; padding: 15px; background: #fff; border-radius: 6px;">
+            <div style="font-weight: bold;">▶ Which vesting contracts are supported?</div>
+          </div>
+          <div style="border: 2px solid #666; padding: 15px; background: #fff; border-radius: 6px;">
+            <div style="font-weight: bold;">▶ What are the fees?</div>
+          </div>
+          <div style="border: 2px solid #666; padding: 15px; background: #fff; border-radius: 6px;">
+            <div style="font-weight: bold;">▶ Is this audited?</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FINAL CTA SECTION -->
+    <div class="section cta-section">
+      <span class="section-label">FINAL CTA</span>
+      <h2 class="cta-title">Ready to unlock your vested tokens?</h2>
+      <p class="cta-subtitle">Join 200+ builders accessing liquidity on VESTRA</p>
+      
+      <!-- REUSABLE: Button pattern -->
+      <div style="position: relative; display: inline-block;">
+        <span class="badge badge-reuse" style="top: -10px; right: -10px;" title="src/styles.css button styles">[REUSE] Button Styles</span>
+        <div class="button-group">
+          <button class="button button-primary">Launch App (Testnet)</button>
+          <button class="button">Schedule Demo Call</button>
+        </div>
+      </div>
+      
+      <p style="margin-top: 20px; font-size: 12px; color: #999;">
+        Testnet only • Base Sepolia • No real funds at risk
+      </p>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer-section">
+      <span class="section-label">FOOTER</span>
+      <div class="footer-links">
+        <a href="#" class="footer-link">Documentation</a>
+        <a href="#" class="footer-link">GitHub</a>
+        <a href="#" class="footer-link">Discord</a>
+        <a href="#" class="footer-link">Twitter</a>
+        <a href="#" class="footer-link">Blog</a>
+        <a href="#" class="footer-link">Privacy</a>
+        <a href="#" class="footer-link">Terms</a>
+      </div>
+      <p style="font-size: 12px; color: #666;">
+        © 2026 VESTRA Protocol • Testnet MVP • Not financial advice
+      </p>
+    </div>
+
+  </div>
+
+  <!-- Component Legend -->
+  <div style="position: fixed; bottom: 20px; right: 20px; background: white; border: 2px solid #333; padding: 15px; border-radius: 6px; max-width: 250px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; font-family: Arial, sans-serif;">Component Legend</div>
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+      <span class="badge badge-reuse" style="position: static;">[REUSE]</span>
+      <span style="font-size: 12px; font-family: Arial, sans-serif;">Existing Component</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="badge badge-new" style="position: static;">[NEW]</span>
+      <span style="font-size: 12px; font-family: Arial, sans-serif;">New Component</span>
+    </div>
+  </div>
+
+</body>
+</html>

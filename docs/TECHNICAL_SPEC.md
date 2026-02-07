@@ -1,33 +1,44 @@
 # Technical Specification
 
-This document defines the system architecture, module responsibilities, and core flows. It complements `ARCHITECTURE.md` and provides a stronger implementation standard.
+This document defines the system architecture, module responsibilities, and core flows for VESTRA. It complements `ARCHITECTURE.md` and the litepaper and is intended to be implementable without ambiguity.
+
+## Scope
+- On-chain escrow and settlement of claim rights.
+- Conservative valuation, issuance, and repayment of loans.
+- Optional auction path for debt-free exits.
+- Privacy and identity hooks (optional, policy-driven).
+
+Out of scope: legal agreements, custody frameworks, or off-chain lending.
 
 ## System Overview
-The protocol enables borrowing or selling claim rights on time-locked tokens. The system enforces settlement at unlock and isolates credit risk with conservative valuation and LTV caps.
+The protocol enables borrowing or selling claim rights on time-locked tokens. Settlement is enforced at unlock, and credit risk is isolated through conservative DPV and LTV caps.
 
-## Design Principles (Enterprise Standard)
+## Design Principles
 - **Safety first**: settlement is deterministic and non-bypassable.
 - **Modularity**: adapters, auctions, and privacy components can be swapped.
 - **Verifiability**: core rules are on-chain and observable.
-- **Least privilege**: minimal admin control; upgrade paths are explicit.
+- **Least privilege**: minimal admin control; upgrades are explicit.
 - **Policy control**: pools can select privacy and compliance constraints.
 
 ## On-Chain Components
 - **VestingAdapter**: validates vesting schedules and escrows claim rights.
 - **ValuationEngine**: computes discounted present value (DPV) and max LTV.
-- **LoanManager**: issues loans, accrues interest, and enforces settlement at unlock.
+- **LoanManager**: issues loans, accrues interest, enforces settlement at unlock.
 - **LendingPool**: holds liquidity and tracks pool debt/repayments.
-- **AuctionFactory + Auction types**: supports Dutch, English, and Sealed Bid auctions.
-- **IdentityVerifier (optional)**: validates proofs and applies LTV boosts.
+- **AuctionFactory + Auction types**: Dutch, English, Sealed Bid.
+- **IdentityVerifier (optional)**: validates proofs and applies LTV adjustments.
+- **Governance/RiskModule**: updates risk params, whitelists adapters, and pauses.
 
 ## Off-Chain / Auxiliary Components
-- **Oracle feeds**: price and volatility feeds for valuation inputs.
-- **Privacy relayer (optional)**: submits transactions on behalf of users to reduce linkability.
-- **Indexers**: track loan state, auction state, and settlement events for UI/alerts.
+- **Oracle feeds**: price, volatility, and liquidity signals.
+- **Privacy relayer (optional)**: submits transactions on behalf of users.
+- **Indexers**: track loan state, auction state, and settlement events.
+- **Risk analytics**: Monte Carlo and stress testing for parameter tuning.
 
 ## Core Data Structures (Conceptual)
-- **ClaimRight**: { adapter, beneficiary, quantity, unlockTime, metadataHash }
-- **Loan**: { principal, rate, startTime, unlockTime, state, borrower }
+- **ClaimRight**: { adapter, beneficiary, quantity, unlockTime, metadataHash, vestingSource }
+- **Loan**: { principal, rate, startTime, unlockTime, debt, state, borrower, poolId }
+- **PoolRiskParams**: { ltvCap, discountCurve, maxDuration, oracleConfig }
 - **Auction**: { claimRightId, auctionType, startTime, endTime, ruleset }
 
 ## Contract Interfaces (Key Functions)
@@ -48,36 +59,55 @@ The protocol enables borrowing or selling claim rights on time-locked tokens. Th
 - **AuctionFactory**
   - `createAuction(claimRightId, auctionType, ruleset) -> auctionId`
 
+## Adapter Requirements
+Adapters must:
+- Prove the vesting schedule is valid and locked.
+- Provide deterministic `unlockTime` and `quantity`.
+- Support `release` to route unlocked tokens to the settlement recipient.
+- Prevent transfer of claim rights outside VESTRA while pledged.
+
+## Valuation Model (DPV)
+PV = Q * P * D
+
+Where D is a composite discount factor based on:
+- Time to unlock (duration risk).
+- Token volatility and liquidity.
+- Unlock impact and protocol risk.
+
+Constraints:
+- `maxBorrow <= PV * ltvCap`.
+- LTV caps are time-aware and governance-controlled.
+
 ## Pre/Post Conditions (Interface Contracts)
 - **VestingAdapter**
-  - Pre: `claimData` is valid, `unlockTime` is in the future, quantity > 0, adapter is allowed.
-  - Post: claim right is escrowed, non-transferable until settlement; `claimRightId` is persisted.
+  - Pre: `claimData` is valid, `unlockTime` is in the future, quantity > 0.
+  - Post: claim right is escrowed, non-transferable until settlement.
 - **ValuationEngine**
-  - Pre: claim right exists, oracle price is fresh, risk params are configured.
-  - Post: `pv` is computed deterministically; `maxBorrow <= pv * ltvCap`.
+  - Pre: claim exists, oracle price is fresh, risk params are configured.
+  - Post: `pv` is computed deterministically; `maxBorrow` respects LTV cap.
 - **LoanManager**
-  - Pre: claim right is escrowed and not already pledged; amount <= `maxBorrow`; pool has liquidity.
-  - Post: loan state is active; debt is recorded; claim right is bound to the loan.
+  - Pre: claim is escrowed and unpledged; amount <= `maxBorrow`; pool has liquidity.
+  - Post: loan state is active; debt is recorded; claim binds to loan.
 - **LendingPool**
   - Pre: sufficient liquidity for borrow.
-  - Post: borrow/repay updates pool accounting and emits events.
-- **AuctionFactory and Auction**
-  - Pre: claim right is escrowed and not pledged to a loan; auction ruleset is valid.
-  - Post: auction is created with a fixed ruleset; settlement transfers claim rights to winner.
+  - Post: pool accounting updates and emits events.
+- **AuctionFactory**
+  - Pre: claim is escrowed and unpledged; ruleset is valid.
+  - Post: auction is created with a fixed ruleset.
 
 ## State Machines
 - **Loan**: `Created -> Active -> Repaid | Defaulted -> Settled`
 - **Auction**: `Created -> Active -> Revealed -> Settled`
 
-## Error Codes (Suggested, Non-Normative)
-- `ERR_INVALID_CLAIM`: claim data invalid or malformed.
-- `ERR_CLAIM_LOCKED`: claim already pledged or settled.
-- `ERR_ORACLE_STALE`: price feed not fresh or unavailable.
-- `ERR_LTV_EXCEEDED`: borrow amount exceeds max LTV.
-- `ERR_POOL_LIQUIDITY`: insufficient pool liquidity.
-- `ERR_UNAUTHORIZED`: caller lacks required permissions.
-- `ERR_AUCTION_STATE`: invalid auction state transition.
-- `ERR_SETTLEMENT_EARLY`: settlement attempted before unlock.
+## Error Codes (Suggested)
+- `ERR_INVALID_CLAIM`
+- `ERR_CLAIM_LOCKED`
+- `ERR_ORACLE_STALE`
+- `ERR_LTV_EXCEEDED`
+- `ERR_POOL_LIQUIDITY`
+- `ERR_UNAUTHORIZED`
+- `ERR_AUCTION_STATE`
+- `ERR_SETTLEMENT_EARLY`
 
 ## Per-Function Invariants (Examples)
 - `escrowClaim`: claim becomes non-transferable until settlement.
@@ -87,11 +117,11 @@ The protocol enables borrowing or selling claim rights on time-locked tokens. Th
 - `createAuction`: claim cannot be simultaneously pledged to a loan.
 
 ## Borrow Flow (Public or Private)
-1. Borrower escrows claim rights via the adapter.
+1. Borrower escrows claim rights via adapter.
 2. Adapter returns quantity and unlock time for valuation.
 3. ValuationEngine returns PV and max LTV.
 4. LoanManager issues a loan and records terms.
-5. LendingPool transfers stablecoins to the borrower.
+5. LendingPool transfers stablecoins to borrower.
 6. Optional relayer proxies steps 1-5.
 
 ## Repay and Settle
@@ -100,12 +130,31 @@ The protocol enables borrowing or selling claim rights on time-locked tokens. Th
    - Full repay: release to borrower.
    - Partial repay: seize amount needed, return excess.
    - Default: seize all unlocked tokens and liquidate for pool.
+3. Optional auto-repay after maturity can use wallet balances with a priority
+   order (stables -> major tokens -> native token -> long-tail), disclosed in the
+   loan agreement.
+4. Auto-repay on EVM uses `repayWithSwap` / `repayWithSwapBatch`:
+   - Tokens must be whitelisted and ordered via `setRepayTokenPriority`.
+   - Swaps execute through the configured Uniswap v3 router into USDC.
+   - Borrower must pre-approve the loan manager for each token used.
+5. Solana auto-repay (optional) uses a server-side sweep:
+   - The borrower delegates token accounts to the repay authority.
+   - The server transfers balances in the configured priority order.
+   - In `usdc-only` mode, only USDC is pulled; other mints are skipped.
+   - In `transfer` mode, non-USDC balances move to treasury for manual swap.
+   - In `swap` mode, non-USDC balances are swapped to USDC via Jupiter.
+
+## Liquidation (Default Recovery)
+Defaults resolve at unlock, not before:
+- Unlocked tokens are seized and routed through configured liquidity paths.
+- Slippage limits and routing rules are pool-controlled.
+- Surplus after debt repayment is returned to borrower.
 
 ## Auction Flow (Non-Loan Exit)
-1. Seller escrows claim rights as an NFT.
+1. Seller escrows claim rights as a non-transferable NFT.
 2. Auction runs for 1-7 days with chosen auction type.
 3. Winner pays stablecoins; seller receives proceeds minus fee.
-4. Winner holds the claim and receives tokens at unlock.
+4. Winner receives tokens at unlock.
 5. Sealed-bid auctions use commit/reveal to reduce signaling.
 
 ## Privacy Model Integration
@@ -114,23 +163,26 @@ The protocol enables borrowing or selling claim rights on time-locked tokens. Th
 - **Policy gating**: pools can require verification or limit privacy modes.
 - **Auditability**: settlement remains fully on-chain and verifiable.
 
-## Risk and Safety Controls
-- Conservative DPV discounts by time, volatility, liquidity, and unlock impact.
-- LTV caps (20-40%) with governance-adjustable parameters.
-- Slippage guards and liquidation routing for default recovery.
-- Emergency pause per adapter or pool.
+## Governance and Access Control
+- Risk params are set per pool and per asset class.
+- Adapters are whitelisted via governance.
+- Emergency pause can disable new loans and auctions per pool or adapter.
+- Upgrade paths are explicit and timelocked.
 
-## Invariants (Must Always Hold)
-- Claim rights cannot be released without settlement.
-- Settlement at unlock always resolves outstanding debt first.
-- Total debt to a pool never exceeds max borrow limits at issuance.
-- Liquidation proceeds are routed to the pool before surplus is returned.
+## Oracle Requirements
+- Freshness checks on price feeds.
+- Volatility inputs must be bounded and sanity-checked.
+- Fallback policy for outages (pause or conservative pricing).
+
+## Events (Minimum)
+- `ClaimEscrowed`, `LoanCreated`, `LoanRepaid`, `LoanSettled`, `AuctionCreated`,
+  `AuctionSettled`, `PoolBorrow`, `PoolRepay`, `RiskParamsUpdated`, `Paused`.
 
 ## Security Requirements
 - Reentrancy protections on token transfers and settlement.
 - Explicit access control with timelocks for governance updates.
-- Oracle sanity checks and fallback behavior for outages.
-- Adapter-level validation to prevent malformed vesting schedules.
+- Adapter validation to prevent malformed vesting schedules.
+- Slippage guards for default recovery swaps.
 
 ## Operational Requirements
 - Monitoring for oracle failures, liquidation slippage, and settlement errors.

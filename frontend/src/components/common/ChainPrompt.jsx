@@ -4,9 +4,12 @@ import {
   ALL_EVM_CHAINS,
   DEFAULT_EVM_CHAIN,
   EVM_MAINNET_CHAINS,
-  EVM_TESTNET_CHAINS
+  EVM_TESTNET_CHAINS,
+  SOLANA_NETWORKS
 } from '../../utils/chains.js';
 import { getContractAddress } from '../../utils/contracts.js';
+import { useOnchainSession } from '../../utils/onchainSession.js';
+import SolanaWalletCard from '../solana/SolanaWalletCard.jsx';
 
 const supportedChains = [...EVM_MAINNET_CHAINS, ...EVM_TESTNET_CHAINS];
 
@@ -15,6 +18,7 @@ export default function ChainPrompt() {
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
   const [attempted, setAttempted] = useState(false);
+  const { session, setSession } = useOnchainSession();
   const currentSupported = supportedChains.some((chain) => chain.id === chainId);
   const hasContracts = Boolean(getContractAddress(chainId, 'loanManager'));
   const activeChain = useMemo(
@@ -23,16 +27,25 @@ export default function ChainPrompt() {
   );
 
   useEffect(() => {
-    if (!isConnected || attempted || (currentSupported && hasContracts)) {
+    if (
+      !isConnected ||
+      attempted ||
+      session.chainType === 'solana' ||
+      (currentSupported && hasContracts)
+    ) {
       return;
     }
     setAttempted(true);
     switchChain({ chainId: DEFAULT_EVM_CHAIN.id });
-  }, [attempted, currentSupported, hasContracts, isConnected, switchChain]);
+  }, [attempted, currentSupported, hasContracts, isConnected, session.chainType, switchChain]);
 
-  if (currentSupported && hasContracts) {
+  if (currentSupported && hasContracts && session.chainType !== 'solana') {
     return null;
   }
+
+  const availableChains = supportedChains.filter((chain) =>
+    Boolean(getContractAddress(chain.id, 'loanManager'))
+  );
 
   return (
     <div className="holo-card">
@@ -40,60 +53,55 @@ export default function ChainPrompt() {
         <div>
           <h3 className="section-title">Network Switch</h3>
           <div className="section-subtitle">
-            Select a supported chain with deployed contracts.
+            Connect to a supported network with deployed contracts.
           </div>
         </div>
-        <span className="tag warn">Action required</span>
       </div>
-      {activeChain && !hasContracts && (
+      {activeChain && (
         <div className="muted">
-          {activeChain.name} is supported, but contracts are not deployed yet.
+          Current network: {activeChain.name}
+          {hasContracts ? '.' : ' (contracts coming soon).'}
         </div>
       )}
-      <div className="data-table">
-        <div className="table-row header">
-          <div>Network</div>
-          <div>Status</div>
-          <div>Contracts</div>
-          <div>Action</div>
+      {availableChains.length > 0 ? (
+        <div className="inline-actions">
+          {availableChains.map((chain) => (
+            <button
+              key={chain.id}
+              className="button ghost"
+              onClick={() => switchChain({ chainId: chain.id })}
+              disabled={isPending || chain.id === chainId}
+            >
+              Switch to {chain.name}
+            </button>
+          ))}
         </div>
-        {supportedChains.map((chain) => {
-          const isActive = chain.id === chainId;
-          const contractsReady = Boolean(getContractAddress(chain.id, 'loanManager'));
-          return (
-            <div key={chain.id} className="table-row">
-              <div>{chain.name}</div>
-              <div>
-                <span className={`tag ${isActive ? 'success' : ''}`}>
-                  {isActive ? 'Connected' : 'Available'}
-                </span>
-              </div>
-              <div>{contractsReady ? 'Deployed' : 'Coming soon'}</div>
-              <div>
-                <button
-                  className="button ghost"
-                  onClick={() => switchChain({ chainId: chain.id })}
-                  disabled={isPending}
-                >
-                  Switch
-                </button>
-              </div>
-            </div>
-          );
-        })}
+      ) : (
+        <div className="muted">No networks with deployed contracts yet.</div>
+      )}
+      <div className="muted" style={{ marginTop: '12px' }}>
+        Or use Solana (read-only matching for now):
       </div>
       <div className="inline-actions">
-        {supportedChains.map((chain) => (
+        {SOLANA_NETWORKS.map((network) => (
           <button
-            key={chain.id}
-            className="button"
-            onClick={() => switchChain({ chainId: chain.id })}
-            disabled={isPending}
+            key={network.id}
+            className={`button ghost ${session.chainType === 'solana' ? 'active' : ''}`}
+            onClick={() => setSession({ chainType: 'solana', solanaNetworkId: network.id })}
+            type="button"
           >
-            Switch to {chain.name}
+            Switch to {network.name}
           </button>
         ))}
       </div>
+      {session.chainType === 'solana' && (
+        <>
+          <div className="muted" style={{ marginTop: '12px' }}>
+            Solana supports vesting discovery and risk scoring; loans settle on Base in this MVP.
+          </div>
+          <SolanaWalletCard />
+        </>
+      )}
     </div>
   );
 }
