@@ -7,7 +7,8 @@ const { computeSolanaDpv } = require('./valuation');
 
 const DEFAULT_SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 const DEFAULT_REFRESH_MS = 60_000;
-const STREAMFLOW_ENABLED = process.env.SOLANA_STREAMFLOW_ENABLED !== 'false';
+// Disabled by default; set SOLANA_STREAMFLOW_ENABLED=true when using Solana vesting
+const STREAMFLOW_ENABLED = process.env.SOLANA_STREAMFLOW_ENABLED === 'true';
 
 const mintCache = new Map();
 let tokenListPromise = null;
@@ -93,11 +94,14 @@ const buildSolanaLink = (type, value) => {
 };
 
 const normalizeStreamflow = async (entry, connection) => {
-  const account = entry.account;
+  const account = entry?.account;
+  if (!account) throw new Error('missing account');
   const now = Math.floor(Date.now() / 1000);
-  const unlockTime = Number(account.end || 0);
+  const endVal = account.end ?? account.endTime;
+  const unlockTime = typeof endVal === 'object' && endVal?.toNumber ? endVal.toNumber() : Number(endVal || 0);
   const mint = account.mint?.toString?.() || account.mint || '';
-  const quantity = account.depositedAmount?.toString?.() || '0';
+  const amt = account.depositedAmount ?? account.amount;
+  const quantity = typeof amt === 'object' && amt?.toString ? amt.toString() : String(amt || '0');
   const mintDetails = await getMintDetails(connection, mint);
   const price = await getPriceForMint(mint, mintDetails.symbol);
   if (!price) {
@@ -151,6 +155,11 @@ const normalizeStreamflow = async (entry, connection) => {
   };
 };
 
+const isOffsetError = (err) => {
+  const msg = (err?.message || String(err)).toLowerCase();
+  return msg.includes('offset') && (msg.includes('range') || msg.includes('out of'));
+};
+
 const fetchStreamflowVestingContracts = async () => {
   if (!STREAMFLOW_ENABLED) {
     cachedStreams = [];
@@ -169,6 +178,12 @@ const fetchStreamflowVestingContracts = async () => {
     try {
       streams = await client.searchStreams(includeClosed ? {} : { closed: false });
     } catch (error) {
+      if (isOffsetError(error)) {
+        // Malformed account data; skip silently
+        cachedStreams = [];
+        lastFetchedAt = Date.now();
+        return [];
+      }
       if (includeClosed) {
         try {
           streams = await client.searchStreams({ closed: false });
@@ -185,7 +200,17 @@ const fetchStreamflowVestingContracts = async () => {
         return [];
       }
     }
-    const vesting = streams.filter((entry) => entry.account?.type === StreamType.Vesting);
+    // Filter vesting safely - account decode can throw "offset out of range"
+    const vesting = [];
+    for (const entry of streams) {
+      try {
+        if (entry?.account?.type === StreamType.Vesting) {
+          vesting.push(entry);
+        }
+      } catch {
+        // Skip malformed entries
+      }
+    }
     const limit = Number(process.env.SOLANA_STREAMFLOW_LIMIT || 0);
     const limited = limit > 0 ? vesting.slice(0, limit) : vesting;
     const connection = client.getConnection();
@@ -194,7 +219,9 @@ const fetchStreamflowVestingContracts = async () => {
       try {
         normalized.push(await normalizeStreamflow(entry, connection));
       } catch (error) {
-        console.warn('[solana] failed to normalize stream', error?.message || error);
+        if (!isOffsetError(error)) {
+          console.warn('[solana] failed to normalize stream', error?.message || error);
+        }
       }
     }
     cachedStreams = normalized;

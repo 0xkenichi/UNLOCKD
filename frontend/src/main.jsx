@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
+import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import './styles.css';
 import './polyfills.js';
 import '@rainbow-me/rainbowkit/styles.css';
@@ -24,12 +25,20 @@ import SolanaProvider from './components/solana/SolanaProvider.jsx';
 
 const projectId =
   import.meta.env.VITE_WC_PROJECT_ID || 'YOUR_WALLETCONNECT_PROJECT_ID';
+const hasValidProjectId =
+  projectId && projectId !== 'YOUR_WALLETCONNECT_PROJECT_ID';
 
 const smartCoinbaseWallet = (args) =>
   coinbaseWallet({
     ...args,
     preference: 'smartWalletOnly'
   });
+
+const popularWallets = [
+  rainbowWallet,
+  ...(hasValidProjectId ? [walletConnectWallet] : []),
+  safeWallet
+];
 
 const connectors = connectorsForWallets(
   [
@@ -39,7 +48,7 @@ const connectors = connectorsForWallets(
     },
     {
       groupName: 'Popular',
-      wallets: [rainbowWallet, walletConnectWallet, safeWallet]
+      wallets: popularWallets
     }
   ],
   {
@@ -68,6 +77,7 @@ console.info('[contracts] sepolia addresses', runtimeAddresses);
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
+    <ErrorBoundary>
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <SolanaProvider>
@@ -77,5 +87,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </SolanaProvider>
       </QueryClientProvider>
     </WagmiProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

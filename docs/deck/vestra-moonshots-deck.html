@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vestra Protocol — DeFi Moonshots</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; }
+    .slide { width: 100vw; height: 100vh; padding: 48px 64px; display: flex; flex-direction: column; justify-content: center; position: absolute; top: 0; left: 0; opacity: 0; transition: opacity 0.4s; }
+    .slide.active { opacity: 1; z-index: 1; }
+    .slide { background: linear-gradient(145deg, #050912 0%, #0a1220 50%, #060b14 100%); color: #e7f0ff; }
+    h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 16px; letter-spacing: -0.02em; }
+    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 24px; color: #7cd3ff; }
+    h3 { font-size: 1.15rem; font-weight: 600; margin-bottom: 12px; color: #9fb4d4; }
+    p, li { font-size: 1rem; line-height: 1.6; color: #b8ccdd; margin-bottom: 8px; }
+    ul { margin-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    .subtitle { font-size: 1.1rem; color: #9fb4d4; margin-bottom: 32px; }
+    .accent { color: #4b8dff; }
+    .highlight { color: #3dd6ff; }
+    .muted { color: #6b8aa8; font-size: 0.9rem; }
+    .footer { position: absolute; bottom: 24px; right: 64px; font-size: 0.8rem; color: #4a6a8a; }
+    .big-stat { font-size: 2.2rem; font-weight: 700; color: #3dd6ff; margin: 24px 0; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; }
+    .card { background: rgba(13, 22, 38, 0.8); border: 1px solid rgba(124, 211, 255, 0.2); border-radius: 12px; padding: 24px; }
+    .formula { font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); padding: 12px 20px; border-radius: 8px; margin: 16px 0; display: inline-block; }
+    .flow-step { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+    .flow-num { width: 32px; height: 32px; background: #3dd6ff; color: #050912; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+    .nav { position: fixed; bottom: 24px; left: 64px; display: flex; gap: 12px; z-index: 100; }
+    .nav-btn { padding: 8px 16px; background: rgba(61, 214, 255, 0.15); border: 1px solid rgba(61, 214, 255, 0.4); border-radius: 6px; color: #7cd3ff; cursor: pointer; font-size: 0.9rem; }
+    .nav-btn:hover { background: rgba(61, 214, 255, 0.25); }
+    .slide-counter { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; color: #4a6a8a; z-index: 100; }
+    @media print {
+      .nav, .slide-counter { display: none !important; }
+      body { overflow: visible; background: #050912; }
+      .slide { position: relative !important; opacity: 1 !important; display: flex !important; page-break-after: always; break-after: page; min-height: 100vh; }
+      .slide:last-child { page-break-after: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Slide 1: Title -->
+  <div class="slide active" data-slide="1">
+    <h1>Vestra Protocol</h1>
+    <p class="subtitle">Credit Markets for Time-Locked Digital Assets</p>
+    <p class="big-stat">Unlocking $300–500B+ in trapped vesting value</p>
+    <p class="muted">DeFi Moonshots Application — Sui Ecosystem</p>
+    <div class="footer">VestraProtocol.io</div>
+  </div>
+
+  <!-- Slide 2: The Problem -->
+  <div class="slide" data-slide="2">
+    <h2>The Illiquidity Paradox</h2>
+    <p>Vesting and lockups protect alignment — but trap real economic value.</p>
+    <ul>
+      <li><strong>Ownership</strong> is clear (smart contracts assign tokens)</li>
+      <li><strong>Value</strong> is observable (oracles reflect market price)</li>
+      <li><strong>Utility</strong> is zero — non-transferable during lockup</li>
+    </ul>
+    <h3>Gaps in existing solutions</h3>
+    <ul>
+      <li><span class="accent">Aave / Compound / Maker</span> — require liquid collateral; vested positions can't be deposited</li>
+      <li><span class="accent">Centralized lenders</span> — custody, KYC, legal enforcement</li>
+      <li><span class="accent">OTC & SecondSwap</span> — forced sales at 20–70% discounts; no borrowing primitive</li>
+    </ul>
+    <p class="big-stat">$300–500B+ locked with no DeFi-native credit solution</p>
+    <div class="footer">Slide 2</div>
+  </div>
+
+  <!-- Slide 3: Market Opportunity -->
+  <div class="slide" data-slide="3">
+    <h2>Market Opportunity</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Total Locked Value</h3>
+        <p class="big-stat">$300–500B+</p>
+        <p class="muted">10–15% of crypto market cap • Multi-year vesting schedules</p>
+      </div>
+      <div class="card">
+        <h3>Annual Unlocks (2025)</h3>
+        <p class="big-stat">~$97B</p>
+        <p class="muted">DeFi, L1s, AI — recurring liquidity events</p>
+      </div>
+    </div>
+    <ul style="margin-top: 24px;">
+      <li><strong>1% capture</strong> → $3–5B loan volume</li>
+      <li><strong>5–10% capture</strong> → $15–50B borrowable liquidity</li>
+      <li><strong>Sui</strong> — monthly unlocks; 6–12mo cliffs; ideal for vesting credit</li>
+    </ul>
+    <p class="muted" style="margin-top: 16px;">Ethereum ~$150–250B locked • Solana ~$50–100B • RWAs growing to $400–500B</p>
+    <div class="footer">Slide 3</div>
+  </div>
+
+  <!-- Slide 4: The Solution -->
+  <div class="slide" data-slide="4">
+    <h2>The Solution</h2>
+    <p>Borrow against <strong>escrowed claim rights</strong> — not the tokens themselves.</p>
+    <p class="formula">PV = Q × P × D</p>
+    <p><span class="accent">Q</span> = quantity • <span class="accent">P</span> = oracle price • <span class="accent">D</span> = composite discount (time, volatility, liquidity, unlock impact)</p>
+    <ul>
+      <li>Non-custodial — users keep wallet control; only claim rights escrowed</li>
+      <li>On-chain settlement at unlock — no courts, no custodians</li>
+      <li>Conservative LTV (20–40%) — Monte Carlo–calibrated for lender safety</li>
+      <li>Optional identity layer — better terms for verified borrowers</li>
+    </ul>
+    <p class="highlight" style="margin-top: 16px;">Transformation, not iteration. A foundational primitive for DAOs, startups, and contributors.</p>
+    <div class="footer">Slide 4</div>
+  </div>
+
+  <!-- Slide 5: How It Works -->
+  <div class="slide" data-slide="5">
+    <h2>How It Works</h2>
+    <div class="flow-step"><span class="flow-num">1</span><p><strong>Escrow</strong> — Borrower escrows vesting claim via adapter (OZ, Sablier, etc.)</p></div>
+    <div class="flow-step"><span class="flow-num">2</span><p><strong>Valuation</strong> — Engine computes DPV + max borrow (LTV cap)</p></div>
+    <div class="flow-step"><span class="flow-num">3</span><p><strong>Loan</strong> — LoanManager issues USDC from lending pool</p></div>
+    <div class="flow-step"><span class="flow-num">4</span><p><strong>Repay</strong> — Borrower can repay anytime pre-unlock</p></div>
+    <div class="flow-step"><span class="flow-num">5</span><p><strong>Settlement</strong> — At unlock: full repay → release tokens; partial/default → seize → liquidate</p></div>
+    <h3 style="margin-top: 24px;">Optional: Debt-Free Exit</h3>
+    <p>Dutch, English, or Sealed Bid auctions let users sell claim rights for immediate liquidity — no loan, no repayment.</p>
+    <div class="footer">Slide 5</div>
+  </div>
+
+  <!-- Slide 6: Key Innovations -->
+  <div class="slide" data-slide="6">
+    <h2>Key Innovations</h2>
+    <ul>
+      <li><strong>Novel primitive</strong> — First on-chain borrowing against non-transferable vesting claims with DPV + auto-settlement. No protocol combines time-based risk pricing, claim-right escrow, and deterministic settlement.</li>
+      <li><strong>Capital efficiency</strong> — DPV + Monte Carlo LTV caps optimize use of locked value without permanent haircuts.</li>
+      <li><strong>Net new capital</strong> — Targets $300–500B+ that cannot participate in DeFi today.</li>
+      <li><strong>Composable adapters</strong> — OpenZeppelin, Sablier, Superfluid, TokenTimelock — rapid adoption across ecosystems.</li>
+    </ul>
+    <p class="highlight" style="margin-top: 16px;">Moonshots fit: Transformation over iteration. Category-defining design.</p>
+    <div class="footer">Slide 6</div>
+  </div>
+
+  <!-- Slide 7: Technical Architecture -->
+  <div class="slide" data-slide="7">
+    <h2>Technical Architecture</h2>
+    <div class="grid-2">
+      <div>
+        <h3>Core Contracts</h3>
+        <ul>
+          <li><strong>VestingAdapter</strong> — Escrow, verify schedules, release</li>
+          <li><strong>ValuationEngine</strong> — DPV, LTV, oracle integration</li>
+          <li><strong>LoanManager</strong> — Issue, accrue, settle</li>
+          <li><strong>LendingPool</strong> — Deposits, borrows, utilization rates</li>
+          <li><strong>Auction module</strong> — Dutch, English, Sealed Bid</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Status & Stack</h3>
+        <ul>
+          <li>Deployed on Ethereum Sepolia</li>
+          <li>Solana backend: Streamflow, Pyth, Jupiter</li>
+          <li>Chainlink + Pyth oracles; Uniswap for liquidation</li>
+          <li>Audit-ready; multi-auditor plan (PeckShield, Quantstamp)</li>
+          <li><strong>Sui Phase 2</strong> — Move migration planned</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer">Slide 7</div>
+  </div>
+
+  <!-- Slide 8: Business Model -->
+  <div class="slide" data-slide="8">
+    <h2>Business Model & Fee Structure</h2>
+    <ul>
+      <li><strong>Borrow APR</strong> — 5–15% (utilization-based); protocol captures 10–20% of interest</li>
+      <li><strong>Origination</strong> — 0.5–1% of principal (configurable per pool)</li>
+      <li><strong>Auction fees</strong> — 1–2% of claim-right sale proceeds</li>
+      <li><strong>DAO treasury</strong> — Protocol fees flow to CRDT governance</li>
+    </ul>
+    <h3>Revenue model</h3>
+    <p>B2B2C — DAOs create pools for their communities; lenders supply yield; borrowers access liquidity. Partnerships with funds, market makers, token issuers.</p>
+    <p class="big-stat" style="margin-top: 16px;">Target: $5–15B TVL at 5–10% market capture</p>
+    <div class="footer">Slide 8</div>
+  </div>
+
+  <!-- Slide 9: Roadmap -->
+  <div class="slide" data-slide="9">
+    <h2>Roadmap</h2>
+    <div class="flow-step"><span class="flow-num">1</span><p><strong>Q1 2026</strong> — Testnet MVP live; Ethereum Sepolia; public docs & demo</p></div>
+    <div class="flow-step"><span class="flow-num">2</span><p><strong>Q2 2026</strong> — Mainnet; initial DAO pilots; audits</p></div>
+    <div class="flow-step"><span class="flow-num">3</span><p><strong>Phase 2</strong> — Multi-chain: Sui, Base, Solana; identity module</p></div>
+    <div class="flow-step"><span class="flow-num">4</span><p><strong>Phase 3</strong> — Institutional pools; composable extensions; governance rollout</p></div>
+    <p class="highlight" style="margin-top: 24px;">Sui deployment prioritized for object-model fit and high-throughput vesting settlement.</p>
+    <div class="footer">Slide 9</div>
+  </div>
+
+  <!-- Slide 10: Why Vestra for Moonshots -->
+  <div class="slide" data-slide="10">
+    <h2>Why Vestra for DeFi Moonshots</h2>
+    <ul>
+      <li><strong>Category-defining</strong> — No protocol does on-chain borrowing against vesting claims with DPV + auto-settlement. SecondSwap trades; Diffuse handles liquid-staked. Vestra delivers credit.</li>
+      <li><strong>Technical depth</strong> — Monte Carlo risk curves, composable adapters, production backend. Audit-ready.</li>
+      <li><strong>Credible PMF</strong> — $300–500B TAM; OTC discounts 20–70%; no direct competitor.</li>
+      <li><strong>Composability</strong> — Ecosystem building blocks; DAO-governed; Sui-ready.</li>
+    </ul>
+    <p class="big-stat" style="margin-top: 24px;">Ready to reshape how locked value operates onchain.</p>
+    <div class="footer">Slide 10</div>
+  </div>
+
+  <!-- Slide 11: Contact -->
+  <div class="slide" data-slide="11">
+    <h2>Vestra Protocol</h2>
+    <p class="subtitle">Credit Markets for Time-Locked Digital Assets</p>
+    <p><strong>Apply</strong> — DeFi Moonshots Program</p>
+    <p><strong>Contact</strong> — 0xkenichi@gmail.com</p>
+    <p><strong>Website</strong> — VestraProtocol.io (not ready yet)</p>
+    <p class="muted" style="margin-top: 32px;">Thank you</p>
+    <div class="footer">VestraProtocol.io</div>
+  </div>
+
+  <div class="nav">
+    <button class="nav-btn" id="prev">← Prev</button>
+    <button class="nav-btn" id="next">Next →</button>
+  </div>
+  <div class="slide-counter" id="counter">1 / 11</div>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    const total = slides.length;
+    let current = 0;
+    function show(i) {
+      i = (i + total) % total;
+      current = i;
+      slides.forEach((s, j) => s.classList.toggle('active', j === i));
+      document.getElementById('counter').textContent = `${i + 1} / ${total}`;
+    }
+    document.getElementById('prev').onclick = () => show(current - 1);
+    document.getElementById('next').onclick = () => show(current + 1);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); show(current + 1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); show(current - 1); }
+    });
+  </script>
+</body>
+</html>

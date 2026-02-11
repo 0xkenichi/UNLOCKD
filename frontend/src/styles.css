@@ -1280,15 +1280,6 @@ a {
   min-height: 65px;
 }
 
-.onboarding-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(3, 5, 10, 0.7);
-  display: grid;
-  place-items: center;
-  z-index: 40;
-}
-
 .onboarding-modal {
   width: min(520px, 90vw);
   background: rgba(12, 18, 30, 0.98);
@@ -1406,7 +1397,6 @@ a {
   z-index: 200;
   padding: 24px;
   overflow-y: auto;
-  pointer-events: none;
 }
 
 .wallet-modal-backdrop {
@@ -2022,7 +2012,7 @@ a {
 
 @keyframes fade-up {
   0% {
-    opacity: 0;
+    opacity: 1;
     transform: translateY(10px) scale(0.99);
   }
   100% {

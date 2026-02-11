@@ -13,3 +13,4 @@ frontend/.vite
 frontend/node_modules
 *.log
 .DS_Store
+.vercel

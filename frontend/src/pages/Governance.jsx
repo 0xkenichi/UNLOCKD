@@ -75,7 +75,7 @@ export default function Governance() {
             className="button ghost"
             type="button"
             onClick={() =>
-              window.open('mailto:governance@vestra.xyz?subject=Governance%20updates')
+              window.open('mailto:0xkenichi@gmail.com?subject=Governance%20updates')
             }
           >
             View All

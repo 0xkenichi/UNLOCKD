@@ -46,7 +46,40 @@ These solutions fragment liquidity, amplify risks, and undermine the decentraliz
 
 ---
 
-## 3. Competitor and Landscape Analysis
+## 3. Market Opportunity and Unlock Dynamics
+### 3.1 Market Size (2026 Baseline)
+The protocol targets the growing pool of vested and time-locked tokens across major
+chains. Based on unlock aggregators and market tracking in early 2026, the total
+USD value of locked/vested tokens is approximately $300-500B+, or roughly 10-15%
+of the total crypto market cap (~$3T). This estimate uses annual unlocks as a proxy
+and assumes multi-year vesting schedules:
+- Annual unlocks in 2025 were roughly $97B, implying $200-400B remaining locked.
+- Adjusted for new project issuance and price appreciation, this expands to $300-500B+.
+
+### 3.2 Chain-Level and Sector Breakdown (Indicative)
+- Ethereum ecosystem: ~$150-250B locked (high-value DeFi and L2 allocations).
+- Solana and other L1s: ~$50-100B locked (long-duration team and investor schedules).
+- Cross-chain RWAs: $20-36B today, with projections of $400-500B by end-2026.
+
+### 3.3 Vesting Timelines and Liquidity Windows
+Vesting schedules create predictable illiquidity profiles:
+- Cliff periods: 6-12 months are common for team/investor allocations.
+- Linear vesting: Monthly or quarterly releases over 1-3 years (total 2-4 years typical).
+- 2026 unlocks remain large and diverse across DeFi, L1s, AI, and Bitcoin-native sectors.
+
+These timelines allow the protocol to price risk deterministically and settle at
+unlock with minimal liquidation uncertainty.
+
+### 3.4 Opportunity Capture
+Even modest penetration is meaningful:
+- 1% of the locked market implies $3-5B in loan volume.
+- A 5-10% capture rate implies $15-50B in borrowable liquidity.
+- Liquidity access reduces OTC discounts (20-50%), improves borrower outcomes,
+  and provides lenders steady, time-bound yield.
+
+---
+
+## 4. Competitor and Landscape Analysis
 To validate novelty, we conducted exhaustive searches across web queries ("DeFi protocols for borrowing against vested locked tokens"), X (formerly Twitter) for real-time updates, and direct site browses. No protocol fully matches our design: on-chain borrowing against non-transferable vesting claims with DPV valuation, auto-settlement at unlock, and vesting-preserving enforcement. Adjacent projects exist but address subsets.
 
 ### SecondSwap
@@ -81,7 +114,7 @@ Our moat: Conservative curves ensure lender safety; composability with existing 
 
 ---
 
-## 4. System Overview
+## 5. System Overview
 The protocol allows users to escrow claim rights to vested/locked tokens, borrow stablecoins or other assets against their DPV, and repay over time. At unlock, smart contracts enforce settlement: release tokens on full repayment, partial seizure on underpayment, or full liquidation on default.
 
 Key characteristics:
@@ -106,7 +139,7 @@ This creates value for:
 
 ---
 
-## 5. Architecture
+## 6. Architecture
 ### 5.1 Core Components
 - Vesting and lock adapters: Interface with external contracts (e.g., OpenZeppelin, Sablier) to verify schedules, escrow claims, and enforce non-transferability.
 - Valuation and risk engine: Computes DPV and borrow limits.
@@ -123,7 +156,7 @@ This creates value for:
 
 ---
 
-## 6. Collateral Valuation
+## 7. Collateral Valuation
 Locked tokens are illiquid futures, so we value them via discounted present value (DPV):
 
 PV = Q * P * D
@@ -228,7 +261,7 @@ This deterministic curve is more conservative than the Monte Carlo 5th percentil
 
 ---
 
-## 7. Loan Lifecycle and Enforcement
+## 8. Loan Lifecycle and Enforcement
 ### Creation
 User escrows vesting claim; engine computes limit; loan issued from pool.
 
@@ -289,7 +322,7 @@ contract LoanManager {
 
 ---
 
-## 8. Identity-Aware Credit Layer
+## 9. Identity-Aware Credit Layer
 Wallet anonymity limits repeat lending. Optional opt-in:
 
 - Integrations: DIDs (e.g., Ceramic), DAO badges, or regulated KYC.
@@ -303,7 +336,7 @@ Wallet anonymity limits repeat lending. Optional opt-in:
 
 ---
 
-## 9. Governance and Risk Management
+## 10. Governance and Risk Management
 - DAO: Token-weighted voting for parameters (LTV, discounts).
 - Risk committees: Sub-DAOs for onboarding, adjustments.
 - Emergency: Time-locked multisig.
@@ -311,7 +344,53 @@ Wallet anonymity limits repeat lending. Optional opt-in:
 
 ---
 
-## 10. Roadmap and Implementation
+## 11. Liquidity Strategy
+The liquidity roadmap is modular and scales with protocol maturity:
+
+### Phase 1: Lenders and Borrowers Matching
+- Lenders create pools with risk preferences (LTV caps, interest, unlock windows).
+- Borrowers pledge vested tokens for USDC loans.
+- Matching is handled by the protocol agent; settlement uses lending pool contracts.
+- No custody of private keys; only claim rights are escrowed.
+
+### Phase 2: Treasury-Funded Loans (Agent-Led)
+- Protocol treasury provides credit directly after the matching system is stable.
+- The agent automates underwriting signals and allocates treasury liquidity.
+- Returns flow back to the protocol, bootstrapping liquidity depth.
+
+### Phase 3: Community-Led Liquidity Pools
+- Communities create pools for their own vested tokens.
+- Provides liquidity without token sell pressure.
+- Coordinated by DAOs, founders, or contributor groups.
+
+### Additional Liquidity Sources (As We Scale)
+- Partnership pools with funds and market makers.
+- Tranche structures for risk-tiered liquidity.
+- Cross-chain liquidity routing as Base and Solana flows align.
+- Stablecoin reserves or third-party credit facilities.
+
+---
+
+## 12. FAQ Highlights
+### Is this custodial?
+No. Users keep wallet control. The protocol only escrows claim rights.
+
+### Are there margin calls?
+No. Settlement occurs at unlock time based on repayment status.
+
+### What happens on default?
+The protocol seizes the required amount and liquidates it to repay the pool.
+
+### How is the borrow limit set?
+Discounted present value (DPV) is computed as `PV = Q * P * D`, then LTV caps are
+applied based on risk models.
+
+### Can the protocol integrate other DEXs?
+Yes. Uniswap V3 is the default; adapters can be added for others.
+
+---
+
+## 13. Roadmap and Implementation
 ### Phase 1 (Q1 2026)
 MVP on Ethereum; pilot with 1-2 DAOs.
 
@@ -326,6 +405,6 @@ Regulatory: Non-custodial base; optional compliant interfaces.
 
 ---
 
-## 11. Conclusion
+## 14. Conclusion
 This protocol redefines Web3 incentives: Unlock liquidity from time-locked assets without compromise. It is the engine for sustainable growth -- build it, deploy it, scale it. No more trapped value; just progress.
 

@@ -101,8 +101,13 @@ export default function OnboardingModal() {
   }
 
   return (
-    <div className="onboarding-backdrop" role="dialog" aria-modal="true">
-      <div className="onboarding-modal">
+    <div
+      className="onboarding-backdrop"
+      role="dialog"
+      aria-modal="true"
+      onClick={handleClose}
+    >
+      <div className="onboarding-modal" onClick={(event) => event.stopPropagation()}>
         <div className="section-head">
           <div>
             <div className="section-title">{step.title}</div>

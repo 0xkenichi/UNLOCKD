@@ -8,6 +8,9 @@
     "test": "npx hardhat test",
     "deploy:local": "npx hardhat deploy --network hardhat --tags full",
     "deploy:sepolia": "npx hardhat deploy --network sepolia --tags full",
+    "demo:local": "./scripts/demo-local.sh",
+    "dev:local": "DEPLOYMENTS_NETWORK=localhost RPC_URL=http://127.0.0.1:8545 INDEXER_ENABLED=false npm run dev",
+    "seed:local": "npx hardhat run scripts/seed-sample-vest.js --network localhost",
     "test:e2e": "npx hardhat run scripts/e2e-local.js --network hardhat",
     "test:e2e:default": "npx hardhat run scripts/e2e-default-local.js --network hardhat"
   },

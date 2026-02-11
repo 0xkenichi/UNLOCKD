@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { useAccount, useChainId } from 'wagmi';
 import BorrowWizard from '../components/borrow/BorrowWizard.jsx';
 import FaucetCard from '../components/borrow/FaucetCard.jsx';
 import BorrowActions from '../components/borrow/BorrowActions.jsx';
@@ -8,13 +9,16 @@ import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
-import { requestMatchQuote } from '../utils/api.js';
+import { requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
 
 const ValuationPreview3D = lazy(() =>
   import('../components/borrow/ValuationPreview3D.jsx')
 );
 
 export default function Borrow() {
+  const { address } = useAccount();
+  const chainId = useChainId();
+  const chainName = [8453, 84532].includes(chainId) ? 'base' : 'base';
   const [valuationState, setValuationState] = useState({
     pv: 0n,
     ltvBps: 0n
@@ -32,6 +36,8 @@ export default function Borrow() {
   const [matchError, setMatchError] = useState('');
   const [matchLoading, setMatchLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState(null);
+  const [browsePools, setBrowsePools] = useState([]);
+  const [browseFilter, setBrowseFilter] = useState('all');
 
   const coverageP5 = Number(assessment.coverageP5 || 0);
   const riskLabel =
@@ -54,7 +60,7 @@ export default function Borrow() {
     [valuationState]
   );
 
-  const matchKey = `${vestingDetails?.verified ? '1' : '0'}:${vestingDetails?.collateralId || ''}:${assessment.maxLoan || 0}`;
+  const matchKey = `${vestingDetails?.verified ? '1' : '0'}:${vestingDetails?.collateralId || ''}:${assessment.maxLoan || 0}:${address || ''}`;
 
   useEffect(() => {
     let active = true;
@@ -72,16 +78,18 @@ export default function Borrow() {
       setMatchLoading(true);
       try {
         const data = await requestMatchQuote({
-          chain: 'base',
+          chain: chainName,
           desiredAmountUsd,
-          collateralId: String(collateralId)
+          collateralId: String(collateralId),
+          borrowerWallet: address || undefined
         });
         if (!active) return;
         const offers = data?.offers || [];
         setMatchOffers(offers);
         setMatchError('');
         if (!selectedOffer && offers.length) {
-          setSelectedOffer(offers[0]);
+          const firstAccessible = offers.find((o) => o.canAccess);
+          setSelectedOffer(firstAccessible || offers[0]);
         }
       } catch (error) {
         if (!active) return;
@@ -99,9 +107,28 @@ export default function Borrow() {
     };
   }, [matchKey]);
 
-  const offerBorrowUsd = selectedOffer
-    ? Math.min(Number(assessment.maxLoan || 0), Number(selectedOffer.maxBorrowUsd || 0))
-    : null;
+  const offerBorrowUsd =
+    selectedOffer && selectedOffer.canAccess
+      ? Math.min(Number(assessment.maxLoan || 0), Number(selectedOffer.maxBorrowUsd || 0))
+      : null;
+
+  useEffect(() => {
+    let active = true;
+    const loadBrowse = async () => {
+      try {
+        const pools = await fetchPoolsBrowse({
+          chain: chainName,
+          borrowerWallet: address || undefined,
+          accessFilter: browseFilter
+        });
+        if (active) setBrowsePools(pools);
+      } catch {
+        if (active) setBrowsePools([]);
+      }
+    };
+    loadBrowse();
+    return () => { active = false; };
+  }, [chainName, address, browseFilter]);
 
   const holoFallback = (
     <div className="holo-card">
@@ -186,14 +213,25 @@ export default function Borrow() {
           <div className="data-table">
             <div className="table-row header">
               <div>Pool</div>
+              <div>Access</div>
               <div>Risk</div>
               <div>Interest</div>
               <div>Max Borrow</div>
               <div>Action</div>
             </div>
             {matchOffers.map((offer) => (
-              <div key={offer.offerId} className="table-row">
-                <div>{offer.poolId.slice(0, 8)}...</div>
+              <div key={offer.offerId} className={`table-row ${!offer.canAccess ? 'muted' : ''}`}>
+                <div>{offer.poolName || offer.poolId?.slice(0, 8)}...</div>
+                <div>
+                  <span className={`tag ${offer.canAccess ? 'success' : ''}`}>
+                    {offer.accessType || 'open'}
+                  </span>
+                  {offer.lockReason && (
+                    <div className="muted" style={{ fontSize: '0.75em', marginTop: 2 }}>
+                      {offer.lockReason}
+                    </div>
+                  )}
+                </div>
                 <div>{offer.riskTier}</div>
                 <div>{offer.interestBps} bps</div>
                 <div>${Number(offer.maxBorrowUsd || 0).toFixed(2)}</div>
@@ -202,8 +240,10 @@ export default function Borrow() {
                     className="button ghost"
                     type="button"
                     onClick={() => setSelectedOffer(offer)}
+                    disabled={!offer.canAccess}
+                    title={!offer.canAccess ? offer.lockReason : ''}
                   >
-                    Use offer
+                    {offer.canAccess ? 'Use offer' : 'Peek'}
                   </button>
                 </div>
               </div>
@@ -212,9 +252,62 @@ export default function Borrow() {
         )}
         <div className="card-list">
           <div className="pill">Offers are advisory; final terms settle onchain.</div>
-          <div className="pill">Solana offers are informational only in this MVP.</div>
+          <div className="pill">Premium/community pools require holding the pool token to borrow.</div>
         </div>
       </div>
+
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Browse Pools</h3>
+            <div className="section-subtitle">
+              Discover open, premium, and community-gated lending pools.
+            </div>
+          </div>
+        </div>
+        <div className="inline-actions" style={{ gap: 8, marginBottom: 16 }}>
+          {['all', 'open', 'accessible'].map((filter) => (
+            <button
+              key={filter}
+              className={`button ghost ${browseFilter === filter ? 'active' : ''}`}
+              type="button"
+              onClick={() => setBrowseFilter(filter)}
+            >
+              {filter === 'all' ? 'All Pools' : filter === 'open' ? 'Open Only' : 'Accessible'}
+            </button>
+          ))}
+        </div>
+        {browsePools.length === 0 ? (
+          <div className="muted">No pools found. Lenders can create pools on the Lender page.</div>
+        ) : (
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Pool</div>
+              <div>Access</div>
+              <div>Status</div>
+              <div>Description</div>
+            </div>
+            {browsePools.map((pool) => (
+              <div key={pool.id} className={`table-row ${!pool.canAccess ? 'muted' : ''}`}>
+                <div>{pool.name}</div>
+                <div>
+                  <span className={`tag ${pool.canAccess ? 'success' : ''}`}>
+                    {pool.accessType || 'open'}
+                  </span>
+                  {pool.lockReason && (
+                    <span className="muted" style={{ fontSize: '0.8em', marginLeft: 4 }}>
+                      ({pool.lockReason})
+                    </span>
+                  )}
+                </div>
+                <div>{pool.canAccess ? 'Can borrow' : 'Peek only'}</div>
+                <div>{pool.preferences?.description || '—'}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid-2">
         <div className="holo-card">
           <div className="section-head">

@@ -178,8 +178,7 @@ function AppShell() {
       {!isLanding && <AIBubble />}
       {!isLanding && <TabBar />}
       <footer className="app-footer">
-        Testnet MVP — Not financial advice. Use at own risk. VESTRA is
-        experimental. No real funds involved.
+        Testnet MVP — VestraProtocol.io (website not ready yet) — Contact: 0xkenichi@gmail.com — Not financial advice. Use at own risk. VESTRA is experimental. No real funds involved.
       </footer>
       {(isConnecting || isReconnecting) && (
         <div className="app-splash" role="status" aria-live="polite">

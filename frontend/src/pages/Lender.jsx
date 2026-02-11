@@ -45,6 +45,15 @@ export default function Lender() {
   const [maxLoanUsd, setMaxLoanUsd] = useState(DEFAULT_PREFS.maxLoanUsd);
   const [unlockMin, setUnlockMin] = useState(DEFAULT_PREFS.unlockWindowDays.min);
   const [unlockMax, setUnlockMax] = useState(DEFAULT_PREFS.unlockWindowDays.max);
+  const [accessType, setAccessType] = useState('open');
+  const [premiumToken, setPremiumToken] = useState('');
+  const [communityToken, setCommunityToken] = useState('');
+  const [allowedTokenTypes, setAllowedTokenTypes] = useState('');
+  const [vestCliffMin, setVestCliffMin] = useState('');
+  const [vestCliffMax, setVestCliffMax] = useState('');
+  const [vestDurationMin, setVestDurationMin] = useState('');
+  const [vestDurationMax, setVestDurationMax] = useState('');
+  const [poolDescription, setPoolDescription] = useState('');
 
   const ownerWallet = useMemo(() => address || '', [address]);
   const depositUnits = useMemo(() => toUnits(depositAmount, 6), [depositAmount]);
@@ -158,6 +167,15 @@ export default function Lender() {
     setMaxLoanUsd(preference.maxLoanUsd ?? DEFAULT_PREFS.maxLoanUsd);
     setUnlockMin(preference.unlockWindowDays?.min ?? DEFAULT_PREFS.unlockWindowDays.min);
     setUnlockMax(preference.unlockWindowDays?.max ?? DEFAULT_PREFS.unlockWindowDays.max);
+    setAccessType(preference.accessType || 'open');
+    setPremiumToken(preference.premiumToken || '');
+    setCommunityToken(preference.communityToken || '');
+    setAllowedTokenTypes((preference.allowedTokenTypes || []).join(', '));
+    setVestCliffMin(preference.vestPreferences?.cliffMinDays ?? '');
+    setVestCliffMax(preference.vestPreferences?.cliffMaxDays ?? '');
+    setVestDurationMin(preference.vestPreferences?.durationMinDays ?? '');
+    setVestDurationMax(preference.vestPreferences?.durationMaxDays ?? '');
+    setPoolDescription(preference.description || '');
   }, [pools, selectedPoolId]);
 
   const handleCreatePool = async () => {
@@ -165,6 +183,10 @@ export default function Lender() {
     try {
       const chains =
         poolChain === 'both' ? ['base', 'solana'] : poolChain ? [poolChain] : [];
+      const tokenTypes = allowedTokenTypes
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const payload = {
         name: poolName.trim() || 'Vestra Pool',
         chain: poolChain === 'both' ? '' : poolChain,
@@ -178,7 +200,21 @@ export default function Lender() {
             min: Number(unlockMin),
             max: Number(unlockMax)
           },
-          chains
+          chains,
+          accessType,
+          premiumToken: premiumToken.trim() || undefined,
+          communityToken: communityToken.trim() || undefined,
+          allowedTokenTypes: tokenTypes.length ? tokenTypes : undefined,
+          vestPreferences:
+            vestCliffMin || vestCliffMax || vestDurationMin || vestDurationMax
+              ? {
+                  cliffMinDays: vestCliffMin ? Number(vestCliffMin) : undefined,
+                  cliffMaxDays: vestCliffMax ? Number(vestCliffMax) : undefined,
+                  durationMinDays: vestDurationMin ? Number(vestDurationMin) : undefined,
+                  durationMaxDays: vestDurationMax ? Number(vestDurationMax) : undefined
+                }
+              : undefined,
+          description: poolDescription.trim() || undefined
         }
       };
       await createPool(payload);
@@ -197,6 +233,10 @@ export default function Lender() {
     try {
       const chains =
         poolChain === 'both' ? ['base', 'solana'] : poolChain ? [poolChain] : [];
+      const tokenTypes = allowedTokenTypes
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const payload = {
         preferences: {
           riskTier,
@@ -208,7 +248,21 @@ export default function Lender() {
             min: Number(unlockMin),
             max: Number(unlockMax)
           },
-          chains
+          chains,
+          accessType,
+          premiumToken: premiumToken.trim() || undefined,
+          communityToken: communityToken.trim() || undefined,
+          allowedTokenTypes: tokenTypes.length ? tokenTypes : undefined,
+          vestPreferences:
+            vestCliffMin || vestCliffMax || vestDurationMin || vestDurationMax
+              ? {
+                  cliffMinDays: vestCliffMin ? Number(vestCliffMin) : undefined,
+                  cliffMaxDays: vestCliffMax ? Number(vestCliffMax) : undefined,
+                  durationMinDays: vestDurationMin ? Number(vestDurationMin) : undefined,
+                  durationMaxDays: vestDurationMax ? Number(vestDurationMax) : undefined
+                }
+              : undefined,
+          description: poolDescription.trim() || undefined
         }
       };
       await updatePoolPreferences(selectedPoolId, payload);
@@ -386,6 +440,98 @@ export default function Lender() {
                 value={unlockMax}
                 onChange={(event) => setUnlockMax(event.target.value)}
                 inputMode="numeric"
+              />
+            </label>
+            <label className="form-field">
+              Access type
+              <select
+                className="form-select"
+                value={accessType}
+                onChange={(event) => setAccessType(event.target.value)}
+              >
+                <option value="open">Open (all borrowers)</option>
+                <option value="premium">Premium (requires token)</option>
+                <option value="community">Community (requires community token)</option>
+              </select>
+            </label>
+            {accessType === 'premium' && (
+              <label className="form-field">
+                Premium token address
+                <input
+                  className="form-input"
+                  value={premiumToken}
+                  onChange={(event) => setPremiumToken(event.target.value)}
+                  placeholder="0x..."
+                />
+              </label>
+            )}
+            {accessType === 'community' && (
+              <label className="form-field">
+                Community token address
+                <input
+                  className="form-input"
+                  value={communityToken}
+                  onChange={(event) => setCommunityToken(event.target.value)}
+                  placeholder="0x..."
+                />
+              </label>
+            )}
+            <label className="form-field">
+              Allowed token types (comma-separated)
+              <input
+                className="form-input"
+                value={allowedTokenTypes}
+                onChange={(event) => setAllowedTokenTypes(event.target.value)}
+                placeholder="VEST, USDC, project_tokens"
+              />
+            </label>
+            <label className="form-field">
+              Vest cliff min (days)
+              <input
+                className="form-input"
+                value={vestCliffMin}
+                onChange={(event) => setVestCliffMin(event.target.value)}
+                inputMode="numeric"
+                placeholder="0"
+              />
+            </label>
+            <label className="form-field">
+              Vest cliff max (days)
+              <input
+                className="form-input"
+                value={vestCliffMax}
+                onChange={(event) => setVestCliffMax(event.target.value)}
+                inputMode="numeric"
+                placeholder="365"
+              />
+            </label>
+            <label className="form-field">
+              Vest duration min (days)
+              <input
+                className="form-input"
+                value={vestDurationMin}
+                onChange={(event) => setVestDurationMin(event.target.value)}
+                inputMode="numeric"
+                placeholder="30"
+              />
+            </label>
+            <label className="form-field">
+              Vest duration max (days)
+              <input
+                className="form-input"
+                value={vestDurationMax}
+                onChange={(event) => setVestDurationMax(event.target.value)}
+                inputMode="numeric"
+                placeholder="720"
+              />
+            </label>
+            <label className="form-field">
+              Pool description
+              <input
+                className="form-input"
+                value={poolDescription}
+                onChange={(event) => setPoolDescription(event.target.value)}
+                placeholder="Lending for early-stage projects..."
               />
             </label>
           </div>
