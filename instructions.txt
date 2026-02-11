@@ -1,0 +1,9 @@
+--- Borrow instructions ---
+Collateral ID: 1770831218
+Vesting contract: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c
+
+In the UI:
+  1. Connect wallet ( 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 )
+  2. Enter collateral ID: 1770831218
+  3. Enter vesting contract: 0x3Aa5ebB10DC797CAC828524e59A333d0A371443c
+  4. Click Escrow → then Borrow

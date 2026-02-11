@@ -241,6 +241,26 @@ const pushEvents = async (events) => {
   }
 };
 
+const is429 = (err) =>
+  (err?.message || String(err)).includes('429') ||
+  (err?.info?.error?.code === 429);
+
+const getLogsWithRetry = async (params) => {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await provider.getLogs(params);
+    } catch (err) {
+      if (attempt < maxAttempts && is429(err)) {
+        const delay = Math.min(2000 * Math.pow(2, attempt - 1), 8000);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+};
+
 const pollEvents = async () => {
   try {
     const latestBlock = await provider.getBlockNumber();
@@ -261,37 +281,19 @@ const pollEvents = async () => {
       const loanRepaidSwapTopic = getEventTopic(loanManager.iface, 'LoanRepaidWithSwap');
       const loanSettledTopic = getEventTopic(loanManager.iface, 'LoanSettled');
 
-      const loanCreatedLogs = loanCreatedTopic
-        ? await provider.getLogs({
-            address: loanManager.address,
-            fromBlock: from,
-            toBlock: to,
-            topics: [loanCreatedTopic]
-          })
+      const logParams = (topic) =>
+        topic ? { address: loanManager.address, fromBlock: from, toBlock: to, topics: [topic] } : null;
+      const loanCreatedLogs = logParams(loanCreatedTopic)
+        ? await getLogsWithRetry(logParams(loanCreatedTopic))
         : [];
-      const loanRepaidLogs = loanRepaidTopic
-        ? await provider.getLogs({
-            address: loanManager.address,
-            fromBlock: from,
-            toBlock: to,
-            topics: [loanRepaidTopic]
-          })
+      const loanRepaidLogs = logParams(loanRepaidTopic)
+        ? await getLogsWithRetry(logParams(loanRepaidTopic))
         : [];
-      const loanRepaidSwapLogs = loanRepaidSwapTopic
-        ? await provider.getLogs({
-            address: loanManager.address,
-            fromBlock: from,
-            toBlock: to,
-            topics: [loanRepaidSwapTopic]
-          })
+      const loanRepaidSwapLogs = logParams(loanRepaidSwapTopic)
+        ? await getLogsWithRetry(logParams(loanRepaidSwapTopic))
         : [];
-      const loanSettledLogs = loanSettledTopic
-        ? await provider.getLogs({
-            address: loanManager.address,
-            fromBlock: from,
-            toBlock: to,
-            topics: [loanSettledTopic]
-          })
+      const loanSettledLogs = logParams(loanSettledTopic)
+        ? await getLogsWithRetry(logParams(loanSettledTopic))
         : [];
 
       const normalized = await Promise.all(
@@ -554,9 +556,23 @@ const poolPreferencesSchema = z
       .optional(),
     tokenCategories: z.array(z.string().min(1).max(40)).max(20).optional(),
     allowedTokens: z.array(z.string().min(1).max(120)).max(50).optional(),
+    allowedTokenTypes: z.array(z.string().min(1).max(60)).max(20).optional(),
+    vestPreferences: z
+      .object({
+        cliffMinDays: z.number().min(0).optional(),
+        cliffMaxDays: z.number().min(0).optional(),
+        durationMinDays: z.number().min(0).optional(),
+        durationMaxDays: z.number().min(0).optional(),
+        vestTypes: z.array(z.string().min(1).max(40)).max(10).optional()
+      })
+      .optional(),
     chains: z.array(z.enum(['base', 'solana'])).max(2).optional(),
     maxLoanUsd: z.number().min(0).optional(),
-    minLoanUsd: z.number().min(0).optional()
+    minLoanUsd: z.number().min(0).optional(),
+    accessType: z.enum(['open', 'premium', 'community']).optional(),
+    premiumToken: z.string().max(42).optional(),
+    communityToken: z.string().max(42).optional(),
+    description: z.string().max(500).optional()
   })
   .strip();
 
@@ -586,7 +602,8 @@ const matchQuoteSchema = z
     quantity: z.union([z.string(), z.number()]).optional(),
     unlockTime: z.number().int().positive().optional(),
     streamId: optionalString(200),
-    maxOffers: z.number().int().min(1).max(10).optional()
+    maxOffers: z.number().int().min(1).max(10).optional(),
+    borrowerWallet: optionalAddress
   })
   .strip();
 
@@ -757,51 +774,96 @@ const normalizePoolPreferences = (pool) => ({
   unlockWindowDays: pool?.preferences?.unlockWindowDays,
   tokenCategories: pool?.preferences?.tokenCategories || [],
   allowedTokens: pool?.preferences?.allowedTokens || [],
+  allowedTokenTypes: pool?.preferences?.allowedTokenTypes || [],
+  vestPreferences: pool?.preferences?.vestPreferences || null,
   chains: pool?.preferences?.chains || [],
   maxLoanUsd: pool?.preferences?.maxLoanUsd,
-  minLoanUsd: pool?.preferences?.minLoanUsd
+  minLoanUsd: pool?.preferences?.minLoanUsd,
+  accessType: pool?.preferences?.accessType || 'open',
+  premiumToken: pool?.preferences?.premiumToken || null,
+  communityToken: pool?.preferences?.communityToken || null,
+  description: pool?.preferences?.description || null
 });
 
-const buildPoolOffers = ({ pools, desiredAmountUsd, pvUsd, ltvBps, chain, unlockTime, baseRateBps }) => {
+const checkTokenBalance = async (wallet, tokenAddress) => {
+  if (!wallet || !tokenAddress || !ethers.isAddress(tokenAddress)) return 0n;
+  try {
+    const contract = new ethers.Contract(
+      tokenAddress,
+      ['function balanceOf(address) view returns (uint256)'],
+      provider
+    );
+    return await contract.balanceOf(wallet);
+  } catch {
+    return 0n;
+  }
+};
+
+const buildPoolOffers = async ({
+  pools,
+  desiredAmountUsd,
+  pvUsd,
+  ltvBps,
+  chain,
+  unlockTime,
+  baseRateBps,
+  borrowerWallet
+}) => {
   const daysToUnlock = getDaysToUnlock(unlockTime);
-  return pools
-    .map((pool) => {
-      const prefs = normalizePoolPreferences(pool);
-      if (prefs.chains.length && !prefs.chains.includes(chain)) return null;
-      const maxLtv = prefs.maxLtvBps || ltvBps;
-      const effectiveLtv = Math.min(maxLtv, ltvBps || maxLtv || 0);
-      const maxBorrowUsd = pvUsd > 0 && effectiveLtv > 0 ? (pvUsd * effectiveLtv) / 10000 : 0;
-      if (prefs.minLoanUsd && desiredAmountUsd < prefs.minLoanUsd) return null;
-      if (prefs.maxLoanUsd && desiredAmountUsd > prefs.maxLoanUsd) return null;
-      if (desiredAmountUsd > maxBorrowUsd) return null;
-      if (prefs.unlockWindowDays?.min && daysToUnlock !== null && daysToUnlock < prefs.unlockWindowDays.min) {
-        return null;
-      }
-      if (prefs.unlockWindowDays?.max && daysToUnlock !== null && daysToUnlock > prefs.unlockWindowDays.max) {
-        return null;
-      }
-      const interestBps = prefs.interestBps ?? baseRateBps;
-      const scoreBase = prefs.riskTier === 'aggressive' ? 85 : prefs.riskTier === 'conservative' ? 70 : 80;
-      const ltvScore = ltvBps ? Math.min(15, Math.round((effectiveLtv / ltvBps) * 15)) : 0;
-      const score = scoreBase + ltvScore;
-      const warnings = [];
-      if (prefs.minLiquidityUsd) warnings.push('minLiquidityUsd not verified in MVP');
-      if (prefs.minWalletAgeDays) warnings.push('wallet age not verified in MVP');
-      if (prefs.minVolumeUsd) warnings.push('volume not verified in MVP');
-      if (prefs.allowedTokens?.length) warnings.push('allowedTokens not enforced onchain');
-      return {
-        offerId: `${pool.id}:${chain}:${Date.now()}`,
-        poolId: pool.id,
-        ownerWallet: pool.ownerWallet,
-        chain,
-        riskTier: prefs.riskTier,
-        interestBps,
-        maxBorrowUsd,
-        score,
-        warnings
-      };
-    })
-    .filter(Boolean)
+  const results = [];
+  for (const pool of pools) {
+    const prefs = normalizePoolPreferences(pool);
+    if (prefs.chains.length && !prefs.chains.includes(chain)) continue;
+    const maxLtv = prefs.maxLtvBps || ltvBps;
+    const effectiveLtv = Math.min(maxLtv, ltvBps || maxLtv || 0);
+    const maxBorrowUsd = pvUsd > 0 && effectiveLtv > 0 ? (pvUsd * effectiveLtv) / 10000 : 0;
+    if (prefs.minLoanUsd && desiredAmountUsd < prefs.minLoanUsd) continue;
+    if (prefs.maxLoanUsd && desiredAmountUsd > prefs.maxLoanUsd) continue;
+    if (desiredAmountUsd > maxBorrowUsd) continue;
+    if (prefs.unlockWindowDays?.min && daysToUnlock !== null && daysToUnlock < prefs.unlockWindowDays.min) {
+      continue;
+    }
+    if (prefs.unlockWindowDays?.max && daysToUnlock !== null && daysToUnlock > prefs.unlockWindowDays.max) {
+      continue;
+    }
+    let canAccess = true;
+    let lockReason = null;
+    const accessType = prefs.accessType || 'open';
+    if (accessType === 'premium' && prefs.premiumToken) {
+      const bal = await checkTokenBalance(borrowerWallet, prefs.premiumToken);
+      canAccess = bal > 0n;
+      if (!canAccess) lockReason = 'Requires premium token to access';
+    } else if (accessType === 'community' && prefs.communityToken) {
+      const bal = await checkTokenBalance(borrowerWallet, prefs.communityToken);
+      canAccess = bal > 0n;
+      if (!canAccess) lockReason = 'Requires community token to borrow from this pool';
+    }
+    const interestBps = prefs.interestBps ?? baseRateBps;
+    const scoreBase = prefs.riskTier === 'aggressive' ? 85 : prefs.riskTier === 'conservative' ? 70 : 80;
+    const ltvScore = ltvBps ? Math.min(15, Math.round((effectiveLtv / ltvBps) * 15)) : 0;
+    const score = scoreBase + ltvScore;
+    const warnings = [];
+    if (prefs.minLiquidityUsd) warnings.push('minLiquidityUsd not verified in MVP');
+    if (prefs.minWalletAgeDays) warnings.push('wallet age not verified in MVP');
+    if (prefs.minVolumeUsd) warnings.push('volume not verified in MVP');
+    if (prefs.allowedTokens?.length) warnings.push('allowedTokens not enforced onchain');
+    results.push({
+      offerId: `${pool.id}:${chain}:${Date.now()}`,
+      poolId: pool.id,
+      ownerWallet: pool.ownerWallet,
+      chain,
+      riskTier: prefs.riskTier,
+      interestBps,
+      maxBorrowUsd,
+      score,
+      warnings,
+      accessType,
+      canAccess,
+      lockReason,
+      poolName: pool.name
+    });
+  }
+  return results
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
 };
@@ -996,6 +1058,54 @@ app.get('/api/pools', async (req, res) => {
   }
 });
 
+app.get('/api/pools/browse', async (req, res) => {
+  try {
+    let borrowerWallet = null;
+    if (req.query?.borrowerWallet) {
+      try {
+        borrowerWallet = ethers.getAddress(String(req.query.borrowerWallet).trim());
+      } catch {
+        borrowerWallet = null;
+      }
+    }
+    const chain = normalizeText(req.query?.chain, 40);
+    const accessFilter = normalizeText(req.query?.accessFilter, 20) || 'all';
+
+    let pools = await persistence.listPools({ chain, status: 'active' });
+
+    const enriched = [];
+    for (const pool of pools) {
+      const prefs = normalizePoolPreferences(pool);
+      const accessType = prefs.accessType || 'open';
+      let canAccess = true;
+      let lockReason = null;
+      if (accessType === 'premium' && prefs.premiumToken) {
+        const bal = borrowerWallet ? await checkTokenBalance(borrowerWallet, prefs.premiumToken) : 0n;
+        canAccess = bal > 0n;
+        if (!canAccess) lockReason = 'Requires premium token';
+      } else if (accessType === 'community' && prefs.communityToken) {
+        const bal = borrowerWallet ? await checkTokenBalance(borrowerWallet, prefs.communityToken) : 0n;
+        canAccess = bal > 0n;
+        if (!canAccess) lockReason = 'Requires community token';
+      }
+
+      if (accessFilter === 'open' && accessType !== 'open') continue;
+      if (accessFilter === 'accessible' && !canAccess) continue;
+
+      enriched.push({
+        ...pool,
+        accessType,
+        canAccess,
+        lockReason,
+        preferences: prefs
+      });
+    }
+    res.json({ ok: true, pools: enriched });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Pool browse failed' });
+  }
+});
+
 app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) => {
   try {
     const { chain, desiredAmountUsd } = req.body;
@@ -1057,14 +1167,15 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
     }
 
     const baseRateBps = await getPoolInterestBps();
-    const offers = buildPoolOffers({
+    const offers = await buildPoolOffers({
       pools,
       desiredAmountUsd,
       pvUsd,
       ltvBps,
       chain,
       unlockTime,
-      baseRateBps
+      baseRateBps,
+      borrowerWallet: req.body.borrowerWallet || null
     });
 
     await persistence.createMatchEvent({

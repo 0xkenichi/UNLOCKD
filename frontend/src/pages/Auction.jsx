@@ -63,7 +63,7 @@ export default function Auction() {
             className="button ghost"
             type="button"
             onClick={() =>
-              window.open('mailto:alerts@vestra.xyz?subject=Auction%20alerts')
+              window.open('mailto:0xkenichi@gmail.com?subject=Auction%20alerts')
             }
           >
             Notify Me

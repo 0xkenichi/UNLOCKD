@@ -43,3 +43,7 @@ Notes
 
 MVP demo (backend + contracts)
 - See MVP_README.md for an end-to-end Sepolia walkthrough.
+
+Local demo (Hardhat node)
+- Run `npm run demo:local` for a full local stack (node + deploy + seed + backend + frontend).
+- See docs/DEMO_LOCAL.md for details.

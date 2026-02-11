@@ -82,6 +82,16 @@ export async function fetchPools({ chain, ownerWallet, status } = {}) {
   return data.pools || [];
 }
 
+export async function fetchPoolsBrowse({ chain, borrowerWallet, accessFilter } = {}) {
+  const params = new URLSearchParams();
+  if (chain) params.set('chain', chain);
+  if (borrowerWallet) params.set('borrowerWallet', borrowerWallet);
+  if (accessFilter) params.set('accessFilter', accessFilter);
+  const query = params.toString();
+  const data = await apiGet(`/api/pools/browse${query ? `?${query}` : ''}`);
+  return data.pools || [];
+}
+
 export async function createPool(payload) {
   const data = await apiPost('/api/pools', payload);
   return data.pool;

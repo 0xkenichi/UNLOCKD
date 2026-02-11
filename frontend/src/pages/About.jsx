@@ -78,13 +78,13 @@ export default function About() {
           <div className="section-head">
             <div>
               <h3 className="section-title">Team & Partners</h3>
-              <div className="section-subtitle">Core contributors</div>
+              <div className="section-subtitle">Core contributors • VestraProtocol.io (not ready yet)</div>
             </div>
             <button
               className="button ghost"
               type="button"
               onClick={() =>
-                window.open('mailto:hello@vestra.xyz?subject=Partnership%20inquiry')
+                window.open('mailto:0xkenichi@gmail.com?subject=Partnership%20inquiry')
               }
             >
               Contact
