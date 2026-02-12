@@ -220,7 +220,8 @@ export default function BorrowActions({
       address: vestingAdapter,
       abi: vestingAdapterAbi,
       functionName: 'escrow',
-      args: [BigInt(collateralId || 0), vestingContract, address]
+      args: [BigInt(collateralId || 0), vestingContract, address],
+      gas: 500_000n
     });
   };
 
@@ -230,7 +231,8 @@ export default function BorrowActions({
       address: loanManager,
       abi: loanManagerAbi,
       functionName: 'createLoan',
-      args: [BigInt(collateralId || 0), vestingContract, borrowUnits]
+      args: [BigInt(collateralId || 0), vestingContract, borrowUnits],
+      gas: 1_000_000n
     });
   };
 
