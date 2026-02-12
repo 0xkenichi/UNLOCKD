@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { useAccount, useChainId, useReadContract } from 'wagmi';
+import { motion, useReducedMotion } from 'framer-motion';
+import { useAccount, useChainId, useReadContract, useSwitchChain } from 'wagmi';
 import { routeImports } from '../routes.js';
 import { ALL_EVM_CHAINS } from '../utils/chains.js';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
@@ -18,29 +18,78 @@ const DocsPage = lazy(routeImports.docs);
 const AboutPage = lazy(routeImports.about);
 
 const modules = [
-  { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', x: 12, y: 16, component: BorrowPage },
-  { id: 'repay', title: 'Repay', subtitle: 'Close and reclaim safely', x: 70, y: 14, component: RepayPage },
-  { id: 'portfolio', title: 'Portfolio', subtitle: 'Unified positions + performance', x: 44, y: 38, component: PortfolioPage },
-  { id: 'lender', title: 'Lender', subtitle: 'Deploy liquidity and earn', x: 12, y: 62, component: LenderPage },
-  { id: 'auction', title: 'Auction', subtitle: 'Liquidation and market clearing', x: 70, y: 62, component: AuctionPage },
-  { id: 'governance', title: 'Governance', subtitle: 'Vote, delegate, steer protocol', x: 32, y: 76, component: GovernancePage },
-  { id: 'identity', title: 'Identity', subtitle: 'Onchain trust surface', x: 56, y: 78, component: IdentityPage },
-  { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', x: 28, y: 26, component: FeaturesPage },
-  { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', x: 56, y: 24, component: DocsPage },
-  { id: 'about', title: 'About', subtitle: 'Mission + team context', x: 84, y: 42, component: AboutPage }
+  { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', component: BorrowPage },
+  { id: 'repay', title: 'Repay', subtitle: 'Close and reclaim safely', component: RepayPage },
+  { id: 'portfolio', title: 'Portfolio', subtitle: 'Unified positions + performance', component: PortfolioPage },
+  { id: 'lender', title: 'Lender', subtitle: 'Deploy liquidity and earn', component: LenderPage },
+  { id: 'auction', title: 'Auction', subtitle: 'Liquidation and market clearing', component: AuctionPage },
+  { id: 'governance', title: 'Governance', subtitle: 'Vote, delegate, steer protocol', component: GovernancePage },
+  { id: 'identity', title: 'Identity', subtitle: 'Onchain trust surface', component: IdentityPage },
+  { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage },
+  { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage },
+  { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage }
 ];
 
-function ModuleFallback() {
+const moduleLoaders = {
+  borrow: routeImports.borrow,
+  repay: routeImports.repay,
+  portfolio: routeImports.portfolio,
+  lender: routeImports.lender,
+  auction: routeImports.auction,
+  governance: routeImports.governance,
+  identity: routeImports.identity,
+  features: routeImports.features,
+  docs: routeImports.docs,
+  about: routeImports.about
+};
+
+const ZOOM_OPEN_DURATION_MS = 720;
+
+function ModuleMiniPreview({ moduleId }) {
+  const profile = {
+    borrow: { top: '62%', line: '72%' },
+    repay: { top: '48%', line: '68%' },
+    portfolio: { top: '70%', line: '86%' },
+    lender: { top: '56%', line: '64%' },
+    auction: { top: '44%', line: '58%' },
+    governance: { top: '52%', line: '74%' },
+    identity: { top: '38%', line: '52%' },
+    features: { top: '66%', line: '80%' },
+    docs: { top: '74%', line: '84%' },
+    about: { top: '42%', line: '60%' }
+  }[moduleId] || { top: '54%', line: '76%' };
+
   return (
-    <div className="loading-row" role="status" aria-live="polite">
-      <div className="spinner" />
+    <div className="immersive-preview-shell" aria-hidden="true">
+      <div className="immersive-preview-top" style={{ width: profile.top }} />
+      <div className="immersive-preview-grid">
+        <div className="immersive-preview-block immersive-preview-block--wide" />
+        <div className="immersive-preview-block" />
+        <div className="immersive-preview-block" />
+      </div>
+      <div className="immersive-preview-lines">
+        <span />
+        <span style={{ width: profile.line }} />
+      </div>
+      <div className="immersive-preview-tag">{moduleId}</div>
+    </div>
+  );
+}
+
+function ModuleFallback({ moduleId }) {
+  return (
+    <div className="immersive-fallback" role="status" aria-live="polite">
+      <ModuleMiniPreview moduleId={moduleId} />
+      <div className="immersive-fallback-text">Preparing full view...</div>
     </div>
   );
 }
 
 export default function Dashboard({ onOpenWallet = () => {} }) {
+  const prefersReducedMotion = useReducedMotion();
   const { address } = useAccount();
   const chainId = useChainId();
+  const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
   const activeChain = useMemo(
@@ -55,6 +104,11 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const [hoverStart, setHoverStart] = useState(null);
   const [hoverElapsed, setHoverElapsed] = useState(0);
   const [activeId, setActiveId] = useState(null);
+  const [networkPickerOpen, setNetworkPickerOpen] = useState(false);
+  const [transitioningId, setTransitioningId] = useState(null);
+  const [transitionProgress, setTransitionProgress] = useState(0);
+  const transitionFrameRef = useRef(null);
+  const transitionCommitRef = useRef(null);
 
   const { data: loanCount } = useReadContract({
     address: loanManager,
@@ -74,6 +128,17 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
   const loanCountValue = loanCount ? loanCount.toString() : '0';
   const shortAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '--';
+
+  const clearTransitionTimers = useCallback(() => {
+    if (transitionFrameRef.current) {
+      cancelAnimationFrame(transitionFrameRef.current);
+      transitionFrameRef.current = null;
+    }
+    if (transitionCommitRef.current) {
+      clearTimeout(transitionCommitRef.current);
+      transitionCommitRef.current = null;
+    }
+  }, []);
 
   const onMouseMove = useCallback((event) => {
     if (!stageRef.current) return;
@@ -99,14 +164,80 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   }, [hoveredId, hoverStart]);
 
   useEffect(() => {
-    if (!hoveredId) return;
-    if (hoverElapsed > 0.8 && pointerSpeed < 0.45) {
-      setActiveId(hoveredId);
+    const warmup = () => {
+      Object.values(moduleLoaders).forEach((loader) => loader());
+    };
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(warmup);
+      return () => window.cancelIdleCallback(id);
     }
-  }, [hoverElapsed, hoveredId, pointerSpeed]);
+    const timeout = setTimeout(warmup, 800);
+    return () => clearTimeout(timeout);
+  }, []);
 
-  const activeModule = modules.find((item) => item.id === activeId);
-  const ActiveComponent = activeModule?.component;
+  useEffect(() => clearTransitionTimers, [clearTransitionTimers]);
+
+  const openModule = useCallback((moduleId) => {
+    if (!moduleId || activeId === moduleId || transitioningId) return;
+    moduleLoaders[moduleId]?.();
+
+    if (prefersReducedMotion) {
+      setActiveId(moduleId);
+      return;
+    }
+
+    clearTransitionTimers();
+    setTransitioningId(moduleId);
+    setTransitionProgress(0);
+    setHoveredId(moduleId);
+    setHoverStart(Date.now());
+    setHoverElapsed(0);
+
+    const startedAt = performance.now();
+    const tick = (now) => {
+      const progress = Math.min(1, (now - startedAt) / ZOOM_OPEN_DURATION_MS);
+      setTransitionProgress(progress);
+      if (progress < 1) {
+        transitionFrameRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      transitionFrameRef.current = null;
+      transitionCommitRef.current = setTimeout(() => {
+        setActiveId(moduleId);
+        setTransitioningId(null);
+        setTransitionProgress(0);
+        transitionCommitRef.current = null;
+      }, 90);
+    };
+    transitionFrameRef.current = requestAnimationFrame(tick);
+  }, [activeId, clearTransitionTimers, prefersReducedMotion, transitioningId]);
+
+  useEffect(() => {
+    if (
+      !hoveredId ||
+      activeId ||
+      transitioningId ||
+      prefersReducedMotion
+    ) {
+      return;
+    }
+    if (hoverElapsed >= 0.82 && pointerSpeed < 0.5) {
+      openModule(hoveredId);
+    }
+  }, [
+    hoveredId,
+    hoverElapsed,
+    pointerSpeed,
+    activeId,
+    transitioningId,
+    prefersReducedMotion,
+    openModule
+  ]);
+
+  const focusModuleId = activeId || transitioningId;
+  const focusModule = modules.find((item) => item.id === focusModuleId);
+  const FocusComponent = focusModule?.component;
+  const revealProgress = activeId ? 1 : transitionProgress;
 
   return (
     <motion.div
@@ -124,7 +255,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
           </div>
         </div>
         <div className="immersive-actions">
-          <button className="button ghost" type="button" onClick={() => setActiveId('portfolio')}>
+          <button className="button ghost" type="button" onClick={() => openModule('portfolio')}>
             Portfolio
           </button>
           <button className="button" type="button" onClick={onOpenWallet}>
@@ -138,6 +269,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
         className="immersive-stage"
         onMouseMove={onMouseMove}
         onMouseLeave={() => {
+          if (transitioningId) return;
           setHoveredId(null);
           setHoverElapsed(0);
           setHoverStart(null);
@@ -157,70 +289,138 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               <div className="stat-value">{formattedBalance}</div>
               <div className="stat-label">USDC</div>
             </div>
-            <div className="stat-card stat-card-minimal">
+            <button
+              className="stat-card stat-card-minimal immersive-network-card"
+              type="button"
+              onClick={() => setNetworkPickerOpen((open) => !open)}
+            >
               <div className="stat-value">{activeChain?.name || '—'}</div>
               <div className="stat-label">Network</div>
-            </div>
+            </button>
           </div>
+          {networkPickerOpen && (
+            <div className="immersive-network-picker">
+              {ALL_EVM_CHAINS.map((chain) => (
+                <button
+                  key={chain.id}
+                  className={`pill ${chain.id === chainId ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => {
+                    switchChain({ chainId: chain.id });
+                    setNetworkPickerOpen(false);
+                  }}
+                  disabled={isSwitchingChain}
+                >
+                  {chain.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="muted">Connected: {shortAddress}</div>
         </div>
+        <div className="immersive-modules-grid">
+          {modules.map((module) => {
+            const hovered = hoveredId === module.id;
+            const transitioning = transitioningId === module.id;
+            const hoverIntensity = hovered ? Math.min(1, hoverElapsed / 1.25) : 0;
+            const transitionIntensity = transitioning ? transitionProgress : 0;
+            const intensity = Math.max(hoverIntensity, transitionIntensity);
+            const fastPenalty = 1 - pointerSpeed * 0.45;
+            const tiltX = (mouse.y - 0.5) * 4 * fastPenalty;
+            const tiltY = (mouse.x - 0.5) * -6 * fastPenalty;
+            const scale = 1 + 0.04 * hoverIntensity + 0.16 * transitionIntensity;
+            const lift = transitioning ? -24 * transitionIntensity : 0;
+            const depth = transitioning ? 120 * transitionIntensity : 0;
+            const fadeOthers = transitioningId && !transitioning ? Math.max(0.22, 1 - transitionProgress * 0.78) : 1;
 
-        {modules.map((module, index) => {
-          const hovered = hoveredId === module.id;
-          const hoverIntensity = hovered ? Math.min(1, hoverElapsed / 1.25) : 0;
-          const fastPenalty = 1 - pointerSpeed * 0.45;
-          const tiltX = (mouse.y - 0.5) * 6 * fastPenalty;
-          const tiltY = (mouse.x - 0.5) * -9 * fastPenalty;
-          const scale = hovered ? 1 + 0.18 * hoverIntensity : 1;
-          const z = hovered ? 30 + 40 * hoverIntensity : 0;
-
-          return (
-            <motion.button
-              key={module.id}
-              type="button"
-              className={`immersive-module-card ${hovered ? 'is-hovered' : ''}`}
-              style={{
-                left: `${module.x}%`,
-                top: `${module.y}%`,
-                transform: `translate(-50%, -50%) perspective(1300px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateZ(${z}px) scale(${scale})`,
-                zIndex: hovered ? 40 : 10 + index
-              }}
-              onMouseEnter={() => {
-                setHoveredId(module.id);
-                setHoverStart(Date.now());
-                setHoverElapsed(0);
-              }}
-              onMouseLeave={() => {
-                setHoveredId(null);
-                setHoverStart(null);
-                setHoverElapsed(0);
-              }}
-              onClick={() => setActiveId(module.id)}
-            >
-              <div className="immersive-module-title">{module.title}</div>
-              <div className="immersive-module-subtitle">{module.subtitle}</div>
-              {hovered && (
-                <div className="immersive-module-zoom">
-                  Zoom {Math.round(100 + hoverIntensity * 120)}%
+            return (
+              <motion.button
+                key={module.id}
+                type="button"
+                className={`immersive-module-card ${hovered ? 'is-hovered' : ''} ${transitioning ? 'is-zooming' : ''} ${transitioningId && !transitioning ? 'is-dimming' : ''}`}
+                style={{
+                  transform: `perspective(1100px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(${lift}px) translateZ(${depth}px) scale(${scale})`,
+                  opacity: fadeOthers
+                }}
+                onMouseEnter={() => {
+                  if (transitioningId) return;
+                  setHoveredId(module.id);
+                  setHoverStart(Date.now());
+                  setHoverElapsed(0);
+                  moduleLoaders[module.id]?.();
+                }}
+                onMouseLeave={() => {
+                  if (transitioningId) return;
+                  setHoveredId(null);
+                  setHoverStart(null);
+                  setHoverElapsed(0);
+                }}
+                onClick={() => openModule(module.id)}
+                disabled={Boolean(transitioningId)}
+              >
+                <div className="immersive-module-title">{module.title}</div>
+                <div className="immersive-module-subtitle">{module.subtitle}</div>
+                <div style={{ opacity: 0.6 + intensity * 0.4 }}>
+                  <ModuleMiniPreview moduleId={module.id} />
                 </div>
-              )}
-            </motion.button>
-          );
-        })}
+                {(hovered || transitioning) && (
+                  <div className="immersive-module-zoom">
+                    {transitioning
+                      ? `Opening ${module.title} ${Math.round(transitionProgress * 100)}%`
+                      : `Zooming into ${module.title}`}
+                  </div>
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
       </section>
 
-      {activeId && ActiveComponent && (
-        <div className="immersive-focus-layer" role="dialog" aria-modal="true">
-          <div className="immersive-focus-toolbar">
-            <div className="immersive-focus-title">{activeModule.title}</div>
-            <button className="button ghost" type="button" onClick={() => setActiveId(null)}>
+      {focusModuleId && focusModule && (
+        <div
+          className={`immersive-focus-layer ${activeId ? '' : 'is-transitioning'}`}
+          role="dialog"
+          aria-modal="true"
+          style={{
+            opacity: 0.06 + revealProgress * 0.94,
+            pointerEvents: activeId ? 'auto' : 'none'
+          }}
+        >
+          <div
+            className="immersive-focus-toolbar"
+            style={{
+              opacity: Math.max(0, revealProgress * 1.2 - 0.15)
+            }}
+          >
+            <div className="immersive-focus-title">{focusModule.title}</div>
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => {
+                clearTransitionTimers();
+                setTransitioningId(null);
+                setTransitionProgress(0);
+                setActiveId(null);
+              }}
+              disabled={!activeId}
+            >
               Back to map
             </button>
           </div>
-          <div className="immersive-focus-content">
-            <Suspense fallback={<ModuleFallback />}>
-              <ActiveComponent />
-            </Suspense>
+          <div
+            className="immersive-focus-content"
+            style={{
+              opacity: Math.max(0.12, revealProgress),
+              transform: `translateY(${(1 - revealProgress) * 18}px) scale(${0.98 + revealProgress * 0.02})`
+            }}
+          >
+            {activeId && FocusComponent ? (
+              <Suspense fallback={<ModuleFallback moduleId={activeId} />}>
+                <FocusComponent />
+              </Suspense>
+            ) : (
+              <ModuleFallback moduleId={focusModuleId} />
+            )}
           </div>
         </div>
       )}

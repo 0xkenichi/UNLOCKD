@@ -14,7 +14,7 @@ const providers = {
 export default function BridgeCard({ provider = 'lifi', chainLabel }) {
   const current = providers[provider] || providers.lifi;
   return (
-    <div className="holo-card">
+    <div className="holo-card funding-source-card">
       <div className="section-head">
         <div>
           <h3 className="section-title">Bridge Assets</h3>
@@ -28,7 +28,7 @@ export default function BridgeCard({ provider = 'lifi', chainLabel }) {
         Recommended for moving USDC from other networks or exchanges.
       </div>
       <a
-        className="button"
+        className="button funding-card-cta"
         href={current.url}
         target="_blank"
         rel="noreferrer"

@@ -297,7 +297,10 @@ button {
   overflow: hidden;
   perspective: 1300px;
   transform-style: preserve-3d;
-  padding-top: 84px;
+  padding: 96px var(--space-6) var(--space-8);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-6);
 }
 
 .immersive-stage-grid {
@@ -312,37 +315,78 @@ button {
 }
 
 .immersive-core-card {
-  position: absolute;
-  left: 50%;
-  top: 51%;
-  transform: translate(-50%, -50%);
-  width: min(920px, 72vw);
-  min-height: 180px;
-  z-index: 20;
-  pointer-events: none;
-  background: rgba(13, 17, 24, 0.68);
+  position: relative;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  min-height: 160px;
+  z-index: 2;
+  pointer-events: auto;
+  background: rgba(13, 17, 24, 0.72);
   border: 1px solid var(--border-strong);
 }
 
+.immersive-network-card {
+  background: rgba(13, 17, 24, 0.84);
+  color: inherit;
+  border: 1px solid var(--border-primary);
+  cursor: pointer;
+}
+
+.immersive-network-card:hover {
+  border-color: var(--border-strong);
+}
+
+.immersive-network-picker {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.immersive-modules-grid {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  align-content: start;
+  z-index: 2;
+}
+
 .immersive-module-card {
-  position: absolute;
-  width: min(320px, 26vw);
-  min-width: 220px;
+  position: relative;
+  width: 100%;
+  min-width: 0;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-primary);
-  background: rgba(13, 17, 24, 0.78);
+  background: rgba(13, 17, 24, 0.84);
   color: var(--text-primary);
   text-align: left;
   padding: var(--space-5);
   box-shadow: var(--shadow-md);
   cursor: pointer;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  min-height: 128px;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform 140ms linear, opacity 180ms linear;
 }
 
 .immersive-module-card:hover,
 .immersive-module-card.is-hovered {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-lg);
+}
+
+.immersive-module-card.is-zooming {
+  z-index: 4;
+  border-color: var(--primary-400);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.48);
+}
+
+.immersive-module-card.is-dimming {
+  filter: saturate(0.7);
+}
+
+.immersive-module-card:disabled {
+  cursor: default;
 }
 
 .immersive-module-title {
@@ -355,7 +399,65 @@ button {
 .immersive-module-subtitle {
   font-size: 14px;
   line-height: 1.45;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.immersive-preview-shell {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: rgba(10, 14, 20, 0.66);
+}
+
+.immersive-preview-top {
+  height: 8px;
+  width: 54%;
+  border-radius: 999px;
+  background: rgba(88, 166, 255, 0.28);
+  margin-bottom: 8px;
+}
+
+.immersive-preview-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 6px;
+}
+
+.immersive-preview-block {
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(139, 148, 158, 0.18);
+}
+
+.immersive-preview-block--wide {
+  background: rgba(88, 166, 255, 0.2);
+}
+
+.immersive-preview-lines {
+  margin-top: 8px;
+  display: grid;
+  gap: 5px;
+}
+
+.immersive-preview-lines span {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(139, 148, 158, 0.24);
+}
+
+.immersive-preview-lines span:last-child {
+  width: 76%;
+}
+
+.immersive-preview-tag {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary-300);
 }
 
 .immersive-module-zoom {
@@ -363,6 +465,26 @@ button {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--primary-400);
+}
+
+.immersive-fallback {
+  max-width: 460px;
+  margin: 0 auto;
+  padding-top: var(--space-8);
+}
+
+.immersive-fallback .immersive-preview-shell {
+  transform: scale(1.08);
+  transform-origin: top center;
+}
+
+.immersive-fallback-text {
+  margin-top: var(--space-5);
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
 }
 
 .immersive-focus-layer {
@@ -373,6 +495,7 @@ button {
   grid-template-rows: auto 1fr;
   background: rgba(8, 11, 17, 0.96);
   backdrop-filter: blur(10px);
+  transition: opacity 240ms var(--ease-standard);
 }
 
 .immersive-focus-toolbar {
@@ -394,6 +517,57 @@ button {
 .immersive-focus-content {
   overflow: auto;
   padding: var(--space-6);
+  transition: opacity 260ms var(--ease-standard), transform 300ms var(--ease-smooth);
+}
+
+/* Unified Wallet Modal */
+.wallet-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: rgba(8, 11, 17, 0.72);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.wallet-modal {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-6);
+}
+
+.wallet-modal-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wallet-modal-close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.wallet-modal-grid {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.wallet-modal-card {
+  min-height: 0;
 }
 
 .chain-warning {
@@ -571,6 +745,16 @@ button {
 .holo-card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md);
+}
+
+.funding-source-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.funding-card-cta {
+  margin-top: auto;
+  align-self: flex-start;
 }
 
 .holo-glow {
@@ -1265,17 +1449,24 @@ select:focus-visible {
   }
 
   .immersive-stage {
-    padding-top: 88px;
+    padding: 98px var(--space-4) var(--space-6);
+    gap: var(--space-4);
   }
 
   .immersive-core-card {
-    width: calc(100vw - 28px);
-    top: 46%;
+    width: 100%;
+    min-height: 148px;
+  }
+
+  .immersive-modules-grid {
+    width: 100%;
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
   }
 
   .immersive-module-card {
-    width: min(320px, calc(100vw - 28px));
-    min-width: 0;
+    min-height: 110px;
+    padding: var(--space-4);
   }
 
   .immersive-focus-layer {
@@ -1296,6 +1487,16 @@ select:focus-visible {
   .tab-icon {
     width: 28px;
     height: 28px;
+  }
+
+  .wallet-modal-backdrop {
+    padding: var(--space-3);
+  }
+
+  .wallet-modal {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 18px);
+    padding: var(--space-4);
   }
 
   .borrow-actions-cta .button {
@@ -1385,12 +1586,44 @@ select:focus-visible {
 }
 
 /* AI Bubble */
-.ai-bubble {
+.ai-bubble-shell {
   position: fixed;
-  right: var(--space-6);
+  left: calc(var(--nav-width) + var(--space-4));
   bottom: 120px;
+  z-index: 70;
+}
+
+.ai-fab {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(10, 14, 26, 0.88);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  backdrop-filter: blur(12px) saturate(150%);
+  transition: transform var(--motion-normal) var(--ease-smooth),
+    opacity var(--motion-fast) var(--ease-standard);
+}
+
+.ai-fab:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.ai-fab.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+}
+
+.ai-bubble {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   width: 320px;
-  background: var(--surface-strong);
+  background: rgba(13, 17, 23, 0.9);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
   padding: var(--space-4);
@@ -1398,7 +1631,25 @@ select:focus-visible {
   display: grid;
   gap: var(--space-3);
   backdrop-filter: blur(20px) saturate(180%);
-  z-index: 70;
+  z-index: 71;
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+  pointer-events: none;
+  transform-origin: bottom left;
+  transition: opacity 220ms var(--ease-standard), transform 220ms var(--ease-smooth);
+}
+
+@media (max-width: 720px) {
+  .ai-bubble-shell {
+    left: var(--space-4);
+    bottom: 104px;
+  }
+}
+
+.ai-bubble.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .ai-bubble-header {
@@ -1415,19 +1666,15 @@ select:focus-visible {
   border: 1px solid var(--border-primary);
   background: var(--surface-soft);
   color: var(--text-secondary);
-  font-size: 18px;
+  font-size: 22px;
   cursor: pointer;
   transition: all var(--motion-fast);
+  line-height: 1;
 }
 
 .ai-toggle:hover {
   background: rgba(88, 166, 255, 0.1);
   border-color: var(--border-strong);
-}
-
-.ai-bubble.minimized {
-  width: 200px;
-  padding: var(--space-3);
 }
 
 .ai-input {
@@ -1438,6 +1685,11 @@ select:focus-visible {
   background: var(--surface-soft);
   color: var(--text-primary);
   font-size: 14px;
+}
+
+.ai-bubble-body {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .ai-bubble-title-row {

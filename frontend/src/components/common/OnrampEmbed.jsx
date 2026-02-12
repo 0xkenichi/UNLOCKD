@@ -20,7 +20,7 @@ export default function OnrampEmbed({ address, chainLabel }) {
 
   if (!apiKey) {
     return (
-      <div className="holo-card">
+      <div className="holo-card funding-source-card">
         <div className="section-head">
           <div>
             <h3 className="section-title">Fiat Onramp</h3>
@@ -34,7 +34,7 @@ export default function OnrampEmbed({ address, chainLabel }) {
           Add `VITE_ONRAMPER_API_KEY` to enable the embedded onramp.
         </div>
         <a
-          className="button"
+          className="button funding-card-cta"
           href="https://www.onramper.com"
           target="_blank"
           rel="noreferrer"
@@ -47,7 +47,7 @@ export default function OnrampEmbed({ address, chainLabel }) {
   }
 
   return (
-    <div className="holo-card">
+    <div className="holo-card funding-source-card">
       <div className="section-head">
         <div>
           <h3 className="section-title">Fiat Onramp</h3>

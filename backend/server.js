@@ -59,6 +59,9 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 const TURNSTILE_BYPASS = process.env.TURNSTILE_BYPASS === 'true';
 const SESSION_TTL_MINUTES = Number(process.env.SESSION_TTL_MINUTES || 60);
 const NONCE_TTL_MINUTES = Number(process.env.NONCE_TTL_MINUTES || 10);
+const GEO_LOOKUP_URL = process.env.GEO_LOOKUP_URL || 'https://ipapi.co';
+const GEO_LOOKUP_TIMEOUT_MS = Number(process.env.GEO_LOOKUP_TIMEOUT_MS || 2200);
+const GEO_CACHE_TTL_MS = Number(process.env.GEO_CACHE_TTL_MS || 24 * 60 * 60 * 1000);
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const agent = initAgent();
@@ -73,6 +76,7 @@ let lastScheduleRefresh = 0;
 const vestedSnapshots = [];
 let cachedVestedContracts = [];
 let cachedVestedContractsAt = 0;
+const geoLookupCache = new Map();
 
 const withTimeout = (promise, ms, fallback) =>
   Promise.race([
@@ -398,6 +402,86 @@ const getClientIp = (req) => {
 const hashIp = (ip) => {
   if (!ip) return '';
   return crypto.createHash('sha256').update(ip).digest('hex');
+};
+
+const isPrivateOrLocalIp = (ip) => {
+  if (!ip) return true;
+  const normalized = ip.replace(/^::ffff:/, '');
+  if (
+    normalized === '::1' ||
+    normalized === '127.0.0.1' ||
+    normalized === 'localhost'
+  ) {
+    return true;
+  }
+  if (
+    normalized.startsWith('10.') ||
+    normalized.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized) ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd')
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const readGeoFromProvider = async (ip) => {
+  const url = `${GEO_LOOKUP_URL.replace(/\/$/, '')}/${encodeURIComponent(ip)}/json/`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEO_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const lat = Number(data?.latitude);
+    const lng = Number(data?.longitude);
+    const city = data?.city ? String(data.city).trim() : '';
+    const state = data?.region ? String(data.region).trim() : null;
+    const country = data?.country_name
+      ? String(data.country_name).trim()
+      : data?.country
+        ? String(data.country).trim()
+        : '';
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !city || !country) {
+      return null;
+    }
+    return { lat, lng, city, state, country };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const lookupGeoByIp = async (ip) => {
+  if (!ip || isPrivateOrLocalIp(ip)) return null;
+  const cacheKey = hashIp(ip);
+  const cached = geoLookupCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < GEO_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  const value = await readGeoFromProvider(ip);
+  geoLookupCache.set(cacheKey, { at: Date.now(), value });
+  return value;
+};
+
+const captureUserGeoPresence = async ({ userId, ip }) => {
+  if (!userId || !ip) return;
+  try {
+    const geo = await lookupGeoByIp(ip);
+    if (!geo) return;
+    await persistence.upsertUserGeoPresence({
+      userId,
+      lat: geo.lat,
+      lng: geo.lng,
+      city: geo.city,
+      state: geo.state,
+      country: geo.country
+    });
+  } catch (error) {
+    console.warn('[geo] capture failed', error?.message || error);
+  }
 };
 
 const buildSessionFingerprint = (req) => {
@@ -946,6 +1030,8 @@ app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) 
       expiresAt,
       ipHash
     });
+    const clientIp = getClientIp(req);
+    captureUserGeoPresence({ userId: user.id, ip: clientIp });
     res.json({
       ok: true,
       walletAddress,
@@ -1338,6 +1424,25 @@ app.get('/api/activity', (_req, res) => {
       lastPollAt
     }
   });
+});
+
+app.get('/api/geo-pings', async (_req, res) => {
+  try {
+    const items = await persistence.listGeoPings({ limit: 300 });
+    res.json({
+      ok: true,
+      items,
+      meta: {
+        source: items.length ? 'user_geo_presence' : 'empty'
+      }
+    });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch geo pings',
+      items: []
+    });
+  }
 });
 
 app.get('/api/exports/activity', (_req, res) => {

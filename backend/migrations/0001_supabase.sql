@@ -25,6 +25,17 @@ create table if not exists app_sessions (
   ip_hash text
 );
 
+-- Latest known user location (aggregated for globe pings)
+create table if not exists user_geo_presence (
+  user_id uuid primary key references app_users(id) on delete cascade,
+  lat double precision not null,
+  lng double precision not null,
+  city text not null,
+  state text,
+  country text not null,
+  updated_at timestamptz default now()
+);
+
 -- Contact / governance submissions
 create table if not exists contact_submissions (
   id uuid primary key default gen_random_uuid(),
@@ -123,6 +134,7 @@ create table if not exists agent_conversations (
 -- RLS
 alter table app_users enable row level security;
 alter table app_sessions enable row level security;
+alter table user_geo_presence enable row level security;
 alter table contact_submissions enable row level security;
 alter table notifications enable row level security;
 alter table indexer_events enable row level security;
@@ -146,6 +158,14 @@ do $$ begin
   perform 1 from pg_policies where policyname = 'service role all app_sessions';
   if not found then
     create policy "service role all app_sessions" on app_sessions for all
+      using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+  end if;
+end $$;
+
+do $$ begin
+  perform 1 from pg_policies where policyname = 'service role all user_geo_presence';
+  if not found then
+    create policy "service role all user_geo_presence" on user_geo_presence for all
       using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
   end if;
 end $$;
