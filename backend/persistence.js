@@ -133,6 +133,17 @@ const initSqlite = () => {
       payload TEXT,
       created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS agent_conversations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      session_fingerprint TEXT,
+      message TEXT,
+      answer TEXT,
+      mode TEXT,
+      provider TEXT,
+      metadata TEXT,
+      created_at TEXT
+    );
   `);
 };
 
@@ -711,6 +722,123 @@ const createMatchEvent = async ({ type, payload }) => {
   return { id, type: type || 'unknown', payload: normalized, createdAt };
 };
 
+const listRecentAgentConversations = async ({
+  limit = 80,
+  userId,
+  sessionFingerprint
+} = {}) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 80, 250));
+  if (useSupabase) {
+    let query = supabaseClient()
+      .from('agent_conversations')
+      .select(
+        'id, user_id, session_fingerprint, message, answer, mode, provider, metadata, created_at'
+      )
+      .order('created_at', { ascending: false })
+      .limit(safeLimit);
+    if (userId) {
+      query = query.eq('user_id', userId);
+    } else if (sessionFingerprint) {
+      query = query.eq('session_fingerprint', sessionFingerprint);
+    }
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(`[supabase] listRecentAgentConversations failed: ${error.message}`);
+    }
+    return (data || []).map((row) => ({
+      id: row.id,
+      userId: row.user_id || null,
+      sessionFingerprint: row.session_fingerprint || '',
+      message: row.message || '',
+      answer: row.answer || '',
+      mode: row.mode || '',
+      provider: row.provider || '',
+      metadata: row.metadata || {},
+      createdAt: row.created_at || null
+    }));
+  }
+  let sql =
+    'SELECT id, user_id, session_fingerprint, message, answer, mode, provider, metadata, created_at FROM agent_conversations';
+  const args = [];
+  if (userId) {
+    sql += ' WHERE user_id = ?';
+    args.push(userId);
+  } else if (sessionFingerprint) {
+    sql += ' WHERE session_fingerprint = ?';
+    args.push(sessionFingerprint);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  args.push(safeLimit);
+  const rows = sqlite.prepare(sql).all(...args);
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id || null,
+    sessionFingerprint: row.session_fingerprint || '',
+    message: row.message || '',
+    answer: row.answer || '',
+    mode: row.mode || '',
+    provider: row.provider || '',
+    metadata: (() => {
+      try {
+        return row.metadata ? JSON.parse(row.metadata) : {};
+      } catch {
+        return {};
+      }
+    })(),
+    createdAt: row.created_at || null
+  }));
+};
+
+const saveAgentConversation = async ({
+  userId = null,
+  sessionFingerprint = '',
+  message = '',
+  answer = '',
+  mode = '',
+  provider = '',
+  metadata = {}
+} = {}) => {
+  if (!message || !answer) return null;
+  const id = createId();
+  const createdAt = new Date().toISOString();
+  const normalizedMetadata = normalizeJson(metadata || {});
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('agent_conversations').insert({
+      id,
+      user_id: userId || null,
+      session_fingerprint: sessionFingerprint || null,
+      message: String(message).slice(0, 3000),
+      answer: String(answer).slice(0, 8000),
+      mode: String(mode || '').slice(0, 80),
+      provider: String(provider || '').slice(0, 80),
+      metadata: normalizedMetadata,
+      created_at: createdAt
+    });
+    if (error) {
+      throw new Error(`[supabase] saveAgentConversation failed: ${error.message}`);
+    }
+    return { id, createdAt };
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO agent_conversations
+      (id, user_id, session_fingerprint, message, answer, mode, provider, metadata, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      id,
+      userId || null,
+      sessionFingerprint || null,
+      String(message).slice(0, 3000),
+      String(answer).slice(0, 8000),
+      String(mode || '').slice(0, 80),
+      String(provider || '').slice(0, 80),
+      JSON.stringify(normalizeJson(normalizedMetadata)),
+      createdAt
+    );
+  return { id, createdAt };
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -732,5 +860,7 @@ module.exports = {
   updatePoolPreferences,
   listPools,
   getPoolById,
-  createMatchEvent
+  createMatchEvent,
+  listRecentAgentConversations,
+  saveAgentConversation
 };

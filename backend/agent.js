@@ -6,6 +6,28 @@ const DOC_DIR = path.join(__dirname, '..', 'docs');
 const RISK_DATA_PATH = path.join(__dirname, '..', 'notebooks', 'risk_sim_results.csv');
 const MAX_CHUNK_LENGTH = 900;
 const DEFAULT_QUERY = 'CRDT protocol risk unlock borrowing vesting governance';
+const STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'that',
+  'this',
+  'what',
+  'when',
+  'where',
+  'your',
+  'about',
+  'into',
+  'have',
+  'just',
+  'over',
+  'then',
+  'than',
+  'they',
+  'them'
+]);
 
 const buildChunkId = (file, index) => `${file}-${index}`;
 
@@ -254,28 +276,6 @@ const runAgentTools = (message, riskData) => {
     summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
   }
 
-  if (wantsPoolMatch) {
-    const collateralId = extractNumber(message, [
-      /collateral\s*id\s*[:=]?\s*(\d+)/i,
-      /collateral\s*(\d+)/i,
-      /id\s*(\d+)/i
-    ]);
-    const desiredAmountUsd = extractNumber(message, [
-      /borrow\s*[:=]?\s*\$?([\d,.]+)/i,
-      /loan\s*[:=]?\s*\$?([\d,.]+)/i,
-      /\$([\d,.]+)/i
-    ]);
-    actions.push({
-      type: 'pool_match',
-      data: {
-        chain: 'base',
-        collateralId: collateralId ? String(collateralId) : '',
-        desiredAmountUsd: desiredAmountUsd || null
-      }
-    });
-    summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
-  }
-
   if (!actions.length) {
     return { actions: [], summary: '' };
   }
@@ -328,7 +328,62 @@ const sanitizeHistory = (history) => {
     .filter((item) => item.content);
 };
 
-const buildSystemPrompt = (snippets, latestUserMessage = '') => {
+const tokenize = (input) =>
+  String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token && token.length > 2 && !STOP_WORDS.has(token));
+
+const scoreMemory = (queryTokens, memory) => {
+  const corpus = `${memory?.message || ''} ${memory?.answer || ''}`.toLowerCase();
+  let score = 0;
+  queryTokens.forEach((token) => {
+    if (corpus.includes(token)) score += token.length;
+  });
+  return score;
+};
+
+const selectMemorySnippets = (memories, query, limit = 3) => {
+  if (!Array.isArray(memories) || !memories.length) return [];
+  const queryTokens = tokenize(query);
+  if (!queryTokens.length) return memories.slice(0, limit);
+  return memories
+    .map((memory) => ({ memory, score: scoreMemory(queryTokens, memory) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.memory);
+};
+
+const buildKnowledgeFallback = (question, snippets, toolOutput, memorySnippets) => {
+  const bullets = snippets.slice(0, 4).map((snippet) => {
+    const excerpt = snippet.text.replace(/\s+/g, ' ').slice(0, 180);
+    return `- ${snippet.heading || 'Context'} (${snippet.file}): ${excerpt}`;
+  });
+  const memoryBullets = (memorySnippets || []).slice(0, 2).map((memory) => {
+    const answer = String(memory.answer || '').replace(/\s+/g, ' ').slice(0, 180);
+    return `- Prior solved Q&A: ${answer}`;
+  });
+  const toolSummary = toolOutput?.summary
+    ? `\n${toolOutput.summary}`
+    : '\nNo direct simulation/tool output was needed for this question.';
+  return [
+    'Vestra AI is in knowledge-base mode right now (live model is temporarily unavailable), but here is a reliable answer from protocol context:',
+    '',
+    ...bullets,
+    ...(memoryBullets.length
+      ? ['', 'Related prior conversation context:', ...memoryBullets]
+      : []),
+    '',
+    `Question: ${question}`,
+    toolSummary,
+    '',
+    'If you want, I can give a stricter step-by-step borrow/governance checklist for this exact case.'
+  ].join('\n');
+};
+
+const buildSystemPrompt = (snippets, latestUserMessage = '', memorySnippets = []) => {
   const languageHint = latestUserMessage
     ? `Detect the user's language from their latest message (${latestUserMessage.slice(
         0,
@@ -341,6 +396,16 @@ const buildSystemPrompt = (snippets, latestUserMessage = '') => {
         `# Source ${index + 1}: ${snippet.file} — ${snippet.heading}\n${snippet.text}`
     )
     .join('\n\n');
+  const memoryContext = memorySnippets.length
+    ? `\nPrior conversation memory (reuse only if relevant and consistent with docs):\n${memorySnippets
+        .map(
+          (item, index) =>
+            `# Memory ${index + 1}\nQ: ${String(item.message || '').slice(0, 280)}\nA: ${String(
+              item.answer || ''
+            ).slice(0, 320)}`
+        )
+        .join('\n\n')}`
+    : '';
   return [
     'You are CRDT AI, a protocol assistant for the UNLOCKD / VESTRA vesting-credit system.',
     'Answer with concise, actionable steps. When you reference facts, cite the source file name.',
@@ -351,7 +416,8 @@ const buildSystemPrompt = (snippets, latestUserMessage = '') => {
     languageHint,
     'Use the provided context and say if the answer is not in docs.',
     '\nContext:\n',
-    context
+    context,
+    memoryContext
   ].join('\n');
 };
 
@@ -452,28 +518,24 @@ const answerAgent = async (agent, input) => {
 
   const toolOutput = runAgentTools(trimmed, agent.riskData || []);
   const snippets = selectSnippets(agent.search, agent.docs, trimmed, 5);
+  const memorySnippets = selectMemorySnippets(input?.memory || [], trimmed, 3);
   const toolContext = toolOutput.summary
     ? `\n\nTool output (use as factual context):\n${toolOutput.summary}`
     : '';
-  const systemPrompt = `${buildSystemPrompt(snippets, trimmed)}${toolContext}`;
+  const systemPrompt = `${buildSystemPrompt(snippets, trimmed, memorySnippets)}${toolContext}`;
   const prior = sanitizeHistory(history);
   const messages = [{ role: 'system', content: systemPrompt }, ...prior, { role: 'user', content: trimmed }];
 
   const llm = await callLLM(messages);
-  const fallback = `Context-only summary:\n${snippets
-    .map((snippet) => `- (${snippet.file}) ${snippet.heading}: ${snippet.text.slice(0, 160)}`)
-    .join('\n')}`;
-  const toolFallback = toolOutput.summary
-    ? `\n\n${toolOutput.summary}`
-    : '';
+  const fallback = buildKnowledgeFallback(trimmed, snippets, toolOutput, memorySnippets);
   const finalAnswer = llm.usedLLM
     ? llm.answer || fallback
-    : `${fallback}${toolFallback}`;
+    : fallback;
 
   return {
     answer: finalAnswer,
     sources: formatSources(snippets),
-    mode: llm.usedLLM ? 'llm' : 'context-only',
+    mode: llm.usedLLM ? 'llm' : 'knowledge-base',
     provider: llm.provider || null,
     actions: toolOutput.actions || []
   };

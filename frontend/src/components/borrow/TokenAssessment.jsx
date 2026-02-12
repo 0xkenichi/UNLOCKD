@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useChainId, usePublicClient } from 'wagmi';
+import { useChainId, usePublicClient, useReadContract } from 'wagmi';
 import { formatValue } from '../../utils/format.js';
 import {
   erc20Abi,
@@ -119,6 +119,19 @@ const lognormalPricePercentile = (price, sigma, tYears, percentile) => {
 export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) {
   const chainId = useChainId();
   const publicClient = usePublicClient();
+  const tokenAddr = vestingDetails?.tokenAddress;
+  const { data: tokenSymbol } = useReadContract({
+    address: tokenAddr,
+    abi: erc20Abi,
+    functionName: 'symbol',
+    query: { enabled: Boolean(tokenAddr) }
+  });
+  const { data: tokenName } = useReadContract({
+    address: tokenAddr,
+    abi: erc20Abi,
+    functionName: 'name',
+    query: { enabled: Boolean(tokenAddr) }
+  });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [status, setStatus] = useState('live');
   const [priceSource, setPriceSource] = useState('DEX');
@@ -732,6 +745,18 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
     pricing.p5AdjPrice
   ]);
 
+  const tokenLabel = useMemo(() => {
+    if (!tokenAddr) return null;
+    if (tokenSymbol || tokenName) {
+      const sym = tokenSymbol || tokenName || '—';
+      const name = tokenName && tokenName !== tokenSymbol ? tokenName : '';
+      return name ? `${sym} (${name})` : String(sym);
+    }
+    return `${tokenAddr.slice(0, 6)}…${tokenAddr.slice(-4)}`;
+  }, [tokenAddr, tokenSymbol, tokenName]);
+
+  const hasVestingData = Boolean(quantity || tokenAddr || vestingDetails?.unlockTime);
+
   return (
     <div className="holo-card">
       <div className="section-head">
@@ -743,6 +768,34 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
         </div>
         <span className="chip">{priceSource}</span>
       </div>
+      {hasVestingData && (
+        <div className="stat-row" style={{ marginBottom: 16 }}>
+          <div className="stat-card" style={{ minWidth: 200 }}>
+            <div className="stat-label">Vesting Token</div>
+            <div className="stat-value">{tokenLabel || (tokenAddr ? `${tokenAddr.slice(0, 8)}…` : '—')}</div>
+            <div className="stat-delta">{tokenAddr ? `0x…${tokenAddr.slice(-6)}` : 'From Borrow Actions'}</div>
+          </div>
+          <div className="stat-card" style={{ minWidth: 140 }}>
+            <div className="stat-label">Amount</div>
+            <div className="stat-value">
+              {quantity ? quantity.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
+            </div>
+            <div className="stat-delta">{tokenSymbol ? tokenSymbol : ''}</div>
+          </div>
+          <div className="stat-card" style={{ minWidth: 180 }}>
+            <div className="stat-label">Unlock</div>
+            <div className="stat-value" style={{ fontSize: '0.95rem' }}>
+              {unlockLabel !== 'Unknown' ? new Date(Number(vestingDetails?.unlockTime) * 1000).toLocaleDateString() : '—'}
+            </div>
+            <div className="stat-delta">{vestingDetails?.verified ? 'Verified' : 'Preview'}</div>
+          </div>
+        </div>
+      )}
+      {!hasVestingData && (
+        <div className="muted" style={{ marginBottom: 16 }}>
+          Enter a collateral ID and vesting contract in Borrow Actions, then escrow or use a pre-seeded position.
+        </div>
+      )}
       <div className="inline-actions">
         <button className="button ghost" type="button" onClick={applyConservativeDefaults}>
           Auto-fill Conservative

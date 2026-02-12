@@ -13,7 +13,7 @@ import OnrampEmbed from '../common/OnrampEmbed.jsx';
 import BridgeCard from '../common/BridgeCard.jsx';
 
 const onboardingHeroImage =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200' viewBox='0 0 320 200'><rect width='320' height='200' fill='%230b0f1a'/><rect x='16' y='16' width='288' height='168' rx='18' fill='%2316242f'/><text x='160' y='104' font-size='16' fill='%23ffffff' text-anchor='middle' dominant-baseline='middle' font-family='Arial'>VESTRA%20Onchain%20UX</text></svg>";
+  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200' viewBox='0 0 320 200'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%2358a6ff;stop-opacity:0.9'/><stop offset='100%' style='stop-color:%231a6fda;stop-opacity:1'/></linearGradient></defs><rect width='320' height='200' fill='%230a0e14'/><rect x='16' y='16' width='288' height='168' rx='12' fill='%23161b22' opacity='0.95'/><circle cx='160' cy='90' r='36' fill='url(%23grad)' opacity='0.2'/><text x='160' y='104' font-size='18' fill='%2358a6ff' text-anchor='middle' dominant-baseline='middle' font-family='monospace' font-weight='600'>VESTRA</text><text x='160' y='130' font-size='11' fill='%238b949e' text-anchor='middle' dominant-baseline='middle' font-family='sans-serif'>Vesting Credit Protocol</text></svg>";
 
 export default function OnboardingModal() {
   const [isOpen, setIsOpen] = useState(true);
@@ -57,7 +57,7 @@ export default function OnboardingModal() {
         title: 'Welcome to VESTRA',
         subtitle: 'Seamless onchain borrowing across Base, Arbitrum, Avalanche.',
         content:
-          'Borrow against vested tokens with smart accounts, wallet safety, and instant funding.',
+          'Borrow against vested tokens with non-custodial security, DPV valuation, and auto-settlement.',
         image: onboardingHeroImage
       },
       {
