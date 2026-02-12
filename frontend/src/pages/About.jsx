@@ -5,9 +5,9 @@ export default function About() {
   return (
     <div className="stack">
       <div className="page-header">
-        <h1 className="page-title holo-glow">About VESTRA</h1>
+        <h1 className="page-title holo-glow">About Vestra Protocol</h1>
         <div className="page-subtitle">
-          An institutional-grade protocol for time-locked liquidity.
+          An institutional-grade protocol for illuminating liquidity from vested assets.
         </div>
       </div>
       <div className="grid-2 essentials-row">
@@ -78,7 +78,7 @@ export default function About() {
           <div className="section-head">
             <div>
               <h3 className="section-title">Team & Partners</h3>
-              <div className="section-subtitle">Core contributors • VestraProtocol.io (not ready yet)</div>
+              <div className="section-subtitle">Core contributors • VestraProtocol.io (coming soon)</div>
             </div>
             <button
               className="button ghost"

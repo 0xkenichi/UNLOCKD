@@ -2,7 +2,9 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { askAgent, requestMatchQuote } from '../../utils/api.js';
 import { generateRiskPaths } from '../../utils/riskPaths.js';
+import { findLocalAnswer, FALLBACK_ANSWER } from '../../data/vestraKnowledge.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
+import CRDTMascot from './CRDTMascot.jsx';
 
 const ValuationPreview3D = lazy(() =>
   import('../borrow/ValuationPreview3D.jsx')
@@ -46,8 +48,8 @@ export default function AIBubble() {
     []
   );
 
-  const handleQuery = async () => {
-    const trimmed = query.trim();
+  const handleQuery = async (forcedQuery) => {
+    const trimmed = String(forcedQuery ?? query).trim();
     if (!trimmed) return;
     if (!captchaReady) {
       setCaptchaError('Complete the captcha to continue.');
@@ -62,10 +64,21 @@ export default function AIBubble() {
       const data = await askAgent(trimmed, nextHistory, captchaToken || undefined);
       setMessages((prev) => [...prev, { role: 'assistant', content: data.answer || 'No answer yet.' }]);
       setSources(data.sources || []);
-      setProvider(data.provider || '');
+      setProvider(data.provider || (data.mode === 'knowledge-base' ? 'Knowledge Base' : ''));
       setActions(data.actions || []);
     } catch (err) {
-      setError(err?.message || 'Unable to reach CRDT AI.');
+      const local = findLocalAnswer(trimmed);
+      if (local) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: local.answer }]);
+        setProvider('Knowledge Base (offline)');
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: FALLBACK_ANSWER }
+        ]);
+        setProvider('Fallback');
+      }
+      setError('');
     } finally {
       setStatus('idle');
       setQuery('');
@@ -86,7 +99,7 @@ export default function AIBubble() {
 
   const handleQuickReply = async (text) => {
     setQuery(text);
-    await handleQuery();
+    await handleQuery(text);
   };
 
   const handlePoolMatch = async (key, data) => {
@@ -122,15 +135,18 @@ export default function AIBubble() {
   return (
     <div className={`ai-bubble ${isMinimized ? 'minimized' : ''}`}>
       <div className="ai-bubble-header">
-        <div>
-          <div className="section-title">CRDT AI</div>
-          <div className="section-subtitle">Risk assistant</div>
+        <div className="ai-bubble-title-row">
+          <CRDTMascot size={32} className="ai-bubble-mascot" />
+          <div>
+            <div className="section-title">Vestra AI</div>
+            <div className="section-subtitle">Risk assistant</div>
+          </div>
         </div>
         <button
           className="ai-toggle"
           type="button"
           onClick={() => setIsMinimized((prev) => !prev)}
-          aria-label={isMinimized ? 'Expand CRDT AI' : 'Minimize CRDT AI'}
+          aria-label={isMinimized ? 'Expand Vestra AI' : 'Minimize Vestra AI'}
         >
           {isMinimized ? '+' : '-'}
         </button>
@@ -174,10 +190,10 @@ export default function AIBubble() {
             {!messages.length && (
               <div className="muted">Ask about DPV, LTV, unlock safety, or governance steps.</div>
             )}
-            {messages.map((message, index) => (
+              {messages.map((message, index) => (
               <div key={`${message.role}-${index}`} className="stack">
                 <div className="muted small">
-                  {message.role === 'assistant' ? 'CRDT AI' : 'You'}
+                  {message.role === 'assistant' ? 'Vestra AI' : 'You'}
                 </div>
                 <div className="ai-message">{message.content}</div>
               </div>

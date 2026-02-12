@@ -41,6 +41,7 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const isLanding = location.pathname === '/';
+  const isImmersiveDashboard = location.pathname === '/dashboard';
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const { isConnecting, isReconnecting } = useAccount();
@@ -58,13 +59,13 @@ function AppShell() {
       <a href="#main-content" className="skip-to-content">
         Skip to main content
       </a>
-      {!isLanding && (
+      {!isLanding && !isImmersiveDashboard && (
         <header className="app-header">
-          <div className="brand">
+          <div className="brand" onClick={() => navigate('/dashboard')}>
             <span className="brand-crest-global" aria-hidden="true" />
             <div>
               <div className="brand-title">VESTRA</div>
-              <div className="brand-subtitle">Astra-grade vesting credit</div>
+              <div className="brand-subtitle">Vesting Credit Protocol</div>
             </div>
           </div>
           <div className="header-nav">
@@ -115,12 +116,12 @@ function AppShell() {
       )}
       <main
         id="main-content"
-        className={`app-main ${isLanding ? 'app-main--landing' : ''}`}
+        className={`app-main ${isLanding ? 'app-main--landing' : ''} ${isImmersiveDashboard ? 'app-main--immersive' : ''}`}
       >
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard onOpenWallet={() => setWalletModalOpen(true)} />} />
             <Route path="/portfolio" element={<Portfolio />} />
             <Route path="/lender" element={<Lender />} />
             <Route path="/borrow" element={<Borrow />} />
@@ -139,11 +140,13 @@ function AppShell() {
         isOpen={walletModalOpen}
         onClose={() => setWalletModalOpen(false)}
       />
-      {!isLanding && <AIBubble />}
-      {!isLanding && <TabBar />}
-      <footer className="app-footer">
-        Testnet • VestraProtocol.io • Not financial advice
-      </footer>
+      {!isLanding && !isImmersiveDashboard && <AIBubble />}
+      {!isLanding && !isImmersiveDashboard && <TabBar />}
+      {!isImmersiveDashboard && (
+        <footer className="app-footer">
+          Testnet • VestraProtocol.io • Not financial advice
+        </footer>
+      )}
       {(isConnecting || isReconnecting) && (
         <div className="app-splash" role="status" aria-live="polite">
           <div className="vault-spinner" />

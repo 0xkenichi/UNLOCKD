@@ -400,6 +400,18 @@ const hashIp = (ip) => {
   return crypto.createHash('sha256').update(ip).digest('hex');
 };
 
+const buildSessionFingerprint = (req) => {
+  const token = getSessionToken(req);
+  if (token) {
+    return crypto.createHash('sha256').update(`token:${token}`).digest('hex');
+  }
+  const ip = getClientIp(req);
+  if (ip) {
+    return crypto.createHash('sha256').update(`ip:${ip}`).digest('hex');
+  }
+  return '';
+};
+
 const verifyTurnstile = async (req, res, next) => {
   if (TURNSTILE_BYPASS) return next();
   if (!TURNSTILE_SECRET_KEY) {
@@ -968,14 +980,42 @@ app.post(
   async (req, res) => {
   try {
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
+    const sessionFingerprint = buildSessionFingerprint(req);
+    let memory = [];
+    try {
+      memory = await persistence.listRecentAgentConversations({
+        limit: 90,
+        userId: req.user?.id || undefined,
+        sessionFingerprint: req.user?.id ? undefined : sessionFingerprint
+      });
+    } catch (error) {
+      console.warn('[agent] conversation memory unavailable', error?.message || error);
+    }
     console.log('[agent] incoming chat', {
       message: req.body?.message?.slice?.(0, 80) || '',
       historyCount: history.length
     });
     const result = await answerAgent(agent, {
       message: req.body?.message,
-      history
+      history,
+      memory
     });
+    try {
+      await persistence.saveAgentConversation({
+        userId: req.user?.id || null,
+        sessionFingerprint,
+        message: req.body?.message || '',
+        answer: result.answer || '',
+        mode: result.mode || '',
+        provider: result.provider || '',
+        metadata: {
+          sourceFiles: (result.sources || []).map((source) => source.file).slice(0, 8),
+          actionTypes: (result.actions || []).map((action) => action.type).slice(0, 8)
+        }
+      });
+    } catch (error) {
+      console.warn('[agent] unable to save conversation', error?.message || error);
+    }
     res.json({ ok: true, ...result });
   } catch (error) {
     console.error('[agent] chat error', error?.message || error, error);

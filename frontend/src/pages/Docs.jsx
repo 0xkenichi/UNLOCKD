@@ -91,7 +91,7 @@ export default function Docs() {
       <div className="page-header">
         <h1 className="page-title holo-glow">Public Docs</h1>
         <div className="page-subtitle">
-          Everything public about the VESTRA protocol, with full whitepaper
+          Everything public about the Vestra Protocol, with full whitepaper
           preview and inline readers.
         </div>
       </div>

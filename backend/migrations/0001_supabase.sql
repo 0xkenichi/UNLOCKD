@@ -107,6 +107,19 @@ create table if not exists match_events (
   created_at timestamptz default now()
 );
 
+-- Agent conversation memory/fallback knowledge
+create table if not exists agent_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references app_users(id) on delete set null,
+  session_fingerprint text,
+  message text,
+  answer text,
+  mode text,
+  provider text,
+  metadata jsonb,
+  created_at timestamptz default now()
+);
+
 -- RLS
 alter table app_users enable row level security;
 alter table app_sessions enable row level security;
@@ -118,6 +131,7 @@ alter table snapshot_items enable row level security;
 alter table meta enable row level security;
 alter table lending_pools enable row level security;
 alter table match_events enable row level security;
+alter table agent_conversations enable row level security;
 
 -- Service role full access (backend)
 do $$ begin
@@ -196,6 +210,14 @@ do $$ begin
   perform 1 from pg_policies where policyname = 'service role all match_events';
   if not found then
     create policy "service role all match_events" on match_events for all
+      using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+  end if;
+end $$;
+
+do $$ begin
+  perform 1 from pg_policies where policyname = 'service role all agent_conversations';
+  if not found then
+    create policy "service role all agent_conversations" on agent_conversations for all
       using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
   end if;
 end $$;

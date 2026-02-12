@@ -3,6 +3,7 @@ import {
   useAccount,
   useChainId,
   useReadContract,
+  useReadContracts,
   useSimulateContract,
   useWaitForTransactionReceipt,
   useWriteContract
@@ -11,7 +12,8 @@ import {
   erc20Abi,
   getContractAddress,
   loanManagerAbi,
-  vestingAdapterAbi
+  vestingAdapterAbi,
+  vestingWalletAbi
 } from '../../utils/contracts.js';
 import { getEvmChainById } from '../../utils/chains.js';
 import { toUnits } from '../../utils/format.js';
@@ -51,6 +53,7 @@ export default function BorrowActions({
   const [autoBorrow, setAutoBorrow] = useState(true);
   const [autoRepay, setAutoRepay] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const vestingContractValid = isAddress(vestingContract);
 
   const borrowUnits = useMemo(
     () => toUnits(borrowAmount, USDC_DECIMALS),
@@ -71,15 +74,79 @@ export default function BorrowActions({
     }
   });
 
+  // Pre-escrow: read directly from vesting contract when user enters address (so Token Assessment shows token info before escrow)
+  const vestingContractForRead = vestingContractValid ? vestingContract : undefined;
+  const { data: vestingPreviewBatch } = useReadContracts({
+    contracts: vestingContractForRead
+      ? [
+          {
+            address: vestingContractForRead,
+            abi: vestingWalletAbi,
+            functionName: 'token'
+          },
+          {
+            address: vestingContractForRead,
+            abi: vestingWalletAbi,
+            functionName: 'totalAllocation'
+          },
+          {
+            address: vestingContractForRead,
+            abi: vestingWalletAbi,
+            functionName: 'start'
+          },
+          {
+            address: vestingContractForRead,
+            abi: vestingWalletAbi,
+            functionName: 'duration'
+          }
+        ]
+      : [],
+    query: { enabled: Boolean(vestingContractForRead) }
+  });
+
+  const prev0 = vestingPreviewBatch?.[0];
+  const prev1 = vestingPreviewBatch?.[1];
+  const prev2 = vestingPreviewBatch?.[2];
+  const prev3 = vestingPreviewBatch?.[3];
+  const previewToken = prev0?.status === 'success' ? prev0.result : undefined;
+  const previewTotal = prev1?.status === 'success' ? prev1.result : undefined;
+  const previewStart = prev2?.status === 'success' ? prev2.result : undefined;
+  const previewDuration = prev3?.status === 'success' ? prev3.result : undefined;
+
+  const { data: previewReleased } = useReadContract({
+    address: vestingContractForRead,
+    abi: vestingWalletAbi,
+    functionName: 'released',
+    args: [previewToken],
+    query: {
+      enabled: Boolean(vestingContractForRead && previewToken)
+    }
+  });
+
+  const previewQuantity =
+    previewTotal != null && previewReleased != null
+      ? BigInt(previewTotal) - BigInt(previewReleased)
+      : undefined;
+  const previewUnlockTime =
+    previewStart != null && previewDuration != null
+      ? BigInt(previewStart) + BigInt(previewDuration)
+      : undefined;
+
   const quantityRaw = vestingDetails?.[0];
-  const tokenAddress = vestingDetails?.[1];
-  const unlockTimeRaw = vestingDetails?.[2];
+  const tokenAddress = vestingDetails?.[1] ?? previewToken;
+  const unlockTimeRaw = vestingDetails?.[2] ?? previewUnlockTime;
+  const quantityFromSource = quantityRaw ?? previewQuantity;
   const tokenAddressValid =
     typeof tokenAddress === 'string' &&
     isAddress(tokenAddress) &&
     tokenAddress !== ZERO_ADDRESS;
   const verified =
     Boolean(quantityRaw) &&
+    tokenAddressValid &&
+    Boolean(unlockTimeRaw) &&
+    Number(unlockTimeRaw) > 0;
+  const hasPreview =
+    Boolean(quantityFromSource) &&
     tokenAddressValid &&
     Boolean(unlockTimeRaw) &&
     Number(unlockTimeRaw) > 0;
@@ -94,11 +161,15 @@ export default function BorrowActions({
   });
 
   useEffect(() => {
-    if (!onDetails || !vestingDetails) return;
+    if (!onDetails) return;
+    if (!verified && !hasPreview) {
+      onDetails(null);
+      return;
+    }
     onDetails({
       collateralId,
       vestingContract,
-      quantity: quantityRaw,
+      quantity: quantityFromSource,
       tokenAddress,
       unlockTime: unlockTimeRaw,
       tokenDecimals,
@@ -106,12 +177,14 @@ export default function BorrowActions({
     });
   }, [
     onDetails,
-    quantityRaw,
+    collateralId,
+    vestingContract,
+    quantityFromSource,
     tokenAddress,
     unlockTimeRaw,
     tokenDecimals,
-    vestingDetails,
-    verified
+    verified,
+    hasPreview
   ]);
 
   useEffect(() => {
@@ -160,7 +233,6 @@ export default function BorrowActions({
   const hasGas = fundingStatus?.hasGas ?? true;
   const fundingReady = fundingStatus?.ready ?? true;
   const collateralIdValid = Boolean(collateralId) && Number(collateralId) > 0;
-  const vestingContractValid = isAddress(vestingContract);
   const borrowValid = Boolean(borrowUnits) && borrowUnits > 0n;
   const canEscrow =
     Boolean(vestingAdapter) &&
@@ -237,7 +309,7 @@ export default function BorrowActions({
   };
 
   return (
-    <div className="holo-card">
+    <div className="holo-card borrow-actions-card">
       <div className="section-head">
         <div>
           <h3 className="section-title">Borrow Actions</h3>
@@ -349,7 +421,7 @@ export default function BorrowActions({
           />
         </label>
       </div>
-      <div className="inline-actions">
+      <div className="inline-actions borrow-actions-inline">
         <button
           className="button"
           type="button"
@@ -377,7 +449,7 @@ export default function BorrowActions({
         </div>
         <span className="tag">Required</span>
       </div>
-      <div className="card-list">
+      <div className="card-list borrow-agreement-list">
         <div className="pill">Debt due at unlock: principal + interest.</div>
         <div className="pill">
           If auto-repay is enabled, wallet balances can be used to repay after maturity.
@@ -415,7 +487,7 @@ export default function BorrowActions({
       <div className="muted">
         Repayment priority: {formatPriority(nativeSymbol)}
       </div>
-      <div className="inline-actions">
+      <div className="inline-actions borrow-actions-cta">
         <button
           className="button"
           onClick={handleEscrow}
