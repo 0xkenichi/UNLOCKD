@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { askAgent, requestMatchQuote } from '../../utils/api.js';
 import { generateRiskPaths } from '../../utils/riskPaths.js';
@@ -23,6 +23,8 @@ const buildRiskPaths = (stats) => {
 
 export default function AIBubble() {
   const navigate = useNavigate();
+  const shellRef = useRef(null);
+  const inputRef = useRef(null);
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState([]);
   const [sources, setSources] = useState([]);
@@ -30,7 +32,8 @@ export default function AIBubble() {
   const [actions, setActions] = useState([]);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [hasUnreadHint, setHasUnreadHint] = useState(false);
   const [captchaToken, setCaptchaToken] = useState('');
   const [captchaError, setCaptchaError] = useState('');
   const [captchaKey, setCaptchaKey] = useState(0);
@@ -48,6 +51,28 @@ export default function AIBubble() {
     []
   );
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setHasUnreadHint(false);
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (!shellRef.current) return;
+      if (shellRef.current.contains(event.target)) return;
+      setIsOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [isOpen]);
+
   const handleQuery = async (forcedQuery) => {
     const trimmed = String(forcedQuery ?? query).trim();
     if (!trimmed) return;
@@ -63,6 +88,9 @@ export default function AIBubble() {
     try {
       const data = await askAgent(trimmed, nextHistory, captchaToken || undefined);
       setMessages((prev) => [...prev, { role: 'assistant', content: data.answer || 'No answer yet.' }]);
+      if (!isOpen) {
+        setHasUnreadHint(true);
+      }
       setSources(data.sources || []);
       setProvider(data.provider || (data.mode === 'knowledge-base' ? 'Knowledge Base' : ''));
       setActions(data.actions || []);
@@ -70,12 +98,18 @@ export default function AIBubble() {
       const local = findLocalAnswer(trimmed);
       if (local) {
         setMessages((prev) => [...prev, { role: 'assistant', content: local.answer }]);
+        if (!isOpen) {
+          setHasUnreadHint(true);
+        }
         setProvider('Knowledge Base (offline)');
       } else {
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: FALLBACK_ANSWER }
         ]);
+        if (!isOpen) {
+          setHasUnreadHint(true);
+        }
         setProvider('Fallback');
       }
       setError('');
@@ -133,30 +167,48 @@ export default function AIBubble() {
   };
 
   return (
-    <div className={`ai-bubble ${isMinimized ? 'minimized' : ''}`}>
-      <div className="ai-bubble-header">
-        <div className="ai-bubble-title-row">
-          <CRDTMascot size={32} className="ai-bubble-mascot" />
-          <div>
-            <div className="section-title">Vestra AI</div>
-            <div className="section-subtitle">Risk assistant</div>
+    <div ref={shellRef} className={`ai-bubble-shell ${isOpen ? 'open' : ''}`}>
+      <button
+        className={`ai-fab ${isOpen ? 'hidden' : ''} ${hasUnreadHint ? 'attention' : ''}`}
+        type="button"
+        onClick={() => {
+          setIsOpen(true);
+          setHasUnreadHint(false);
+        }}
+        aria-label="Open Vestra AI"
+      >
+        <CRDTMascot size={44} className="ai-bubble-mascot" />
+      </button>
+      <div className={`ai-bubble ${isOpen ? 'open' : ''}`} aria-hidden={!isOpen}>
+        <div className="ai-bubble-header">
+          <div className="ai-bubble-title-row">
+            <CRDTMascot size={30} className="ai-bubble-mascot" />
+            <div>
+              <div className="section-title">Vestra AI</div>
+              <div className="section-subtitle">Risk assistant</div>
+            </div>
           </div>
+          <button
+            className="ai-toggle"
+            type="button"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close Vestra AI"
+          >
+            ×
+          </button>
         </div>
-        <button
-          className="ai-toggle"
-          type="button"
-          onClick={() => setIsMinimized((prev) => !prev)}
-          aria-label={isMinimized ? 'Expand Vestra AI' : 'Minimize Vestra AI'}
-        >
-          {isMinimized ? '+' : '-'}
-        </button>
-      </div>
-      {!isMinimized && (
         <div className="ai-bubble-body">
           <input
+            ref={inputRef}
             className="ai-input"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                handleQuery();
+              }
+            }}
             placeholder="Ask about risk or unlocks"
           />
           {turnstileSiteKey && (
@@ -406,7 +458,7 @@ export default function AIBubble() {
             ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

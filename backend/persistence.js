@@ -90,6 +90,15 @@ const initSqlite = () => {
       expires_at TEXT,
       ip_hash TEXT
     );
+    CREATE TABLE IF NOT EXISTS user_geo_presence (
+      user_id TEXT PRIMARY KEY,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      city TEXT NOT NULL,
+      state TEXT,
+      country TEXT NOT NULL,
+      updated_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS events (
       txHash TEXT NOT NULL,
       logIndex INTEGER NOT NULL,
@@ -561,6 +570,116 @@ const clearSessionsByProvider = async (userId, provider) => {
     .run(userId, provider);
 };
 
+const upsertUserGeoPresence = async ({ userId, lat, lng, city, state, country }) => {
+  if (!userId) return;
+  const normalized = {
+    userId,
+    lat: Number(lat),
+    lng: Number(lng),
+    city: String(city || '').trim(),
+    state: state ? String(state).trim() : null,
+    country: String(country || '').trim(),
+    updatedAt: new Date().toISOString()
+  };
+  if (
+    !Number.isFinite(normalized.lat) ||
+    !Number.isFinite(normalized.lng) ||
+    !normalized.city ||
+    !normalized.country
+  ) {
+    return;
+  }
+
+  if (useSupabase) {
+    const { error } = await supabaseClient()
+      .from('user_geo_presence')
+      .upsert(
+        {
+          user_id: normalized.userId,
+          lat: normalized.lat,
+          lng: normalized.lng,
+          city: normalized.city,
+          state: normalized.state,
+          country: normalized.country,
+          updated_at: normalized.updatedAt
+        },
+        { onConflict: 'user_id' }
+      );
+    if (error) throw new Error(`[supabase] upsertUserGeoPresence failed: ${error.message}`);
+    return;
+  }
+
+  sqlite
+    .prepare(
+      `INSERT INTO user_geo_presence (user_id, lat, lng, city, state, country, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         lat = excluded.lat,
+         lng = excluded.lng,
+         city = excluded.city,
+         state = excluded.state,
+         country = excluded.country,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      normalized.userId,
+      normalized.lat,
+      normalized.lng,
+      normalized.city,
+      normalized.state,
+      normalized.country,
+      normalized.updatedAt
+    );
+};
+
+const listGeoPings = async ({ limit = 200 } = {}) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
+
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('user_geo_presence')
+      .select('lat, lng, city, state, country');
+    if (error) throw new Error(`[supabase] listGeoPings failed: ${error.message}`);
+    const aggregate = new Map();
+    (data || []).forEach((row) => {
+      const key = `${row.city}|${row.state || ''}|${row.country}|${row.lat}|${row.lng}`;
+      if (!aggregate.has(key)) {
+        aggregate.set(key, {
+          lat: Number(row.lat),
+          lng: Number(row.lng),
+          city: row.city,
+          state: row.state || null,
+          country: row.country,
+          count: 0
+        });
+      }
+      aggregate.get(key).count += 1;
+    });
+    return Array.from(aggregate.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, safeLimit);
+  }
+
+  const rows = sqlite
+    .prepare(
+      `SELECT lat, lng, city, state, country, COUNT(*) as count
+       FROM user_geo_presence
+       GROUP BY lat, lng, city, state, country
+       ORDER BY count DESC
+       LIMIT ?`
+    )
+    .all(safeLimit);
+
+  return rows.map((row) => ({
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    city: row.city,
+    state: row.state || null,
+    country: row.country,
+    count: Number(row.count || 0)
+  }));
+};
+
 const createPool = async ({ ownerWallet, name, chain, preferences, status }) => {
   const pool = {
     id: createId(),
@@ -833,7 +952,7 @@ const saveAgentConversation = async ({
       String(answer).slice(0, 8000),
       String(mode || '').slice(0, 80),
       String(provider || '').slice(0, 80),
-      JSON.stringify(normalizeJson(normalizedMetadata)),
+      JSON.stringify(normalizedMetadata),
       createdAt
     );
   return { id, createdAt };
@@ -856,6 +975,8 @@ module.exports = {
   getSessionByToken,
   deleteSession,
   clearSessionsByProvider,
+  upsertUserGeoPresence,
+  listGeoPings,
   createPool,
   updatePoolPreferences,
   listPools,
