@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_EVM_CHAIN } from './chains.js';
 import { apiPost } from './api.js';
@@ -102,12 +103,17 @@ export function useWalletSession() {
     staleTime: Infinity
   });
 
-  const setAuth = (update) => {
-    const next =
-      typeof update === 'function' ? update(query.data) : { ...query.data, ...update };
-    client.setQueryData(['wallet-auth'], next);
-    writeAuth(next);
-  };
+  const setAuth = useCallback(
+    (update) => {
+      client.setQueryData(['wallet-auth'], (prev) => {
+        const next =
+          typeof update === 'function' ? update(prev) : { ...prev, ...update };
+        writeAuth(next);
+        return next;
+      });
+    },
+    [client]
+  );
 
   return {
     auth: query.data,
@@ -124,12 +130,17 @@ export function useOnchainSession() {
     staleTime: Infinity
   });
 
-  const setSession = (update) => {
-    const next =
-      typeof update === 'function' ? update(query.data) : { ...query.data, ...update };
-    client.setQueryData(SESSION_KEY, next);
-    writeSession(next);
-  };
+  const setSession = useCallback(
+    (update) => {
+      client.setQueryData(SESSION_KEY, (prev) => {
+        const next =
+          typeof update === 'function' ? update(prev) : { ...prev, ...update };
+        writeSession(next);
+        return next;
+      });
+    },
+    [client]
+  );
 
   return {
     session: query.data,
