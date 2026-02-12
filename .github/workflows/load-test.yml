@@ -1,0 +1,78 @@
+name: Load Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "scripts/load/**"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Start backend (load profile mode)
+        run: |
+          PORT=4100 \
+          INDEXER_ENABLED=false \
+          RATE_LIMIT_MAX=1000000 \
+          RATE_LIMIT_STRICT_MAX=1000000 \
+          node backend/server.js > /tmp/vestra-backend.log 2>&1 &
+          echo $! > /tmp/vestra-backend.pid
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4100/api/health >/dev/null; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"
+          cat /tmp/vestra-backend.log || true
+          exit 1
+
+      - name: Run load tests
+        run: |
+          npm run test:load -- \
+            --base-url http://127.0.0.1:4100 \
+            --report-json artifacts/load-report.json \
+            --report-md artifacts/load-report.md \
+            --enforce
+
+      - name: Upload load report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-report
+          path: artifacts/
+
+      - name: Print backend logs on failure
+        if: failure()
+        run: cat /tmp/vestra-backend.log || true
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/vestra-backend.pid ]; then
+            kill "$(cat /tmp/vestra-backend.pid)" || true
+          fi

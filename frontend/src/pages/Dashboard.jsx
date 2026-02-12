@@ -128,6 +128,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
   const loanCountValue = loanCount ? loanCount.toString() : '0';
   const shortAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '--';
+  const isWalletConnected = Boolean(address);
 
   const clearTransitionTimers = useCallback(() => {
     if (transitionFrameRef.current) {
@@ -251,15 +252,19 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
           <span className="brand-crest-global" aria-hidden="true" />
           <div>
             <div className="brand-title">VESTRA</div>
-            <div className="brand-subtitle">One View Workspace</div>
+            <div className="brand-subtitle">Vesting Credit Command Center</div>
           </div>
         </div>
         <div className="immersive-actions">
           <button className="button ghost" type="button" onClick={() => openModule('portfolio')}>
             Portfolio
           </button>
-          <button className="button" type="button" onClick={onOpenWallet}>
-            Connect
+          <button
+            className={`button ${isWalletConnected ? 'wallet-connected' : ''}`}
+            type="button"
+            onClick={onOpenWallet}
+          >
+            {isWalletConnected ? `Connected ${shortAddress}` : 'Connect'}
           </button>
         </div>
       </header>

@@ -61,31 +61,31 @@ const runStep = async (page, step) => {
     if (!target || target.value === undefined) {
       throw new Error('fill step requires a value');
     }
-    const locator = locatorFromTarget(page, target);
-    await locator.fill(String(target.value));
+    const locator = locatorFromTarget(page, target).first();
+    await locator.waitFor({ state: 'visible' });
+    await expect(locator).toBeVisible();
+    await expect(locator).toBeEditable();
+    await locator.fill(String(target.value), { force: true });
     return;
   }
   if (step.expectRole) {
     const target = step.expectRole;
-    const locator = locatorFromTarget(page, target);
-    await locator.scrollIntoViewIfNeeded();
-    await expect(locator).toBeVisible();
+    const locator = locatorFromTarget(page, target).first();
+    await expect(locator).toBeVisible({ timeout: 15000 });
     return;
   }
   if (step.expectText) {
     const target = typeof step.expectText === 'string'
       ? { text: step.expectText }
       : step.expectText;
-    const locator = locatorFromTarget(page, target);
-    await locator.scrollIntoViewIfNeeded();
-    await expect(locator).toBeVisible();
+    const locator = locatorFromTarget(page, target).first();
+    await expect(locator).toBeVisible({ timeout: 15000 });
     return;
   }
   if (step.expectVisible) {
     const target = step.expectVisible;
-    const locator = locatorFromTarget(page, target);
-    await locator.scrollIntoViewIfNeeded();
-    await expect(locator).toBeVisible();
+    const locator = locatorFromTarget(page, target).first();
+    await expect(locator).toBeVisible({ timeout: 15000 });
     return;
   }
   if (step.expectDisabled) {

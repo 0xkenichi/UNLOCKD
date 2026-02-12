@@ -25,6 +25,7 @@ export default function AIBubble() {
   const navigate = useNavigate();
   const shellRef = useRef(null);
   const inputRef = useRef(null);
+  const threadRef = useRef(null);
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState([]);
   const [sources, setSources] = useState([]);
@@ -50,6 +51,9 @@ export default function AIBubble() {
     ],
     []
   );
+  const shouldExpand =
+    status === 'thinking' ||
+    messages.some((item) => String(item?.content || '').length > 220);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -59,6 +63,11 @@ export default function AIBubble() {
     }, 140);
     return () => window.clearTimeout(timer);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!threadRef.current) return;
+    threadRef.current.scrollTop = threadRef.current.scrollHeight;
+  }, [messages, status, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -179,7 +188,10 @@ export default function AIBubble() {
       >
         <CRDTMascot size={44} className="ai-bubble-mascot" />
       </button>
-      <div className={`ai-bubble ${isOpen ? 'open' : ''}`} aria-hidden={!isOpen}>
+      <div
+        className={`ai-bubble ${isOpen ? 'open' : ''} ${shouldExpand ? 'expanded' : ''}`}
+        aria-hidden={!isOpen}
+      >
         <div className="ai-bubble-header">
           <div className="ai-bubble-title-row">
             <CRDTMascot size={30} className="ai-bubble-mascot" />
@@ -238,7 +250,7 @@ export default function AIBubble() {
               New Thread
             </button>
           </div>
-          <div className="stack ai-thread">
+          <div ref={threadRef} className="stack ai-thread">
             {!messages.length && (
               <div className="muted">Ask about DPV, LTV, unlock safety, or governance steps.</div>
             )}

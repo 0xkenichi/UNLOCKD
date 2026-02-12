@@ -57,11 +57,15 @@ const EXPLORER_BASE_URL =
   process.env.EXPLORER_BASE_URL || 'https://sepolia.etherscan.io';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 const TURNSTILE_BYPASS = process.env.TURNSTILE_BYPASS === 'true';
-const SESSION_TTL_MINUTES = Number(process.env.SESSION_TTL_MINUTES || 60);
+const SESSION_TTL_MINUTES = Number(process.env.SESSION_TTL_MINUTES || 60 * 24 * 3);
 const NONCE_TTL_MINUTES = Number(process.env.NONCE_TTL_MINUTES || 10);
 const GEO_LOOKUP_URL = process.env.GEO_LOOKUP_URL || 'https://ipapi.co';
 const GEO_LOOKUP_TIMEOUT_MS = Number(process.env.GEO_LOOKUP_TIMEOUT_MS || 2200);
 const GEO_CACHE_TTL_MS = Number(process.env.GEO_CACHE_TTL_MS || 24 * 60 * 60 * 1000);
+const GEO_CACHE_MAX_ITEMS = Number(process.env.GEO_CACHE_MAX_ITEMS || 50000);
+const BLOCK_CACHE_MAX_ITEMS = Number(process.env.BLOCK_CACHE_MAX_ITEMS || 5000);
+const REPAY_CACHE_TTL_MS = Number(process.env.REPAY_CACHE_TTL_MS || 30000);
+const RPC_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.RPC_CONCURRENCY_LIMIT || 6));
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const agent = initAgent();
@@ -77,6 +81,13 @@ const vestedSnapshots = [];
 let cachedVestedContracts = [];
 let cachedVestedContractsAt = 0;
 const geoLookupCache = new Map();
+let vestedContractsInFlight = null;
+let repayScheduleInFlight = null;
+
+const repayScheduleCache = {
+  items: [],
+  at: 0
+};
 
 const withTimeout = (promise, ms, fallback) =>
   Promise.race([
@@ -85,6 +96,31 @@ const withTimeout = (promise, ms, fallback) =>
       setTimeout(() => resolve(fallback), Math.max(0, ms))
     )
   ]);
+
+const mapWithConcurrency = async (items, worker, concurrency = 4) => {
+  if (!Array.isArray(items) || !items.length) return [];
+  const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runner = async () => {
+    while (cursor < items.length) {
+      const idx = cursor;
+      cursor += 1;
+      results[idx] = await worker(items[idx], idx);
+    }
+  };
+  await Promise.all(Array.from({ length: safeConcurrency }, runner));
+  return results;
+};
+
+const trimMapToLimit = (map, maxItems) => {
+  if (!(map instanceof Map) || !Number.isFinite(maxItems) || maxItems <= 0) return;
+  while (map.size > maxItems) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+};
 
 const sanitizeForJson = (value) =>
   JSON.parse(
@@ -160,6 +196,14 @@ const erc20Abi = [
   'function decimals() view returns (uint8)'
 ];
 
+const vestingWalletReadAbi = [
+  'function token() view returns (address)',
+  'function totalAllocation() view returns (uint256)',
+  'function start() view returns (uint256)',
+  'function duration() view returns (uint256)',
+  'function released(address) view returns (uint256)'
+];
+
 const getEventTopic = (iface, name) => {
   try {
     return iface.getEvent(name).topicHash;
@@ -176,6 +220,7 @@ const normalizeEvent = async (log) => {
     const block = await provider.getBlock(blockNumber);
     timestamp = block?.timestamp || 0;
     blockCache.set(blockNumber, timestamp);
+    trimMapToLimit(blockCache, BLOCK_CACHE_MAX_ITEMS);
   }
   const base = {
     txHash: log.transactionHash,
@@ -242,6 +287,12 @@ const pushEvents = async (events) => {
   });
   if (activityEvents.length > INDEXER_MAX_EVENTS) {
     activityEvents.splice(INDEXER_MAX_EVENTS);
+  }
+  if (seenEvents.size > INDEXER_MAX_EVENTS * 2) {
+    seenEvents.clear();
+    activityEvents.forEach((event) => {
+      seenEvents.add(`${event.txHash}-${event.logIndex}`);
+    });
   }
 };
 
@@ -463,6 +514,15 @@ const lookupGeoByIp = async (ip) => {
   }
   const value = await readGeoFromProvider(ip);
   geoLookupCache.set(cacheKey, { at: Date.now(), value });
+  if (geoLookupCache.size > GEO_CACHE_MAX_ITEMS) {
+    const cutoff = Date.now() - GEO_CACHE_TTL_MS;
+    for (const [key, entry] of geoLookupCache.entries()) {
+      if (!entry || entry.at < cutoff) {
+        geoLookupCache.delete(key);
+      }
+    }
+    trimMapToLimit(geoLookupCache, GEO_CACHE_MAX_ITEMS);
+  }
   return value;
 };
 
@@ -548,6 +608,20 @@ const getSessionToken = (req) => {
   return '';
 };
 
+const rateLimitKeyGenerator = (req) => {
+  const token = getSessionToken(req);
+  if (token) {
+    return `token:${crypto.createHash('sha256').update(token).digest('hex')}`;
+  }
+  const ip = getClientIp(req) || req.ip || '';
+  if (ip && typeof rateLimit.ipKeyGenerator === 'function') {
+    return `ip:${rateLimit.ipKeyGenerator(ip)}`;
+  }
+  const ipHash = hashIp(ip);
+  if (ipHash) return `ip:${ipHash}`;
+  return 'unknown';
+};
+
 const requireSession = async (req, res, next) => {
   const token = getSessionToken(req);
   if (!token) {
@@ -589,21 +663,32 @@ const attachSession = async (req, _res, next) => {
 
 const defaultLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_MAX || 120),
+  max: Number(process.env.RATE_LIMIT_MAX || 600),
+  keyGenerator: rateLimitKeyGenerator,
   standardHeaders: true,
   legacyHeaders: false
 });
 
 const strictLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_STRICT_MAX || 8),
+  max: Number(process.env.RATE_LIMIT_STRICT_MAX || 60),
+  keyGenerator: rateLimitKeyGenerator,
   standardHeaders: true,
   legacyHeaders: false
 });
 
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_CHAT_MAX || 6),
+  max: Number(process.env.RATE_LIMIT_CHAT_MAX || 20),
+  keyGenerator: rateLimitKeyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const expensiveLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_EXPENSIVE_MAX || 120),
+  keyGenerator: rateLimitKeyGenerator,
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -614,7 +699,138 @@ app.use(honeypotCheck);
 app.use(attachSession);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'vestra-backend' });
+  res.json({
+    ok: true,
+    service: 'vestra-backend',
+    uptimeSec: Math.round(process.uptime()),
+    memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    persistence: persistence.useSupabase ? 'supabase' : 'sqlite',
+    indexer: {
+      enabled: INDEXER_ENABLED,
+      lastIndexedBlock,
+      latestChainBlock,
+      lastPollAt
+    }
+  });
+});
+
+const vestingValidateSchema = z
+  .object({
+    vestingContract: z.string().trim().refine(ethers.isAddress, 'Invalid address'),
+    protocol: z.enum(['manual', 'sablier']).optional(),
+    lockupAddress: z.string().trim().max(42).optional(),
+    streamId: z.string().trim().max(80).optional()
+  })
+  .strip();
+
+const fundraisingLinkSchema = z
+  .object({
+    projectId: z.string().trim().min(1).max(120),
+    token: z.string().trim().max(42).optional(),
+    treasury: z.string().trim().max(42).optional(),
+    chain: z.string().trim().min(1).max(32),
+    vestingPolicyRef: z.string().trim().max(200).optional()
+  })
+  .strip();
+
+app.post('/api/vesting/validate', validateBody(vestingValidateSchema), async (req, res) => {
+  try {
+    const { vestingContract, protocol, lockupAddress, streamId } = req.body;
+    const address = ethers.getAddress(vestingContract);
+    const contract = new ethers.Contract(address, vestingWalletReadAbi, provider);
+    const tokenAddr = await contract.token();
+    const [totalAllocation, start, duration, releasedAmount] = await Promise.all([
+      contract.totalAllocation(),
+      contract.start(),
+      contract.duration(),
+      contract.released(tokenAddr).catch(() => 0n)
+    ]);
+    const token = typeof tokenAddr === 'string' ? tokenAddr : tokenAddr;
+    const total = BigInt(totalAllocation ?? 0);
+    const released = BigInt(releasedAmount ?? 0);
+    const quantity = total - released;
+    const startNum = Number(start ?? 0);
+    const durationNum = Number(duration ?? 0);
+    const unlockTime = startNum + durationNum;
+    const valid = total > 0n && durationNum > 0 && unlockTime > Math.floor(Date.now() / 1000);
+    if (valid && (protocol === 'sablier' && (lockupAddress || streamId))) {
+      await persistence.saveVestingSource({
+        chainId: (await provider.getNetwork()).chainId.toString(),
+        vestingContract: address,
+        protocol: protocol || 'manual',
+        lockupAddress: lockupAddress || null,
+        streamId: streamId || null
+      });
+    }
+    res.json({
+      valid,
+      quantity: quantity.toString(),
+      token,
+      unlockTime,
+      totalAllocation: total.toString(),
+      released: released.toString()
+    });
+  } catch (err) {
+    res.status(400).json({
+      valid: false,
+      error: err.message || 'Failed to read vesting contract'
+    });
+  }
+});
+
+app.post('/api/fundraising/link', validateBody(fundraisingLinkSchema), async (req, res) => {
+  try {
+    const source = await persistence.createFundraisingSource({
+      projectId: req.body.projectId,
+      token: req.body.token || null,
+      treasury: req.body.treasury || null,
+      chain: req.body.chain,
+      vestingPolicyRef: req.body.vestingPolicyRef || null
+    });
+    res.json({ ok: true, source });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'Failed to link fundraising source' });
+  }
+});
+
+app.get('/api/fundraising/sources', async (req, res) => {
+  try {
+    const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : null;
+    const chain = typeof req.query.chain === 'string' ? req.query.chain : null;
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const sources = await persistence.listFundraisingSources({ projectId, chain, limit });
+    res.json({ ok: true, sources });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'Failed to list fundraising sources' });
+  }
+});
+
+app.get('/api/fundraising/sources/:id', async (req, res) => {
+  try {
+    const source = await persistence.getFundraisingSource(req.params.id);
+    if (!source) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, source });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'Failed to get fundraising source' });
+  }
+});
+
+app.patch('/api/fundraising/sources/:id', validateBody(z.object({
+  token: z.string().trim().max(42).optional(),
+  treasury: z.string().trim().max(42).optional(),
+  vestingPolicyRef: z.string().trim().max(200).optional()
+}).strip()), async (req, res) => {
+  try {
+    const updated = await persistence.updateFundraisingSource(req.params.id, {
+      token: req.body.token,
+      treasury: req.body.treasury,
+      vestingPolicyRef: req.body.vestingPolicyRef
+    });
+    if (!updated) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, source: updated });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'Failed to update fundraising source' });
+  }
 });
 
 const stringField = (max) => z.string().trim().min(1).max(max);
@@ -1437,7 +1653,7 @@ app.get('/api/geo-pings', async (_req, res) => {
       }
     });
   } catch (error) {
-    res.status(200).json({
+    res.status(500).json({
       ok: false,
       error: error?.message || 'Unable to fetch geo pings',
       items: []
@@ -1465,8 +1681,18 @@ app.get('/api/exports/activity', (_req, res) => {
   res.send(csv);
 });
 
-app.get('/api/repay-schedule', async (_req, res) => {
-  try {
+const fetchRepayScheduleRows = async () => {
+  const now = Date.now();
+  if (
+    repayScheduleCache.items.length &&
+    now - repayScheduleCache.at < REPAY_CACHE_TTL_MS
+  ) {
+    return repayScheduleCache.items;
+  }
+  if (repayScheduleInFlight) {
+    return repayScheduleInFlight;
+  }
+  repayScheduleInFlight = (async () => {
     const contract = new ethers.Contract(
       loanManager.address,
       loanManagerDeployment.abi,
@@ -1476,19 +1702,37 @@ app.get('/api/repay-schedule', async (_req, res) => {
     const total = Number(count);
     const limit = Math.min(total, 10);
     const start = Math.max(total - limit, 0);
-    const rows = [];
-    for (let i = start; i < total; i += 1) {
-      const loan = await contract.loans(i);
-      rows.push({
-        loanId: i,
-        principal: loan[1].toString(),
-        interest: loan[2].toString(),
-        unlockTime: Number(loan[4]),
-        status: loan[5] ? 'Active' : 'Settled'
-      });
-    }
+    const ids = Array.from({ length: Math.max(0, total - start) }, (_, i) => start + i);
+    const rows = await mapWithConcurrency(
+      ids,
+      async (loanId) => {
+        const loan = await contract.loans(loanId);
+        return {
+          loanId,
+          principal: loan[1].toString(),
+          interest: loan[2].toString(),
+          unlockTime: Number(loan[4]),
+          status: loan[5] ? 'Active' : 'Settled'
+        };
+      },
+      RPC_CONCURRENCY_LIMIT
+    );
+    repayScheduleCache.items = rows;
+    repayScheduleCache.at = Date.now();
     cachedRepaySchedule = rows;
-    lastScheduleRefresh = Date.now();
+    lastScheduleRefresh = repayScheduleCache.at;
+    return rows;
+  })();
+  try {
+    return await repayScheduleInFlight;
+  } finally {
+    repayScheduleInFlight = null;
+  }
+};
+
+app.get('/api/repay-schedule', expensiveLimiter, async (_req, res) => {
+  try {
+    const rows = await fetchRepayScheduleRows();
     res.json({ ok: true, items: rows });
   } catch (error) {
     res.status(200).json({
@@ -1592,67 +1836,70 @@ const getEvmVestedContracts = async () => {
   const total = Number(count);
   const limit = Math.min(total, INDEXER_VESTED_LIMIT);
   const start = Math.max(total - limit, 0);
-  const rows = [];
+  const ids = Array.from({ length: Math.max(0, total - start) }, (_, i) => start + i);
+  const rows = await mapWithConcurrency(
+    ids,
+    async (loanId) => {
+      const loan = await loanContract.loans(loanId);
+      const collateralId = loan[3];
+      const [quantity, token, unlockTime] = await adapterContract.getDetails(collateralId);
 
-  for (let i = start; i < total; i += 1) {
-    const loan = await loanContract.loans(i);
-    const collateralId = loan[3];
-    const [quantity, token, unlockTime] = await adapterContract.getDetails(collateralId);
-
-    let tokenSymbol = '';
-    let tokenDecimals = 18;
-    try {
-      const tokenContract = new ethers.Contract(token, erc20Abi, provider);
-      tokenSymbol = await tokenContract.symbol();
-      tokenDecimals = await tokenContract.decimals();
-    } catch (error) {
-      tokenSymbol = `Token ${token.slice(0, 6)}`;
-    }
-
-    let pv = 0n;
-    let ltvBps = 0n;
-    try {
-      const valuation = await valuationContract.computeDPV(quantity, token, unlockTime);
-      pv = valuation[0];
-      ltvBps = valuation[1];
-    } catch (error) {
-      pv = 0n;
-      ltvBps = 0n;
-    }
-
-    const createdEvent = activityEvents.find(
-      (event) => event.type === 'LoanCreated' && event.loanId === i.toString()
-    );
-    const unlockTimestamp = Number(unlockTime || loan[4] || 0);
-    const daysToUnlock =
-      unlockTimestamp > 0
-        ? Math.max(0, Math.round((unlockTimestamp * 1000 - Date.now()) / 86400000))
-        : null;
-
-    rows.push({
-      loanId: i,
-      borrower: loan[0],
-      principal: loan[1].toString(),
-      interest: loan[2].toString(),
-      collateralId: collateralId.toString(),
-      unlockTime: unlockTimestamp,
-      active: Boolean(loan[5]),
-      token,
-      tokenSymbol,
-      tokenDecimals,
-      quantity: quantity.toString(),
-      pv: pv.toString(),
-      ltvBps: ltvBps.toString(),
-      daysToUnlock,
-      evidence: {
-        escrowTx: createdEvent?.txHash
-          ? buildExplorerLink('tx', createdEvent.txHash)
-          : '',
-        wallet: loan[0] ? buildExplorerLink('address', loan[0]) : '',
-        token: token ? buildExplorerLink('address', token) : ''
+      let tokenSymbol = '';
+      let tokenDecimals = 18;
+      try {
+        const tokenContract = new ethers.Contract(token, erc20Abi, provider);
+        tokenSymbol = await tokenContract.symbol();
+        tokenDecimals = await tokenContract.decimals();
+      } catch (error) {
+        tokenSymbol = `Token ${token.slice(0, 6)}`;
       }
-    });
-  }
+
+      let pv = 0n;
+      let ltvBps = 0n;
+      try {
+        const valuation = await valuationContract.computeDPV(quantity, token, unlockTime);
+        pv = valuation[0];
+        ltvBps = valuation[1];
+      } catch (error) {
+        pv = 0n;
+        ltvBps = 0n;
+      }
+
+      const createdEvent = activityEvents.find(
+        (event) => event.type === 'LoanCreated' && event.loanId === loanId.toString()
+      );
+      const unlockTimestamp = Number(unlockTime || loan[4] || 0);
+      const daysToUnlock =
+        unlockTimestamp > 0
+          ? Math.max(0, Math.round((unlockTimestamp * 1000 - Date.now()) / 86400000))
+          : null;
+
+      return {
+        loanId,
+        borrower: loan[0],
+        principal: loan[1].toString(),
+        interest: loan[2].toString(),
+        collateralId: collateralId.toString(),
+        unlockTime: unlockTimestamp,
+        active: Boolean(loan[5]),
+        token,
+        tokenSymbol,
+        tokenDecimals,
+        quantity: quantity.toString(),
+        pv: pv.toString(),
+        ltvBps: ltvBps.toString(),
+        daysToUnlock,
+        evidence: {
+          escrowTx: createdEvent?.txHash
+            ? buildExplorerLink('tx', createdEvent.txHash)
+            : '',
+          wallet: loan[0] ? buildExplorerLink('address', loan[0]) : '',
+          token: token ? buildExplorerLink('address', token) : ''
+        }
+      };
+    },
+    RPC_CONCURRENCY_LIMIT
+  );
 
   return rows.reverse();
 };
@@ -1674,7 +1921,7 @@ const takeVestedSnapshot = async () => {
   }
 };
 
-app.get('/api/vested-contracts', async (_req, res) => {
+app.get('/api/vested-contracts', expensiveLimiter, async (_req, res) => {
   const now = Date.now();
   if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
     res.json({
@@ -1686,13 +1933,18 @@ app.get('/api/vested-contracts', async (_req, res) => {
     return;
   }
   try {
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(
-        () => reject(new Error('Vested contracts fetch timed out')),
-        VESTED_FETCH_TIMEOUT_MS
-      );
-    });
-    const items = await Promise.race([getVestedContracts(), timeoutPromise]);
+    if (!vestedContractsInFlight) {
+      vestedContractsInFlight = (async () => {
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error('Vested contracts fetch timed out')),
+            VESTED_FETCH_TIMEOUT_MS
+          );
+        });
+        return Promise.race([getVestedContracts(), timeoutPromise]);
+      })();
+    }
+    const items = await vestedContractsInFlight;
     cachedVestedContracts = items;
     cachedVestedContractsAt = Date.now();
     res.json({
@@ -1717,6 +1969,8 @@ app.get('/api/vested-contracts', async (_req, res) => {
       error: error?.message || 'error',
       items: []
     });
+  } finally {
+    vestedContractsInFlight = null;
   }
 });
 
@@ -1775,26 +2029,17 @@ app.post('/api/solana/repay-sweep', async (req, res) => {
   }
 });
 
-app.get('/api/exports/repay-schedule', async (_req, res) => {
+app.get('/api/exports/repay-schedule', expensiveLimiter, async (_req, res) => {
   try {
-    const contract = new ethers.Contract(
-      loanManager.address,
-      loanManagerDeployment.abi,
-      provider
-    );
-    const count = await contract.loanCount();
-    const total = Number(count);
-    const limit = Math.min(total, 10);
-    const start = Math.max(total - limit, 0);
+    const rowsData = await fetchRepayScheduleRows();
     const rows = [['Loan ID', 'Principal', 'Interest', 'Unlock', 'Status']];
-    for (let i = start; i < total; i += 1) {
-      const loan = await contract.loans(i);
+    for (const loan of rowsData) {
       rows.push([
-        i,
-        loan[1].toString(),
-        loan[2].toString(),
-        loan[4] ? new Date(Number(loan[4]) * 1000).toISOString() : '',
-        loan[5] ? 'Active' : 'Settled'
+        loan.loanId,
+        loan.principal,
+        loan.interest,
+        loan.unlockTime ? new Date(Number(loan.unlockTime) * 1000).toISOString() : '',
+        loan.status
       ]);
     }
     const csv = rows.map((row) => row.join(',')).join('\n');

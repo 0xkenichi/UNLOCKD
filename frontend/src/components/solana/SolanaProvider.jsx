@@ -5,8 +5,7 @@ import {
 } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter
+  PhantomWalletAdapter
 } from '@solana/wallet-adapter-wallets';
 import { SOLANA_NETWORKS } from '../../utils/chains.js';
 import { useOnchainSession } from '../../utils/onchainSession.js';
@@ -17,7 +16,7 @@ export default function SolanaProvider({ children }) {
     SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId)
       ?.endpoint || SOLANA_NETWORKS[0]?.endpoint;
   const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+    () => [new PhantomWalletAdapter()],
     []
   );
 

@@ -153,6 +153,25 @@ const initSqlite = () => {
       metadata TEXT,
       created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS vesting_sources (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL,
+      vesting_contract TEXT NOT NULL,
+      protocol TEXT NOT NULL DEFAULT 'manual',
+      lockup_address TEXT,
+      stream_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS fundraising_sources (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      token TEXT,
+      treasury TEXT,
+      chain TEXT NOT NULL,
+      vesting_policy_ref TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 };
 
@@ -958,6 +977,172 @@ const saveAgentConversation = async ({
   return { id, createdAt };
 };
 
+const saveVestingSource = async ({
+  chainId,
+  vestingContract,
+  protocol = 'manual',
+  lockupAddress = null,
+  streamId = null
+}) => {
+  const id = createId();
+  const createdAt = new Date().toISOString();
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('vesting_sources').upsert(
+      {
+        id,
+        chain_id: String(chainId),
+        vesting_contract: String(vestingContract),
+        protocol: String(protocol),
+        lockup_address: lockupAddress || null,
+        stream_id: streamId || null,
+        created_at: createdAt
+      },
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(`[supabase] saveVestingSource failed: ${error.message}`);
+    return { id, createdAt };
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO vesting_sources (id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, String(chainId), String(vestingContract), String(protocol), lockupAddress || null, streamId || null, createdAt);
+  return { id, createdAt };
+};
+
+const createFundraisingSource = async ({
+  projectId,
+  token = null,
+  treasury = null,
+  chain,
+  vestingPolicyRef = null
+}) => {
+  const id = createId();
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('fundraising_sources')
+      .insert({
+        id,
+        project_id: String(projectId),
+        token: token || null,
+        treasury: treasury || null,
+        chain: String(chain),
+        vesting_policy_ref: vestingPolicyRef || null,
+        created_at: now,
+        updated_at: now
+      })
+      .select('id, project_id, token, treasury, chain, vesting_policy_ref, created_at, updated_at')
+      .single();
+    if (error) throw new Error(`[supabase] createFundraisingSource failed: ${error.message}`);
+    return data;
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO fundraising_sources (id, project_id, token, treasury, chain, vesting_policy_ref, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, String(projectId), token || null, treasury || null, String(chain), vestingPolicyRef || null, now, now);
+  return { id, projectId: String(projectId), token, treasury, chain: String(chain), vestingPolicyRef, createdAt: now, updatedAt: now };
+};
+
+const getFundraisingSource = async (id) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('fundraising_sources')
+      .select('id, project_id, token, treasury, chain, vesting_policy_ref, created_at, updated_at')
+      .eq('id', id)
+      .single();
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      projectId: data.project_id,
+      token: data.token,
+      treasury: data.treasury,
+      chain: data.chain,
+      vestingPolicyRef: data.vesting_policy_ref,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at
+    };
+  }
+  const row = sqlite.prepare('SELECT * FROM fundraising_sources WHERE id = ?').get(id);
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    token: row.token,
+    treasury: row.treasury,
+    chain: row.chain,
+    vestingPolicyRef: row.vesting_policy_ref,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+};
+
+const listFundraisingSources = async ({ projectId = null, chain = null, limit = 50 } = {}) => {
+  if (useSupabase) {
+    let q = supabaseClient().from('fundraising_sources').select('id, project_id, token, treasury, chain, vesting_policy_ref, created_at, updated_at').order('created_at', { ascending: false }).limit(limit);
+    if (projectId) q = q.eq('project_id', projectId);
+    if (chain) q = q.eq('chain', chain);
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] listFundraisingSources failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      token: row.token,
+      treasury: row.treasury,
+      chain: row.chain,
+      vestingPolicyRef: row.vesting_policy_ref,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+  let sql = 'SELECT * FROM fundraising_sources';
+  const params = [];
+  const conditions = [];
+  if (projectId) { conditions.push('project_id = ?'); params.push(projectId); }
+  if (chain) { conditions.push('chain = ?'); params.push(chain); }
+  if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(limit);
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    token: row.token,
+    treasury: row.treasury,
+    chain: row.chain,
+    vestingPolicyRef: row.vesting_policy_ref,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+};
+
+const updateFundraisingSource = async (id, { token = null, treasury = null, vestingPolicyRef = null }) => {
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const updates = { updated_at: now };
+    if (token !== undefined) updates.token = token;
+    if (treasury !== undefined) updates.treasury = treasury;
+    if (vestingPolicyRef !== undefined) updates.vesting_policy_ref = vestingPolicyRef;
+    const { data, error } = await supabaseClient().from('fundraising_sources').update(updates).eq('id', id).select().single();
+    if (error) throw new Error(`[supabase] updateFundraisingSource failed: ${error.message}`);
+    return data;
+  }
+  const row = sqlite.prepare('SELECT * FROM fundraising_sources WHERE id = ?').get(id);
+  if (!row) return null;
+  const updates = [];
+  const params = [];
+  if (token !== undefined) { updates.push('token = ?'); params.push(token); }
+  if (treasury !== undefined) { updates.push('treasury = ?'); params.push(treasury); }
+  if (vestingPolicyRef !== undefined) { updates.push('vesting_policy_ref = ?'); params.push(vestingPolicyRef); }
+  if (!updates.length) return row;
+  params.push(now, id);
+  sqlite.prepare(`UPDATE fundraising_sources SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`).run(...params);
+  return sqlite.prepare('SELECT * FROM fundraising_sources WHERE id = ?').get(id);
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -983,5 +1168,10 @@ module.exports = {
   getPoolById,
   createMatchEvent,
   listRecentAgentConversations,
-  saveAgentConversation
+  saveAgentConversation,
+  saveVestingSource,
+  createFundraisingSource,
+  getFundraisingSource,
+  listFundraisingSources,
+  updateFundraisingSource
 };

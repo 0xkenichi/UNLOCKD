@@ -175,6 +175,7 @@ export default function SpotlightVestedContracts() {
 
   useEffect(() => {
     let isMounted = true;
+    let timer = null;
     const loadUnmapped = async () => {
       setIsLoadingUnmapped(true);
       try {
@@ -192,16 +193,27 @@ export default function SpotlightVestedContracts() {
         }
       }
     };
+
+    const scheduleRefresh = (delayMs = 180000) => {
+      timer = setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await loadUnmapped();
+        }
+        scheduleRefresh(180000 + Math.floor(Math.random() * 10000));
+      }, delayMs);
+    };
+
     loadUnmapped();
-    const interval = setInterval(loadUnmapped, 60000);
+    scheduleRefresh();
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
   useEffect(() => {
     let isMounted = true;
+    let timer = null;
     const loadSnapshots = async () => {
       try {
         const snapshots = await fetchVestedSnapshots();
@@ -214,11 +226,21 @@ export default function SpotlightVestedContracts() {
         }
       }
     };
+
+    const scheduleRefresh = (delayMs = 180000) => {
+      timer = setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await loadSnapshots();
+        }
+        scheduleRefresh(180000 + Math.floor(Math.random() * 10000));
+      }, delayMs);
+    };
+
     loadSnapshots();
-    const interval = setInterval(loadSnapshots, 60000);
+    scheduleRefresh();
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 

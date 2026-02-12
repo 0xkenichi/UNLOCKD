@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import BorrowWizard from '../components/borrow/BorrowWizard.jsx';
 import BorrowActions from '../components/borrow/BorrowActions.jsx';
@@ -11,14 +12,19 @@ import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
 import { requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
 
+const ASSESSMENT_TESTNET_CHAIN_IDS = new Set([31337, 11155111, 84532]);
+
 const ValuationPreview3D = lazy(() =>
   import('../components/borrow/ValuationPreview3D.jsx')
 );
 
 export default function Borrow() {
+  const location = useLocation();
+  const prefill = location.state?.prefill;
   const { address } = useAccount();
   const chainId = useChainId();
   const chainName = [8453, 84532].includes(chainId) ? 'base' : 'base';
+  const isAssessmentTestnet = ASSESSMENT_TESTNET_CHAIN_IDS.has(chainId);
   const [valuationState, setValuationState] = useState({ pv: 0n, ltvBps: 0n });
   const [vestingDetails, setVestingDetails] = useState(null);
   const [assessment, setAssessment] = useState({
@@ -119,7 +125,7 @@ export default function Borrow() {
 
   return (
     <motion.div
-      className="stack page-minimal"
+      className="stack page-minimal borrow-page"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
@@ -129,13 +135,42 @@ export default function Borrow() {
         <p className="page-subtitle">Escrow vesting, get USDC.</p>
       </div>
 
+      {prefill?.fromFundraise && prefill?.projectId && (
+        <div className="holo-card" style={{ marginBottom: 16 }}>
+          <span className="tag success">From fundraising</span>
+          <p className="muted" style={{ marginTop: 8 }}>
+            Project: <strong>{prefill.projectId}</strong>
+            {prefill.chain && ` · Chain: ${prefill.chain}`}
+            {' — '}
+            Enter your vesting contract (or use Import from Sablier v2) and collateral ID below to escrow and borrow.
+          </p>
+        </div>
+      )}
+
       <FundWallet mode="borrow" onStatusChange={setFundingStatus} />
 
       <div className="grid-2">
-        <ValuationForm
-          onUpdate={setValuationState}
-          prefill={vestingDetails?.verified ? vestingDetails : null}
-        />
+        {isAssessmentTestnet ? (
+          <ValuationForm
+            onUpdate={setValuationState}
+            prefill={vestingDetails}
+          />
+        ) : (
+          <div className="holo-card">
+            <div className="section-head">
+              <div>
+                <h3 className="section-title">Valuation Engine</h3>
+                <div className="section-subtitle">
+                  Unavailable on this network.
+                </div>
+              </div>
+              <span className="chip">Testnet Only</span>
+            </div>
+            <div className="muted">
+              Switch to localhost, Sepolia, or Base Sepolia to use live valuation and token assessment.
+            </div>
+          </div>
+        )}
         <BorrowActions
           onDetails={setVestingDetails}
           maxBorrowUsd={assessment.maxLoan}
@@ -144,11 +179,13 @@ export default function Borrow() {
         />
       </div>
 
-      <TokenAssessment
-        vestingDetails={vestingDetails}
-        ltvBps={valuationState.ltvBps}
-        onEstimate={setAssessment}
-      />
+      {isAssessmentTestnet && (
+        <TokenAssessment
+          vestingDetails={vestingDetails}
+          ltvBps={valuationState.ltvBps}
+          onEstimate={setAssessment}
+        />
+      )}
 
       <AdvancedSection title="Advanced">
         <BorrowWizard />

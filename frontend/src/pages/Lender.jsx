@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
@@ -35,6 +35,7 @@ export default function Lender() {
   const [withdrawAmount, setWithdrawAmount] = useState('100');
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [updateState, setUpdateState] = useState('idle');
+  const [actionLogs, setActionLogs] = useState([]);
 
   const [poolName, setPoolName] = useState('Vestra Pool');
   const [poolChain, setPoolChain] = useState('base');
@@ -125,9 +126,21 @@ export default function Lender() {
     error: withdrawError
   } = useWriteContract();
 
-  const { isLoading: approveMining } = useWaitForTransactionReceipt({ hash: approveHash });
-  const { isLoading: depositMining } = useWaitForTransactionReceipt({ hash: depositHash });
-  const { isLoading: withdrawMining } = useWaitForTransactionReceipt({ hash: withdrawHash });
+  const {
+    isLoading: approveMining,
+    isSuccess: approveConfirmed,
+    error: approveReceiptError
+  } = useWaitForTransactionReceipt({ hash: approveHash });
+  const {
+    isLoading: depositMining,
+    isSuccess: depositConfirmed,
+    error: depositReceiptError
+  } = useWaitForTransactionReceipt({ hash: depositHash });
+  const {
+    isLoading: withdrawMining,
+    isSuccess: withdrawConfirmed,
+    error: withdrawReceiptError
+  } = useWaitForTransactionReceipt({ hash: withdrawHash });
 
   const { data: walletDeposits } = useReadContract({
     address: lendingPool,
@@ -177,6 +190,17 @@ export default function Lender() {
     setVestDurationMax(preference.vestPreferences?.durationMaxDays ?? '');
     setPoolDescription(preference.description || '');
   }, [pools, selectedPoolId]);
+
+  const pushActionLog = useCallback((action, status, message) => {
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      action,
+      status,
+      message,
+      at: new Date().toLocaleTimeString()
+    };
+    setActionLogs((prev) => [entry, ...prev].slice(0, 18));
+  }, []);
 
   const handleCreatePool = async () => {
     setSaveState('saving');
@@ -276,7 +300,22 @@ export default function Lender() {
   };
 
   const handleApprove = () => {
-    if (!usdc || !lendingPool || !depositUnits) return;
+    if (!address) {
+      setError('Connect wallet first.');
+      pushActionLog('Approve', 'blocked', 'Connect wallet first.');
+      return;
+    }
+    if (!usdc || !lendingPool) {
+      setError('Unsupported network. Switch to a configured chain.');
+      pushActionLog('Approve', 'blocked', 'Missing contract addresses for this chain.');
+      return;
+    }
+    if (!depositUnits) {
+      setError('Enter a valid deposit amount.');
+      pushActionLog('Approve', 'blocked', 'Invalid deposit amount.');
+      return;
+    }
+    pushActionLog('Approve', 'started', `Submitting approval for ${depositAmount} USDC`);
     writeApprove({
       address: usdc,
       abi: usdcAbi,
@@ -286,7 +325,22 @@ export default function Lender() {
   };
 
   const handleDeposit = () => {
-    if (!lendingPool || !depositUnits) return;
+    if (!address) {
+      setError('Connect wallet first.');
+      pushActionLog('Deposit', 'blocked', 'Connect wallet first.');
+      return;
+    }
+    if (!lendingPool || !depositUnits) {
+      setError('Unsupported network or invalid amount.');
+      pushActionLog('Deposit', 'blocked', 'Missing lending pool or invalid amount.');
+      return;
+    }
+    if (!allowanceEnough) {
+      setError('Approve USDC before depositing.');
+      pushActionLog('Deposit', 'blocked', 'Approval required before deposit.');
+      return;
+    }
+    pushActionLog('Deposit', 'started', `Submitting deposit for ${depositAmount} USDC`);
     writeDeposit({
       address: lendingPool,
       abi: lendingPoolAbi,
@@ -296,7 +350,22 @@ export default function Lender() {
   };
 
   const handleWithdraw = () => {
-    if (!lendingPool || !withdrawUnits) return;
+    if (!address) {
+      setError('Connect wallet first.');
+      pushActionLog('Withdraw', 'blocked', 'Connect wallet first.');
+      return;
+    }
+    if (!lendingPool || !withdrawUnits) {
+      setError('Unsupported network or invalid amount.');
+      pushActionLog('Withdraw', 'blocked', 'Missing lending pool or invalid amount.');
+      return;
+    }
+    if (!withdrawEnough) {
+      setError('Withdraw amount exceeds your pool deposits.');
+      pushActionLog('Withdraw', 'blocked', 'Insufficient pool deposits for withdrawal.');
+      return;
+    }
+    pushActionLog('Withdraw', 'started', `Submitting withdrawal for ${withdrawAmount} USDC`);
     writeWithdraw({
       address: lendingPool,
       abi: lendingPoolAbi,
@@ -313,6 +382,78 @@ export default function Lender() {
     walletDeposits !== null && walletDeposits !== undefined && withdrawUnits
       ? walletDeposits >= withdrawUnits
       : false;
+
+  useEffect(() => {
+    if (approveHash) {
+      pushActionLog(
+        'Approve',
+        'submitted',
+        `Approval tx submitted (${approveHash.slice(0, 10)}...${approveHash.slice(-6)})`
+      );
+    }
+  }, [approveHash, pushActionLog]);
+
+  useEffect(() => {
+    if (depositHash) {
+      pushActionLog(
+        'Deposit',
+        'submitted',
+        `Deposit tx submitted (${depositHash.slice(0, 10)}...${depositHash.slice(-6)})`
+      );
+    }
+  }, [depositHash, pushActionLog]);
+
+  useEffect(() => {
+    if (withdrawHash) {
+      pushActionLog(
+        'Withdraw',
+        'submitted',
+        `Withdraw tx submitted (${withdrawHash.slice(0, 10)}...${withdrawHash.slice(-6)})`
+      );
+    }
+  }, [withdrawHash, pushActionLog]);
+
+  useEffect(() => {
+    if (approveConfirmed) pushActionLog('Approve', 'confirmed', 'Approval confirmed onchain.');
+  }, [approveConfirmed, pushActionLog]);
+
+  useEffect(() => {
+    if (depositConfirmed) pushActionLog('Deposit', 'confirmed', 'Deposit confirmed onchain.');
+  }, [depositConfirmed, pushActionLog]);
+
+  useEffect(() => {
+    if (withdrawConfirmed) pushActionLog('Withdraw', 'confirmed', 'Withdrawal confirmed onchain.');
+  }, [withdrawConfirmed, pushActionLog]);
+
+  useEffect(() => {
+    if (approveError) pushActionLog('Approve', 'failed', approveError.message || 'Approve failed.');
+  }, [approveError, pushActionLog]);
+
+  useEffect(() => {
+    if (depositError) pushActionLog('Deposit', 'failed', depositError.message || 'Deposit failed.');
+  }, [depositError, pushActionLog]);
+
+  useEffect(() => {
+    if (withdrawError) pushActionLog('Withdraw', 'failed', withdrawError.message || 'Withdraw failed.');
+  }, [withdrawError, pushActionLog]);
+
+  useEffect(() => {
+    if (approveReceiptError) {
+      pushActionLog('Approve', 'failed', approveReceiptError.message || 'Approve receipt failed.');
+    }
+  }, [approveReceiptError, pushActionLog]);
+
+  useEffect(() => {
+    if (depositReceiptError) {
+      pushActionLog('Deposit', 'failed', depositReceiptError.message || 'Deposit receipt failed.');
+    }
+  }, [depositReceiptError, pushActionLog]);
+
+  useEffect(() => {
+    if (withdrawReceiptError) {
+      pushActionLog('Withdraw', 'failed', withdrawReceiptError.message || 'Withdraw receipt failed.');
+    }
+  }, [withdrawReceiptError, pushActionLog]);
 
   return (
     <section className="page">
@@ -644,7 +785,12 @@ export default function Lender() {
               className="button"
               type="button"
               onClick={handleDeposit}
-              disabled={!depositUnits || !allowanceEnough || isDepositPending || depositMining}
+              disabled={
+                !depositUnits ||
+                !allowanceEnough ||
+                isDepositPending ||
+                depositMining
+              }
             >
               {depositMining || isDepositPending ? 'Depositing...' : 'Deposit'}
             </button>
@@ -652,13 +798,46 @@ export default function Lender() {
               className="button ghost"
               type="button"
               onClick={handleWithdraw}
-              disabled={!withdrawUnits || !withdrawEnough || isWithdrawPending || withdrawMining}
+              disabled={
+                !withdrawUnits ||
+                !withdrawEnough ||
+                isWithdrawPending ||
+                withdrawMining
+              }
             >
               {withdrawMining || isWithdrawPending ? 'Withdrawing...' : 'Withdraw'}
             </button>
             <div className="muted">
               {allowanceEnough ? 'Allowance ready.' : 'Approve USDC before depositing.'}
             </div>
+          </div>
+          <div className="action-log-panel" data-testid="lender-action-log">
+            <div className="section-head">
+              <div>
+                <h4 className="section-title">Action Log</h4>
+                <div className="section-subtitle">
+                  Records each lender button action with status and details.
+                </div>
+              </div>
+              <span className="tag">{actionLogs.length} events</span>
+            </div>
+            {!actionLogs.length && (
+              <div className="muted">No actions yet. Approve/Deposit/Withdraw to log events.</div>
+            )}
+            {actionLogs.length > 0 && (
+              <div className="action-log-list">
+                {actionLogs.map((log) => (
+                  <div key={log.id} className={`action-log-item action-log-item--${log.status}`}>
+                    <div className="action-log-head">
+                      <span className="action-log-action">{log.action}</span>
+                      <span className="action-log-status">{log.status}</span>
+                      <span className="action-log-time">{log.at}</span>
+                    </div>
+                    <div className="action-log-message">{log.message}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

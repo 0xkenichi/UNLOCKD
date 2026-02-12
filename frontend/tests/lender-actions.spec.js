@@ -1,0 +1,21 @@
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('crdt-onboarding-seen', 'true');
+  });
+});
+
+test('lender approve action is logged with blocked reason when disconnected', async ({ page }) => {
+  await page.goto('/lender');
+
+  await expect(page.getByRole('heading', { name: 'Lender Pools' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Action Log' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+
+  const logPanel = page.getByTestId('lender-action-log');
+  await expect(logPanel.getByText('Approve')).toBeVisible();
+  await expect(logPanel.getByText('blocked')).toBeVisible();
+  await expect(logPanel.getByText('Connect wallet first.')).toBeVisible();
+});

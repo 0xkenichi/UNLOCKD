@@ -1,5 +1,7 @@
 const API_BASE =
   import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000);
+const API_GET_RETRIES = Number(import.meta.env.VITE_API_GET_RETRIES || 1);
 
 function readAuthToken() {
   if (typeof window === 'undefined') return '';
@@ -19,26 +21,66 @@ export async function apiPost(path, payload = {}, options = {}) {
     ...payload,
     ...(options.captchaToken ? { captchaToken: options.captchaToken } : {})
   };
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
-    },
-    body: JSON.stringify(bodyPayload)
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      body: JSON.stringify(bodyPayload),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`);
+    }
+    return response.json();
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return response.json();
 }
 
 export async function apiGet(path) {
-  const response = await fetch(`${API_BASE}${path}`);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  for (let attempt = 0; attempt <= API_GET_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        if (
+          attempt < API_GET_RETRIES &&
+          (response.status === 429 || response.status >= 500)
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`Request failed: ${response.status}`);
+      }
+      return response.json();
+    } catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      if (attempt < API_GET_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        continue;
+      }
+      if (timedOut) {
+        throw new Error('Request timed out');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
-  return response.json();
+  throw new Error('Request failed');
 }
 
 export async function apiDownload(path, filename) {

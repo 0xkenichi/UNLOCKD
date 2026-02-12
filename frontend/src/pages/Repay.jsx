@@ -15,6 +15,7 @@ export default function Repay() {
 
   useEffect(() => {
     let active = true;
+    let timer = null;
     const load = async () => {
       try {
         const items = await fetchRepaySchedule();
@@ -26,11 +27,21 @@ export default function Repay() {
         if (active) setScheduleError(error?.message || 'Failed to load.');
       }
     };
+
+    const scheduleNext = (delayMs = 45000) => {
+      timer = setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await load();
+        }
+        scheduleNext(45000 + Math.floor(Math.random() * 5000));
+      }, delayMs);
+    };
+
     load();
-    const interval = setInterval(load, 15000);
+    scheduleNext();
     return () => {
       active = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
     };
   }, []);
 

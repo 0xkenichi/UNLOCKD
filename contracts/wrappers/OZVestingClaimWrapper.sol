@@ -56,9 +56,8 @@ contract OZVestingClaimWrapper is Ownable {
         return token;
     }
 
-
-    function released(address tokenAddress) external view returns (uint256) {
-        require(tokenAddress == token, "token mismatch");
+    function released(address tokenAddr) external view returns (uint256) {
+        require(tokenAddr == token, "token mismatch");
         return releasedAmounts[token];
     }
 

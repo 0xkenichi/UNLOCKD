@@ -1,10 +1,8 @@
 name: Dashboard history
 steps:
   - goto: /dashboard
-  - expectRole:
-      role: heading
-      name: Dashboard
-      exact: true
-  - expectText: Quick Actions
-  - expectText: Getting Started
-  - expectText: Portfolio Snapshot
+  - expectText: VESTRA
+  - expectVisible:
+      selector: .immersive-core-card
+  - expectVisible:
+      selector: .immersive-module-card

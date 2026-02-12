@@ -226,6 +226,16 @@ export const vestingWalletAbi = [
   { name: 'released', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] }
 ];
 
+/** ABI for reading Sablier v2 Lockup stream state (for import flow) */
+export const sablierV2LockupAbi = [
+  { name: 'getRecipient', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] },
+  { name: 'getAsset', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] },
+  { name: 'getStartTime', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'uint40' }] },
+  { name: 'getEndTime', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'uint40' }] },
+  { name: 'getDepositedAmount', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'uint128' }] },
+  { name: 'getWithdrawnAmount', type: 'function', stateMutability: 'view', inputs: [{ name: 'streamId', type: 'uint256' }], outputs: [{ name: '', type: 'uint128' }] }
+];
+
 export const vestingAdapterAbi = [
   {
     name: 'escrow',

@@ -12,6 +12,7 @@ import {
   erc20Abi,
   getContractAddress,
   loanManagerAbi,
+  sablierV2LockupAbi,
   vestingAdapterAbi,
   vestingWalletAbi
 } from '../../utils/contracts.js';
@@ -19,6 +20,7 @@ import { getEvmChainById } from '../../utils/chains.js';
 import { toUnits } from '../../utils/format.js';
 import TxStatusBanner from '../common/TxStatusBanner.jsx';
 import { trackEvent } from '../../utils/analytics.js';
+import { FEATURE_SABLIER_IMPORT } from '../../utils/featureFlags.js';
 
 const USDC_DECIMALS = 6;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -49,11 +51,20 @@ export default function BorrowActions({
 
   const [collateralId, setCollateralId] = useState('1');
   const [vestingContract, setVestingContract] = useState('');
+  const [importProtocol, setImportProtocol] = useState('manual');
+  const [sablierLockup, setSablierLockup] = useState('');
+  const [sablierStreamId, setSablierStreamId] = useState('');
+  const [sablierWrapperAddress, setSablierWrapperAddress] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('200');
   const [autoBorrow, setAutoBorrow] = useState(true);
   const [autoRepay, setAutoRepay] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(false);
-  const vestingContractValid = isAddress(vestingContract);
+
+  const effectiveVestingContract =
+    importProtocol === 'sablier' && sablierWrapperAddress
+      ? sablierWrapperAddress
+      : vestingContract;
+  const vestingContractValid = isAddress(effectiveVestingContract);
 
   const borrowUnits = useMemo(
     () => toUnits(borrowAmount, USDC_DECIMALS),
@@ -75,7 +86,7 @@ export default function BorrowActions({
   });
 
   // Pre-escrow: read directly from vesting contract when user enters address (so Token Assessment shows token info before escrow)
-  const vestingContractForRead = vestingContractValid ? vestingContract : undefined;
+  const vestingContractForRead = vestingContractValid ? effectiveVestingContract : undefined;
   const { data: vestingPreviewBatch } = useReadContracts({
     contracts: vestingContractForRead
       ? [
@@ -168,7 +179,7 @@ export default function BorrowActions({
     }
     onDetails({
       collateralId,
-      vestingContract,
+      vestingContract: effectiveVestingContract,
       quantity: quantityFromSource,
       tokenAddress,
       unlockTime: unlockTimeRaw,
@@ -178,7 +189,7 @@ export default function BorrowActions({
   }, [
     onDetails,
     collateralId,
-    vestingContract,
+    effectiveVestingContract,
     quantityFromSource,
     tokenAddress,
     unlockTimeRaw,
@@ -267,7 +278,7 @@ export default function BorrowActions({
     address: loanManager || undefined,
     abi: loanManagerAbi,
     functionName: 'createLoan',
-    args: [BigInt(collateralId || 0), vestingContract, borrowUnits || 0n],
+    args: [BigInt(collateralId || 0), effectiveVestingContract, borrowUnits || 0n],
     account: address,
     query: {
       enabled: Boolean(canBorrow)
@@ -292,7 +303,7 @@ export default function BorrowActions({
       address: vestingAdapter,
       abi: vestingAdapterAbi,
       functionName: 'escrow',
-      args: [BigInt(collateralId || 0), vestingContract, address],
+      args: [BigInt(collateralId || 0), effectiveVestingContract, address],
       gas: 500_000n
     });
   };
@@ -303,7 +314,7 @@ export default function BorrowActions({
       address: loanManager,
       abi: loanManagerAbi,
       functionName: 'createLoan',
-      args: [BigInt(collateralId || 0), vestingContract, borrowUnits],
+      args: [BigInt(collateralId || 0), effectiveVestingContract, borrowUnits],
       gas: 1_000_000n
     });
   };
@@ -389,6 +400,65 @@ export default function BorrowActions({
       {borrowDisabledReason && (
         <div className="muted">{borrowDisabledReason}</div>
       )}
+      <div className="form-field import-protocol-section">
+        <span className="section-subtitle">Collateral source</span>
+        <div className="stack-row" style={{ gap: 8, marginTop: 6 }}>
+          <button
+            type="button"
+            className={`button ghost ${importProtocol === 'manual' ? 'active' : ''}`}
+            onClick={() => setImportProtocol('manual')}
+          >
+            Manual
+          </button>
+          {FEATURE_SABLIER_IMPORT && (
+            <button
+              type="button"
+              className={`button ghost ${importProtocol === 'sablier' ? 'active' : ''}`}
+              onClick={() => setImportProtocol('sablier')}
+            >
+              Import from Sablier v2
+            </button>
+          )}
+        </div>
+        {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
+          <div className="form-grid" style={{ marginTop: 12 }}>
+            <label className="form-field">
+              Lockup contract
+              <input
+                className="form-input"
+                value={sablierLockup}
+                onChange={(e) => setSablierLockup(e.target.value)}
+                placeholder="0x..."
+              />
+            </label>
+            <label className="form-field">
+              Stream ID
+              <input
+                className="form-input"
+                value={sablierStreamId}
+                onChange={(e) => setSablierStreamId(e.target.value)}
+                inputMode="numeric"
+                placeholder="123"
+              />
+            </label>
+            <label className="form-field">
+              Wrapper address
+              <input
+                className="form-input"
+                value={sablierWrapperAddress}
+                onChange={(e) => setSablierWrapperAddress(e.target.value)}
+                placeholder="Paste SablierV2OperatorWrapper address (0x...)"
+              />
+            </label>
+          </div>
+        )}
+        {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            Use a Sablier stream wrapper so we can escrow your claim. Deploy one with{' '}
+            <code>SEED_SABLIER=1 npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia</code> or paste an existing wrapper address.
+          </p>
+        )}
+      </div>
       <div className="form-grid">
         <label className="form-field">
           Collateral ID
@@ -399,15 +469,17 @@ export default function BorrowActions({
             inputMode="numeric"
           />
         </label>
-        <label className="form-field">
-          Vesting Contract
-          <input
-            className="form-input"
-            value={vestingContract}
-            onChange={(event) => setVestingContract(event.target.value)}
-            placeholder="0x..."
-          />
-        </label>
+        {(importProtocol === 'manual' || !FEATURE_SABLIER_IMPORT) && (
+          <label className="form-field">
+            Vesting Contract
+            <input
+              className="form-input"
+              value={vestingContract}
+              onChange={(event) => setVestingContract(event.target.value)}
+              placeholder="0x..."
+            />
+          </label>
+        )}
         <label className="form-field">
           Borrow Amount (USDC)
           <input
