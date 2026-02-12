@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChainId } from 'wagmi';
-import {
-  spotlightContracts,
-  upcomingVestings
-} from '../../data/spotlightContracts.js';
+import { spotlightContracts } from '../../data/spotlightContracts.js';
 import {
   fetchSolanaUnmappedMints,
   fetchVestedContracts,
   fetchVestedSnapshots
 } from '../../utils/api.js';
 
-const NICHES = ['All', 'DeSci', 'DePIN', 'AI', 'AGI', 'DeSoc', 'DeFi'];
+const NICHES = ['All', 'EVM', 'Solana'];
 const GECKO_TERMINAL_BASE = 'https://api.geckoterminal.com/api/v2';
 const GECKO_NETWORKS = {
   1: 'eth',
@@ -227,9 +224,52 @@ export default function SpotlightVestedContracts() {
 
   const enrichedContracts = useMemo(() => {
     if (!onChainContracts.length) {
-      return spotlightContracts;
+      return [];
     }
-    return spotlightContracts.map((item) => {
+    const baseItems = spotlightContracts.length
+      ? spotlightContracts
+      : onChainContracts.map((contract) => ({
+          id: `onchain-${contract.loanId}`,
+          niche: contract.chain === 'solana' ? 'Solana' : 'EVM',
+          project: contract.tokenSymbol || `Loan ${contract.loanId}`,
+          token: contract.tokenSymbol || (contract.token ? `${contract.token.slice(0, 6)}…` : '--'),
+          tokenAddress: contract.token || '',
+          stage: contract.active ? 'Live vesting' : 'Inactive',
+          vestingDate: contract.unlockTime
+            ? new Date(contract.unlockTime * 1000).toISOString()
+            : null,
+          riskRating: '--',
+          rationale: 'On-chain vested contract.',
+          metrics: {
+            vestingSizeUsd: Number(contract.pv || 0),
+            liquidityUsd: 0,
+            daysToUnlock: contract.daysToUnlock ?? 0,
+            historicalUnlocks: 0
+          },
+          tokenomics: { supply: '--', float: '--', fdv: '--' },
+          evidence: contract.evidence || {
+            escrowTx: '',
+            wallet: '',
+            tokenomics: '',
+            token: ''
+          }
+        }));
+
+    if (!spotlightContracts.length) {
+      return baseItems.map((item) => {
+        const liquidityData = item.tokenAddress ? liquidityByToken[item.tokenAddress] : null;
+        return {
+          ...item,
+          metrics: {
+            ...item.metrics,
+            liquidityUsd: liquidityData?.liquidityUsd ?? item.metrics?.liquidityUsd ?? 0,
+            volumeUsd: liquidityData?.volumeUsd ?? 0
+          }
+        };
+      });
+    }
+
+    return baseItems.map((item) => {
       const tokenMatch = onChainContracts.find((contract) => {
         if (item.tokenAddress && contract.token) {
           return contract.token.toLowerCase() === item.tokenAddress.toLowerCase();
@@ -240,9 +280,7 @@ export default function SpotlightVestedContracts() {
         return false;
       });
 
-      if (!tokenMatch) {
-        return item;
-      }
+      if (!tokenMatch) return item;
 
       const resolvedToken = item.tokenAddress || tokenMatch.token;
       const liquidityData = resolvedToken ? liquidityByToken[resolvedToken] : null;
@@ -336,10 +374,7 @@ export default function SpotlightVestedContracts() {
       }));
   }, [onChainContracts]);
 
-  const upcomingCombined = useMemo(
-    () => [...upcomingOnChain, ...upcomingVestings],
-    [upcomingOnChain]
-  );
+  const upcomingCombined = useMemo(() => upcomingOnChain, [upcomingOnChain]);
 
   return (
     <div className="stack brand-spotlight-wrap">

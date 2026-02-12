@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import RepaySlider from '../components/repay/RepaySlider.jsx';
 import RepayActions from '../components/repay/RepayActions.jsx';
-import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
+import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
@@ -23,9 +23,7 @@ export default function Repay() {
           setScheduleError('');
         }
       } catch (error) {
-        if (active) {
-          setScheduleError(error?.message || 'Failed to load schedule.');
-        }
+        if (active) setScheduleError(error?.message || 'Failed to load.');
       }
     };
     load();
@@ -37,52 +35,29 @@ export default function Repay() {
   }, []);
 
   const handleDownload = () => {
-    apiDownload('/api/exports/repay-schedule', 'vestra-repayment-schedule.csv');
+    apiDownload('/api/exports/repay-schedule', 'vestra-repay-schedule.csv');
   };
+
   const holoFallback = (
     <div className="holo-card">
-      <div className="loading-row">
-        <div className="spinner" />
-      </div>
+      <div className="loading-row"><div className="spinner" /></div>
     </div>
   );
 
   return (
-    <div className="stack">
+    <motion.div
+      className="stack page-minimal"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35 }}
+    >
       <div className="page-header">
         <h1 className="page-title holo-glow">Repay</h1>
-        <div className="page-subtitle">
-          Reduce debt early, unlock collateral, or settle at unlock.
-        </div>
+        <p className="page-subtitle">Reduce debt or settle at unlock.</p>
       </div>
-      <div className="grid-2 essentials-row">
-        <EssentialsPanel />
-        <PageIllustration variant="repay" />
-      </div>
-      <div className="stat-row">
-        <div className="stat-card">
-          <div className="stat-label">Outstanding Debt</div>
-          <div className="stat-value">$42,120</div>
-          <div className="stat-delta">Across 2 loans</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Next Payment</div>
-          <div className="stat-value">May 21</div>
-          <div className="stat-delta">Auto-settle enabled</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Health Factor</div>
-          <div className="stat-value">1.68</div>
-          <div className="stat-delta">Monitor weekly</div>
-        </div>
-      </div>
-      <div className="holo-card">
-        <h3 className="holo-title">Testnet Notice</h3>
-        <div className="muted">
-          Repayments are simulated against testnet contracts only.
-        </div>
-      </div>
+
       <FundWallet mode="repay" onStatusChange={setFundingStatus} />
+
       <div className="grid-2">
         <Suspense fallback={holoFallback}>
           <DebtClock />
@@ -90,33 +65,26 @@ export default function Repay() {
         <RepaySlider />
       </div>
       <RepayActions fundingStatus={fundingStatus} />
-      <div className="holo-card">
+
+      <AdvancedSection title="Schedule">
         <div className="section-head">
-          <div>
-            <h3 className="section-title">Repayment Schedule</h3>
-            <div className="section-subtitle">Upcoming obligations</div>
-          </div>
+          <h4 className="section-title">Repayment schedule</h4>
           <button className="button ghost" type="button" onClick={handleDownload}>
             Download
           </button>
         </div>
         {scheduleError ? (
-          <div className="muted">{scheduleError}</div>
+          <p className="muted">{scheduleError}</p>
         ) : schedule.length ? (
           <div className="data-table">
             <div className="table-row header">
               <div>Loan</div>
-              <div>Asset</div>
               <div>Due</div>
               <div>Status</div>
             </div>
             {schedule.map((row) => (
               <div key={row.loanId} className="table-row">
                 <div>#{row.loanId}</div>
-                <div className="asset-cell">
-                  <span className="asset-icon usdc" />
-                  USDC
-                </div>
                 <div>
                   {row.unlockTime
                     ? new Date(row.unlockTime * 1000).toLocaleDateString()
@@ -127,9 +95,9 @@ export default function Repay() {
             ))}
           </div>
         ) : (
-          <div className="muted">No scheduled repayments yet.</div>
+          <p className="muted">No scheduled repayments.</p>
         )}
-      </div>
-    </div>
+      </AdvancedSection>
+    </motion.div>
   );
 }

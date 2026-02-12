@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useReadContracts } from 'wagmi';
-import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
 import { apiDownload, fetchActivity } from '../utils/api.js';
+import AdvancedSection from '../components/common/AdvancedSection.jsx';
 
 const MAX_POSITIONS = 12;
 const MAX_ACTIVITY = 8;
@@ -23,6 +23,10 @@ export default function Portfolio() {
   const [positionSort, setPositionSort] = useState('unlock-asc');
   const [showInactive, setShowInactive] = useState(false);
 
+  const handleExportActivity = () => {
+    apiDownload('/api/exports/activity', 'vestra-activity.csv');
+  };
+
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -34,24 +38,14 @@ export default function Portfolio() {
           setActivityError('');
         }
       } catch (error) {
-        if (active) {
-          setActivityError(error?.message || 'Failed to load activity.');
-        }
+        if (active) setActivityError(error?.message || 'Failed to load.');
       } finally {
-        if (active) {
-          setIsLoadingActivity(false);
-        }
+        if (active) setIsLoadingActivity(false);
       }
     };
     load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
-
-  const handleExportActivity = () => {
-    apiDownload('/api/exports/activity', 'vestra-activity.csv');
-  };
 
   const { data: loanCount } = useReadContract({
     address: loanManager,
@@ -68,15 +62,9 @@ export default function Portfolio() {
     query: { enabled: Boolean(usdc && address) }
   });
 
-  const formattedBalance = useMemo(
-    () => formatValue(usdcBalance, 6),
-    [usdcBalance]
-  );
-
+  const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
   const recentIds = useMemo(() => {
-    if (!loanCount || loanCount === 0n) {
-      return [];
-    }
+    if (!loanCount || loanCount === 0n) return [];
     const count = Number(loanCount);
     const start = Math.max(count - MAX_POSITIONS, 0);
     return Array.from({ length: count - start }, (_, idx) => BigInt(start + idx));
@@ -95,234 +83,163 @@ export default function Portfolio() {
   const positions = useMemo(() => {
     if (!loanReads) return [];
     return loanReads
-      .filter((read) => read.status === 'success')
-      .map((read, index) => {
+      .filter((r) => r.status === 'success')
+      .map((read, i) => {
         const loan = read.result;
-        const unlockTimestamp = loan ? Number(loan[4]) : 0;
+        const unlockTs = loan ? Number(loan[4]) : 0;
         return {
-          id: `Loan-${recentIds[index]?.toString() || index}`,
-          token: 'USDC',
-          quantity: loan ? loan[1].toString() : '0',
+          id: `Loan-${recentIds[i]?.toString() || i}`,
           principal: loan ? loan[1].toString() : '0',
           interest: loan ? loan[2].toString() : '0',
-          ltv: loan ? `${(Number(loan[2]) / 100).toFixed(2)}%` : '--',
-          unlock: unlockTimestamp ? new Date(unlockTimestamp * 1000).toLocaleDateString() : '--',
-          unlockTimestamp,
+          unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
+          unlockTimestamp: unlockTs,
           active: Boolean(loan?.[5])
         };
       });
   }, [loanReads, recentIds]);
 
-  const nextUnlock = useMemo(() => {
-    if (!positions.length) return '--';
-    return positions
-      .map((pos) => pos.unlockTimestamp)
-      .filter((value) => value)
-      .sort((a, b) => a - b)[0];
-  }, [positions]);
-
-  const formattedNextUnlock = useMemo(() => {
-    if (!nextUnlock) return '--';
-    return new Date(nextUnlock * 1000).toLocaleDateString();
-  }, [nextUnlock]);
-
-  const totals = useMemo(() => {
-    const sum = (value) => (Number.isFinite(value) ? value : 0);
-    return positions.reduce(
-      (acc, pos) => {
-        const principal = Number(pos.principal || 0);
-        const interest = Number(pos.interest || 0);
-        return {
-          principal: acc.principal + sum(principal),
-          interest: acc.interest + sum(interest),
-          activeCount: acc.activeCount + (pos.active ? 1 : 0)
-        };
-      },
-      { principal: 0, interest: 0, activeCount: 0 }
-    );
-  }, [positions]);
-
   const visiblePositions = useMemo(() => {
-    const normalized = positionQuery.trim().toLowerCase();
-    const filtered = positions.filter((pos) => {
-      if (!showInactive && !pos.active) return false;
-      if (!normalized) return true;
-      return [
-        pos.id,
-        pos.token,
-        pos.quantity,
-        pos.ltv
-      ]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(normalized));
+    const q = positionQuery.trim().toLowerCase();
+    let list = positions.filter((p) => {
+      if (!showInactive && !p.active) return false;
+      if (!q) return true;
+      return [p.id, p.principal].some((v) => String(v).toLowerCase().includes(q));
     });
-
-    const sorted = [...filtered];
-    sorted.sort((left, right) => {
-      if (positionSort === 'amount-desc') {
-        return Number(right.quantity || 0) - Number(left.quantity || 0);
-      }
-      if (positionSort === 'amount-asc') {
-        return Number(left.quantity || 0) - Number(right.quantity || 0);
-      }
-      if (positionSort === 'unlock-desc') {
-        return Number(right.unlockTimestamp || 0) - Number(left.unlockTimestamp || 0);
-      }
-      return Number(left.unlockTimestamp || 0) - Number(right.unlockTimestamp || 0);
+    list = [...list].sort((a, b) => {
+      if (positionSort === 'amount-desc') return Number(b.principal || 0) - Number(a.principal || 0);
+      if (positionSort === 'amount-asc') return Number(a.principal || 0) - Number(b.principal || 0);
+      if (positionSort === 'unlock-desc') return (b.unlockTimestamp || 0) - (a.unlockTimestamp || 0);
+      return (a.unlockTimestamp || 0) - (b.unlockTimestamp || 0);
     });
-    return sorted;
+    return list;
   }, [positions, positionQuery, positionSort, showInactive]);
 
-  const activityRows = useMemo(() => {
-    if (!activity.length) return [];
-    return activity.map((item) => ({
-      event: item.type === 'LoanCreated'
-        ? 'Borrowed'
-        : item.type === 'LoanRepaid'
-          ? 'Repayment'
-          : 'Settlement',
-      asset: 'USDC',
-      amount: item.amount ? item.amount : '--',
-      status: item.type === 'LoanSettled' && item.defaulted ? 'Defaulted' : 'Confirmed'
-    }));
-  }, [activity]);
+  const activityRows = useMemo(
+    () =>
+      activity.map((item) => ({
+        event: item.type === 'LoanCreated' ? 'Borrowed' : item.type === 'LoanRepaid' ? 'Repay' : 'Settlement',
+        amount: item.amount || '--',
+        status: item.type === 'LoanSettled' && item.defaulted ? 'Defaulted' : 'Confirmed'
+      })),
+    [activity]
+  );
+
+  const totals = useMemo(
+    () =>
+      positions.reduce(
+        (acc, p) => ({
+          principal: acc.principal + Number(p.principal || 0),
+          interest: acc.interest + Number(p.interest || 0),
+          activeCount: acc.activeCount + (p.active ? 1 : 0)
+        }),
+        { principal: 0, interest: 0, activeCount: 0 }
+      ),
+    [positions]
+  );
+
+  const nextUnlock = useMemo(() => {
+    const ts = positions.map((p) => p.unlockTimestamp).filter(Boolean).sort((a, b) => a - b)[0];
+    return ts ? new Date(ts * 1000).toLocaleDateString() : '--';
+  }, [positions]);
 
   return (
-    <div className="stack">
+    <motion.div
+      className="stack page-minimal"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35 }}
+    >
       <div className="page-header">
         <h1 className="page-title holo-glow">Portfolio</h1>
-        <div className="page-subtitle">
-          Your balances, positions, and activity in one place.
-        </div>
+        <p className="page-subtitle">Balances and positions.</p>
       </div>
-      <div className="grid-2 essentials-row">
-        <EssentialsPanel />
-        <PageIllustration variant="portfolio" />
-      </div>
-      <div className="stat-row">
-        <div className="stat-card">
-          <div className="stat-label">Active Loans</div>
+
+      <div className="stat-row portfolio-stats">
+        <div className="stat-card stat-card-minimal">
           <div className="stat-value">{totals.activeCount}</div>
-          <div className="stat-delta">Active positions</div>
+          <div className="stat-label">Loans</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">USDC Balance</div>
+        <div className="stat-card stat-card-minimal">
           <div className="stat-value">{formattedBalance}</div>
-          <div className="stat-delta">Wallet balance</div>
+          <div className="stat-label">USDC</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Next Unlock</div>
-          <div className="stat-value">{formattedNextUnlock}</div>
-          <div className="stat-delta">Earliest vest</div>
-        </div>
-      </div>
-      <div className="grid-2">
-        <div className="holo-card">
-          <h3 className="holo-title">Account</h3>
-          <div className="stack">
-            <div>Wallet: {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '--'}</div>
-            <div>Network ID: {chainId || '--'}</div>
-          </div>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">Next Actions</h3>
-          <div className="muted">Start a flow when you are ready.</div>
-          <div className="stack">
-            <button className="button" onClick={() => navigate('/borrow')}>
-              Borrow
-            </button>
-            <button className="button ghost" onClick={() => navigate('/repay')}>
-              Repay
-            </button>
-          </div>
+        <div className="stat-card stat-card-minimal">
+          <div className="stat-value">{nextUnlock}</div>
+          <div className="stat-label">Next unlock</div>
         </div>
       </div>
+
+      <div className="dashboard-hero-actions">
+        <button className="button" onClick={() => navigate('/borrow')}>
+          Borrow
+        </button>
+        <button className="button ghost" onClick={() => navigate('/repay')}>
+          Repay
+        </button>
+      </div>
+
       <div className="holo-card">
-        <div className="section-head">
-          <div>
-            <h3 className="section-title">Positions</h3>
-            <div className="section-subtitle">Most recent loans and unlocks</div>
-          </div>
-          <div className="stack-row">
-            <label className="form-field">
-              <input
-                className="form-input"
-                placeholder="Search positions"
-                value={positionQuery}
-                onChange={(event) => setPositionQuery(event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              <select
-                className="form-input"
-                value={positionSort}
-                onChange={(event) => setPositionSort(event.target.value)}
-              >
-                <option value="unlock-asc">Unlock soonest</option>
-                <option value="unlock-desc">Unlock latest</option>
-                <option value="amount-desc">Largest amount</option>
-                <option value="amount-asc">Smallest amount</option>
-              </select>
-            </label>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setShowInactive((prev) => !prev)}
-            >
-              {showInactive ? 'Hide inactive' : 'Show inactive'}
-            </button>
-          </div>
-        </div>
-        <div className="grid-2">
-          <div className="pill">Total principal: {totals.principal.toLocaleString()}</div>
-          <div className="pill">Total interest: {totals.interest.toLocaleString()}</div>
-        </div>
+        <h3 className="section-title">Positions</h3>
         {visiblePositions.length ? (
           <div className="data-table">
             <div className="table-row header">
               <div>Loan</div>
-              <div>Amount</div>
-              <div>Interest</div>
+              <div>Principal</div>
               <div>Unlock</div>
               <div>Status</div>
             </div>
-            {visiblePositions.map((position) => (
-              <div key={position.id} className="table-row">
-                <div>{position.id}</div>
-                <div>{position.quantity}</div>
-                <div>{position.interest}</div>
-                <div>{position.unlock}</div>
+            {visiblePositions.map((pos) => (
+              <div key={pos.id} className="table-row">
+                <div>{pos.id}</div>
+                <div>{pos.principal}</div>
+                <div>{pos.unlock}</div>
                 <div>
-                  <span className={`tag ${position.active ? 'success' : ''}`}>
-                    {position.active ? 'Active' : 'Inactive'}
+                  <span className={`tag ${pos.active ? 'success' : ''}`}>
+                    {pos.active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="muted">
-            {showInactive ? 'No positions found.' : 'No active positions yet.'}
-          </div>
+          <p className="muted">{showInactive ? 'No positions.' : 'No active positions.'}</p>
         )}
       </div>
-      <div className="holo-card">
-        <div className="section-head">
-          <div>
-            <h3 className="section-title">Recent Activity</h3>
-            <div className="section-subtitle">Latest vault and loan events</div>
-          </div>
-          <div className="stack-row">
-            <button
-              className="button ghost"
-              type="button"
-              onClick={handleExportActivity}
+
+      <AdvancedSection title="Filters & activity">
+        <div className="advanced-block">
+          <div className="stack-row" style={{ gap: 8, marginBottom: 12 }}>
+            <input
+              className="form-input"
+              placeholder="Search"
+              value={positionQuery}
+              onChange={(e) => setPositionQuery(e.target.value)}
+            />
+            <select
+              className="form-input"
+              value={positionSort}
+              onChange={(e) => setPositionSort(e.target.value)}
             >
+              <option value="unlock-asc">Unlock soonest</option>
+              <option value="unlock-desc">Unlock latest</option>
+              <option value="amount-desc">Largest</option>
+              <option value="amount-asc">Smallest</option>
+            </select>
+            <button className="button ghost" type="button" onClick={() => setShowInactive((p) => !p)}>
+              {showInactive ? 'Hide inactive' : 'Show inactive'}
+            </button>
+          </div>
+        </div>
+        <div className="advanced-block">
+          <h4 className="section-title">Recent activity</h4>
+          <div className="stack-row" style={{ gap: 8, marginBottom: 12 }}>
+            <button className="button ghost" type="button" onClick={handleExportActivity}>
               Export
             </button>
             <button
               className="button ghost"
               type="button"
+              disabled={isLoadingActivity}
               onClick={() => {
                 setIsLoadingActivity(true);
                 fetchActivity()
@@ -330,47 +247,41 @@ export default function Portfolio() {
                     setActivity(items.slice(0, MAX_ACTIVITY));
                     setActivityError('');
                   })
-                  .catch((error) => {
-                    setActivityError(error?.message || 'Failed to load activity.');
-                  })
-                  .finally(() => {
-                    setIsLoadingActivity(false);
-                  });
+                  .catch((e) => setActivityError(e?.message || 'Failed'))
+                  .finally(() => setIsLoadingActivity(false));
               }}
-              disabled={isLoadingActivity}
             >
-              {isLoadingActivity ? 'Refreshing...' : 'Refresh'}
+              {isLoadingActivity ? '…' : 'Refresh'}
             </button>
           </div>
-        </div>
-        {activityError ? (
-          <div className="muted">{activityError}</div>
-        ) : isLoadingActivity ? (
-          <div className="muted">Loading activity…</div>
-        ) : activityRows.length ? (
-          <div className="data-table">
-            <div className="table-row header">
-              <div>Event</div>
-              <div>Asset</div>
-              <div>Amount</div>
-              <div>Status</div>
-            </div>
-            {activityRows.map((row, index) => (
-              <div key={`${row.event}-${index}`} className="table-row">
-                <div>{row.event}</div>
-                <div className="asset-cell">
-                  <span className="asset-icon usdc" />
-                  {row.asset}
-                </div>
-                <div>{row.amount}</div>
-                <div className="tag success">{row.status}</div>
+          {activityError ? (
+            <p className="muted">{activityError}</p>
+          ) : activityRows.length ? (
+            <div className="data-table">
+              <div className="table-row header">
+                <div>Event</div>
+                <div>Amount</div>
+                <div>Status</div>
               </div>
-            ))}
+              {activityRows.map((row, i) => (
+                <div key={i} className="table-row">
+                  <div>{row.event}</div>
+                  <div>{row.amount}</div>
+                  <div className="tag success">{row.status}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No recent activity.</p>
+          )}
+        </div>
+        <div className="advanced-block">
+          <div className="card-list">
+            <div className="pill">Principal: {totals.principal.toLocaleString()}</div>
+            <div className="pill">Interest: {totals.interest.toLocaleString()}</div>
           </div>
-        ) : (
-          <div className="muted">No recent activity yet.</div>
-        )}
-      </div>
-    </div>
+        </div>
+      </AdvancedSection>
+    </motion.div>
   );
 }

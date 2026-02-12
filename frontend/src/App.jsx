@@ -52,8 +52,6 @@ function AppShell() {
   const solanaNetwork =
     SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
     SOLANA_NETWORKS[0];
-  const publicDocsUrl =
-    import.meta.env.VITE_PUBLIC_DOCS_URL || 'http://localhost:3000';
 
   return (
     <div className="app-shell">
@@ -70,47 +68,20 @@ function AppShell() {
             </div>
           </div>
           <div className="header-nav">
-            <div className="header-search">
-              <span className="search-icon" aria-hidden="true">
-                ⌕
-              </span>
-              <input
-                className="search-input"
-                placeholder="Search vaults, loans, assets"
-                aria-label="Search"
-              />
-            </div>
             <div className="header-actions">
-              <a
-                className="button ghost"
-                href={publicDocsUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Docs site
-              </a>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/docs')}
-              >
-                In-app docs
-              </button>
-              <button
-                className="button ghost tour-button"
-                onClick={() =>
-                  window.dispatchEvent(new Event('crdt-onboarding-reset'))
-                }
-                type="button"
-              >
-                Tour
-              </button>
               <button
                 className="button ghost"
                 type="button"
                 onClick={() => navigate('/dashboard')}
               >
                 Dashboard
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/borrow')}
+              >
+                Borrow
               </button>
               <button
                 className="button ghost"
@@ -122,16 +93,9 @@ function AppShell() {
               <button
                 className="button"
                 type="button"
-                onClick={() => navigate('/borrow')}
-              >
-                Borrow now
-              </button>
-              <button
-                className="button"
-                type="button"
                 onClick={() => setWalletModalOpen(true)}
               >
-                Connect Wallet
+                Connect
               </button>
             </div>
           </div>
@@ -178,7 +142,7 @@ function AppShell() {
       {!isLanding && <AIBubble />}
       {!isLanding && <TabBar />}
       <footer className="app-footer">
-        Testnet MVP — VestraProtocol.io (website not ready yet) — Contact: 0xkenichi@gmail.com — Not financial advice. Use at own risk. VESTRA is experimental. No real funds involved.
+        Testnet • VestraProtocol.io • Not financial advice
       </footer>
       {(isConnecting || isReconnecting) && (
         <div className="app-splash" role="status" aria-live="polite">
