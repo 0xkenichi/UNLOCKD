@@ -9,7 +9,7 @@ import {
 } from '../../utils/chains.js';
 import { getContractAddress } from '../../utils/contracts.js';
 import { useOnchainSession } from '../../utils/onchainSession.js';
-import SolanaWalletCard from '../solana/SolanaWalletCard.jsx';
+import LazySolanaWalletCard from '../solana/LazySolanaWalletCard.jsx';
 
 const supportedChains = [...EVM_MAINNET_CHAINS, ...EVM_TESTNET_CHAINS];
 
@@ -99,7 +99,7 @@ export default function ChainPrompt() {
           <div className="muted" style={{ marginTop: '12px' }}>
             Solana supports vesting discovery and risk scoring; loans settle on Base in this MVP.
           </div>
-          <SolanaWalletCard />
+          <LazySolanaWalletCard />
         </>
       )}
     </div>

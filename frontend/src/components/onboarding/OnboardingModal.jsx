@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 import {
   ALL_EVM_CHAINS,
@@ -8,7 +7,8 @@ import {
 } from '../../utils/chains.js';
 import { useOnchainSession } from '../../utils/onchainSession.js';
 import { trackEvent } from '../../utils/analytics.js';
-import SolanaWalletCard from '../solana/SolanaWalletCard.jsx';
+import LazySolanaWalletCard from '../solana/LazySolanaWalletCard.jsx';
+import LazyEvmConnectButtons from '../common/LazyEvmConnectButtons.jsx';
 import OnrampEmbed from '../common/OnrampEmbed.jsx';
 import BridgeCard from '../common/BridgeCard.jsx';
 
@@ -64,7 +64,7 @@ export default function OnboardingModal() {
         title: 'Connect & choose chain',
         subtitle: 'Pick EVM or Solana, then connect your wallet.',
         content:
-          'Smart accounts with passkeys are supported via Coinbase Smart Wallet.',
+          'Use a browser wallet to connect your EVM address.',
         action: 'connect'
       },
       {
@@ -167,36 +167,7 @@ export default function OnboardingModal() {
                     {address ? 'Connected' : 'Not connected'}
                   </span>
                 </div>
-                <div className="wallet-grid">
-                  <ConnectButton.Custom>
-                    {({ openConnectModal }) => (
-                      <button
-                        className="button"
-                        type="button"
-                        onClick={() => {
-                          trackEvent('evm_connect_open', { variant: 'passkey' });
-                          openConnectModal();
-                        }}
-                      >
-                        Passkey Smart Wallet
-                      </button>
-                    )}
-                  </ConnectButton.Custom>
-                  <ConnectButton.Custom>
-                    {({ openConnectModal }) => (
-                      <button
-                        className="button ghost"
-                        type="button"
-                        onClick={() => {
-                          trackEvent('evm_connect_open', { variant: 'wallet' });
-                          openConnectModal();
-                        }}
-                      >
-                        Connect EVM Wallet
-                      </button>
-                    )}
-                  </ConnectButton.Custom>
-                </div>
+                <LazyEvmConnectButtons />
                 <div className="chain-picker">
                   {EVM_MAINNET_CHAINS.map((chain) => (
                     <button
@@ -211,7 +182,7 @@ export default function OnboardingModal() {
                 </div>
               </div>
             ) : (
-              <SolanaWalletCard />
+              <LazySolanaWalletCard />
             )}
           </div>
         )}

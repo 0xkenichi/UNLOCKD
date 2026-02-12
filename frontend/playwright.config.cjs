@@ -11,9 +11,9 @@ module.exports = defineConfig({
     video: 'on'
   },
   webServer: {
-    command: 'npm run preview -- --host 127.0.0.1 --port 5176',
+    command: 'npm run dev -- --host 127.0.0.1 --port 5176 --strictPort',
     url: 'http://127.0.0.1:5176',
-    reuseExistingServer: false,
-    timeout: 120 * 1000
+    reuseExistingServer: true,
+    timeout: 180 * 1000
   }
 });

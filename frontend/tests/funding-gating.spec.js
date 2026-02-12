@@ -13,12 +13,14 @@ test('fund wallet card shows funding rows', async ({ page }) => {
   await expect(page.getByText('USDC', { exact: true })).toBeVisible();
 });
 
-test('chain prompt appears when not connected', async ({ page }) => {
+test('network picker appears when not connected', async ({ page }) => {
   await page.goto('/dashboard');
+  const networkCard = page.locator('.immersive-network-card');
+  await expect(networkCard).toBeVisible();
+  await expect(page.getByText('Connected: --')).toBeVisible();
+  await networkCard.click();
+  await expect(page.locator('.immersive-network-picker')).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Network Switch' })
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Switch to Base', exact: true })
+    page.getByRole('button', { name: 'Sepolia', exact: true })
   ).toBeVisible();
 });

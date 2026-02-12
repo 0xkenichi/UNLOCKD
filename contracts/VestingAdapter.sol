@@ -35,6 +35,9 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     mapping(uint256 => Collateral) public collaterals;
     mapping(uint256 => address) public vestingContracts;
 
+    bool public useWhitelist;
+    mapping(address => bool) public allowedVestingContracts;
+
     constructor() Ownable(msg.sender) {}
 
     function setLoanManager(address manager) external onlyOwner {
@@ -45,6 +48,15 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     function setAuthorizedCaller(address caller, bool allowed) external onlyOwner {
         require(caller != address(0), "caller=0");
         authorizedCallers[caller] = allowed;
+    }
+
+    function setUseWhitelist(bool use) external onlyOwner {
+        useWhitelist = use;
+    }
+
+    function setAllowedVestingContract(address vestingContract, bool allowed) external onlyOwner {
+        require(vestingContract != address(0), "vesting=0");
+        allowedVestingContracts[vestingContract] = allowed;
     }
 
     function escrow(
@@ -60,6 +72,7 @@ contract VestingAdapter is IERC721Receiver, Ownable {
             "not authorized"
         );
         require(vestingContract.code.length > 0, "not a contract");
+        require(!useWhitelist || allowedVestingContracts[vestingContract], "vesting not allowed");
         require(collaterals[collateralId].vestingContract == address(0), "id used");
 
         IVestingWalletToken vesting = IVestingWalletToken(vestingContract);

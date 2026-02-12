@@ -1,56 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useChainId, useReadContract } from 'wagmi';
 import {
   getContractAddress,
   valuationEngineAbi
 } from '../../utils/contracts.js';
-import { formatValue, toUnits } from '../../utils/format.js';
+import { formatValue } from '../../utils/format.js';
 
 const DEFAULT_TOKEN = '0x0000000000000000000000000000000000000000';
-
-const formatLocalDateTime = (timestampSeconds) => {
-  if (!timestampSeconds) return '';
-  const date = new Date(timestampSeconds * 1000);
-  if (Number.isNaN(date.getTime())) return '';
-  const pad = (value) => String(value).padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-};
 
 export default function ValuationForm({ onUpdate, prefill }) {
   const chainId = useChainId();
   const valuationEngine = getContractAddress(chainId, 'valuationEngine');
-  const [quantity, setQuantity] = useState('1000');
-  const [tokenDecimals, setTokenDecimals] = useState('18');
-  const [unlockDate, setUnlockDate] = useState('');
-  const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
-
-  const unlockTime = useMemo(() => {
-    if (!unlockDate) return null;
-    const timestamp = Math.floor(new Date(unlockDate).getTime() / 1000);
-    return Number.isNaN(timestamp) ? null : timestamp;
-  }, [unlockDate]);
-
-  const quantityUnits = useMemo(() => {
-    const decimals = Number(tokenDecimals || 18);
-    return toUnits(quantity, decimals);
-  }, [quantity, tokenDecimals]);
+  const tokenAddress = prefill?.tokenAddress || DEFAULT_TOKEN;
+  const tokenDecimals = Number(prefill?.tokenDecimals ?? 18);
+  const quantityUnits = prefill?.quantity ? BigInt(prefill.quantity) : 0n;
+  const unlockTime = prefill?.unlockTime ? Number(prefill.unlockTime) : 0;
+  const hasCollateralInputs =
+    tokenAddress !== DEFAULT_TOKEN &&
+    quantityUnits > 0n &&
+    unlockTime > 0;
 
   const { data: valuationData } = useReadContract({
     address: valuationEngine,
     abi: valuationEngineAbi,
     functionName: 'computeDPV',
     args: [
-      quantityUnits || 0n,
-      tokenAddress || DEFAULT_TOKEN,
-      unlockTime || 0
+      quantityUnits,
+      tokenAddress,
+      unlockTime
     ],
     query: {
-      enabled: Boolean(valuationEngine && quantityUnits && unlockTime)
+      enabled: Boolean(valuationEngine && hasCollateralInputs)
     }
   });
 
@@ -65,36 +45,16 @@ export default function ValuationForm({ onUpdate, prefill }) {
     }
   }, [pv, ltvBps, onUpdate]);
 
-  useEffect(() => {
-    if (!prefill) return;
-    const nextTokenDecimals =
-      prefill.tokenDecimals !== undefined && prefill.tokenDecimals !== null
-        ? String(prefill.tokenDecimals)
-        : tokenDecimals;
-    const quantityDecimals = Number(nextTokenDecimals || 18);
-    const nextQuantity =
-      prefill.quantity !== undefined && prefill.quantity !== null
-        ? formatValue(prefill.quantity, quantityDecimals)
-        : '';
-    const nextTokenAddress = prefill.tokenAddress || tokenAddress;
-    const nextUnlockDate =
-      prefill.unlockTime !== undefined && prefill.unlockTime !== null
-        ? formatLocalDateTime(Number(prefill.unlockTime))
-        : '';
+  const quantityDisplay = useMemo(() => {
+    if (!hasCollateralInputs) return '--';
+    return formatValue(quantityUnits, tokenDecimals);
+  }, [hasCollateralInputs, quantityUnits, tokenDecimals]);
 
-    if (nextQuantity && nextQuantity !== quantity) {
-      setQuantity(nextQuantity);
-    }
-    if (nextTokenDecimals && nextTokenDecimals !== tokenDecimals) {
-      setTokenDecimals(nextTokenDecimals);
-    }
-    if (nextTokenAddress && nextTokenAddress !== tokenAddress) {
-      setTokenAddress(nextTokenAddress);
-    }
-    if (nextUnlockDate && nextUnlockDate !== unlockDate) {
-      setUnlockDate(nextUnlockDate);
-    }
-  }, [prefill, quantity, tokenAddress, tokenDecimals, unlockDate]);
+  const unlockLabel = useMemo(() => {
+    if (!unlockTime) return '--';
+    const date = new Date(unlockTime * 1000);
+    return Number.isNaN(date.getTime()) ? '--' : date.toLocaleString();
+  }, [unlockTime]);
 
   return (
     <div className="holo-card">
@@ -102,47 +62,29 @@ export default function ValuationForm({ onUpdate, prefill }) {
         <div>
           <h3 className="section-title">Valuation Engine</h3>
           <div className="section-subtitle">
-            Live DPV + LTV from on-chain risk model.
+            Live DPV + LTV from on-chain collateral details.
           </div>
         </div>
         <span className="chip">DPV</span>
       </div>
-      <div className="form-grid">
-        <label className="form-field">
-          Quantity
-          <input
-            className="form-input"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            inputMode="decimal"
-          />
-        </label>
-        <label className="form-field">
-          Token Decimals
-          <input
-            className="form-input"
-            value={tokenDecimals}
-            onChange={(event) => setTokenDecimals(event.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-        <label className="form-field">
-          Unlock Date
-          <input
-            className="form-input"
-            type="datetime-local"
-            value={unlockDate}
-            onChange={(event) => setUnlockDate(event.target.value)}
-          />
-        </label>
-        <label className="form-field">
-          Token Address
-          <input
-            className="form-input"
-            value={tokenAddress}
-            onChange={(event) => setTokenAddress(event.target.value)}
-          />
-        </label>
+      {!hasCollateralInputs && (
+        <div className="muted" style={{ marginBottom: 16 }}>
+          Enter collateral ID + vesting contract in Borrow Actions to load real on-chain valuation inputs.
+        </div>
+      )}
+      <div className="data-table" style={{ marginBottom: 16 }}>
+        <div className="table-row header">
+          <div>Collateral ID</div>
+          <div>Token</div>
+          <div>Quantity</div>
+          <div>Unlock</div>
+        </div>
+        <div className="table-row">
+          <div>{prefill?.collateralId || '--'}</div>
+          <div>{tokenAddress !== DEFAULT_TOKEN ? tokenAddress : '--'}</div>
+          <div>{quantityDisplay}</div>
+          <div>{unlockLabel}</div>
+        </div>
       </div>
       <div className="stat-row">
         <div className="stat-card">

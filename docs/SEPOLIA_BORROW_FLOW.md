@@ -24,19 +24,19 @@ This is a step-by-step guide to test the full borrow flow on Sepolia testnet: co
 6. (Optional) Seed claim-rights wrappers for real standards:
    - `npx hardhat run scripts/vestra-claim-rights-setup.js --network sepolia`
    - Uses wrapper contracts that expose `releaseTo` for settlement.
+7. (Optional) Seed a Sablier v2 stream and wrapper only:
+   - `SEED_SABLIER=1 npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia`
+   - Prints the wrapper address and a collateral ID; use **Import from Sablier v2** in the Borrow UI.
 
 ## Flow: Escrow → Borrow → Repay → Settle
 1. Connect wallet in the frontend (RainbowKit).
-2. Check borrow limit in the UI (or via console):
+2. Choose collateral source: **Manual** (paste any vesting contract) or **Import from Sablier v2** (paste lockup + stream ID + wrapper address).
+3. Check borrow limit in the UI (or via console):
    - Verify the valuation address matches the deployed `ValuationEngine`.
-3. Escrow the vesting position:
-   - Use the frontend if available, or call `adapter.escrow`.
-4. Create a loan:
-   - `loanManager.createLoan(collateralId, vestingAddress, borrowAmount)`
-5. Repay (partial or full):
-   - Approve USDC → call `repayLoan(loanId, amount)`.
-6. Wait for unlock time, then settle:
-   - `loanManager.settleAtUnlock(loanId)`
+4. Escrow the vesting position (frontend or `adapter.escrow`).
+5. Create a loan: `loanManager.createLoan(collateralId, vestingAddress, borrowAmount)`.
+6. Repay (partial or full): approve USDC → `repayLoan(loanId, amount)`.
+7. Wait for unlock time, then settle: `loanManager.settleAtUnlock(loanId)`.
 
 ## Expected Outcomes
 - Full repay → tokens released to borrower.

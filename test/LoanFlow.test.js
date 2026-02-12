@@ -246,4 +246,84 @@ describe("Full MVP Flow", () => {
     expect(ltvHighVol).to.be.greaterThan(0);
     expect(ltvLowVol).to.be.lessThanOrEqual(10_000);
   });
+
+  it("Escrows Sablier v2 wrapper and creates then settles loan", async () => {
+    const { lender, borrower, usdc, valuation, pool, loanManager } =
+      await deployFixture();
+    const poolAddress = await pool.getAddress();
+
+    await usdc.connect(lender).mint(lender.address, 1_000_000e6);
+    await usdc.connect(lender).approve(poolAddress, 500_000e6);
+    await pool.connect(lender).deposit(500_000e6);
+
+    const MockSablierV2Lockup = await ethers.getContractFactory(
+      "MockSablierV2Lockup"
+    );
+    const sablier = await MockSablierV2Lockup.deploy();
+    await sablier.waitForDeployment();
+
+    const allocation = 200_000e6;
+    const usdcAddress = await usdc.getAddress();
+    await usdc.mint(borrower.address, allocation);
+    await usdc.connect(borrower).approve(await sablier.getAddress(), allocation);
+
+    const now = (await ethers.provider.getBlock("latest")).timestamp;
+    const start = now - 15 * ONE_DAY;
+    const end = now + 365 * ONE_DAY;
+    await sablier
+      .connect(borrower)
+      .createStream(
+        borrower.address,
+        usdcAddress,
+        allocation,
+        start,
+        end
+      );
+    const streamId = (await sablier.nextStreamId()) - 1n;
+
+    const SablierV2OperatorWrapper = await ethers.getContractFactory(
+      "SablierV2OperatorWrapper"
+    );
+    const wrapper = await SablierV2OperatorWrapper.deploy(
+      await sablier.getAddress(),
+      streamId,
+      borrower.address
+    );
+    await wrapper.waitForDeployment();
+    await sablier
+      .connect(borrower)
+      .setApproved(streamId, await wrapper.getAddress(), true);
+
+    const priceFeedAddress = await valuation.priceFeed();
+    const priceFeed = await ethers.getContractAt(
+      "MockPriceFeed",
+      priceFeedAddress
+    );
+    await priceFeed.setPrice(1e8);
+
+    const quantity = await wrapper.totalAllocation();
+    const unlockTime = (await wrapper.start()) + (await wrapper.duration());
+    const [pv, ltvBps] = await valuation.computeDPV(
+      quantity,
+      usdcAddress,
+      unlockTime
+    );
+    const borrowAmount = (pv * ltvBps) / 10_000n / 2n;
+
+    const collateralId = 100;
+    await loanManager
+      .connect(borrower)
+      .createLoan(collateralId, await wrapper.getAddress(), borrowAmount);
+
+    const loan = await loanManager.loans(0);
+    expect(loan.borrower).to.equal(borrower.address);
+    expect(loan.active).to.equal(true);
+
+    await ethers.provider.send("evm_increaseTime", [366 * ONE_DAY]);
+    await ethers.provider.send("evm_mine", []);
+
+    await loanManager.settleAtUnlock(0);
+    const settled = await loanManager.loans(0);
+    expect(settled.active).to.equal(false);
+  });
 });

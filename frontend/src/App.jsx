@@ -7,10 +7,10 @@ import {
   useNavigate
 } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
-import { useWallet } from '@solana/wallet-adapter-react';
 import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from './utils/chains.js';
 import { useOnchainSession } from './utils/onchainSession.js';
 import { routeImports } from './routes.js';
+import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import UnifiedWalletModal from './components/common/UnifiedWalletModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
@@ -28,6 +28,7 @@ const Identity = lazy(routeImports.identity);
 const Features = lazy(routeImports.features);
 const Docs = lazy(routeImports.docs);
 const About = lazy(routeImports.about);
+const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
 
 function RouteFallback() {
   return (
@@ -44,15 +45,19 @@ function AppShell() {
   const isImmersiveDashboard = location.pathname === '/dashboard';
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
-  const { isConnecting, isReconnecting } = useAccount();
+  const { address: connectedAddress, isConnecting, isReconnecting } = useAccount();
   const { session } = useOnchainSession();
-  const { wallet: solanaWallet, connected: solanaConnected } = useWallet();
   const allChainIds = ALL_EVM_CHAINS.map((chain) => chain.id);
   const isEvm = session.chainType !== 'solana';
   const showChainWarning = isEvm && chainId && !allChainIds.includes(chainId);
+  const hasSolanaSession =
+    session.chainType === 'solana' || Boolean(session.solanaWalletAddress);
   const solanaNetwork =
     SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
     SOLANA_NETWORKS[0];
+  const shortConnectedAddress = connectedAddress
+    ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
+    : '';
 
   return (
     <div className="app-shell">
@@ -92,11 +97,11 @@ function AppShell() {
                 Portfolio
               </button>
               <button
-                className="button"
+                className={`button ${connectedAddress ? 'wallet-connected' : ''}`}
                 type="button"
                 onClick={() => setWalletModalOpen(true)}
               >
-                Connect
+                {connectedAddress ? `Connected ${shortConnectedAddress}` : 'Connect'}
               </button>
             </div>
           </div>
@@ -108,7 +113,7 @@ function AppShell() {
         </div>
       )}
       {!showChainWarning &&
-        (session.chainType === 'solana' || solanaConnected || solanaWallet) &&
+        hasSolanaSession &&
         solanaNetwork && (
         <div className="chain-warning">
           Phantom wallet: switch to {solanaNetwork.name} to continue.
@@ -132,6 +137,9 @@ function AppShell() {
             <Route path="/features" element={<Features />} />
             <Route path="/docs" element={<Docs />} />
             <Route path="/about" element={<About />} />
+            {FEATURE_FUNDRAISE_ONBOARD && (
+              <Route path="/fundraise" element={<FundraiseOnboard />} />
+            )}
           </Routes>
         </Suspense>
       </main>
@@ -140,14 +148,14 @@ function AppShell() {
         isOpen={walletModalOpen}
         onClose={() => setWalletModalOpen(false)}
       />
-      {!isLanding && !isImmersiveDashboard && <AIBubble />}
+      {!isLanding && <AIBubble />}
       {!isLanding && !isImmersiveDashboard && <TabBar />}
       {!isImmersiveDashboard && (
         <footer className="app-footer">
           Testnet • VestraProtocol.io • Not financial advice
         </footer>
       )}
-      {(isConnecting || isReconnecting) && (
+      {isConnecting && !isReconnecting && (
         <div className="app-splash" role="status" aria-live="polite">
           <div className="vault-spinner" />
           <div className="app-splash-text">Connecting wallet...</div>

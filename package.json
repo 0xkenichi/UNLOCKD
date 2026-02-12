@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently -n backend,frontend -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "test": "npx hardhat test",
+    "test:load": "node scripts/load/run-load-tests.js",
     "deploy:local": "npx hardhat deploy --network hardhat --tags full",
     "deploy:sepolia": "npx hardhat deploy --network sepolia --tags full",
     "demo:local": "./scripts/demo-local.sh",
@@ -20,6 +21,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "autocannon": "^8.0.0",
     "concurrently": "^9.2.0",
     "hardhat": "^2.22.10",
     "hardhat-deploy": "^0.12.4"

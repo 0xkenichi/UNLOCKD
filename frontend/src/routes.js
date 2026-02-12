@@ -10,5 +10,6 @@ export const routeImports = {
   identity: () => import('./pages/Identity.jsx'),
   features: () => import('./pages/Features.jsx'),
   docs: () => import('./pages/Docs.jsx'),
-  about: () => import('./pages/About.jsx')
+  about: () => import('./pages/About.jsx'),
+  fundraiseOnboard: () => import('./pages/FundraiseOnboard.jsx')
 };

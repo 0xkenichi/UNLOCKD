@@ -44,7 +44,13 @@ function readAuth() {
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const expiresAtMs = parsed?.expiresAt ? Date.parse(parsed.expiresAt) : null;
+    if (expiresAtMs && Date.now() > expiresAtMs) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
   } catch (error) {
     console.warn('Failed to read auth session', error);
     return null;

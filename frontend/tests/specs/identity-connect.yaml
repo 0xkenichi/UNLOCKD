@@ -1,10 +1,5 @@
 name: Identity connect prompt
 steps:
   - goto: /identity
-  - expectRole:
-      role: heading
-      name: Identity
-      exact: true
-  - expectVisible:
-      role: button
-      name: Connect Wallet
+  - expectText: Identity
+  - expectText: Optional identity linking is a prototype UX flow.

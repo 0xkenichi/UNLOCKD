@@ -36,8 +36,18 @@ settlement target used by `VestingAdapter`, while the borrower stays the economi
   amounts released into the wrapper. This keeps collateral available until
   settlement.
 
-## Demo Script
+## VestingAdapter whitelist (optional)
+Governance can restrict which vesting contracts can be escrowed:
+- `setUseWhitelist(true)` and `setAllowedVestingContract(address, true)` on `VestingAdapter`.
+- When `useWhitelist` is false (default), any contract implementing the adapter interface is allowed.
+
+## Demo Scripts
 Run a local or testnet seed that deploys wrappers and creates loans:
 ```
 npx hardhat run scripts/vestra-claim-rights-setup.js --network localhost
 ```
+Seed a Sablier-backed wrapper on Sepolia (stream + wrapper + escrow):
+```
+SEED_SABLIER=1 npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia
+```
+Then use the printed **Collateral ID** and **wrapper address** in the Borrow UI (Import from Sablier v2).
