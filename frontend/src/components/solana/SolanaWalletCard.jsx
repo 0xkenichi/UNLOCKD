@@ -38,14 +38,14 @@ export default function SolanaWalletCard() {
   }, [address, connected, setSession, wallet]);
 
   useEffect(() => {
-    if (!connected) {
+    if (!connected && (session.solanaWalletAddress != null || session.solanaWalletName != null)) {
       trackEvent('solana_disconnect');
       setSession({
         solanaWalletAddress: null,
         solanaWalletName: null
       });
     }
-  }, [connected, setSession]);
+  }, [connected, session.solanaWalletAddress, session.solanaWalletName, setSession]);
 
   return (
     <div className="stack">
