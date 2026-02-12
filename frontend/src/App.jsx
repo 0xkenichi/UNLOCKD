@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Routes,
@@ -58,6 +58,12 @@ function AppShell() {
   const shortConnectedAddress = connectedAddress
     ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
     : '';
+
+  useEffect(() => {
+    const handleOpenWallet = () => setWalletModalOpen(true);
+    window.addEventListener('crdt-open-wallet-modal', handleOpenWallet);
+    return () => window.removeEventListener('crdt-open-wallet-modal', handleOpenWallet);
+  }, []);
 
   return (
     <div className="app-shell">

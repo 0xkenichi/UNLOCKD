@@ -124,6 +124,22 @@ export async function fetchPools({ chain, ownerWallet, status } = {}) {
   return data.pools || [];
 }
 
+export async function fetchIdentity(walletAddress) {
+  if (!walletAddress) {
+    return { ok: false, error: 'Wallet address required' };
+  }
+  const data = await apiGet(`/api/identity/${walletAddress}`);
+  return data;
+}
+
+export async function fetchPassportScore(walletAddress) {
+  if (!walletAddress) {
+    return { ok: false, error: 'Wallet address required' };
+  }
+  const data = await apiGet(`/api/identity/passport-score/${walletAddress}`);
+  return data;
+}
+
 export async function fetchPoolsBrowse({ chain, borrowerWallet, accessFilter } = {}) {
   const params = new URLSearchParams();
   if (chain) params.set('chain', chain);
@@ -131,7 +147,12 @@ export async function fetchPoolsBrowse({ chain, borrowerWallet, accessFilter } =
   if (accessFilter) params.set('accessFilter', accessFilter);
   const query = params.toString();
   const data = await apiGet(`/api/pools/browse${query ? `?${query}` : ''}`);
-  return data.pools || [];
+  return {
+    pools: data.pools || [],
+    identityTier: data.identityTier ?? null,
+    compositeScore: data.compositeScore ?? null,
+    tierName: data.tierName ?? null
+  };
 }
 
 export async function createPool(payload) {
@@ -197,4 +218,9 @@ export async function askAgent(message, history = [], captchaToken) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function submitContact(payload) {
+  const data = await apiPost('/api/contact', payload);
+  return data;
 }

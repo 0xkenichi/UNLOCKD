@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+import SmartWalletOnboardingCard from '../components/lender/SmartWalletOnboardingCard.jsx';
 import { createPool, fetchPools, updatePoolPreferences } from '../utils/api.js';
 import { getContractAddress, lendingPoolAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue, toUnits } from '../utils/format.js';
@@ -25,6 +26,8 @@ const chainOptions = [
 export default function Lender() {
   const { address } = useAccount();
   const chainId = useChainId();
+  const depositSectionRef = useRef(null);
+  const [smartWalletAddress, setSmartWalletAddress] = useState('');
   const lendingPool = getContractAddress(chainId, 'lendingPool');
   const usdc = getContractAddress(chainId, 'usdc');
   const [pools, setPools] = useState([]);
@@ -57,6 +60,8 @@ export default function Lender() {
   const [poolDescription, setPoolDescription] = useState('');
 
   const ownerWallet = useMemo(() => address || '', [address]);
+  const preferredOnboardingWallet = useMemo(() => smartWalletAddress || address || '', [smartWalletAddress, address]);
+  const walletSource = smartWalletAddress ? 'smart_wallet' : address ? 'browser_wallet' : 'none';
   const depositUnits = useMemo(() => toUnits(depositAmount, 6), [depositAmount]);
   const withdrawUnits = useMemo(() => toUnits(withdrawAmount, 6), [withdrawAmount]);
 
@@ -301,8 +306,11 @@ export default function Lender() {
 
   const handleApprove = () => {
     if (!address) {
-      setError('Connect wallet first.');
-      pushActionLog('Approve', 'blocked', 'Connect wallet first.');
+      const msg = smartWalletAddress
+        ? 'Smart wallet connected. Connect an EVM wallet to execute pool contract actions in this MVP.'
+        : 'Connect wallet first.';
+      setError(msg);
+      pushActionLog('Approve', 'blocked', msg);
       return;
     }
     if (!usdc || !lendingPool) {
@@ -326,8 +334,11 @@ export default function Lender() {
 
   const handleDeposit = () => {
     if (!address) {
-      setError('Connect wallet first.');
-      pushActionLog('Deposit', 'blocked', 'Connect wallet first.');
+      const msg = smartWalletAddress
+        ? 'Smart wallet connected. Connect an EVM wallet to execute pool contract actions in this MVP.'
+        : 'Connect wallet first.';
+      setError(msg);
+      pushActionLog('Deposit', 'blocked', msg);
       return;
     }
     if (!lendingPool || !depositUnits) {
@@ -351,8 +362,11 @@ export default function Lender() {
 
   const handleWithdraw = () => {
     if (!address) {
-      setError('Connect wallet first.');
-      pushActionLog('Withdraw', 'blocked', 'Connect wallet first.');
+      const msg = smartWalletAddress
+        ? 'Smart wallet connected. Connect an EVM wallet to execute pool contract actions in this MVP.'
+        : 'Connect wallet first.';
+      setError(msg);
+      pushActionLog('Withdraw', 'blocked', msg);
       return;
     }
     if (!lendingPool || !withdrawUnits) {
@@ -455,6 +469,15 @@ export default function Lender() {
     }
   }, [withdrawReceiptError, pushActionLog]);
 
+  const jumpToDepositSection = () => {
+    if (!depositSectionRef.current) return;
+    depositSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const prefillDepositFromOnboarding = (amount) => {
+    setDepositAmount(String(amount || '1000'));
+  };
+
   return (
     <section className="page">
       <PageIllustration variant="lender" />
@@ -468,6 +491,16 @@ export default function Lender() {
         </div>
         <EssentialsPanel />
       </div>
+
+      <SmartWalletOnboardingCard
+        walletAddress={address}
+        preferredWalletAddress={preferredOnboardingWallet}
+        walletSource={walletSource}
+        onOpenWallet={() => window.dispatchEvent(new CustomEvent('crdt-open-wallet-modal'))}
+        onSmartWalletChange={setSmartWalletAddress}
+        onPrefillDeposit={prefillDepositFromOnboarding}
+        onJumpToDeposit={jumpToDepositSection}
+      />
 
       <div className="grid-2">
         <div className="holo-card">
@@ -731,7 +764,7 @@ export default function Lender() {
       </div>
 
       <div className="grid-2">
-        <div className="holo-card">
+        <div className="holo-card" ref={depositSectionRef}>
           <div className="section-head">
             <div>
               <h3 className="section-title">Deposit Liquidity</h3>
