@@ -438,7 +438,7 @@ export default function BorrowActions({
                 value={sablierStreamId}
                 onChange={(e) => setSablierStreamId(e.target.value)}
                 inputMode="numeric"
-                placeholder="123"
+                placeholder="Enter stream ID"
               />
             </label>
             <label className="form-field">

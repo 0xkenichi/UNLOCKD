@@ -76,7 +76,7 @@ export default function FaucetCard() {
         <div>
           <h3 className="section-title">Mock USDC Faucet</h3>
           <div className="section-subtitle">
-            Mint test USDC for demo flows.
+            Mint testnet USDC for onchain testing.
           </div>
         </div>
         <button

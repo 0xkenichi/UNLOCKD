@@ -2,7 +2,7 @@ import { useRef, Component, useEffect, useMemo, useState } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import { TextureLoader } from 'three';
-import { geoPings, latLngToVector3 } from '../../data/geoPings.js';
+import { latLngToVector3 } from '../../data/geoPings.js';
 import { apiGet, fetchActivity } from '../../utils/api.js';
 
 const EARTH_TEXTURE =
@@ -91,7 +91,7 @@ function EarthSphere() {
   const mesh = useRef();
   const group = useRef();
   const texture = useLoader(TextureLoader, EARTH_TEXTURE);
-  const [livePings, setLivePings] = useState(geoPings);
+  const [livePings, setLivePings] = useState([]);
   const rotation = useRef({ x: 0.15, y: 0 });
 
   useEffect(() => {
@@ -129,13 +129,8 @@ function EarthSphere() {
       }
 
       if (typeof liveUserCount === 'number' && liveUserCount >= 0) {
-        const baseTotal = geoPings.reduce((sum, ping) => sum + (ping.count || 0), 0) || 1;
-        const scaled = geoPings.map((ping) => ({
-          ...ping,
-          // Scale fallback map to live unique-user totals from backend activity.
-          count: Math.max(1, Math.round(((ping.count || 0) / baseTotal) * Math.max(liveUserCount, 1)))
-        }));
-        setLivePings(scaled);
+        // No synthetic geo fallback: render empty globe until real pings exist.
+        setLivePings([]);
       }
     }
 
@@ -169,7 +164,7 @@ function EarthSphere() {
         />
       </mesh>
       {livePings.map((ping) => (
-        <PingPoint key={`${ping.city}-${ping.country}`} ping={ping} />
+        <PingPoint key={`${ping.city}-${ping.country}-${ping.lat}-${ping.lng}`} ping={ping} />
       ))}
       <Html position={[0, -1.38, 0]} center distanceFactor={8}>
         <div
@@ -185,7 +180,7 @@ function EarthSphere() {
             padding: '5px 9px'
           }}
         >
-          Live users: {totalUsers.toLocaleString()}
+          Live users: {totalUsers > 0 ? totalUsers.toLocaleString() : '—'}
         </div>
       </Html>
     </group>

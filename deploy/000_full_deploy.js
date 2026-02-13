@@ -17,12 +17,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   if (isLocal || (!usdcAddress && !priceFeedAddress && isTestnet)) {
     const mockUSDC = await deploy("MockUSDC", { from: deployer, log: true });
-    const mockPriceFeed = await deploy("MockPriceFeed", {
+    const testnetPriceFeed = await deploy("MockPriceFeed", {
       from: deployer,
       log: true,
     });
     usdcAddress = mockUSDC.address;
-    priceFeedAddress = mockPriceFeed.address;
+    priceFeedAddress = testnetPriceFeed.address;
   }
 
   if (isLocal || (!uniswapRouterAddress && isTestnet)) {

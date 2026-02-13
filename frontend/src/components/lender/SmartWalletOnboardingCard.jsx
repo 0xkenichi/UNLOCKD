@@ -16,7 +16,7 @@ export default function SmartWalletOnboardingCard({
   onJumpToDeposit = () => {}
 }) {
   const [email, setEmail] = useState('');
-  const [capital, setCapital] = useState('1000');
+  const [capital, setCapital] = useState('');
   const [submitState, setSubmitState] = useState('idle');
   const [message, setMessage] = useState('');
 
@@ -26,6 +26,7 @@ export default function SmartWalletOnboardingCard({
   }, []);
   const activeWalletAddress = preferredWalletAddress || walletAddress || '';
   const hasActiveWallet = Boolean(activeWalletAddress);
+  const hasCapital = useMemo(() => Number(capital) > 0, [capital]);
 
   const checklist = useMemo(
     () => [
@@ -57,7 +58,7 @@ export default function SmartWalletOnboardingCard({
         email: email || undefined,
         walletAddress: activeWalletAddress || undefined,
         context: 'alchemy_everyone_onchain_fund_lender_smart_wallet',
-        message: `Lender smart-wallet onboarding pilot intent. Target initial liquidity: ${capital || '1000'} USDC. Wallet source: ${walletSource}.`
+        message: `Lender smart-wallet onboarding pilot intent. Target initial liquidity: ${capital || 'unspecified'} USDC. Wallet source: ${walletSource}.`
       });
       trackEvent('lender_smart_wallet_pilot_submitted', {
         hasEmail: Boolean(email),
@@ -124,6 +125,7 @@ export default function SmartWalletOnboardingCard({
             inputMode="decimal"
             value={capital}
             onChange={(event) => setCapital(event.target.value)}
+            placeholder="Enter target USDC"
           />
         </label>
       </div>
@@ -147,8 +149,9 @@ export default function SmartWalletOnboardingCard({
           <button
             className="button"
             type="button"
+            disabled={!hasCapital}
             onClick={() => {
-              onPrefillDeposit(capital || '1000');
+              onPrefillDeposit(capital);
               trackEvent('lender_onboarding_continue_to_deposit', {
                 walletSource,
                 walletAddress: activeWalletAddress

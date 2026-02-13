@@ -34,8 +34,8 @@ export default function Lender() {
   const [isLoading, setIsLoading] = useState(false);
   const [saveState, setSaveState] = useState('idle');
   const [error, setError] = useState('');
-  const [depositAmount, setDepositAmount] = useState('500');
-  const [withdrawAmount, setWithdrawAmount] = useState('100');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [updateState, setUpdateState] = useState('idle');
   const [actionLogs, setActionLogs] = useState([]);
@@ -475,7 +475,8 @@ export default function Lender() {
   };
 
   const prefillDepositFromOnboarding = (amount) => {
-    setDepositAmount(String(amount || '1000'));
+    if (!amount) return;
+    setDepositAmount(String(amount));
   };
 
   return (

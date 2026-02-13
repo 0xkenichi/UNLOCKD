@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:prod": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
+    "health:check": "node scripts/health-check.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test"
   },

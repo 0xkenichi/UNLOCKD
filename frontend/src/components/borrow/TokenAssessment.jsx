@@ -4,7 +4,7 @@ import { formatValue } from '../../utils/format.js';
 import {
   erc20Abi,
   getContractAddress,
-  mockPriceFeedAbi
+  testnetPriceFeedAbi
 } from '../../utils/contracts.js';
 
 const TESTNET_CHAIN_IDS = new Set([31337, 11155111, 84532]);
@@ -61,7 +61,7 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
         setFeedStatus('Token assessment uses live oracle reads on testnet only.');
         return;
       }
-      const oracleAddress = getContractAddress(chainId, 'mockPriceFeed');
+      const oracleAddress = getContractAddress(chainId, 'testnetPriceFeed');
       if (!oracleAddress) {
         setLivePrice(0);
         setFeedStatus('No oracle configured for this testnet.');
@@ -77,12 +77,12 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
         const [decimals, roundData] = await Promise.all([
           publicClient.readContract({
             address: oracleAddress,
-            abi: mockPriceFeedAbi,
+            abi: testnetPriceFeedAbi,
             functionName: 'decimals'
           }),
           publicClient.readContract({
             address: oracleAddress,
-            abi: mockPriceFeedAbi,
+            abi: testnetPriceFeedAbi,
             functionName: 'latestRoundData'
           })
         ]);

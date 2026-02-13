@@ -15,7 +15,7 @@ const LOCALHOST_CONTRACTS = {
   lendingPool: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
   vestingAdapter: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
   usdc: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  mockPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
+  testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
 };
 
 export const CONTRACTS = {
@@ -26,9 +26,9 @@ export const CONTRACTS = {
     lendingPool: '0x8eD7Cc3cE764B7BA57d8DeD29A13F1fD2Fd02a2A',
     vestingAdapter: '0xF366308b18156bAd74B1274EB1fFECCA2a1B7959',
     usdc: '0xc9c9083f4794165E9baA920fc9FcBc462864d992',
-    mockPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762',
+    testnetPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
-    sampleVestingWallet: '0xAF5976bC206b784B3c43896Ed799c084A140583a'
+    sampleVestingWallet: ''
   },
   [baseSepolia.id]: {
     valuationEngine: '',
@@ -36,7 +36,7 @@ export const CONTRACTS = {
     lendingPool: '',
     vestingAdapter: '',
     usdc: '',
-    mockPriceFeed: '',
+    testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
   },
@@ -46,7 +46,7 @@ export const CONTRACTS = {
     lendingPool: '',
     vestingAdapter: '',
     usdc: '',
-    mockPriceFeed: '',
+    testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
   },
@@ -56,7 +56,7 @@ export const CONTRACTS = {
     lendingPool: '',
     vestingAdapter: '',
     usdc: '',
-    mockPriceFeed: '',
+    testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
   },
@@ -66,7 +66,7 @@ export const CONTRACTS = {
     lendingPool: '',
     vestingAdapter: '',
     usdc: '',
-    mockPriceFeed: '',
+    testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
   },
@@ -76,7 +76,7 @@ export const CONTRACTS = {
     lendingPool: '',
     vestingAdapter: '',
     usdc: '',
-    mockPriceFeed: '',
+    testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
   }
@@ -381,7 +381,7 @@ export const erc20Abi = [
   }
 ];
 
-export const mockPriceFeedAbi = [
+export const testnetPriceFeedAbi = [
   {
     name: 'decimals',
     type: 'function',
@@ -409,5 +409,18 @@ export function getContractAddress(chainId, name) {
   const envKey = `VITE_${name.toUpperCase()}_ADDRESS`;
   const envValueChain = import.meta.env?.[envKeyChain];
   const envValue = import.meta.env?.[envKey];
+  if (name === 'testnetPriceFeed') {
+    const legacyChain = import.meta.env?.[`VITE_MOCK_PRICE_FEED_ADDRESS_${chainId}`];
+    const legacy = import.meta.env?.VITE_MOCK_PRICE_FEED_ADDRESS;
+    return (
+      envValueChain ||
+      envValue ||
+      legacyChain ||
+      legacy ||
+      CONTRACTS[chainId]?.[name] ||
+      CONTRACTS[chainId]?.mockPriceFeed ||
+      ''
+    );
+  }
   return envValueChain || envValue || CONTRACTS[chainId]?.[name] || '';
 }
