@@ -2,6 +2,10 @@
 
 This MVP is not audit-ready. Use this checklist before any production deployment.
 
+See also:
+- `SECURITY_ROADMAP.md` for readiness milestones.
+- `INCIDENT_RESPONSE_RUNBOOK.md` for operational response flow.
+
 ## Threat Model
 - Oracle manipulation or outage.
 - Liquidation slippage or MEV.

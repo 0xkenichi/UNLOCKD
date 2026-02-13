@@ -5,18 +5,18 @@
 
 ---
 
-## Personal / Contact (replace placeholders with your actual info)
+## Personal / Contact
 
 | Field | Value |
 |-------|-------|
 | **What is your project name?** | Vestra Protocol |
-| **Website** | VestraProtocol.io (not ready yet) |
-| **What is your name?** | [YOUR_FULL_NAME] |
+| **Website** | https://vestraprotocol.io (launch in progress) |
+| **What is your name?** | Founder name to be finalized before submission |
 | **What is your email?** | 0xkenichi@gmail.com |
-| **What is your Telegram handle?** | [YOUR_TELEGRAM — e.g. @vestraprotocol] |
-| **What is your github profile link?** | [YOUR_GITHUB — e.g. https://github.com/vestra-protocol or your personal] |
-| **What is your project X handle?** | [YOUR_PROJECT_X — e.g. @VestraProtocol] |
-| **Region** | [YOUR_REGION — e.g. North America, Europe, APAC] |
+| **What is your Telegram handle?** | @vestraprotocol (or official founder handle) |
+| **What is your github profile link?** | https://github.com/vestra-protocol (or founder profile) |
+| **What is your project X handle?** | @VestraProtocol |
+| **Region** | Global remote team (primary region to be declared in final form) |
 
 ---
 
@@ -48,7 +48,7 @@ Select **all four** — Vestra fits every Moonshots product criterion:
 ```
 Solo founder plus technical legal expert.
 
-- Founder: Full-stack protocol development — smart contracts (Solidity), backend, frontend, risk modeling. Shipped the full Vestra MVP on Ethereum Sepolia with Solana backend integration (Streamflow, Pyth, Jupiter). Built Monte Carlo simulations for DPV/LTV calibration. Prior experience in [YOUR_BACKGROUND].
+- Founder: Full-stack protocol development — smart contracts (Solidity), backend, frontend, risk modeling. Shipped the full Vestra MVP on Ethereum Sepolia with Solana backend integration (Streamflow, Pyth, Jupiter). Built Monte Carlo simulations for DPV/LTV calibration. Prior experience includes full-stack product delivery and protocol engineering.
 
 - Technical Legal Expert: Advisory and compliance guidance for DeFi primitives, tokenomics, and cross-jurisdiction considerations. Ensures protocol design aligns with regulatory frameworks and reduces legal risk as we scale.
 
@@ -121,25 +121,19 @@ Target TAM: $300–500B+ locked tokens; even 1% penetration = $3–5B loan volum
 
 ### Have you received any notable funding? If yes please list amount.
 
-```
-[FILL: e.g. "Pre-seed $X" or "Bootstrapped / no external funding to date" or "Grant from X for $Y"]
-```
+`Bootstrapped to date. Grant and strategic funding conversations are active.`
 
 ---
 
 ### Please list any notable investors in your project
 
-```
-[FILL: List names/funds if any; otherwise "None yet" or "In discussions"]
-```
+`None announced yet. Strategic investor outreach is in progress.`
 
 ---
 
 ### If applicable list the name of the person who referred you to this application
 
-```
-[FILL or leave blank]
-```
+`No formal referral listed.`
 
 ---
 
@@ -157,7 +151,7 @@ Target TAM: $300–500B+ locked tokens; even 1% penetration = $3–5B loan volum
 
 **Market validation:** Exhaustive landscape research shows no direct competitor. $300–500B+ locked, $97B+ annual unlocks; OTC discounts of 20–70%. Vestra activates this capital without breaking vesting or introducing custody.
 
-**Technical depth:** Monte Carlo–calibrated risk curves, multiple vesting adapters, auction module for debt-free exits, identity-aware credit layer (optional). Production backend with Solana integration; audit-ready contracts.
+**Technical depth:** Monte Carlo-calibrated risk curves, multiple vesting adapters, auction module for debt-free exits, identity-aware credit layer (optional). Production backend with Solana integration and explicit security hardening + external audit roadmap.
 
 **Composability:** Adapters for OpenZeppelin, Sablier, Superfluid, TokenTimelock. DAOs and protocols can create pools for their communities. CRDT governance and treasury alignment.
 
@@ -167,7 +161,7 @@ Target TAM: $300–500B+ locked tokens; even 1% penetration = $3–5B loan volum
 
 ## Pre-Submit Checklist
 
-- [ ] Replace all `[YOUR_*]` and `[FILL]` placeholders with real data
+- [ ] Finalize founder legal name and declared operating region in the submitted form
 - [ ] Create and attach deck (PDF, ≤10 MB)
 - [ ] Confirm X handle, GitHub, and Telegram are correct and active
 - [ ] Review Moonshots criteria: https://blog.sui.io/defi-moonshots-program-announcement/

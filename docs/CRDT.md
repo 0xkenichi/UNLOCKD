@@ -1,14 +1,16 @@
 # CRDT Token and DAO Documentation
 
 This document specifies how the CRDT token and the UNLOCKD DAO work. It is
-intended to be comprehensive and beginner friendly. Sections marked as
-`TODO` are placeholders for final numbers or decisions.
+intended to be comprehensive and beginner friendly.
 
 ## Overview
 
 UNLOCKD is a protocol for borrowing against locked or vesting tokens. CRDT is
 the protocol token and the governance token for the DAO. CRDT aligns protocol
 participants, secures governance, and funds long term development.
+
+For final Phase 1 allocation, vesting, and treasury policy, see
+`TOKENOMICS_FINAL.md`.
 
 ## Core Concepts
 
@@ -25,9 +27,9 @@ participants, secures governance, and funds long term development.
 - **Token name**: CRDT
 - **Type**: ERC-20
 - **Role**: Governance + protocol utility
-- **Total supply**: `TODO` (fixed cap recommended)
-- **Decimals**: 18 (recommended)
-- **Minting**: `TODO` (fixed supply or controlled emissions)
+- **Total supply**: 1,000,000,000 CRDT (fixed cap)
+- **Decimals**: 18
+- **Minting**: One-time genesis mint, no ongoing emissions in Phase 1
 
 ## CRDT Utility
 
@@ -47,30 +49,33 @@ CRDT provides protocol utility in four primary ways:
 
 ### Total Supply
 
-`TODO`: Choose one of the following supply strategies:
+UNLOCKD uses a fixed-cap model for predictability and governance clarity:
 
-- **Fixed cap** (recommended):
-  - Example: 1,000,000,000 CRDT total supply.
-- **Fixed cap + emissions**:
-  - Example: 800,000,000 initial + 200,000,000 emissions over 4 years.
+- **Total supply**: 1,000,000,000 CRDT
+- **Supply model**: no inflation in Phase 1
+- **Future emissions**: only via DAO governance vote and timelock execution
 
-### Allocation (Example Template)
+### Allocation (Final Phase 1 Plan)
 
-Replace these with final values. Must sum to 100%.
+The allocation below sums to 100%.
 
-- **Community + ecosystem**: `TODO` %
-- **Treasury**: `TODO` %
-- **Team + contributors**: `TODO` %
-- **Investors**: `TODO` %
-- **Liquidity + market making**: `TODO` %
-- **Advisors**: `TODO` %
+- **Treasury**: 30%
+- **Team**: 20%
+- **Protocol liquidity reserve (fixed lending pool / minimum credit reserve)**: 20%
+- **Community sale**: 15%
+- **Presale**: 7%
+- **VC / investors**: 5%
+- **Airdrop**: 3%
 
-### Vesting (Example Template)
+### Vesting (Phase 1 Defaults)
 
-- **Team**: 1-year cliff, 3-year linear vesting
-- **Investors**: 6-month cliff, 2-year linear vesting
-- **Advisors**: 6-month cliff, 18-month linear vesting
-- **Community grants**: streaming or milestone-based
+- **Team (20%)**: 12-month cliff, then 36-month linear vesting
+- **VC / investors (5%)**: 6-month cliff, then 24-month linear vesting
+- **Treasury (30%)**: timelock-controlled, governance-approved releases
+- **Protocol liquidity reserve (20%)**: programmatic release by governance-approved pool policies
+- **Presale (7%)**: 10% at TGE, 90% linear over 12 months
+- **Community sale (15%)**: 25% at TGE, 75% linear over 9 months
+- **Airdrop (3%)**: phased claim windows with anti-sybil controls
 
 ## Protocol Fees and Value Capture
 
@@ -84,9 +89,9 @@ Replace these with final values. Must sum to 100%.
 
 Suggested default:
 
-- `TODO` % to lenders
-- `TODO` % to protocol treasury
-- `TODO` % to safety module / insurance fund
+- 80% to lenders
+- 15% to protocol treasury
+- 5% to safety module / insurance fund
 
 ### CRDT Value Capture Options
 
@@ -110,14 +115,14 @@ Choose one or combine:
 1) **Proposal draft** (off-chain)
 2) **Community discussion**
 3) **On-chain proposal**
-4) **Voting period** (`TODO` days)
-5) **Timelock** (`TODO` hours)
+4) **Voting period** (5 days)
+5) **Timelock** (48 hours)
 6) **Execution**
 
 ### Voting
 
-- **Quorum**: `TODO` %
-- **Passing threshold**: `TODO` %
+- **Quorum**: 4% of circulating voting power
+- **Passing threshold**: 55% yes votes
 - **Snapshot**: block number-based voting power
 
 ### DAO Treasury
@@ -314,7 +319,7 @@ implemented right now; this is a design spec for a future release.
 - **Name**: CRDT
 - **Symbol**: CRDT
 - **Decimals**: 18
-- **Total supply**: `TODO` (fixed cap recommended)
+- **Total supply**: 1,000,000,000 CRDT (fixed cap)
 
 ### Roles and Permissions
 
