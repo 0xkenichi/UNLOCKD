@@ -24,6 +24,10 @@ This document defines protected backend endpoints used for operational debugging
   - Returns KPI bundle with persistence source for verification.
 - `GET /api/admin/audit-logs?limit=100&action=admin.identity.profile.patch`
   - Returns immutable admin action logs for operations review and incident forensics.
+- `POST /api/solana/repay-plan`
+  - Builds administrative Solana repay plans (session + admin required).
+- `POST /api/solana/repay-sweep`
+  - Executes administrative Solana repay sweeps (session + admin required).
 
 ## Audit Trail
 

@@ -1,5 +1,10 @@
 const KNOWLEDGE_ENTRIES = [
   {
+    keywords: ['how to use', 'how do i use this app', 'getting started', 'walkthrough', 'explain app'],
+    answer:
+      'Start with wallet + network, then follow this flow: Borrow (escrow vesting collateral and create loan), Repay (fund gas/USDC, approve USDC, then repay by loan ID), and Portfolio (monitor active loans and unlock timelines). For repay errors, confirm the connected wallet is the original borrower and the loan is still active on the current chain.'
+  },
+  {
     keywords: ['dpv', 'discounted present value', 'present value'],
     answer:
       'DPV is Vestra\'s discounted present value estimate for locked vesting collateral. It applies time, volatility, liquidity, and shock discounts to estimate borrow-safe value. The safer borrow range usually tracks a conservative LTV on top of DPV.'

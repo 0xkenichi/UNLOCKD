@@ -24,6 +24,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     log: true,
   });
   const identityBoostBps = Number(process.env.IDENTITY_BOOST_BPS || 500);
+  const poolFee = Number(process.env.UNISWAP_POOL_FEE || 3000);
+  const slippageBps = Number(process.env.LIQUIDATION_SLIPPAGE_BPS || 9000);
+  const mockRouter = await deploy("MockSwapRouter", {
+    from: deployer,
+    log: true,
+  });
 
   const valuation = await deployments.get("ValuationEngine");
   const adapter = await deployments.get("VestingAdapter");
@@ -36,6 +42,9 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
       pool.address,
       identityVerifier.address,
       identityBoostBps,
+      mockRouter.address,
+      poolFee,
+      slippageBps,
     ],
     log: true,
   });

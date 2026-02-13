@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: dark light;
   
   /* Vestra Protocol — Professional, typewriter-inspired palette */
   --deep-slate: #0a0e14;
@@ -91,6 +91,8 @@
   /* Layout */
   --nav-width: 260px;
   --header-height: 72px;
+  --app-header-offset: 0px;
+  --ai-safe-top: 84px;
   --footer-height: 48px;
   
   /* Motion */
@@ -126,6 +128,28 @@
   --space-16: 64px;
   --space-20: 80px;
   --space-24: 96px;
+}
+
+:root[data-theme='light'] {
+  --bg-primary: #f5f8fc;
+  --bg-secondary: #eef3f9;
+  --bg-tertiary: #e8edf6;
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: rgba(255, 255, 255, 0.98);
+  --surface-soft: rgba(255, 255, 255, 0.86);
+  --surface-glass: rgba(255, 255, 255, 0.92);
+  --border-primary: rgba(26, 111, 218, 0.2);
+  --border-secondary: rgba(13, 17, 23, 0.12);
+  --border-accent: rgba(154, 139, 110, 0.28);
+  --border-strong: rgba(26, 111, 218, 0.34);
+  --text-primary: #0d1117;
+  --text-secondary: #1f2937;
+  --text-muted: #4b5563;
+  --text-disabled: #9ca3af;
+  --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 8px 26px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 18px 44px rgba(15, 23, 42, 0.14);
+  --shadow-xl: 0 24px 56px rgba(15, 23, 42, 0.18);
 }
 
 * {
@@ -181,9 +205,16 @@ textarea {
   position: relative;
 }
 
+.app-shell.has-fixed-header {
+  padding-top: var(--app-header-offset, var(--header-height));
+  --ai-safe-top: calc(var(--app-header-offset, var(--header-height)) + 12px);
+}
+
 .app-header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 80;
   display: flex;
   align-items: center;
@@ -354,6 +385,39 @@ textarea {
   pointer-events: auto;
   background: rgba(13, 17, 24, 0.72);
   border: 1px solid var(--border-strong);
+}
+
+.agent-replay-mini {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-primary);
+  background: rgba(9, 14, 26, 0.6);
+  display: grid;
+  gap: 6px;
+}
+
+.agent-replay-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.agent-replay-bars {
+  display: flex;
+  align-items: end;
+  gap: 4px;
+  height: 42px;
+  padding-top: 2px;
+}
+
+.agent-replay-bar {
+  flex: 1;
+  min-width: 4px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(88, 166, 255, 0.95), rgba(88, 166, 255, 0.35));
 }
 
 .immersive-network-card {
@@ -1968,6 +2032,20 @@ select:focus-visible {
     background: rgba(13, 17, 24, 0.4);
   }
 
+  .table-row:not(.header) > div[data-label] {
+    display: grid;
+    gap: 4px;
+  }
+
+  .table-row:not(.header) > div[data-label]::before {
+    content: attr(data-label);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    font-weight: 700;
+  }
+
   .table-row.header {
     display: none;
   }
@@ -2038,6 +2116,19 @@ select:focus-visible {
 
 .inline-actions > * {
   min-width: 0;
+}
+
+.card-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+:root[data-theme='light'] .app-header {
+  background: rgba(245, 248, 252, 0.95);
+}
+
+:root[data-theme='light'] .app-footer {
+  background: rgba(245, 248, 252, 0.95);
 }
 
 .action-log-panel {
@@ -2234,20 +2325,23 @@ select:focus-visible {
 /* AI Bubble */
 .ai-bubble-shell {
   position: fixed;
-  left: var(--space-4);
-  bottom: 120px;
-  z-index: 70;
-  max-height: calc(100vh - 130px);
+  right: var(--space-4);
+  bottom: max(22px, calc(env(safe-area-inset-bottom) + 12px));
+  z-index: 120;
+  max-height: calc(100vh - var(--ai-safe-top) - 110px);
 }
 
 .ai-fab {
-  width: 58px;
+  min-width: 58px;
   height: 58px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: rgba(10, 14, 26, 0.88);
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
   box-shadow: var(--shadow-lg);
   cursor: pointer;
   backdrop-filter: blur(12px) saturate(150%);
@@ -2259,6 +2353,13 @@ select:focus-visible {
   transform: translateY(-2px) scale(1.03);
 }
 
+.ai-fab-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
 .ai-fab.hidden {
   opacity: 0;
   pointer-events: none;
@@ -2267,9 +2368,9 @@ select:focus-visible {
 
 .ai-bubble {
   position: absolute;
-  left: 0;
+  right: 0;
   bottom: 0;
-  width: clamp(320px, 34vw, 460px);
+  width: clamp(320px, 33vw, 450px);
   background: rgba(13, 17, 23, 0.9);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
@@ -2278,31 +2379,35 @@ select:focus-visible {
   display: grid;
   gap: var(--space-3);
   backdrop-filter: blur(20px) saturate(180%);
-  z-index: 71;
+  z-index: 121;
   opacity: 0;
   transform: translateY(8px) scale(0.97);
   pointer-events: none;
-  transform-origin: bottom left;
+  transform-origin: bottom right;
   transition: opacity 220ms var(--ease-standard), transform 220ms var(--ease-smooth);
-  max-height: min(74vh, calc(100vh - 140px));
+  max-height: min(68vh, calc(100vh - var(--ai-safe-top) - 110px));
   overflow: hidden;
 }
 
 @media (max-width: 720px) {
   .ai-bubble-shell {
-    left: var(--space-4);
-    bottom: 104px;
+    right: var(--space-3);
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
   }
 
   .ai-bubble,
   .ai-bubble.expanded {
     width: min(92vw, 430px);
-    max-height: min(72vh, calc(100vh - 140px));
+    max-height: min(66vh, calc(100vh - var(--ai-safe-top) - 96px));
   }
 
   .ai-thread,
   .ai-bubble.expanded .ai-thread {
-    max-height: min(36vh, 360px);
+    max-height: min(34vh, 330px);
+  }
+
+  .ai-fab-label {
+    display: none;
   }
 }
 
@@ -2313,8 +2418,8 @@ select:focus-visible {
 }
 
 .ai-bubble.expanded {
-  width: clamp(360px, 40vw, 560px);
-  max-height: min(82vh, calc(100vh - 110px));
+  width: clamp(360px, 39vw, 520px);
+  max-height: min(72vh, calc(100vh - var(--ai-safe-top) - 100px));
 }
 
 .ai-bubble-header {
@@ -2359,19 +2464,55 @@ select:focus-visible {
 }
 
 .ai-thread {
-  max-height: min(34vh, 420px);
+  max-height: min(32vh, 380px);
   overflow: auto;
   padding-right: 4px;
   overscroll-behavior: contain;
 }
 
 .ai-bubble.expanded .ai-thread {
-  max-height: min(44vh, 560px);
+  max-height: min(40vh, 500px);
 }
 
 .ai-message {
   white-space: pre-wrap;
   line-height: 1.5;
+}
+
+.guide-glow {
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(88, 166, 255, 0.68),
+    0 0 0 6px rgba(88, 166, 255, 0.12),
+    0 0 20px rgba(88, 166, 255, 0.28);
+  animation: guidePulse 1.5s ease-in-out infinite;
+}
+
+.guide-step-pill {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(88, 166, 255, 0.6);
+  background: rgba(7, 12, 20, 0.92);
+  color: #dbeafe;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  box-shadow: 0 6px 16px rgba(8, 14, 28, 0.45);
+}
+
+@keyframes guidePulse {
+  0%,
+  100% {
+    transform: translateZ(0);
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.07);
+  }
 }
 
 .ai-bubble-title-row {

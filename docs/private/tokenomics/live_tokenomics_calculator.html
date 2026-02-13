@@ -9,9 +9,13 @@
     body { font-family: Arial, sans-serif; margin: 20px; background: #f7f9fc; color: #111827; }
     h1, h2 { margin: 0 0 10px; }
     .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .tabs { display: flex; gap: 8px; margin: 10px 0 14px; }
+    .tab-btn { border: 1px solid #d1d5db; background: #ffffff; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .tab-btn.active { background: #111827; color: #fff; border-color: #111827; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; }
     label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
     input[type="range"] { width: 100%; }
+    input[type="number"] { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; box-sizing: border-box; }
     .value { font-size: 12px; color: #4b5563; }
     .metrics { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px; }
     .metric { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
@@ -19,13 +23,55 @@
     .metric .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
     #chart { height: 460px; }
     #feeChart { height: 360px; }
+    #simProtocolChart { height: 360px; }
     .small { font-size: 12px; color: #6b7280; }
+    .hidden { display: none; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+    th { background: #f3f4f6; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-row button { border: 1px solid #d1d5db; background: #fff; border-radius: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; }
   </style>
 </head>
 <body>
   <h1>CRDT Private Tokenomics Calculator</h1>
   <p class="small">Local/private tool. Not linked to public docs. Adjust assumptions to see timeline and valuation effects.</p>
 
+  <!-- MARKET_ANCHORS_START -->
+  <div class="card">
+    <h2>Market Data Anchors (as of 2026-02-13)</h2>
+    <p class="small">External reference points for setting realistic scenario assumptions.</p>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th>Value</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>U.S. Infrastructure Funding Gap (2024-2033)</td><td>$3.689T ($9.139T needs vs $5.450T funded)</td><td>ASCE 2025 Report Card</td></tr>
+        <tr><td>Global Infrastructure Need by 2040</td><td>$94T baseline ($97T incl. SDG water/electricity)</td><td>Global Infrastructure Hub</td></tr>
+        <tr><td>Total Crypto Market Cap</td><td>$2.361T</td><td>CoinGecko Global API</td></tr>
+        <tr><td>Total DeFi TVL</td><td>$166.42B</td><td>DeFiLlama Charts API</td></tr>
+        <tr><td>Stablecoin Circulating Supply</td><td>$305.54B</td><td>DeFiLlama Stablecoins API</td></tr>
+        <tr><td>Token Unlock Flow Proxy</td><td>$97.43B released in 2025; $1.38B release this week</td><td>Tokenomist</td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="margin-top:8px;">
+      Source URLs:
+      <a href="https://infrastructurereportcard.org/wp-content/uploads/2025/03/Executive-Summary-2025-Natl-IRC-WEB.pdf" target="_blank" rel="noopener">ASCE</a>,
+      <a href="https://www.gihub.org/media/global-infrastructure-investment-need-to-reach-usd97-trillion-by-2040/" target="_blank" rel="noopener">GI Hub</a>,
+      <a href="https://api.coingecko.com/api/v3/global" target="_blank" rel="noopener">CoinGecko</a>,
+      <a href="https://api.llama.fi/charts" target="_blank" rel="noopener">DeFiLlama TVL</a>,
+      <a href="https://stablecoins.llama.fi/stablecoincharts/all" target="_blank" rel="noopener">DeFiLlama Stablecoins</a>,
+      <a href="https://tokenomist.ai/unlocks" target="_blank" rel="noopener">Tokenomist</a>.
+    </p>
+  </div>
+  <!-- MARKET_ANCHORS_END -->
+
+  <div class="tabs">
+    <button id="tabCore" class="tab-btn active">Core Tokenomics</button>
+    <button id="tabSim" class="tab-btn">Lender/Borrower Simulator</button>
+  </div>
+
+  <div id="pageCore">
   <div class="card">
     <h2>Inputs</h2>
     <div class="grid">
@@ -55,9 +101,24 @@
         <div class="value" id="loanBookY5v"></div>
       </div>
       <div>
-        <label for="feeApr">Protocol Fee APR on Loan Book (%)</label>
-        <input id="feeApr" type="range" min="0.5" max="6.0" step="0.1" value="2.5" />
-        <div class="value" id="feeAprv"></div>
+        <label for="borrowApr">Borrower Interest APR (%)</label>
+        <input id="borrowApr" type="range" min="8.0" max="35.0" step="0.5" value="18.0" />
+        <div class="value" id="borrowAprv"></div>
+      </div>
+      <div>
+        <label for="originationFeeApr">Origination Fee (% of principal)</label>
+        <input id="originationFeeApr" type="range" min="0.0" max="5.0" step="0.1" value="1.5" />
+        <div class="value" id="originationFeeAprv"></div>
+      </div>
+      <div>
+        <label for="protocolTake">Protocol Take From Borrower Revenue (%)</label>
+        <input id="protocolTake" type="range" min="5" max="35" step="1" value="20" />
+        <div class="value" id="protocolTakev"></div>
+      </div>
+      <div>
+        <label for="usdPlusApy">USD+ Benchmark APY (%)</label>
+        <input id="usdPlusApy" type="range" min="1.0" max="12.0" step="0.1" value="7.0" />
+        <div class="value" id="usdPlusApyv"></div>
       </div>
     </div>
   </div>
@@ -69,10 +130,12 @@
       <div class="metric"><div class="k">FDV</div><div class="v" id="fdv60"></div></div>
       <div class="metric"><div class="k">Market Cap</div><div class="v" id="mcap60"></div></div>
       <div class="metric"><div class="k">MC / FDV Ratio</div><div class="v" id="ratio60"></div></div>
-      <div class="metric"><div class="k">Year-5 Gross Fees</div><div class="v" id="grossFeesY5"></div></div>
-      <div class="metric"><div class="k">Year-5 To Lenders (80%)</div><div class="v" id="toLendersY5"></div></div>
-      <div class="metric"><div class="k">Year-5 To Treasury (15%)</div><div class="v" id="toTreasuryY5"></div></div>
-      <div class="metric"><div class="k">Year-5 To Safety (5%)</div><div class="v" id="toSafetyY5"></div></div>
+      <div class="metric"><div class="k">Year-5 Gross Borrower Revenue</div><div class="v" id="grossFeesY5"></div></div>
+      <div class="metric"><div class="k" id="toLendersLabel">Year-5 To Lenders</div><div class="v" id="toLendersY5"></div></div>
+      <div class="metric"><div class="k" id="toTreasuryLabel">Year-5 To Treasury</div><div class="v" id="toTreasuryY5"></div></div>
+      <div class="metric"><div class="k" id="toSafetyLabel">Year-5 To Safety</div><div class="v" id="toSafetyY5"></div></div>
+      <div class="metric"><div class="k">Lender Net APR (Y5)</div><div class="v" id="lenderAprY5"></div></div>
+      <div class="metric"><div class="k">Spread vs USD+ (Y5)</div><div class="v" id="spreadVsUsdPlus"></div></div>
     </div>
   </div>
 
@@ -84,6 +147,99 @@
   <div class="card">
     <h2>Fee Routing Projection (Years 1-5)</h2>
     <div id="feeChart"></div>
+  </div>
+  </div>
+
+  <div id="pageSim" class="hidden">
+    <div class="card">
+      <h2>Simulation Inputs: Lender/Borrower Classes</h2>
+      <p class="small">Model classes across 1m, 3m, 6m, 12m and 48m locks. Edit pool sizes and user counts to see impact on lenders, borrowers, treasury, and protocol safety.</p>
+      <div class="grid">
+        <div>
+          <label for="poolSmall">Small Class Pool Size (USD)</label>
+          <input id="poolSmall" type="number" min="100" step="100" value="1000" />
+        </div>
+        <div>
+          <label for="poolMedium">Medium Class Pool Size (USD)</label>
+          <input id="poolMedium" type="number" min="1000" step="500" value="10000" />
+        </div>
+        <div>
+          <label for="poolHigh">High Class Pool Size (USD)</label>
+          <input id="poolHigh" type="number" min="5000" step="1000" value="100000" />
+        </div>
+        <div>
+          <label for="poolWhale">Whale Class Pool Size (USD)</label>
+          <input id="poolWhale" type="number" min="50000" step="5000" value="1000000" />
+        </div>
+        <div>
+          <label for="countSmall">Small Class Users</label>
+          <input id="countSmall" type="number" min="1" step="1" value="100" />
+        </div>
+        <div>
+          <label for="countMedium">Medium Class Users</label>
+          <input id="countMedium" type="number" min="1" step="1" value="40" />
+        </div>
+        <div>
+          <label for="countHigh">High Class Users</label>
+          <input id="countHigh" type="number" min="1" step="1" value="12" />
+        </div>
+        <div>
+          <label for="countWhale">Whale Class Users</label>
+          <input id="countWhale" type="number" min="1" step="1" value="3" />
+        </div>
+        <div>
+          <label for="borrowerLtv">Borrower LTV (%)</label>
+          <input id="borrowerLtv" type="range" min="20" max="75" step="1" value="45" />
+          <div class="value" id="borrowerLtvv"></div>
+        </div>
+        <div>
+          <label for="collateralGrowth">Collateral Annual Growth (%)</label>
+          <input id="collateralGrowth" type="range" min="-30" max="80" step="1" value="12" />
+          <div class="value" id="collateralGrowthv"></div>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button id="presetDefensive">Defensive Example</button>
+        <button id="presetBase">Base Example</button>
+        <button id="presetGrowth">Growth Example</button>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button id="scenarioConservative">Scenario Snapshot: Conservative</button>
+        <button id="scenarioBalanced">Scenario Snapshot: Base</button>
+        <button id="scenarioAggressive">Scenario Snapshot: Aggressive</button>
+        <button id="downloadScenarioReport">Download Full Scenario Report</button>
+      </div>
+      <div class="value" id="snapshotState" style="margin-top:8px;">Active scenario: Custom</div>
+    </div>
+
+    <div class="card">
+      <h2>Lender Return Simulation by Class and Timeline</h2>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button id="downloadLenderCsv">Download Lender CSV</button>
+      </div>
+      <div id="lenderSimTable"></div>
+    </div>
+
+    <div class="card">
+      <h2>Borrower Outcome Simulation by Class and Timeline</h2>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button id="downloadBorrowerCsv">Download Borrower CSV</button>
+      </div>
+      <div id="borrowerSimTable"></div>
+    </div>
+
+    <div class="card">
+      <h2>Protocol + Treasury Aggregate Simulation</h2>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button id="downloadProtocolCsv">Download Protocol CSV</button>
+      </div>
+      <div id="protocolSimTable"></div>
+    </div>
+
+    <div class="card">
+      <h2>Fee Routing by Lock Timeline</h2>
+      <div id="simProtocolChart"></div>
+    </div>
   </div>
 
   <script>
@@ -133,7 +289,10 @@
       const treasuryEmission = Number(document.getElementById("treasuryEmission").value) / 100;
       const liquidityEmission = Number(document.getElementById("liquidityEmission").value) / 100;
       const loanBookY5 = Number(document.getElementById("loanBookY5").value) * 1e6;
-      const feeApr = Number(document.getElementById("feeApr").value) / 100;
+      const borrowApr = Number(document.getElementById("borrowApr").value) / 100;
+      const originationFeeApr = Number(document.getElementById("originationFeeApr").value) / 100;
+      const protocolTake = Number(document.getElementById("protocolTake").value) / 100;
+      const usdPlusApy = Number(document.getElementById("usdPlusApy").value) / 100;
 
       const marketFacing = [];
       const circulating = [];
@@ -163,16 +322,43 @@
 
       const xYears = [1, 2, 3, 4, 5];
       const loanBooks = xYears.map(y => loanBookY5 * Math.pow(y / 5, 1.3));
-      const grossFees = loanBooks.map(lb => lb * feeApr);
-      const toLenders = grossFees.map(v => v * 0.80);
-      const toTreasury = grossFees.map(v => v * 0.15);
-      const toSafety = grossFees.map(v => v * 0.05);
+      const blendedBorrowerApr = borrowApr + originationFeeApr;
+      const grossFees = loanBooks.map(lb => lb * blendedBorrowerApr);
+      const toLenders = grossFees.map(v => v * (1 - protocolTake));
+      const protocolRevenue = grossFees.map(v => v * protocolTake);
+      const toTreasury = protocolRevenue.map(v => v * 0.75);
+      const toSafety = protocolRevenue.map(v => v * 0.25);
+      const lenderAprY5 = blendedBorrowerApr * (1 - protocolTake);
+      const spreadVsUsdPlus = lenderAprY5 - usdPlusApy;
 
-      return { circulating, fdv, mcap, prices, grossFees, toLenders, toTreasury, toSafety, xYears };
+      return {
+        circulating,
+        fdv,
+        mcap,
+        prices,
+        grossFees,
+        toLenders,
+        toTreasury,
+        toSafety,
+        lenderAprY5,
+        spreadVsUsdPlus,
+        xYears,
+        protocolTake
+      };
     }
 
     function refresh() {
-      const ids = ["price0", "growth", "treasuryEmission", "liquidityEmission", "loanBookY5", "feeApr"];
+      const ids = [
+        "price0",
+        "growth",
+        "treasuryEmission",
+        "liquidityEmission",
+        "loanBookY5",
+        "borrowApr",
+        "originationFeeApr",
+        "protocolTake",
+        "usdPlusApy"
+      ];
       for (const id of ids) {
         const el = document.getElementById(id);
         document.getElementById(`${id}v`).textContent = el.value;
@@ -188,6 +374,12 @@
       document.getElementById("toLendersY5").textContent = fUSD(d.toLenders[d.toLenders.length - 1]);
       document.getElementById("toTreasuryY5").textContent = fUSD(d.toTreasury[d.toTreasury.length - 1]);
       document.getElementById("toSafetyY5").textContent = fUSD(d.toSafety[d.toSafety.length - 1]);
+      document.getElementById("lenderAprY5").textContent = `${(d.lenderAprY5 * 100).toFixed(1)}%`;
+      const spreadBps = d.spreadVsUsdPlus * 100;
+      document.getElementById("spreadVsUsdPlus").textContent = `${spreadBps >= 0 ? "+" : ""}${spreadBps.toFixed(1)}%`;
+      document.getElementById("toLendersLabel").textContent = `Year-5 To Lenders (${((1 - d.protocolTake) * 100).toFixed(0)}%)`;
+      document.getElementById("toTreasuryLabel").textContent = `Year-5 To Treasury (${(d.protocolTake * 75).toFixed(1)}%)`;
+      document.getElementById("toSafetyLabel").textContent = `Year-5 To Safety (${(d.protocolTake * 25).toFixed(1)}%)`;
 
       Plotly.react("chart", [
         { x: months, y: d.circulating, name: "Circulating Supply", yaxis: "y1", line: { width: 3 } },
@@ -202,9 +394,9 @@
       }, { responsive: true });
 
       Plotly.react("feeChart", [
-        { x: d.xYears, y: d.toLenders, name: "To Lenders (80%)", type: "bar" },
-        { x: d.xYears, y: d.toTreasury, name: "To Treasury (15%)", type: "bar" },
-        { x: d.xYears, y: d.toSafety, name: "To Safety (5%)", type: "bar" }
+        { x: d.xYears, y: d.toLenders, name: "To Lenders", type: "bar" },
+        { x: d.xYears, y: d.toTreasury, name: "To Treasury", type: "bar" },
+        { x: d.xYears, y: d.toSafety, name: "To Safety", type: "bar" }
       ], {
         barmode: "stack",
         margin: { t: 10, r: 30, b: 40, l: 70 },
@@ -212,10 +404,454 @@
         yaxis: { title: "USD", tickformat: "$~s" },
         legend: { orientation: "h" }
       }, { responsive: true });
+
+      refreshSimulation();
     }
 
-    document.querySelectorAll("input[type=range]").forEach(el => el.addEventListener("input", refresh));
+    const SIM_TIMELINES = [1, 3, 6, 12, 48];
+    const CLASS_META = [
+      { key: "small", label: "Small", poolId: "poolSmall", countId: "countSmall" },
+      { key: "medium", label: "Medium", poolId: "poolMedium", countId: "countMedium" },
+      { key: "high", label: "High", poolId: "poolHigh", countId: "countHigh" },
+      { key: "whale", label: "Whale", poolId: "poolWhale", countId: "countWhale" }
+    ];
+    const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    let lastLenderRows = [];
+    let lastBorrowerRows = [];
+    let lastProtocolRows = [];
+    let activeScenarioLabel = "Custom";
+
+    function fMoney(n) {
+      if (Math.abs(n) >= 1e6) return fUSD(n);
+      return moneyFmt.format(n);
+    }
+
+    function fP(n) {
+      return `${n.toFixed(2)}%`;
+    }
+
+    function csvCell(v) {
+      const s = String(v ?? "");
+      const escaped = s.replace(/"/g, "\"\"");
+      return `"${escaped}"`;
+    }
+
+    function downloadCsv(filename, headers, rows) {
+      const csv = [
+        headers.map(csvCell).join(","),
+        ...rows.map(row => headers.map(h => csvCell(row[h])).join(","))
+      ].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function setScenarioState(label) {
+      activeScenarioLabel = label;
+      document.getElementById("snapshotState").textContent = `Active scenario: ${label}`;
+    }
+
+    function scenarioSnapshotConfig(name) {
+      const configs = {
+        conservative: {
+          price0: 0.35, growth: 6, treasuryEmission: 12, liquidityEmission: 15, loanBookY5: 80,
+          borrowApr: 14, originationFeeApr: 0.9, protocolTake: 18, usdPlusApy: 6.2,
+          poolSmall: 1000, poolMedium: 10000, poolHigh: 100000, poolWhale: 1000000,
+          countSmall: 140, countMedium: 50, countHigh: 10, countWhale: 2,
+          borrowerLtv: 38, collateralGrowth: 6
+        },
+        base: {
+          price0: 0.40, growth: 15, treasuryEmission: 20, liquidityEmission: 25, loanBookY5: 120,
+          borrowApr: 18, originationFeeApr: 1.5, protocolTake: 20, usdPlusApy: 7,
+          poolSmall: 1000, poolMedium: 10000, poolHigh: 100000, poolWhale: 1000000,
+          countSmall: 100, countMedium: 40, countHigh: 12, countWhale: 3,
+          borrowerLtv: 45, collateralGrowth: 12
+        },
+        aggressive: {
+          price0: 0.55, growth: 28, treasuryEmission: 35, liquidityEmission: 38, loanBookY5: 260,
+          borrowApr: 25, originationFeeApr: 2.2, protocolTake: 24, usdPlusApy: 8.0,
+          poolSmall: 1000, poolMedium: 10000, poolHigh: 100000, poolWhale: 1000000,
+          countSmall: 220, countMedium: 95, countHigh: 24, countWhale: 8,
+          borrowerLtv: 58, collateralGrowth: 24
+        }
+      };
+      return configs[name];
+    }
+
+    function applyScenarioSnapshot(name) {
+      const cfg = scenarioSnapshotConfig(name);
+      if (!cfg) return;
+      Object.entries(cfg).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+      });
+      const label = name === "base" ? "Base" : name.charAt(0).toUpperCase() + name.slice(1);
+      setScenarioState(label);
+      refresh();
+    }
+
+    function currentAssumptions() {
+      return [
+        ["Starting Price (USD)", document.getElementById("price0").value],
+        ["Annual Price Growth (%)", document.getElementById("growth").value],
+        ["Treasury Emission by Month 60 (%)", document.getElementById("treasuryEmission").value],
+        ["Liquidity Emission by Month 60 (%)", document.getElementById("liquidityEmission").value],
+        ["Year-5 Avg Loan Book (USD M)", document.getElementById("loanBookY5").value],
+        ["Borrow APR (%)", document.getElementById("borrowApr").value],
+        ["Origination Fee (%)", document.getElementById("originationFeeApr").value],
+        ["Protocol Take (%)", document.getElementById("protocolTake").value],
+        ["USD+ Benchmark APY (%)", document.getElementById("usdPlusApy").value],
+        ["Borrower LTV (%)", document.getElementById("borrowerLtv").value],
+        ["Collateral Growth (%)", document.getElementById("collateralGrowth").value],
+        ["Small Pool / Users", `${document.getElementById("poolSmall").value} / ${document.getElementById("countSmall").value}`],
+        ["Medium Pool / Users", `${document.getElementById("poolMedium").value} / ${document.getElementById("countMedium").value}`],
+        ["High Pool / Users", `${document.getElementById("poolHigh").value} / ${document.getElementById("countHigh").value}`],
+        ["Whale Pool / Users", `${document.getElementById("poolWhale").value} / ${document.getElementById("countWhale").value}`]
+      ];
+    }
+
+    function makeHtmlTable(headers, rows) {
+      const head = headers.map(h => `<th>${escapeHtml(h)}</th>`).join("");
+      const body = rows.map(row => `<tr>${row.map(c => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
+      return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+
+    function downloadScenarioReport() {
+      const keyRows = [
+        ["Circulating Supply (M60)", document.getElementById("circulating60").textContent],
+        ["FDV (M60)", document.getElementById("fdv60").textContent],
+        ["Market Cap (M60)", document.getElementById("mcap60").textContent],
+        ["MC / FDV Ratio (M60)", document.getElementById("ratio60").textContent],
+        ["Year-5 Gross Borrower Revenue", document.getElementById("grossFeesY5").textContent],
+        [document.getElementById("toLendersLabel").textContent, document.getElementById("toLendersY5").textContent],
+        [document.getElementById("toTreasuryLabel").textContent, document.getElementById("toTreasuryY5").textContent],
+        [document.getElementById("toSafetyLabel").textContent, document.getElementById("toSafetyY5").textContent],
+        ["Lender Net APR (Y5)", document.getElementById("lenderAprY5").textContent],
+        ["Spread vs USD+ (Y5)", document.getElementById("spreadVsUsdPlus").textContent]
+      ];
+      const lenderRows = lastLenderRows.map(r => [
+        r.classLabel, fMoney(r.principal), String(r.users), `${r.lock}m`, fMoney(r.grossFees), fMoney(r.toLender),
+        fP(r.lenderReturnPct), fP(r.benchmarkPct), `${r.spreadPct >= 0 ? "+" : ""}${fP(r.spreadPct)}`
+      ]);
+      const borrowerRows = lastBorrowerRows.map(r => [
+        r.classLabel, fMoney(r.principal), String(r.users), `${r.lock}m`, fMoney(r.collateralStart),
+        fMoney(r.collateralEnd), fMoney(r.repayment), fMoney(r.netEquity), fP(r.feePct)
+      ]);
+      const protocolRows = lastProtocolRows.map(r => [
+        `${r.lock}m`, fMoney(r.totalBorrowerFees), fMoney(r.totalLenderFlow), fMoney(r.totalTreasury), fMoney(r.totalSafety)
+      ]);
+
+      const reportHtml = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>CRDT Scenario Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+    h1, h2 { margin: 0 0 10px; }
+    h2 { margin-top: 24px; }
+    p { margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+    th { background: #f3f4f6; }
+    .small { color: #6b7280; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>CRDT Tokenomics Scenario Report</h1>
+  <p><strong>Scenario:</strong> ${escapeHtml(activeScenarioLabel)}</p>
+  <p><strong>Generated:</strong> ${escapeHtml(new Date().toISOString())}</p>
+  <p class="small">Generated from live_tokenomics_calculator.html</p>
+  <h2>Key Outputs</h2>
+  ${makeHtmlTable(["Metric", "Value"], keyRows)}
+  <h2>Assumptions</h2>
+  ${makeHtmlTable(["Input", "Value"], currentAssumptions())}
+  <h2>Lender Simulation</h2>
+  ${makeHtmlTable(["Class", "Pool Size", "Users", "Lock", "Gross Borrower Fees", "To Lender / Loan", "Lender Return", "USD+ Return", "Spread"], lenderRows)}
+  <h2>Borrower Simulation</h2>
+  ${makeHtmlTable(["Class", "Loan Size", "Users", "Lock", "Collateral Posted", "Collateral at End", "Total Repayment", "Borrower Net Equity", "Borrowing Cost"], borrowerRows)}
+  <h2>Protocol + Treasury Aggregates</h2>
+  ${makeHtmlTable(["Lock", "Total Borrower Fees", "Total to Lenders", "Total to Treasury", "Total to Safety"], protocolRows)}
+</body>
+</html>`;
+
+      const blob = new Blob([reportHtml], { type: "text/html;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `crdt_scenario_report_${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function applyPreset(preset) {
+      const cfg = {
+        base: { borrowApr: 18.0, originationFeeApr: 1.5, protocolTake: 20, usdPlusApy: 7.0, collateralGrowth: 12, borrowerLtv: 45 },
+        defensive: { borrowApr: 14.0, originationFeeApr: 1.0, protocolTake: 18, usdPlusApy: 6.5, collateralGrowth: 5, borrowerLtv: 40 },
+        growth: { borrowApr: 24.0, originationFeeApr: 2.0, protocolTake: 24, usdPlusApy: 7.5, collateralGrowth: 22, borrowerLtv: 55 }
+      }[preset];
+      if (!cfg) return;
+      Object.entries(cfg).forEach(([id, v]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v;
+      });
+      setScenarioState("Custom");
+      refresh();
+    }
+
+    function refreshSimulation() {
+      const borrowApr = Number(document.getElementById("borrowApr").value) / 100;
+      const originationFeeApr = Number(document.getElementById("originationFeeApr").value) / 100;
+      const protocolTake = Number(document.getElementById("protocolTake").value) / 100;
+      const usdPlusApy = Number(document.getElementById("usdPlusApy").value) / 100;
+      const borrowerLtv = Number(document.getElementById("borrowerLtv").value) / 100;
+      const collateralGrowth = Number(document.getElementById("collateralGrowth").value) / 100;
+
+      document.getElementById("borrowerLtvv").textContent = `${(borrowerLtv * 100).toFixed(0)}%`;
+      document.getElementById("collateralGrowthv").textContent = `${(collateralGrowth * 100).toFixed(1)}%`;
+
+      const classData = CLASS_META.map(cls => {
+        const principal = Number(document.getElementById(cls.poolId).value);
+        const users = Number(document.getElementById(cls.countId).value);
+        return { ...cls, principal, users };
+      });
+
+      const blendedBorrowerApr = borrowApr + originationFeeApr;
+      const lenderRows = [];
+      const borrowerRows = [];
+      const protocolByTimeline = [];
+
+      for (const monthsLock of SIM_TIMELINES) {
+        let totalLenderFlow = 0;
+        let totalTreasury = 0;
+        let totalSafety = 0;
+        let totalBorrowerFees = 0;
+
+        for (const cls of classData) {
+          const interestOnly = cls.principal * borrowApr * (monthsLock / 12);
+          const originationFee = cls.principal * originationFeeApr;
+          const grossFees = interestOnly + originationFee;
+          const toLenderPerLoan = grossFees * (1 - protocolTake);
+          const protocolPerLoan = grossFees * protocolTake;
+          const treasuryPerLoan = protocolPerLoan * 0.75;
+          const safetyPerLoan = protocolPerLoan * 0.25;
+
+          const lenderReturnPct = (toLenderPerLoan / cls.principal) * 100;
+          const benchmarkPct = (Math.pow(1 + usdPlusApy, monthsLock / 12) - 1) * 100;
+          const benchmarkUsd = cls.principal * benchmarkPct / 100;
+
+          lenderRows.push({
+            classLabel: cls.label,
+            principal: cls.principal,
+            lock: monthsLock,
+            users: cls.users,
+            grossFees,
+            toLender: toLenderPerLoan,
+            lenderReturnPct,
+            benchmarkPct,
+            spreadPct: lenderReturnPct - benchmarkPct,
+            benchmarkUsd
+          });
+
+          const collateralStart = cls.principal / Math.max(borrowerLtv, 0.01);
+          const collateralEnd = collateralStart * Math.pow(1 + collateralGrowth, monthsLock / 12);
+          const repayment = cls.principal + grossFees;
+          const netEquity = collateralEnd - repayment;
+
+          borrowerRows.push({
+            classLabel: cls.label,
+            principal: cls.principal,
+            lock: monthsLock,
+            users: cls.users,
+            collateralStart,
+            collateralEnd,
+            repayment,
+            netEquity,
+            feePct: (grossFees / cls.principal) * 100
+          });
+
+          totalLenderFlow += toLenderPerLoan * cls.users;
+          totalTreasury += treasuryPerLoan * cls.users;
+          totalSafety += safetyPerLoan * cls.users;
+          totalBorrowerFees += grossFees * cls.users;
+        }
+
+        protocolByTimeline.push({
+          lock: monthsLock,
+          totalLenderFlow,
+          totalTreasury,
+          totalSafety,
+          totalBorrowerFees
+        });
+      }
+
+      lastLenderRows = lenderRows;
+      lastBorrowerRows = borrowerRows;
+      lastProtocolRows = protocolByTimeline;
+
+      document.getElementById("lenderSimTable").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Pool Size</th>
+              <th>Users</th>
+              <th>Lock</th>
+              <th>Gross Borrower Fees</th>
+              <th>To Lender / Loan</th>
+              <th>Lender Return</th>
+              <th>USD+ Return</th>
+              <th>Spread</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lenderRows.map(r => `
+              <tr>
+                <td>${r.classLabel}</td>
+                <td>${fMoney(r.principal)}</td>
+                <td>${r.users}</td>
+                <td>${r.lock}m</td>
+                <td>${fMoney(r.grossFees)}</td>
+                <td>${fMoney(r.toLender)}</td>
+                <td>${fP(r.lenderReturnPct)}</td>
+                <td>${fP(r.benchmarkPct)}</td>
+                <td>${r.spreadPct >= 0 ? "+" : ""}${fP(r.spreadPct)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("borrowerSimTable").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Loan Size</th>
+              <th>Users</th>
+              <th>Lock</th>
+              <th>Collateral Posted</th>
+              <th>Collateral at End</th>
+              <th>Total Repayment</th>
+              <th>Borrower Net Equity</th>
+              <th>Borrowing Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${borrowerRows.map(r => `
+              <tr>
+                <td>${r.classLabel}</td>
+                <td>${fMoney(r.principal)}</td>
+                <td>${r.users}</td>
+                <td>${r.lock}m</td>
+                <td>${fMoney(r.collateralStart)}</td>
+                <td>${fMoney(r.collateralEnd)}</td>
+                <td>${fMoney(r.repayment)}</td>
+                <td>${fMoney(r.netEquity)}</td>
+                <td>${fP(r.feePct)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("protocolSimTable").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Lock</th>
+              <th>Total Borrower Fees</th>
+              <th>Total to Lenders</th>
+              <th>Total to Treasury</th>
+              <th>Total to Safety</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${protocolByTimeline.map(r => `
+              <tr>
+                <td>${r.lock}m</td>
+                <td>${fMoney(r.totalBorrowerFees)}</td>
+                <td>${fMoney(r.totalLenderFlow)}</td>
+                <td>${fMoney(r.totalTreasury)}</td>
+                <td>${fMoney(r.totalSafety)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      Plotly.react("simProtocolChart", [
+        { x: protocolByTimeline.map(r => `${r.lock}m`), y: protocolByTimeline.map(r => r.totalLenderFlow), type: "bar", name: "To Lenders" },
+        { x: protocolByTimeline.map(r => `${r.lock}m`), y: protocolByTimeline.map(r => r.totalTreasury), type: "bar", name: "To Treasury" },
+        { x: protocolByTimeline.map(r => `${r.lock}m`), y: protocolByTimeline.map(r => r.totalSafety), type: "bar", name: "To Safety" }
+      ], {
+        barmode: "stack",
+        margin: { t: 10, r: 20, b: 40, l: 70 },
+        xaxis: { title: "Loan Lock Timeline" },
+        yaxis: { title: "USD", tickformat: "$~s" },
+        legend: { orientation: "h" }
+      }, { responsive: true });
+    }
+
+    function switchPage(target) {
+      const showCore = target === "core";
+      document.getElementById("pageCore").classList.toggle("hidden", !showCore);
+      document.getElementById("pageSim").classList.toggle("hidden", showCore);
+      document.getElementById("tabCore").classList.toggle("active", showCore);
+      document.getElementById("tabSim").classList.toggle("active", !showCore);
+    }
+
+    document.querySelectorAll("input[type=range]").forEach(el => el.addEventListener("input", () => {
+      setScenarioState("Custom");
+      refresh();
+    }));
+    document.querySelectorAll("input[type=number]").forEach(el => el.addEventListener("input", () => {
+      setScenarioState("Custom");
+      refreshSimulation();
+    }));
+    document.getElementById("tabCore").addEventListener("click", () => switchPage("core"));
+    document.getElementById("tabSim").addEventListener("click", () => switchPage("sim"));
+    document.getElementById("presetBase").addEventListener("click", () => applyPreset("base"));
+    document.getElementById("presetDefensive").addEventListener("click", () => applyPreset("defensive"));
+    document.getElementById("presetGrowth").addEventListener("click", () => applyPreset("growth"));
+    document.getElementById("scenarioConservative").addEventListener("click", () => applyScenarioSnapshot("conservative"));
+    document.getElementById("scenarioBalanced").addEventListener("click", () => applyScenarioSnapshot("base"));
+    document.getElementById("scenarioAggressive").addEventListener("click", () => applyScenarioSnapshot("aggressive"));
+    document.getElementById("downloadScenarioReport").addEventListener("click", downloadScenarioReport);
+    document.getElementById("downloadLenderCsv").addEventListener("click", () => {
+      downloadCsv("lender_simulation.csv",
+        ["classLabel", "principal", "users", "lock", "grossFees", "toLender", "lenderReturnPct", "benchmarkPct", "spreadPct"],
+        lastLenderRows);
+    });
+    document.getElementById("downloadBorrowerCsv").addEventListener("click", () => {
+      downloadCsv("borrower_simulation.csv",
+        ["classLabel", "principal", "users", "lock", "collateralStart", "collateralEnd", "repayment", "netEquity", "feePct"],
+        lastBorrowerRows);
+    });
+    document.getElementById("downloadProtocolCsv").addEventListener("click", () => {
+      downloadCsv("protocol_simulation.csv",
+        ["lock", "totalBorrowerFees", "totalLenderFlow", "totalTreasury", "totalSafety"],
+        lastProtocolRows);
+    });
     refresh();
+    refreshSimulation();
   </script>
 </body>
 </html>

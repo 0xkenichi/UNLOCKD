@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   BrowserRouter,
   Routes,
@@ -14,6 +14,11 @@ import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import UnifiedWalletModal from './components/common/UnifiedWalletModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
+import {
+  trackEvent,
+  flushAnalyticsQueue,
+  initAnalyticsAutoCapture
+} from './utils/analytics.js';
 
 const Landing = lazy(routeImports.landing);
 const Dashboard = lazy(routeImports.dashboard);
@@ -27,6 +32,9 @@ const Identity = lazy(routeImports.identity);
 const Features = lazy(routeImports.features);
 const Docs = lazy(routeImports.docs);
 const About = lazy(routeImports.about);
+const AdminAirdrop = lazy(routeImports.adminAirdrop);
+const Airdrop = lazy(routeImports.airdrop);
+const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
 
 function RouteFallback() {
@@ -42,6 +50,7 @@ function AppShell() {
   const navigate = useNavigate();
   const isLanding = location.pathname === '/';
   const isImmersiveDashboard = location.pathname === '/dashboard';
+  const hasStandardHeader = !isLanding && !isImmersiveDashboard;
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const { address: connectedAddress, isConnecting, isReconnecting } = useAccount();
@@ -57,6 +66,12 @@ function AppShell() {
   const shortConnectedAddress = connectedAddress
     ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
     : '';
+  const trackedWalletRef = useRef('');
+  const headerRef = useRef(null);
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'dark';
+    return window.localStorage.getItem('unlockd-theme') || 'dark';
+  });
 
   useEffect(() => {
     const handleOpenWallet = () => setWalletModalOpen(true);
@@ -64,13 +79,85 @@ function AppShell() {
     return () => window.removeEventListener('crdt-open-wallet-modal', handleOpenWallet);
   }, []);
 
+  useEffect(() => {
+    if (!chainId || typeof window === 'undefined') return;
+    window.localStorage.setItem('last-known-chain-id', String(chainId));
+  }, [chainId]);
+
+  useEffect(() => {
+    initAnalyticsAutoCapture();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('unlockd-theme', theme);
+    }
+    trackEvent('theme_change', { theme });
+  }, [theme]);
+
+  useEffect(() => {
+    trackEvent('page_view', {
+      route: location.pathname,
+      chainType: session.chainType
+    });
+  }, [location.pathname, session.chainType]);
+
+  useEffect(() => {
+    if (!connectedAddress) {
+      trackedWalletRef.current = '';
+      return;
+    }
+    const normalized = connectedAddress.toLowerCase();
+    if (trackedWalletRef.current === normalized) return;
+    trackedWalletRef.current = normalized;
+    trackEvent('wallet_connect', {
+      walletAddress: connectedAddress,
+      chainId
+    });
+    flushAnalyticsQueue();
+  }, [connectedAddress, chainId]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    if (!hasStandardHeader) {
+      root.style.setProperty('--app-header-offset', '0px');
+      return undefined;
+    }
+    const headerNode = headerRef.current;
+    if (!headerNode) return undefined;
+
+    const syncHeaderOffset = () => {
+      const height = Math.ceil(headerNode.getBoundingClientRect().height || 0);
+      root.style.setProperty('--app-header-offset', `${height}px`);
+    };
+
+    syncHeaderOffset();
+    window.addEventListener('resize', syncHeaderOffset);
+
+    let observer;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(syncHeaderOffset);
+      observer.observe(headerNode);
+    }
+
+    return () => {
+      window.removeEventListener('resize', syncHeaderOffset);
+      if (observer) observer.disconnect();
+    };
+  }, [hasStandardHeader]);
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${hasStandardHeader ? 'has-fixed-header' : ''}`}>
       <a href="#main-content" className="skip-to-content">
         Skip to main content
       </a>
-      {!isLanding && !isImmersiveDashboard && (
-        <header className="app-header">
+      {hasStandardHeader && (
+        <header ref={headerRef} className="app-header">
           <div className="brand" onClick={() => navigate('/dashboard')}>
             <span className="brand-crest-global" aria-hidden="true" />
             <div>
@@ -100,6 +187,28 @@ function AppShell() {
                 onClick={() => navigate('/portfolio')}
               >
                 Portfolio
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/airdrop')}
+              >
+                Airdrop
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => navigate('/feedback')}
+              >
+                Feedback
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              >
+                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
               </button>
               <button
                 className={`button ${connectedAddress ? 'wallet-connected' : ''}`}
@@ -142,6 +251,9 @@ function AppShell() {
             <Route path="/features" element={<Features />} />
             <Route path="/docs" element={<Docs />} />
             <Route path="/about" element={<About />} />
+            <Route path="/admin/airdrop" element={<AdminAirdrop />} />
+            <Route path="/airdrop" element={<Airdrop />} />
+            <Route path="/feedback" element={<Feedback />} />
             {FEATURE_FUNDRAISE_ONBOARD && (
               <Route path="/fundraise" element={<FundraiseOnboard />} />
             )}

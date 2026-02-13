@@ -35,6 +35,7 @@ export default function OnrampEmbed({ address, chainLabel }) {
         </div>
         <a
           className="button funding-card-cta"
+          data-guide-id="fund-open-onramper"
           href="https://www.onramper.com"
           target="_blank"
           rel="noreferrer"

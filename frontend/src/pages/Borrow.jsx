@@ -8,10 +8,12 @@ import TokenAssessment from '../components/borrow/TokenAssessment.jsx';
 import ValuationForm from '../components/borrow/ValuationForm.jsx';
 import FaucetCard from '../components/borrow/FaucetCard.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
+import DemoAccessCard from '../components/common/DemoAccessCard.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import PassportSummary from '../components/common/PassportSummary.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
 import { requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
+import { trackEvent } from '../utils/analytics.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const ASSESSMENT_TESTNET_CHAIN_IDS = new Set([31337, 11155111, 84532]);
@@ -25,7 +27,10 @@ export default function Borrow() {
   const prefill = location.state?.prefill;
   const { address } = useAccount();
   const chainId = useChainId();
-  const chainName = [8453, 84532].includes(chainId) ? 'base' : 'base';
+  const chainName = useMemo(() => {
+    if ([8453, 84532, 11155111, 31337].includes(chainId)) return 'base';
+    return 'base';
+  }, [chainId]);
   const isAssessmentTestnet = ASSESSMENT_TESTNET_CHAIN_IDS.has(chainId);
   const [valuationState, setValuationState] = useState({ pv: 0n, ltvBps: 0n });
   const [vestingDetails, setVestingDetails] = useState(null);
@@ -72,6 +77,12 @@ export default function Borrow() {
         const offers = data?.offers || [];
         setMatchOffers(offers);
         setMatchError('');
+        trackEvent('quote_requested', {
+          chain: chainName,
+          collateralId: String(collateralId),
+          desiredAmountUsd,
+          offersReturned: offers.length
+        });
         if (!selectedOffer && offers.length) {
           const firstAccessible = offers.find((o) => o.canAccess);
           setSelectedOffer(firstAccessible || offers[0]);
@@ -141,6 +152,10 @@ export default function Borrow() {
       <div className="page-header">
         <h1 className="page-title holo-glow">Borrow</h1>
         <p className="page-subtitle">Escrow vesting, get USDC.</p>
+        <div className="inline-actions" style={{ marginTop: 8 }}>
+          <span className="chip">Testnet readiness mode</span>
+          <span className="chip">Mainnet launch disabled</span>
+        </div>
       </div>
       <PassportSummary
         as="div"
@@ -164,6 +179,7 @@ export default function Borrow() {
       )}
 
       <FundWallet mode="borrow" onStatusChange={setFundingStatus} />
+      <DemoAccessCard />
 
       <div className="grid-2">
         {isAssessmentTestnet ? (
@@ -232,7 +248,15 @@ export default function Borrow() {
                     <button
                       className="button ghost"
                       type="button"
-                      onClick={() => setSelectedOffer(offer)}
+                      onClick={() => {
+                        setSelectedOffer(offer);
+                        trackEvent('quote_accepted', {
+                          chain: chainName,
+                          poolId: offer.poolId,
+                          offerId: offer.offerId,
+                          maxBorrowUsd: offer.maxBorrowUsd
+                        });
+                      }}
                       disabled={!offer.canAccess}
                     >
                       {offer.canAccess ? 'Use' : 'Peek'}

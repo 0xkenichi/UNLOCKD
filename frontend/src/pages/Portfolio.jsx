@@ -87,7 +87,9 @@ export default function Portfolio() {
       .map((read, i) => {
         const loan = read.result;
         const unlockTs = loan ? Number(loan[4]) : 0;
+        const loanId = recentIds[i]?.toString() || String(i);
         return {
+          loanId,
           id: `Loan-${recentIds[i]?.toString() || i}`,
           principal: loan ? loan[1].toString() : '0',
           interest: loan ? loan[2].toString() : '0',
@@ -152,6 +154,10 @@ export default function Portfolio() {
       <div className="page-header">
         <h1 className="page-title holo-glow">Portfolio</h1>
         <p className="page-subtitle">Balances and positions.</p>
+        <div className="inline-actions" style={{ marginTop: 8 }}>
+          <span className="chip">Testnet portfolio mode</span>
+          <span className="chip">For demo verification</span>
+        </div>
       </div>
 
       <div className="stat-row portfolio-stats">
@@ -173,7 +179,17 @@ export default function Portfolio() {
         <button className="button" onClick={() => navigate('/borrow')}>
           Borrow
         </button>
-        <button className="button ghost" onClick={() => navigate('/repay')}>
+        <button
+          className="button ghost"
+          onClick={() => {
+            const firstActive = visiblePositions.find((pos) => pos.active);
+            if (firstActive?.loanId) {
+              navigate(`/repay?loanId=${encodeURIComponent(firstActive.loanId)}`);
+              return;
+            }
+            navigate('/repay');
+          }}
+        >
           Repay
         </button>
       </div>
@@ -187,16 +203,29 @@ export default function Portfolio() {
               <div>Principal</div>
               <div>Unlock</div>
               <div>Status</div>
+              <div>Action</div>
             </div>
             {visiblePositions.map((pos) => (
               <div key={pos.id} className="table-row">
-                <div>{pos.id}</div>
-                <div>{pos.principal}</div>
-                <div>{pos.unlock}</div>
-                <div>
+                <div data-label="Loan">{pos.id}</div>
+                <div data-label="Principal">{pos.principal}</div>
+                <div data-label="Unlock">{pos.unlock}</div>
+                <div data-label="Status">
                   <span className={`tag ${pos.active ? 'success' : ''}`}>
                     {pos.active ? 'Active' : 'Inactive'}
                   </span>
+                </div>
+                <div data-label="Action">
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() =>
+                      navigate(`/repay?loanId=${encodeURIComponent(pos.loanId)}`)
+                    }
+                    disabled={!pos.active}
+                  >
+                    Repay
+                  </button>
                 </div>
               </div>
             ))}
@@ -214,11 +243,13 @@ export default function Portfolio() {
               placeholder="Search"
               value={positionQuery}
               onChange={(e) => setPositionQuery(e.target.value)}
+              aria-label="Search portfolio positions"
             />
             <select
               className="form-input"
               value={positionSort}
               onChange={(e) => setPositionSort(e.target.value)}
+              aria-label="Sort portfolio positions"
             >
               <option value="unlock-asc">Unlock soonest</option>
               <option value="unlock-desc">Unlock latest</option>
@@ -265,9 +296,9 @@ export default function Portfolio() {
               </div>
               {activityRows.map((row, i) => (
                 <div key={i} className="table-row">
-                  <div>{row.event}</div>
-                  <div>{row.amount}</div>
-                  <div className="tag success">{row.status}</div>
+                  <div data-label="Event">{row.event}</div>
+                  <div data-label="Amount">{row.amount}</div>
+                  <div data-label="Status" className="tag success">{row.status}</div>
                 </div>
               ))}
             </div>

@@ -117,6 +117,10 @@ export default function Identity() {
           Optional verification unlocks better loan terms. Your data stays private; only outcomes are
           stored.
         </div>
+        <div className="inline-actions" style={{ marginTop: 8 }}>
+          <span className="chip">Testnet identity mode</span>
+          <span className="chip">Seeded passport scoring</span>
+        </div>
       </div>
       <div className="grid-2 essentials-row">
         <EssentialsPanel />
@@ -291,6 +295,10 @@ export default function Identity() {
               )}
             </div>
           )}
+          <div className="muted" style={{ fontSize: 12 }}>
+            Note: Passport verification in this environment is seeded for testnet UX and explicitly
+            marked as mock in API responses.
+          </div>
         </div>
       </div>
     </div>

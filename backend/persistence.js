@@ -1268,6 +1268,335 @@ const getAnalyticsMetrics = async ({ windowHours = 24 } = {}) => {
   };
 };
 
+const safePct = (num, denom) => {
+  if (!denom) return 0;
+  return Math.round((num / denom) * 10000) / 100;
+};
+
+const bucketAnalyticsRowsByDay = (rows) => {
+  const dailyMap = new Map();
+  const uniqueWallets = new Set();
+
+  rows.forEach((row) => {
+    const createdAt = row.created_at || row.createdAt;
+    if (!createdAt) return;
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return;
+    const dayKey = date.toISOString().slice(0, 10);
+    if (!dailyMap.has(dayKey)) {
+      dailyMap.set(dayKey, {
+        date: dayKey,
+        totalEvents: 0,
+        wallets: new Set(),
+        eventCounts: {}
+      });
+    }
+    const bucket = dailyMap.get(dayKey);
+    bucket.totalEvents += 1;
+    const event = row.event || 'unknown';
+    bucket.eventCounts[event] = (bucket.eventCounts[event] || 0) + 1;
+    if (row.wallet_address) {
+      const normalized = String(row.wallet_address).toLowerCase();
+      bucket.wallets.add(normalized);
+      uniqueWallets.add(normalized);
+    }
+  });
+
+  const daily = Array.from(dailyMap.values())
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((bucket) => ({
+      date: bucket.date,
+      totalEvents: bucket.totalEvents,
+      uniqueWallets: bucket.wallets.size,
+      eventCounts: bucket.eventCounts
+    }));
+
+  const aggregateEventCounts = {};
+  daily.forEach((day) => {
+    Object.entries(day.eventCounts || {}).forEach(([event, count]) => {
+      aggregateEventCounts[event] = (aggregateEventCounts[event] || 0) + Number(count || 0);
+    });
+  });
+
+  const walletConnect = Number(aggregateEventCounts.wallet_connect || 0);
+  const borrowStart = Number(aggregateEventCounts.borrow_start || 0);
+  const quoteRequested = Number(aggregateEventCounts.quote_requested || 0);
+  const quoteAccepted = Number(aggregateEventCounts.quote_accepted || 0);
+  const loanCreated = Number(aggregateEventCounts.loan_created || 0);
+
+  return {
+    daily,
+    uniqueWallets: uniqueWallets.size,
+    totalEvents: rows.length,
+    funnel: {
+      walletConnect,
+      borrowStart,
+      quoteRequested,
+      quoteAccepted,
+      loanCreated,
+      conversionRatesPct: {
+        walletToBorrowStart: safePct(borrowStart, walletConnect),
+        borrowStartToQuoteRequested: safePct(quoteRequested, borrowStart),
+        quoteRequestedToLoanCreated: safePct(loanCreated, quoteRequested)
+      }
+    }
+  };
+};
+
+const getAnalyticsBenchmark = async ({ windowDays = 30 } = {}) => {
+  const days = Math.max(1, Math.min(Number(windowDays) || 30, 365));
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('analytics_events')
+      .select('event, wallet_address, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .limit(50000);
+    if (error) throw new Error(`[supabase] getAnalyticsBenchmark failed: ${error.message}`);
+    const summary = bucketAnalyticsRowsByDay(data || []);
+    return {
+      windowDays: days,
+      since: sinceIso,
+      ...summary
+    };
+  }
+
+  const rows = sqlite
+    .prepare(
+      `SELECT event, wallet_address, created_at
+       FROM analytics_events
+       WHERE created_at >= ?
+       ORDER BY created_at ASC`
+    )
+    .all(sinceIso);
+  const summary = bucketAnalyticsRowsByDay(rows);
+  return {
+    windowDays: days,
+    since: sinceIso,
+    ...summary
+  };
+};
+
+const getAirdropLeaderboard = async ({
+  windowDays = 30,
+  limit = 200,
+  phase = 'all'
+} = {}) => {
+  const days = Math.max(1, Math.min(Number(windowDays) || 30, 365));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
+  const phaseKey = String(phase || 'all').toLowerCase();
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const phaseConfigs = {
+    all: {
+      label: 'All activity',
+      eventWeights: {
+        wallet_connect: 20,
+        wallet_session_created: 24,
+        page_view: 1,
+        ui_click: 1,
+        form_change: 0.4,
+        form_submit: 10,
+        borrow_start: 32,
+        quote_requested: 28,
+        quote_accepted: 36,
+        loan_created: 50,
+        loan_repaid: 38,
+        repay_submit: 26,
+        feedback_submitted: 22,
+        frontend_error: -10,
+        frontend_unhandled_rejection: -10
+      },
+      feedbackWeight: 22
+    },
+    phase1: {
+      label: 'Phase 1: onboarding + baseline usage',
+      eventWeights: {
+        wallet_connect: 28,
+        wallet_session_created: 34,
+        page_view: 1,
+        ui_click: 1,
+        form_change: 0.5,
+        form_submit: 12,
+        borrow_start: 30,
+        quote_requested: 24,
+        feedback_submitted: 20,
+        frontend_error: -8,
+        frontend_unhandled_rejection: -8
+      },
+      feedbackWeight: 20
+    },
+    phase2: {
+      label: 'Phase 2: lending/borrowing depth',
+      eventWeights: {
+        wallet_connect: 16,
+        wallet_session_created: 20,
+        page_view: 1,
+        ui_click: 1,
+        borrow_start: 34,
+        quote_requested: 34,
+        quote_accepted: 44,
+        loan_created: 56,
+        loan_repaid: 44,
+        repay_submit: 32,
+        feedback_submitted: 12,
+        frontend_error: -12,
+        frontend_unhandled_rejection: -12
+      },
+      feedbackWeight: 12
+    },
+    content: {
+      label: 'Phase 3: content/community',
+      eventWeights: {
+        wallet_connect: 10,
+        wallet_session_created: 10,
+        page_view: 1,
+        ui_click: 2,
+        form_submit: 14,
+        feedback_submitted: 30,
+        frontend_error: -6,
+        frontend_unhandled_rejection: -6
+      },
+      feedbackWeight: 30
+    }
+  };
+  const config = phaseConfigs[phaseKey] || phaseConfigs.all;
+  const eventWeights = config.eventWeights;
+
+  const users = new Map();
+  const ensureUser = (walletAddress) => {
+    const normalized = String(walletAddress || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (!users.has(normalized)) {
+      users.set(normalized, {
+        walletAddress: normalized,
+        eventCount: 0,
+        uniqueEvents: new Set(),
+        weightedEventScore: 0,
+        highValueActions: 0,
+        feedbackCount: 0,
+        penalties: 0,
+        lastSeenAt: null
+      });
+    }
+    return users.get(normalized);
+  };
+
+  const applyEvent = ({ walletAddress, event, createdAt }) => {
+    const user = ensureUser(walletAddress);
+    if (!user) return;
+    const eventName = String(event || 'unknown');
+    user.eventCount += 1;
+    user.uniqueEvents.add(eventName);
+    const weight = Number(eventWeights[eventName] ?? 0);
+    if (weight === 0) return;
+    user.weightedEventScore += weight;
+    if (weight >= 24) user.highValueActions += 1;
+    if (weight < 0) user.penalties += Math.abs(weight);
+    if (!user.lastSeenAt || (createdAt && createdAt > user.lastSeenAt)) {
+      user.lastSeenAt = createdAt || user.lastSeenAt;
+    }
+  };
+
+  if (useSupabase) {
+    const { data: eventRows, error: eventError } = await supabaseClient()
+      .from('analytics_events')
+      .select('wallet_address, event, created_at')
+      .gte('created_at', sinceIso)
+      .not('wallet_address', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(100000);
+    if (eventError) throw new Error(`[supabase] getAirdropLeaderboard events failed: ${eventError.message}`);
+    (eventRows || []).forEach((row) => {
+      applyEvent({
+        walletAddress: row.wallet_address,
+        event: row.event,
+        createdAt: row.created_at || null
+      });
+    });
+
+    // Optional feedback boost when submissions include walletAddress.
+    const { data: feedbackRows, error: feedbackError } = await supabaseClient()
+      .from('contact_submissions')
+      .select('channel, payload, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(50000);
+    if (feedbackError) {
+      throw new Error(`[supabase] getAirdropLeaderboard feedback failed: ${feedbackError.message}`);
+    }
+    (feedbackRows || []).forEach((row) => {
+      const payload = row?.payload && typeof row.payload === 'object' ? row.payload : {};
+      const walletAddress =
+        payload.walletAddress || payload.wallet_address || payload.address || '';
+      const user = ensureUser(walletAddress);
+      if (!user) return;
+      user.feedbackCount += 1;
+      user.weightedEventScore += config.feedbackWeight;
+      if (!user.lastSeenAt || (row?.created_at && row.created_at > user.lastSeenAt)) {
+        user.lastSeenAt = row.created_at;
+      }
+    });
+  } else {
+    const rows = sqlite
+      .prepare(
+        `SELECT wallet_address, event, created_at
+         FROM analytics_events
+         WHERE created_at >= ?
+           AND wallet_address IS NOT NULL
+           AND wallet_address != ''`
+      )
+      .all(sinceIso);
+    rows.forEach((row) => {
+      applyEvent({
+        walletAddress: row.wallet_address,
+        event: row.event,
+        createdAt: row.created_at || null
+      });
+    });
+  }
+
+  const leaderboard = Array.from(users.values())
+    .map((row) => {
+      const uniqueEventScore = row.uniqueEvents.size * 4;
+    const consistencyBonus = Math.min(40, Math.floor(row.eventCount / 20) * 5);
+      const feedbackBonus = row.feedbackCount * 10;
+      const rawScore =
+        row.weightedEventScore + uniqueEventScore + consistencyBonus + feedbackBonus - row.penalties;
+      return {
+        walletAddress: row.walletAddress,
+        score: Math.max(0, Math.round(rawScore)),
+        eventCount: row.eventCount,
+        uniqueEvents: row.uniqueEvents.size,
+        highValueActions: row.highValueActions,
+        feedbackCount: row.feedbackCount,
+        penalties: row.penalties,
+        lastSeenAt: row.lastSeenAt || null
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.highValueActions !== a.highValueActions) return b.highValueActions - a.highValueActions;
+      return b.eventCount - a.eventCount;
+    })
+    .slice(0, safeLimit)
+    .map((row, index) => ({
+      rank: index + 1,
+      ...row
+    }));
+
+  return {
+    phase: phaseConfigs[phaseKey] ? phaseKey : 'all',
+    phaseLabel: config.label,
+    windowDays: days,
+    since: sinceIso,
+    totalEligibleWallets: users.size,
+    leaderboard
+  };
+};
+
 const saveAdminAuditLog = async ({
   action,
   actorUserId = null,
@@ -1827,6 +2156,8 @@ module.exports = {
   saveAnalyticsEvent,
   getAnalyticsSummary,
   getAnalyticsMetrics,
+  getAnalyticsBenchmark,
+  getAirdropLeaderboard,
   saveAdminAuditLog,
   listAdminAuditLogs,
   getIdentityProfileByWallet,

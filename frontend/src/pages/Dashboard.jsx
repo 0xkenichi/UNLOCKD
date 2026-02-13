@@ -6,7 +6,7 @@ import PassportSummary from '../components/common/PassportSummary.jsx';
 import { ALL_EVM_CHAINS } from '../utils/chains.js';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
-import { fetchKpiDashboard } from '../utils/api.js';
+import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '../utils/api.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const PortfolioPage = lazy(routeImports.portfolio);
@@ -113,6 +113,8 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiError, setKpiError] = useState('');
+  const [benchmark, setBenchmark] = useState(null);
+  const [agentReplay, setAgentReplay] = useState(null);
   const identityPassport = usePassportSnapshot(address);
   const transitionFrameRef = useRef(null);
   const transitionCommitRef = useRef(null);
@@ -181,6 +183,38 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
     }
     const timeout = setTimeout(warmup, 800);
     return () => clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchAnalyticsBenchmark(30)
+      .then((nextBenchmark) => {
+        if (!active) return;
+        setBenchmark(nextBenchmark);
+      })
+      .catch(() => {
+        if (!active) return;
+        setBenchmark(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchAgentReplay(48)
+      .then((nextReplay) => {
+        if (!active) return;
+        setAgentReplay(nextReplay);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAgentReplay(null);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => clearTransitionTimers, [clearTransitionTimers]);
@@ -268,6 +302,19 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const focusModule = modules.find((item) => item.id === focusModuleId);
   const FocusComponent = focusModule?.component;
   const revealProgress = activeId ? 1 : transitionProgress;
+  const replayBars = useMemo(() => {
+    const points = Array.isArray(agentReplay?.timeline)
+      ? agentReplay.timeline.slice(-12)
+      : [];
+    const peak = Math.max(1, ...points.map((item) => Number(item?.count || 0)));
+    return points.map((item) => ({
+      t: item.t,
+      count: Number(item?.count || 0),
+      confidenceAvg:
+        Number.isFinite(item?.confidenceAvg) ? Number(item.confidenceAvg) : null,
+      heightPct: Math.max(8, Math.round((Number(item?.count || 0) / peak) * 100))
+    }));
+  }, [agentReplay]);
 
   return (
     <motion.div
@@ -371,6 +418,56 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             </div>
           )}
           {kpiError && <div className="muted">{kpiError}</div>}
+          {benchmark && (
+            <div className="muted">
+              30d benchmark: {benchmark.uniqueWallets || 0} wallets,{' '}
+              {benchmark.funnel?.conversionRatesPct?.quoteRequestedToLoanCreated || 0}% quote-to-loan conversion.
+            </div>
+          )}
+          {agentReplay && (
+            <div className="agent-replay-mini">
+              <div className="agent-replay-head">
+                <strong>AI Replay (48h)</strong>
+                <span className="muted small">
+                  intent: {agentReplay.topIntent || 'unknown'} · avg conf:{' '}
+                  {Number.isFinite(agentReplay.avgConfidence)
+                    ? `${Math.round(agentReplay.avgConfidence * 100)}%`
+                    : '--'}
+                </span>
+              </div>
+              <div className="agent-replay-head muted small">
+                drift:{' '}
+                {Number.isFinite(agentReplay?.drift?.confidenceDelta)
+                  ? `${agentReplay.drift.confidenceDelta > 0 ? '+' : ''}${(
+                      agentReplay.drift.confidenceDelta * 100
+                    ).toFixed(1)} pts`
+                  : '--'}{' '}
+                · turns: {agentReplay.totalTurns || 0}
+              </div>
+              <div className="agent-replay-bars" aria-label="AI replay drift bars">
+                {replayBars.map((point) => (
+                  <span
+                    key={point.t}
+                    className="agent-replay-bar"
+                    style={{
+                      height: `${point.heightPct}%`,
+                      opacity:
+                        point.confidenceAvg === null
+                          ? 0.35
+                          : Math.min(1, Math.max(0.35, point.confidenceAvg + 0.15))
+                    }}
+                    title={`${new Date(point.t).toLocaleString()} · turns: ${
+                      point.count
+                    } · confidence: ${
+                      point.confidenceAvg !== null
+                        ? `${Math.round(point.confidenceAvg * 100)}%`
+                        : '--'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           <PassportSummary
             as="div"
             className="muted"
@@ -399,6 +496,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               <motion.button
                 key={module.id}
                 type="button"
+                data-guide-id={`dashboard-open-${module.id}`}
                 className={`immersive-module-card ${hovered ? 'is-hovered' : ''} ${transitioning ? 'is-zooming' : ''} ${transitioningId && !transitioning ? 'is-dimming' : ''}`}
                 style={{
                   transform: `perspective(1100px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(${lift}px) translateZ(${depth}px) scale(${scale})`,

@@ -10,7 +10,7 @@ import { formatValue, toUnits } from '../utils/format.js';
 const DEFAULT_PREFS = {
   riskTier: 'balanced',
   maxLtvBps: 3500,
-  interestBps: 900,
+  interestBps: 1800,
   minLoanUsd: 100,
   maxLoanUsd: 2500,
   unlockWindowDays: { min: 30, max: 720 },
@@ -487,8 +487,12 @@ export default function Lender() {
           <h1>Lender Pools</h1>
           <p className="muted">
             Configure liquidity pools and matching preferences. Preferences are advisory for
-            this MVP and do not custody funds.
+            this MVP and do not custody funds. Use Approve + Deposit to move USDC onchain.
           </p>
+          <div className="inline-actions" style={{ marginTop: 8 }}>
+            <span className="chip">Testnet lender mode</span>
+            <span className="chip">Advisory matching active</span>
+          </div>
         </div>
         <EssentialsPanel />
       </div>
@@ -711,7 +715,12 @@ export default function Lender() {
             </label>
           </div>
           <div className="inline-actions">
-            <button className="button" onClick={handleCreatePool} disabled={saveState === 'saving'}>
+            <button
+              className="button"
+              data-guide-id="lender-create-pool"
+              onClick={handleCreatePool}
+              disabled={saveState === 'saving'}
+            >
               {saveState === 'saving' ? 'Saving...' : 'Create Pool'}
             </button>
             <button
@@ -749,10 +758,10 @@ export default function Lender() {
               </div>
               {pools.map((pool) => (
                 <div key={pool.id} className="table-row">
-                  <div>{pool.name}</div>
-                  <div>{pool.chain || 'multi-chain'}</div>
-                  <div>{pool.preferences?.riskTier || 'balanced'}</div>
-                  <div>{pool.preferences?.maxLtvBps || '--'}</div>
+                  <div data-label="Name">{pool.name}</div>
+                  <div data-label="Chain">{pool.chain || 'multi-chain'}</div>
+                  <div data-label="Risk">{pool.preferences?.riskTier || 'balanced'}</div>
+                  <div data-label="Max LTV">{pool.preferences?.maxLtvBps || '--'}</div>
                 </div>
               ))}
             </div>
@@ -810,6 +819,7 @@ export default function Lender() {
             <button
               className="button ghost"
               type="button"
+              data-guide-id="lender-approve"
               onClick={handleApprove}
               disabled={!depositUnits || isApprovePending || approveMining}
             >
@@ -818,6 +828,7 @@ export default function Lender() {
             <button
               className="button"
               type="button"
+              data-guide-id="lender-deposit"
               onClick={handleDeposit}
               disabled={
                 !depositUnits ||
@@ -859,7 +870,7 @@ export default function Lender() {
               <div className="muted">No actions yet. Approve/Deposit/Withdraw to log events.</div>
             )}
             {actionLogs.length > 0 && (
-              <div className="action-log-list">
+              <div className="action-log-list" role="log" aria-live="polite" aria-relevant="additions">
                 {actionLogs.map((log) => (
                   <div key={log.id} className={`action-log-item action-log-item--${log.status}`}>
                     <div className="action-log-head">

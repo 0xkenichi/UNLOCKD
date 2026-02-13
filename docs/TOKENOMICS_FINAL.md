@@ -108,3 +108,52 @@ Example:
 - Quarterly token policy review
 - Annual tokenomics stress test (liquidity, emissions, participation)
 - Any policy changes must be documented in `docs/CHANGELOG.md`
+
+<!-- MARKET_ANCHORS_START -->
+## Market Potential Baseline (Data Snapshot, 2026-02-13)
+
+This section anchors growth assumptions to external market data so expansion targets are auditable.
+
+### Core Market Inputs
+
+- U.S. infrastructure needs (2024-2033): `$9.139T`; funded: `$5.450T`; gap: `$3.689T`.
+- Global infrastructure need to 2040: `$94T` baseline (`$97T` including SDG water/electricity needs), with `$18T` unfunded if current trends persist.
+- Total crypto market cap: `$2.361T` (point-in-time global market value).
+- DeFi TVL: `$166.42B` (total onchain value actively deployed in protocols).
+- Stablecoin circulating value: `$305.54B` (liquidity base for settlement and lending).
+- Token unlock flow proxy: Tokenomist reports `$97.43B` of total token releases in 2025, and `$1.38B` release activity in the current week.
+
+### What This Means For CRDT/UNLOCKD
+
+- Infrastructure has a large structural funding deficit; we target a narrow financing wedge, not the full infrastructure asset base.
+- Crypto has enough liquidity depth to support a large collateralized credit layer if risk filters are strict.
+- Unlock/vesting flows are already near the `$100B` annual scale, supporting the thesis that "illiquid token value -> credit capacity" is a real market, not a hypothetical.
+
+### Aggressive Scenario (Data-Anchored)
+
+Using token unlock flow as the liquidity entry universe:
+
+- Annual unlock universe: `$97.43B`
+- Eligibility haircut (quality + liquidity filters): `60%` -> `$58.46B` addressable
+- Onboarding share: `25%` -> `$14.61B` onboarded collateral
+- Average LTV: `45%` -> `$6.58B` credit capacity
+- Capital velocity: `1.8x` -> `$11.84B` annual loan volume
+- Protocol take rate: `1.2%` -> `$142.05M` annual protocol revenue
+
+Formula chain:
+
+- `AddressableCollateral = UnlockUniverse * EligibilityRate`
+- `OnboardedCollateral = AddressableCollateral * AdoptionRate`
+- `CreditCapacity = OnboardedCollateral * AvgLTV`
+- `AnnualLoanVolume = CreditCapacity * CapitalVelocity`
+- `ProtocolRevenue = AnnualLoanVolume * TakeRate`
+
+### Source Links
+
+- ASCE 2025 Report Card (Executive Summary, investment table): `https://infrastructurereportcard.org/wp-content/uploads/2025/03/Executive-Summary-2025-Natl-IRC-WEB.pdf`
+- Global Infrastructure Hub outlook release: `https://www.gihub.org/media/global-infrastructure-investment-need-to-reach-usd97-trillion-by-2040/`
+- DeFiLlama TVL API (`/charts`): `https://api.llama.fi/charts`
+- DeFiLlama stablecoin API (`/stablecoincharts/all`): `https://stablecoins.llama.fi/stablecoincharts/all`
+- CoinGecko global market API: `https://api.coingecko.com/api/v3/global`
+- Tokenomist unlock dashboard and insights: `https://tokenomist.ai/unlocks`
+<!-- MARKET_ANCHORS_END -->

@@ -1,17 +1,22 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import RepaySlider from '../components/repay/RepaySlider.jsx';
 import RepayActions from '../components/repay/RepayActions.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
+import DemoAccessCard from '../components/common/DemoAccessCard.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
 
 export default function Repay() {
+  const location = useLocation();
   const [schedule, setSchedule] = useState([]);
   const [scheduleError, setScheduleError] = useState('');
   const [fundingStatus, setFundingStatus] = useState(null);
+  const searchParams = new URLSearchParams(location.search);
+  const loanIdPrefill = searchParams.get('loanId') || '';
 
   useEffect(() => {
     let active = true;
@@ -65,9 +70,14 @@ export default function Repay() {
       <div className="page-header">
         <h1 className="page-title holo-glow">Repay</h1>
         <p className="page-subtitle">Reduce debt or settle at unlock.</p>
+        <div className="inline-actions" style={{ marginTop: 8 }}>
+          <span className="chip">Testnet execution</span>
+          <span className="chip">Use borrower wallet only</span>
+        </div>
       </div>
 
       <FundWallet mode="repay" onStatusChange={setFundingStatus} />
+      <DemoAccessCard />
 
       <div className="grid-2">
         <Suspense fallback={holoFallback}>
@@ -75,7 +85,7 @@ export default function Repay() {
         </Suspense>
         <RepaySlider />
       </div>
-      <RepayActions fundingStatus={fundingStatus} />
+      <RepayActions fundingStatus={fundingStatus} initialLoanId={loanIdPrefill} />
 
       <AdvancedSection title="Schedule">
         <div className="section-head">

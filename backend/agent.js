@@ -28,6 +28,45 @@ const STOP_WORDS = new Set([
   'they',
   'them'
 ]);
+const INTENT_DEFINITIONS = [
+  {
+    id: 'getting_started',
+    keywords: ['how to use', 'getting started', 'walk me through', 'explain app', 'use this app', 'start here']
+  },
+  {
+    id: 'repay_troubleshoot',
+    keywords: ['repay', 'repayment', 'loan id', 'allowance', 'revert', 'transfer failed', 'inactive', 'not borrower']
+  },
+  {
+    id: 'borrow_flow',
+    keywords: ['borrow', 'ltv', 'dpv', 'collateral', 'escrow', 'max borrow']
+  },
+  {
+    id: 'pool_matching',
+    keywords: ['pool', 'lender', 'match', 'offer', 'liquidity', 'interest bps']
+  },
+  {
+    id: 'governance',
+    keywords: ['governance', 'proposal', 'committee', 'vote', 'dao']
+  },
+  {
+    id: 'risk_model',
+    keywords: ['risk', 'monte', 'p5', 'es5', 'volatility', 'stress', 'simulation']
+  },
+  {
+    id: 'portfolio',
+    keywords: ['portfolio', 'positions', 'loans', 'status', 'dashboard']
+  }
+];
+const INTENT_DOC_BOOST = {
+  getting_started: ['MVP', 'TECHNICAL_SPEC', 'ARCHITECTURE', 'FRONTEND'],
+  repay_troubleshoot: ['REPAY', 'TECHNICAL_SPEC', 'INCIDENT', 'RUNBOOK'],
+  borrow_flow: ['WHITEPAPER', 'MVP', 'BORROW', 'TECHNICAL_SPEC'],
+  pool_matching: ['LIQUIDITY', 'TECHNICAL_SPEC', 'ARCHITECTURE'],
+  governance: ['GOVERNANCE', 'RISK_COMMITTEE', 'METRICS'],
+  risk_model: ['WHITEPAPER', 'RISK', 'METRICS'],
+  portfolio: ['METRICS', 'ARCHITECTURE', 'MVP']
+};
 
 const buildChunkId = (file, index) => `${file}-${index}`;
 
@@ -179,13 +218,159 @@ const computeDpvEstimate = ({ quantity, price, months, sigma = 0.5 }) => {
   };
 };
 
-const runAgentTools = (message, riskData) => {
+const buildGuidedFlow = ({ path = '/', intent = 'general' } = {}) => {
+  const page = String(path || '/').toLowerCase();
+  if (page === '/dashboard') {
+    return {
+      title: 'Dashboard quick start',
+      steps: [
+        {
+          path: '/dashboard',
+          targetId: 'dashboard-open-borrow',
+          label: 'Open Borrow',
+          hint: 'Start by opening Borrow from the dashboard grid.'
+        },
+        {
+          path: '/borrow',
+          targetId: 'fund-wallet-status',
+          label: 'Fund wallet',
+          hint: 'Add gas/USDC first if needed.'
+        },
+        {
+          path: '/borrow',
+          targetId: 'borrow-create-loan',
+          label: 'Create loan',
+          hint: 'After review, submit the loan transaction.'
+        },
+        {
+          path: '/dashboard',
+          targetId: 'dashboard-open-repay',
+          label: 'Go to Repay',
+          hint: 'Use this when you want to reduce debt later.'
+        }
+      ]
+    };
+  }
+  if (page === '/borrow') {
+    return {
+      title: 'Borrow flow',
+      steps: [
+        {
+          path: '/borrow',
+          targetId: 'fund-wallet-status',
+          label: 'Fund wallet',
+          hint: 'Ensure gas and USDC availability first.'
+        },
+        {
+          path: '/borrow',
+          targetId: 'borrow-use-max',
+          label: 'Auto-fill amount',
+          hint: 'Optionally use max borrow for this collateral.'
+        },
+        {
+          path: '/borrow',
+          targetId: 'borrow-create-loan',
+          label: 'Create loan',
+          hint: 'Confirm terms and submit.'
+        }
+      ]
+    };
+  }
+  if (page === '/repay') {
+    return {
+      title: 'Repay flow',
+      steps: [
+        {
+          path: '/repay',
+          targetId: 'repay-approve-usdc',
+          label: 'Approve USDC',
+          hint: 'Approve allowance for the repay amount first.'
+        },
+        {
+          path: '/repay',
+          targetId: 'repay-use-total-due',
+          label: 'Use total due',
+          hint: 'Optional: auto-fill the exact due amount.'
+        },
+        {
+          path: '/repay',
+          targetId: 'repay-submit',
+          label: 'Submit repay',
+          hint: 'Repay with the borrower wallet on the correct chain.'
+        }
+      ]
+    };
+  }
+  if (page === '/lender') {
+    return {
+      title: 'Lender flow',
+      steps: [
+        {
+          path: '/lender',
+          targetId: 'lender-create-pool',
+          label: 'Create pool',
+          hint: 'Configure lender preferences first.'
+        },
+        {
+          path: '/lender',
+          targetId: 'lender-approve',
+          label: 'Approve USDC',
+          hint: 'Approve before deposit.'
+        },
+        {
+          path: '/lender',
+          targetId: 'lender-deposit',
+          label: 'Deposit liquidity',
+          hint: 'Deposit USDC into lending pool.'
+        }
+      ]
+    };
+  }
+  if (intent === 'getting_started') {
+    return {
+      title: 'Protocol walkthrough',
+      steps: [
+        {
+          path: '/dashboard',
+          targetId: 'dashboard-open-borrow',
+          label: 'Start at Borrow',
+          hint: 'Open Borrow to create your first loan.'
+        },
+        {
+          path: '/borrow',
+          targetId: 'borrow-create-loan',
+          label: 'Create loan',
+          hint: 'Review terms and submit.'
+        },
+        {
+          path: '/dashboard',
+          targetId: 'dashboard-open-repay',
+          label: 'Then go to Repay',
+          hint: 'Repay or settle debt when needed.'
+        }
+      ]
+    };
+  }
+  return null;
+};
+
+const runAgentTools = (message, riskData, context = null) => {
   const actions = [];
   const normalized = String(message || '').toLowerCase();
   const wantsRiskSim = /risk|monte|simulation|percentile|p5|p1|curve|volatility|stress/.test(normalized);
   const wantsDpv = /dpv|present value|pv|ltv|loan-to-value|borrow limit/.test(normalized);
   const wantsGovernance = /governance|proposal|vote|dao|committee|shock factor|risk parameter/.test(normalized);
   const wantsPoolMatch = /pool|match|liquidity|lender|borrow offer/.test(normalized);
+  const wantsGuidedFlow = /how to|walk me|step by step|what do i click|guide me|interactive|explain/.test(normalized);
+  const inferredIntent = (() => {
+    if (/repay|repayment|allowance|loan id|revert|inactive|not borrower/.test(normalized)) {
+      return 'repay_troubleshoot';
+    }
+    if (/how to use|getting started|walk me through|start here|use this app/.test(normalized)) {
+      return 'getting_started';
+    }
+    return 'general';
+  })();
 
   let summary = '';
 
@@ -276,6 +461,20 @@ const runAgentTools = (message, riskData) => {
     summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
   }
 
+  if (wantsGuidedFlow || inferredIntent === 'getting_started' || inferredIntent === 'repay_troubleshoot') {
+    const guided = buildGuidedFlow({
+      path: context?.path || '/',
+      intent: inferredIntent
+    });
+    if (guided) {
+      actions.push({
+        type: 'guided_flow',
+        data: guided
+      });
+      summary += `${summary ? '\n\n' : ''}Interactive guide prepared with ${guided.steps.length} steps for ${guided.title.toLowerCase()}.`;
+    }
+  }
+
   if (!actions.length) {
     return { actions: [], summary: '' };
   }
@@ -297,24 +496,76 @@ const initSearch = (docs) => {
   return search;
 };
 
-const selectSnippets = (search, docs, query, limit = 5) => {
+const classifyIntent = (message) => {
+  const normalized = String(message || '').toLowerCase();
+  let best = { id: 'general', score: 0 };
+  for (const intent of INTENT_DEFINITIONS) {
+    const score = intent.keywords.reduce((total, keyword) => {
+      if (normalized.includes(keyword)) return total + keyword.length;
+      const words = keyword.split(' ').filter(Boolean);
+      const partial = words.filter((word) => normalized.includes(word)).length;
+      return total + partial;
+    }, 0);
+    if (score > best.score) {
+      best = { id: intent.id, score };
+    }
+  }
+  const confidence = Math.max(0.1, Math.min(0.98, best.score / 22));
+  return { intent: best.id, confidence };
+};
+
+const overlapScore = (queryTokens, text) => {
+  if (!queryTokens.length || !text) return 0;
+  const corpus = String(text).toLowerCase();
+  return queryTokens.reduce((sum, token) => {
+    if (!token) return sum;
+    if (corpus.includes(token)) return sum + 1;
+    return sum;
+  }, 0);
+};
+
+const scoreSnippet = ({ snippet, queryTokens, intent }) => {
+  const overlap = overlapScore(queryTokens, `${snippet.heading} ${snippet.text}`);
+  const density = queryTokens.length ? overlap / queryTokens.length : 0;
+  const intentBoostTerms = INTENT_DOC_BOOST[intent] || [];
+  const docBoost = intentBoostTerms.some((term) =>
+    String(snippet.file || '').toUpperCase().includes(term)
+  )
+    ? 0.2
+    : 0;
+  return density + docBoost;
+};
+
+const selectSnippets = (search, docs, query, limit = 5, intent = 'general') => {
   if (!search || !docs.length) return [];
   const safeQuery = query?.trim() || DEFAULT_QUERY;
-  const results = search.search(safeQuery, { limit: Math.max(limit, 3) });
-  if (results.length === 0) {
-    return docs.slice(0, limit);
-  }
+  const queryTokens = tokenize(safeQuery);
+  const lexicalResults = search.search(safeQuery, { limit: Math.max(limit * 3, 8) });
   const seen = new Set();
-  const snippets = [];
-  results.forEach((result) => {
-    if (snippets.length >= limit) return;
+  const ranked = [];
+  lexicalResults.forEach((result) => {
     const doc = docs.find((item) => item.id === result.id);
-    if (doc && !seen.has(doc.id)) {
-      snippets.push(doc);
-      seen.add(doc.id);
-    }
+    if (!doc || seen.has(doc.id)) return;
+    seen.add(doc.id);
+    ranked.push({
+      doc,
+      score: Number(result.score || 0) / 10 + scoreSnippet({ snippet: doc, queryTokens, intent })
+    });
   });
-  return snippets;
+  if (ranked.length === 0) {
+    return docs
+      .map((doc) => ({
+        doc,
+        score: scoreSnippet({ snippet: doc, queryTokens, intent })
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((row) => row.doc);
+  }
+  return ranked
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((row) => row.doc);
 };
 
 const sanitizeHistory = (history) => {
@@ -356,55 +607,174 @@ const selectMemorySnippets = (memories, query, limit = 3) => {
     .map((entry) => entry.memory);
 };
 
-const buildKnowledgeFallback = (question, snippets, toolOutput, memorySnippets) => {
-  const bullets = snippets.slice(0, 4).map((snippet) => {
-    const excerpt = snippet.text.replace(/\s+/g, ' ').slice(0, 180);
-    return `- ${snippet.heading || 'Context'} (${snippet.file}): ${excerpt}`;
+const summarizeMemory = (memories, query) => {
+  if (!Array.isArray(memories) || !memories.length) {
+    return {
+      summaryText: '',
+      topIntent: 'none',
+      avgConfidence: null
+    };
+  }
+  const relevant = memories.slice(0, 40);
+  const intentCounts = new Map();
+  let confidenceSum = 0;
+  let confidenceCount = 0;
+  let repayIssueCount = 0;
+  const recentOutcomes = [];
+  const sanitizeOutcome = (value) => {
+    const raw = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!raw) return '';
+    if (/knowledge-base mode right now|prior solved q&a|related prior conversation context/i.test(raw)) {
+      return '';
+    }
+    return raw.replace(/^[-*]\s*/, '').slice(0, 120);
+  };
+
+  relevant.forEach((memory) => {
+    const metadata = memory?.metadata || {};
+    const intent =
+      typeof metadata.intent === 'string' && metadata.intent
+        ? metadata.intent
+        : classifyIntent(memory?.message || '').intent;
+    intentCounts.set(intent, (intentCounts.get(intent) || 0) + 1);
+
+    const confidence = Number(metadata.confidence);
+    if (Number.isFinite(confidence)) {
+      confidenceSum += confidence;
+      confidenceCount += 1;
+    }
+
+    const combined = `${memory?.message || ''} ${memory?.answer || ''}`.toLowerCase();
+    if (/repay|revert|allowance|inactive|not borrower|transfer failed/.test(combined)) {
+      repayIssueCount += 1;
+    }
+
+    const headline = String(memory?.answer || '')
+      .split('\n')
+      .find((line) => String(line || '').trim().length > 0);
+    const cleanedHeadline = sanitizeOutcome(headline);
+    if (cleanedHeadline) {
+      recentOutcomes.push(cleanedHeadline);
+    }
   });
-  const memoryBullets = (memorySnippets || []).slice(0, 2).map((memory) => {
-    const answer = String(memory.answer || '').replace(/\s+/g, ' ').slice(0, 180);
-    return `- Prior solved Q&A: ${answer}`;
-  });
-  const toolSummary = toolOutput?.summary
-    ? `\n${toolOutput.summary}`
-    : '\nNo direct simulation/tool output was needed for this question.';
+
+  const sortedIntents = Array.from(intentCounts.entries()).sort((a, b) => b[1] - a[1]);
+  const topIntent = sortedIntents[0]?.[0] || 'general';
+  const avgConfidence =
+    confidenceCount > 0 ? Math.round((confidenceSum / confidenceCount) * 100) / 100 : null;
+  const queryIntent = classifyIntent(query || '').intent;
+  const recentUniqueOutcomes = Array.from(new Set(recentOutcomes)).slice(0, 2);
+
+  const summaryParts = [
+    `Memory summary: ${relevant.length} recent turns.`,
+    `Top intent: ${topIntent}.`,
+    avgConfidence !== null ? `Avg confidence: ${(avgConfidence * 100).toFixed(0)}%.` : '',
+    repayIssueCount > 0 ? `Repay-related issue mentions: ${repayIssueCount}.` : '',
+    queryIntent !== 'general' ? `Current query intent: ${queryIntent}.` : '',
+    recentUniqueOutcomes.length
+      ? `Recent outcomes: ${recentUniqueOutcomes.join(' | ')}.`
+      : ''
+  ].filter(Boolean);
+
+  return {
+    summaryText: summaryParts.join(' '),
+    topIntent,
+    avgConfidence
+  };
+};
+
+const buildCitationList = (snippets) =>
+  snippets.slice(0, 4).map((snippet) => `- ${snippet.file}: ${snippet.heading || 'Context'}`);
+
+const buildContextHints = (context) => {
+  if (!context || typeof context !== 'object') return [];
+  const hints = [];
+  if (context.path) hints.push(`Current page: ${context.path}`);
+  if (context.chainId) hints.push(`Chain ID: ${context.chainId}`);
+  if (context.walletAddress) {
+    const value = String(context.walletAddress);
+    hints.push(`Wallet connected: ${value.slice(0, 6)}…${value.slice(-4)}`);
+  }
+  return hints;
+};
+
+const buildTemplateAnswer = ({ intent, question, snippets, toolOutput, context, confidence }) => {
+  const citations = buildCitationList(snippets);
+  const excerpt = snippets[0]?.text?.replace(/\s+/g, ' ').slice(0, 240) || '';
+  const hints = buildContextHints(context);
+  const riskNote = confidence < 0.45
+    ? 'I may be missing app-specific details for this exact case. Use the checks below and verify on your current network.'
+    : '';
+  if (intent === 'getting_started') {
+    return [
+      '## How To Use Vestra',
+      '',
+      '- Connect your wallet and confirm the target testnet.',
+      '- Borrow: enter vesting collateral, review max borrow, then create loan.',
+      '- Repay: fund gas + USDC, approve USDC, then repay using the exact loan ID.',
+      '- Portfolio: track active loans, unlock timeline, and settlement status.',
+      '',
+      '## Quick Checks',
+      '- Use the same borrower wallet for repay actions.',
+      '- Confirm loan is active and on the same chain as your wallet.',
+      '- If repay fails, verify USDC allowance and balance first.',
+      ...(hints.length ? ['', '## Context Used', ...hints] : []),
+      ...(citations.length ? ['', '## Sources', ...citations] : [])
+    ].join('\n');
+  }
+  if (intent === 'repay_troubleshoot') {
+    return [
+      '## Repay Troubleshooting',
+      '',
+      '- Confirm `Loan ID` exists and is active.',
+      '- Connected wallet must be the loan borrower.',
+      '- Approve USDC >= repay amount before pressing Repay.',
+      '- Keep enough native gas for both approve and repay tx.',
+      '',
+      '## If You See Revert / Simulation Error',
+      '- `inactive`: loan settled or wrong chain.',
+      '- `not borrower`: switch to original borrower wallet.',
+      '- `transfer failed`: insufficient USDC balance or allowance.',
+      ...(toolOutput?.summary ? ['', '## Model Output', toolOutput.summary] : []),
+      ...(riskNote ? ['', `_${riskNote}_`] : []),
+      ...(citations.length ? ['', '## Sources', ...citations] : [])
+    ].join('\n');
+  }
   return [
-    'Vestra AI is in knowledge-base mode right now (live model is temporarily unavailable), but here is a reliable answer from protocol context:',
+    '## Answer',
     '',
-    ...bullets,
-    ...(memoryBullets.length
-      ? ['', 'Related prior conversation context:', ...memoryBullets]
-      : []),
+    `For: "${question}"`,
     '',
-    `Question: ${question}`,
-    toolSummary,
-    '',
-    'If you want, I can give a stricter step-by-step borrow/governance checklist for this exact case.'
+    excerpt || 'No exact snippet found in indexed docs.',
+    ...(toolOutput?.summary ? ['', '## Computation', toolOutput.summary] : []),
+    ...(riskNote ? ['', `_${riskNote}_`] : []),
+    ...(citations.length ? ['', '## Sources', ...citations] : [])
   ].join('\n');
 };
 
-const buildSystemPrompt = (snippets, latestUserMessage = '', memorySnippets = []) => {
+const buildSystemPrompt = (
+  snippets,
+  latestUserMessage = '',
+  memorySummary = '',
+  intent = 'general',
+  runtimeContext = null
+) => {
   const languageHint = latestUserMessage
     ? `Detect the user's language from their latest message (${latestUserMessage.slice(
         0,
         120
       )}…) and respond in that language. If unclear, default to concise English.`
     : 'Respond in the user\'s language when possible; default to concise English.';
-  const context = snippets
+  const contextText = snippets
     .map(
       (snippet, index) =>
         `# Source ${index + 1}: ${snippet.file} — ${snippet.heading}\n${snippet.text}`
     )
     .join('\n\n');
-  const memoryContext = memorySnippets.length
-    ? `\nPrior conversation memory (reuse only if relevant and consistent with docs):\n${memorySnippets
-        .map(
-          (item, index) =>
-            `# Memory ${index + 1}\nQ: ${String(item.message || '').slice(0, 280)}\nA: ${String(
-              item.answer || ''
-            ).slice(0, 320)}`
-        )
-        .join('\n\n')}`
+  const memoryContext = memorySummary
+    ? `\nPrior conversation memory summary (compressed): ${memorySummary}`
     : '';
   return [
     'You are CRDT AI, a protocol assistant for the UNLOCKD / VESTRA vesting-credit system.',
@@ -415,8 +785,12 @@ const buildSystemPrompt = (snippets, latestUserMessage = '', memorySnippets = []
     'If the user asks something unrelated to the protocol, reply anyway in a Deadpool/Ryan Reynolds tone: witty, dark, sarcastic, with jokes, but stay brief and safe.',
     languageHint,
     'Use the provided context and say if the answer is not in docs.',
+    `Detected intent: ${intent}. Keep the response structured with sections: "Answer", "Checks", "Next steps", "Sources".`,
+    runtimeContext
+      ? `Runtime context: ${JSON.stringify(runtimeContext).slice(0, 800)}`
+      : '',
     '\nContext:\n',
-    context,
+    contextText,
     memoryContext
   ].join('\n');
 };
@@ -516,18 +890,62 @@ const answerAgent = async (agent, input) => {
     throw new Error('Message is required');
   }
 
-  const toolOutput = runAgentTools(trimmed, agent.riskData || []);
-  const snippets = selectSnippets(agent.search, agent.docs, trimmed, 5);
-  const memorySnippets = selectMemorySnippets(input?.memory || [], trimmed, 3);
+  const intentResult = classifyIntent(trimmed);
+  const toolOutput = runAgentTools(trimmed, agent.riskData || [], input?.context || null);
+  const snippets = selectSnippets(
+    agent.search,
+    agent.docs,
+    trimmed,
+    5,
+    intentResult.intent
+  );
+  const memorySummary = summarizeMemory(input?.memory || [], trimmed);
   const toolContext = toolOutput.summary
     ? `\n\nTool output (use as factual context):\n${toolOutput.summary}`
     : '';
-  const systemPrompt = `${buildSystemPrompt(snippets, trimmed, memorySnippets)}${toolContext}`;
+  const systemPrompt = `${buildSystemPrompt(
+    snippets,
+    trimmed,
+    memorySummary.summaryText,
+    intentResult.intent,
+    input?.context || null
+  )}${toolContext}`;
   const prior = sanitizeHistory(history);
   const messages = [{ role: 'system', content: systemPrompt }, ...prior, { role: 'user', content: trimmed }];
 
   const llm = await callLLM(messages);
-  const fallback = buildKnowledgeFallback(trimmed, snippets, toolOutput, memorySnippets);
+  const retrievalConfidence = snippets.length
+    ? Math.max(
+        0.2,
+        Math.min(
+          0.98,
+          snippets
+            .slice(0, 3)
+            .reduce(
+              (sum, snippet) =>
+                sum +
+                scoreSnippet({
+                  snippet,
+                  queryTokens: tokenize(trimmed),
+                  intent: intentResult.intent
+                }),
+              0
+            ) / 3
+        )
+      )
+    : 0.2;
+  const overallConfidence =
+    Math.round(
+      Math.min(0.99, intentResult.confidence * 0.45 + retrievalConfidence * 0.55) * 100
+    ) / 100;
+  const fallback = buildTemplateAnswer({
+    intent: intentResult.intent,
+    question: trimmed,
+    snippets,
+    toolOutput,
+    context: input?.context || null,
+    confidence: overallConfidence
+  });
   const finalAnswer = llm.usedLLM
     ? llm.answer || fallback
     : fallback;
@@ -537,7 +955,9 @@ const answerAgent = async (agent, input) => {
     sources: formatSources(snippets),
     mode: llm.usedLLM ? 'llm' : 'knowledge-base',
     provider: llm.provider || null,
-    actions: toolOutput.actions || []
+    actions: toolOutput.actions || [],
+    intent: intentResult.intent,
+    confidence: overallConfidence
   };
 };
 

@@ -179,12 +179,12 @@ export default function Landing() {
               className="landing-primary-button"
               type="button"
               data-testid="landing-cta"
-              aria-label="Launch Vestra"
+              aria-label="Launch and register"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               transition={{ type: 'spring', stiffness: 400, damping: 20 }}
             >
-              Launch App
+              Launch & Register
             </motion.button>
             <motion.button
               onClick={() => navigate('/docs')}
@@ -516,7 +516,7 @@ export default function Landing() {
                 whileTap={{ scale: 0.95 }}
                 style={{ fontSize: '18px', padding: '16px 32px' }}
               >
-                Launch App
+                Launch & Register
               </motion.button>
               <motion.button
                 onClick={() => navigate('/docs')}
@@ -527,6 +527,16 @@ export default function Landing() {
                 style={{ fontSize: '18px', padding: '16px 32px' }}
               >
                 Explore Docs
+              </motion.button>
+              <motion.button
+                onClick={() => navigate('/airdrop')}
+                className="landing-secondary-button"
+                type="button"
+                whileHover={{ scale: 1.05, y: -3 }}
+                whileTap={{ scale: 0.95 }}
+                style={{ fontSize: '18px', padding: '16px 32px' }}
+              >
+                Airdrop Info
               </motion.button>
             </div>
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
@@ -7,8 +8,19 @@ import litepaperDoc from '../../../docs/LITEPAPER.md?raw';
 import faqDoc from '../../../docs/FAQ.md?raw';
 import technicalSpecDoc from '../../../docs/TECHNICAL_SPEC.md?raw';
 import riskModelsDoc from '../../../docs/RISK_MODELS.md?raw';
+import tokenomicsDoc from '../../../docs/TOKENOMICS_FINAL.md?raw';
+import testnetFaucetDemoDoc from '../../../docs/TESTNET_FAUCET_DEMO_ONE_PAGER.md?raw';
+import testnetVestingQuickstartDoc from '../../../docs/TESTNET_VESTING_CREATION_QUICKSTART.md?raw';
 
 const docLibrary = [
+  {
+    id: 'tokenomics',
+    title: 'Tokenomics',
+    filename: 'TOKENOMICS_FINAL.md',
+    summary: 'Allocation, vesting unlock timelines, and distribution breakdown.',
+    tags: ['Public', 'Economics'],
+    content: tokenomicsDoc
+  },
   {
     id: 'whitepaper',
     title: 'Whitepaper (Full Preview)',
@@ -56,6 +68,22 @@ const docLibrary = [
     summary: 'Risk inputs, LTV bounds, and simulation notes for borrowing.',
     tags: ['Public', 'Risk'],
     content: riskModelsDoc
+  },
+  {
+    id: 'testnet-faucet',
+    title: 'Testnet Faucet Demo Guide',
+    filename: 'TESTNET_FAUCET_DEMO_ONE_PAGER.md',
+    summary: 'How external users get faucet funds and complete a safe Vestra demo flow.',
+    tags: ['Public', 'Testnet'],
+    content: testnetFaucetDemoDoc
+  },
+  {
+    id: 'vesting-quickstart',
+    title: 'Testnet Vesting Creation Quickstart',
+    filename: 'TESTNET_VESTING_CREATION_QUICKSTART.md',
+    summary: 'Create sample vesting contracts and run borrow demos end-to-end.',
+    tags: ['Public', 'Testnet'],
+    content: testnetVestingQuickstartDoc
   }
 ];
 
@@ -68,7 +96,9 @@ const snippetFrom = (content) =>
     .slice(0, 220);
 
 export default function Docs() {
-  const [activeDocId, setActiveDocId] = useState('whitepaper');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [activeDocId, setActiveDocId] = useState('tokenomics');
   const activeDoc = useMemo(
     () => docLibrary.find((doc) => doc.id === activeDocId),
     [activeDocId]
@@ -85,6 +115,15 @@ export default function Docs() {
     setActiveDocId(id);
     setTimeout(() => scrollTo('doc-viewer'), 10);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedDocId = params.get('doc');
+    if (!requestedDocId) return;
+    if (!docLibrary.some((doc) => doc.id === requestedDocId)) return;
+    setActiveDocId(requestedDocId);
+    setTimeout(() => scrollTo('doc-viewer'), 10);
+  }, [location.search]);
 
   return (
     <div className="stack">
@@ -127,6 +166,7 @@ export default function Docs() {
             stay hidden.
           </p>
           <div className="inline-actions">
+            <div className="pill">Tokenomics</div>
             <div className="pill">Whitepaper</div>
             <div className="pill">Litepaper</div>
             <div className="pill">Technical Spec</div>
@@ -144,6 +184,12 @@ export default function Docs() {
             <div className="pill">Public only</div>
             <div className="pill">Zero gating</div>
             <div className="pill">Live text</div>
+            <button className="button ghost" type="button" onClick={() => navigate('/airdrop')}>
+              Airdrop page
+            </button>
+            <button className="button ghost" type="button" onClick={() => navigate('/feedback')}>
+              Feedback form
+            </button>
           </div>
         </div>
       </div>

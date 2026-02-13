@@ -177,6 +177,7 @@ Resulting treasury annual revenue (15% share):
 Rebuild charts/data after changing assumptions:
 
 - `python3 scripts/tokenomics_personal_model.py`
+- `python3 scripts/update_market_anchors.py`
 
 Output paths:
 - `docs/private/tokenomics/images/`
@@ -185,6 +186,45 @@ Output paths:
 Open the interactive calculator locally:
 - Open `docs/private/tokenomics/live_tokenomics_calculator.html` in your browser.
 - Adjust price/emission/fee assumptions and read updated FDV, market cap, and routing outputs live.
+
+<!-- MARKET_ANCHORS_START -->
+## 10) Real Market Data Anchors (Snapshot: 2026-02-13)
+
+Use these as external boundary conditions before changing internal assumptions:
+
+- **U.S. infrastructure funding gap (2024-2033)**: `$3.689T` gap (`$9.139T` needs vs `$5.450T` funded).
+- **Global infrastructure need to 2040**: `$94T` baseline (`$97T` including SDG water/electricity), with `$18T` unfunded under current trends.
+- **Total crypto market cap**: `$2.361T` (CoinGecko global endpoint).
+- **DeFi TVL**: `$166.42B` (DeFiLlama charts endpoint).
+- **Stablecoin circulating supply**: `$305.54B` (DeFiLlama stablecoin endpoint).
+- **Token unlock flow proxy**:
+  - 2025 releases across tracked majors: `$97.43B` (Tokenomist annual review).
+  - Current dashboard signal: `$1.38B` release this week.
+
+Why this matters for our thesis:
+
+- A `$100B`-scale vested/unlock universe is already observable in market data.
+- Stablecoin + DeFi liquidity base (`~$471.97B` combined stack, non-additive risk caveat) is large enough to support multi-billion-dollar collateralized loan books if risk controls hold.
+- We should model growth as a capture of unlock flow and available liquidity, not as a share of total infrastructure asset value.
+
+Aggressive reference math (for planning, not forecast):
+
+- `UnlockUniverse = $97.43B`
+- `EligibilityRate = 60%` -> `Addressable = $58.46B`
+- `AdoptionRate = 25%` -> `Onboarded = $14.61B`
+- `AvgLTV = 45%` -> `CreditCapacity = $6.58B`
+- `CapitalVelocity = 1.8x` -> `AnnualLoanVolume = $11.84B`
+- `TakeRate = 1.2%` -> `ProtocolRevenue = $142.05M`
+
+Source links:
+
+- `https://infrastructurereportcard.org/wp-content/uploads/2025/03/Executive-Summary-2025-Natl-IRC-WEB.pdf`
+- `https://www.gihub.org/media/global-infrastructure-investment-need-to-reach-usd97-trillion-by-2040/`
+- `https://api.llama.fi/charts`
+- `https://stablecoins.llama.fi/stablecoincharts/all`
+- `https://api.coingecko.com/api/v3/global`
+- `https://tokenomist.ai/unlocks`
+<!-- MARKET_ANCHORS_END -->
 
 ---
 

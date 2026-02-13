@@ -18,6 +18,7 @@ import {
 } from '../../utils/contracts.js';
 import { getEvmChainById } from '../../utils/chains.js';
 import { toUnits } from '../../utils/format.js';
+import { fetchVestedContracts } from '../../utils/api.js';
 import TxStatusBanner from '../common/TxStatusBanner.jsx';
 import { trackEvent } from '../../utils/analytics.js';
 import { FEATURE_SABLIER_IMPORT } from '../../utils/featureFlags.js';
@@ -36,6 +37,7 @@ const formatBorrowUsd = (value) => {
   if (!Number.isFinite(value) || value <= 0) return '';
   return value.toFixed(2);
 };
+const makeCollateralId = () => String(Math.floor(Date.now() / 1000));
 const clampPercent = (value) => {
   if (!Number.isFinite(value)) return 100;
   if (value < 1) return 1;
@@ -55,7 +57,7 @@ export default function BorrowActions({
   const vestingAdapter = getContractAddress(chainId, 'vestingAdapter');
   const nativeSymbol = getEvmChainById(chainId)?.nativeCurrency?.symbol;
 
-  const [collateralId, setCollateralId] = useState('1');
+  const [collateralId, setCollateralId] = useState(makeCollateralId);
   const [vestingContract, setVestingContract] = useState('');
   const [importProtocol, setImportProtocol] = useState('manual');
   const [sablierLockup, setSablierLockup] = useState('');
@@ -66,6 +68,8 @@ export default function BorrowActions({
   const [autoBorrow, setAutoBorrow] = useState(true);
   const [autoRepay, setAutoRepay] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [detectedPositions, setDetectedPositions] = useState([]);
+  const [selectedDetected, setSelectedDetected] = useState('');
 
   const effectiveVestingContract =
     importProtocol === 'sablier' && sablierWrapperAddress
@@ -187,6 +191,32 @@ export default function BorrowActions({
   });
 
   useEffect(() => {
+    let active = true;
+    const loadDetectedPositions = async () => {
+      try {
+        const items = await fetchVestedContracts();
+        if (!active) return;
+        const normalizedAddress = (address || '').toLowerCase();
+        const filtered = (items || []).filter((item) => {
+          if (!item) return false;
+          if (!item.collateralId || !item.vestingContract) return false;
+          if (item.active === false) return false;
+          if (!normalizedAddress) return true;
+          return String(item.borrower || '').toLowerCase() === normalizedAddress;
+        });
+        setDetectedPositions(filtered);
+      } catch {
+        if (!active) return;
+        setDetectedPositions([]);
+      }
+    };
+    loadDetectedPositions();
+    return () => {
+      active = false;
+    };
+  }, [address]);
+
+  useEffect(() => {
     if (!onDetails) return;
     if (!verified && !hasPreview) {
       onDetails(null);
@@ -281,7 +311,12 @@ export default function BorrowActions({
     if (!loanManager) return 'Unsupported network for loan creation.';
     if (!collateralIdValid) return 'Enter a valid collateral ID.';
     if (!vestingContractValid) return 'Enter a valid vesting contract address.';
-    if (!hasPreview) return 'Enter a valid vesting position to preview collateral.';
+    if (!hasPreview) {
+      if (vestingContractValid) {
+        return 'Vesting contract not readable on current network (or collateral not found for this ID).';
+      }
+      return 'Enter a valid vesting position to preview collateral.';
+    }
     if (!borrowValid) return 'Enter a borrow amount.';
     if (pledgedCollateralUnits <= 0n) return 'Choose collateral amount to pledge.';
     if (!fundingReady) return fundingStatus?.reason || 'Fund your wallet first.';
@@ -313,6 +348,12 @@ export default function BorrowActions({
 
   const handleBorrow = () => {
     if (!canBorrow) return;
+    trackEvent('borrow_start', {
+      collateralId,
+      vestingContract: effectiveVestingContract,
+      borrowAmountUsdc: borrowAmount,
+      utilizationPct: borrowAgainstPct
+    });
     writeBorrow({
       address: loanManager,
       abi: loanManagerAbi,
@@ -333,7 +374,7 @@ export default function BorrowActions({
         <div>
           <h3 className="section-title">Borrow Actions</h3>
           <div className="section-subtitle">
-            Review your vesting collateral, then create a loan.
+            Review your vesting collateral, then create a loan (pool creation alone does not move USDC).
           </div>
         </div>
         <span className={`tag ${verified ? 'success' : ''}`}>
@@ -455,6 +496,35 @@ export default function BorrowActions({
       </div>
       <div className="form-grid">
         <label className="form-field">
+          Detected vesting positions
+          <select
+            className="form-select"
+            value={selectedDetected}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSelectedDetected(next);
+              const picked = detectedPositions.find(
+                (item) => `${item.collateralId}:${item.vestingContract}` === next
+              );
+              if (!picked) return;
+              setImportProtocol('manual');
+              setCollateralId(String(picked.collateralId || ''));
+              setVestingContract(String(picked.vestingContract || ''));
+            }}
+          >
+            <option value="">Select detected collateral (optional)</option>
+            {detectedPositions.map((item) => (
+              <option
+                key={`${item.loanId || item.collateralId}-${item.vestingContract}`}
+                value={`${item.collateralId}:${item.vestingContract}`}
+              >
+                {(item.tokenSymbol || 'Token').toString()} · ID {String(item.collateralId)} · unlock{' '}
+                {item.unlockTime ? new Date(Number(item.unlockTime) * 1000).toLocaleDateString() : '--'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="form-field">
           Collateral ID
           <input
             className="form-input"
@@ -462,6 +532,15 @@ export default function BorrowActions({
             onChange={(event) => setCollateralId(event.target.value)}
             inputMode="numeric"
           />
+          <div className="inline-actions" style={{ marginTop: 8 }}>
+            <button
+              className="button ghost"
+              type="button"
+              onClick={() => setCollateralId(makeCollateralId())}
+            >
+              Generate New ID
+            </button>
+          </div>
         </label>
         {(importProtocol === 'manual' || !FEATURE_SABLIER_IMPORT) && (
           <label className="form-field">
@@ -495,6 +574,7 @@ export default function BorrowActions({
             max="100"
             step="1"
             value={borrowAgainstPct}
+            aria-label="Borrow percentage of max collateral capacity"
             onChange={(event) => {
               const pct = clampPercent(Number(event.target.value));
               setBorrowAgainstPct(pct);
@@ -515,6 +595,7 @@ export default function BorrowActions({
         <button
           className="button"
           type="button"
+          data-guide-id="borrow-use-max"
           onClick={() => {
             setAutoBorrow(true);
             setBorrowAgainstPct(100);
@@ -544,7 +625,7 @@ export default function BorrowActions({
         <span className="tag">Required</span>
       </div>
       <div className="card-list borrow-agreement-list">
-        <div className="pill">Debt due at unlock: principal + interest.</div>
+        <div className="pill">Debt due at unlock: principal + interest + origination fee.</div>
         <div className="pill">
           If auto-repay is enabled, wallet balances can be used to repay after maturity.
         </div>
@@ -585,6 +666,7 @@ export default function BorrowActions({
         <button
           className="button"
           onClick={handleBorrow}
+          data-guide-id="borrow-create-loan"
           disabled={isBorrowPending || !canBorrow}
         >
           Create Loan

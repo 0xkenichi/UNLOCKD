@@ -102,6 +102,7 @@ async function main() {
 
   await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
   await ethers.provider.send("evm_mine", []);
+  await (await priceFeed.setPrice(1e8)).wait();
 
   await (await loanManager.settleAtUnlock(0)).wait();
 

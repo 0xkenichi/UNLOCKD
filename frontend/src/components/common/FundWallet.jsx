@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useAccount, useChainId } from 'wagmi';
 import { EVM_MAINNET_CHAINS, getEvmChainById } from '../../utils/chains.js';
 import { useFundingStatus } from '../../utils/useFundingStatus.js';
@@ -19,15 +19,31 @@ export default function FundWallet({ mode = 'borrow', onStatusChange }) {
     return 'Needs Gas';
   }, [address, funding, mode]);
 
+  const emittedStatusRef = useRef('');
+
+  const stableFundingStatus = useMemo(
+    () => ({
+      ready: Boolean(funding.ready),
+      hasGas: Boolean(funding.hasGas),
+      hasUsdc: Boolean(funding.hasUsdc),
+      reason: funding.reason || '',
+      usdcBalance:
+        Number.isFinite(Number(funding.usdcBalance)) ? Number(funding.usdcBalance) : 0
+    }),
+    [funding.ready, funding.hasGas, funding.hasUsdc, funding.reason, funding.usdcBalance]
+  );
+
   useEffect(() => {
-    if (onStatusChange) {
-      onStatusChange(funding);
-    }
-  }, [funding, onStatusChange]);
+    if (!onStatusChange) return;
+    const signature = JSON.stringify(stableFundingStatus);
+    if (emittedStatusRef.current === signature) return;
+    emittedStatusRef.current = signature;
+    onStatusChange(stableFundingStatus);
+  }, [onStatusChange, stableFundingStatus]);
 
   return (
     <div className="stack">
-      <div className="holo-card">
+      <div className="holo-card" data-guide-id="fund-wallet-status">
         <div className="section-head">
           <div>
             <h3 className="section-title">Fund Wallet</h3>
