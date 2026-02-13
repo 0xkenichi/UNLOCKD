@@ -4,6 +4,7 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 
 ## Start Here
 - `OVERVIEW.md` -- What the protocol is, who it serves, and how it works.
+- `CANONICAL_POSITIONING.md` -- official naming, chain narrative, and external messaging guardrails.
 - `MVP.md` -- MVP scope, goals, and build plan.
 - `SEPOLIA_BORROW_FLOW.md` -- Hands-on Sepolia borrow flow test guide.
 
@@ -40,9 +41,21 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `PILOT_LOI_TEMPLATE.md` -- partner LOI template for pilot intent.
 - `PILOT_CHECKLIST.md` -- launch gate checklist.
 - `WEEKLY_KPI_REPORT_TEMPLATE.md` -- weekly reporting format for pilots.
+- `ops/PILOT_OPERATIONS_PLAYBOOK.md` -- runbook for launching and operating a live named pilot.
 - `TESTNET_FAUCET_DEMO_ONE_PAGER.md` -- external tester onboarding for faucets + demo flow.
 - `TESTNET_VESTING_CREATION_QUICKSTART.md` -- create sample testnet vesting contracts for demos.
 - `ELITE_9X_EXECUTION_MASTER_PLAN.md` -- full testnet-first operating plan to reach 9/10 readiness.
+
+## Execution Ops (Founder-Led)
+- `ops/GTM_90_DAY_EXECUTION.md` -- weekly GTM and LOI execution plan.
+- `ops/AUDIT_AND_CI_HARDENING_PLAN.md` -- audit path and quality-gate implementation plan.
+- `ops/AUDIT_VENDOR_RFP_TEMPLATE.md` -- external auditor outreach and proposal template.
+- `ops/FUNDING_PRESALE_SPRINT.md` -- investor and pre-sale sprint operating plan.
+- `ops/INVESTOR_DATAROOM_INDEX.md` -- canonical diligence checklist and source index.
+- `ops/PRESALE_EXECUTION_CHECKLIST.md` -- pre-sale readiness and go/no-go checklist.
+- `ops/CONTROLLED_MAINNET_ROLLOUT.md` -- phased mainnet rollout with risk guardrails.
+- `ops/TEAM_TOKEN_VESTING_AND_HIRING.md` -- token-aligned hiring and contributor vesting policy.
+- `ops/ANNUAL_REVIEW_AND_NEXT_YEAR_PLANNING.md` -- year-end review and next-year planning framework.
 
 ## Product & UX
 - `CRDT_FIGMA_FRAME_MAP.md`

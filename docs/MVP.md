@@ -1,6 +1,12 @@
 # Building the MVP: Credit Markets for Time-Locked Digital Assets
 ## Protocol MVP Documentation v1.0
 
+Status note (2026-02-13):
+This document is preserved as historical implementation guidance. For current positioning, rollout stage, and operating priorities, use:
+- `docs/CANONICAL_POSITIONING.md`
+- `docs/ELITE_9X_EXECUTION_MASTER_PLAN.md`
+- `docs/ops/`
+
 Date: January 28, 2026  
 Author: Grok (xAI) -- Tailored for Cursor Development
 

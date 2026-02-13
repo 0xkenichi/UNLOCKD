@@ -1,6 +1,6 @@
-# CRDT / UNLOCKD Overview
+# UNLOCKD (Vestra Protocol) Overview
 
-CRDT enables borrowing against time-locked or vested tokens without breaking vesting rules. Borrowers escrow claim rights (not tokens), get a conservative loan based on discounted present value (DPV), and settle on-chain at unlock. Lenders are protected by risk models, LTV caps, and automatic settlement.
+UNLOCKD (Vestra Protocol) enables borrowing against time-locked or vested tokens without breaking vesting rules. Borrowers escrow claim rights (not tokens), get a conservative loan based on discounted present value (DPV), and settle on-chain at unlock. Lenders are protected by risk models, LTV caps, and automatic settlement.
 
 ![UNLOCKD Protocol Architecture](assets/diagrams/unlockd-architecture.png)
 

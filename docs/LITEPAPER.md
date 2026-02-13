@@ -1,11 +1,11 @@
-# VESTRA: Credit Markets for Time-Locked Digital Assets
+# UNLOCKD (Vestra Protocol): Credit Markets for Time-Locked Digital Assets
 ## Litepaper (v2.1)
 
 Date: February 7, 2026  
 Authors: Protocol Genesis Team
 
 ### Summary
-Vesting and lockups protect long-term alignment, but they trap real economic value. VESTRA enables borrowing or selling claim rights against time-locked tokens without taking custody or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and are priced with conservative risk controls. Optional identity signals and privacy modes improve terms while keeping settlement enforceable on-chain.
+Vesting and lockups protect long-term alignment, but they trap real economic value. UNLOCKD (Vestra Protocol) enables borrowing or selling claim rights against time-locked tokens without taking custody or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and are priced with conservative risk controls. Optional identity signals and privacy modes improve terms while keeping settlement enforceable on-chain.
 
 ### The Problem
 - Locked tokens have market value but zero immediate utility.

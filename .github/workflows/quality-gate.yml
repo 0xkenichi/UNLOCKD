@@ -9,6 +9,7 @@ on:
       - "scripts/**"
       - "backend/**"
       - "frontend/**"
+      - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/quality-gate.yml"
@@ -20,11 +21,33 @@ on:
       - "scripts/**"
       - "backend/**"
       - "frontend/**"
+      - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/quality-gate.yml"
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run lint checks
+        run: npm run lint
+
   protocol-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -66,6 +89,32 @@ jobs:
 
       - name: Build frontend
         run: npm run build --prefix frontend
+
+  frontend-e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run frontend smoke tests
+        run: npm run test:e2e:smoke --prefix frontend
 
   backend-smoke:
     runs-on: ubuntu-latest

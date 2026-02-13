@@ -41,6 +41,7 @@ It enables non-custodial loans on assets that are valuable but not yet transfera
 
 Start with `docs/README.md` for the full documentation index, then:
 
+- `docs/CANONICAL_POSITIONING.md`
 - `docs/OVERVIEW.md`
 - `docs/LITEPAPER.md`
 - `docs/WHITEPAPER.md`
@@ -50,6 +51,9 @@ Start with `docs/README.md` for the full documentation index, then:
 - `docs/SECURITY.md`
 - `docs/CRDT.md`
 - `docs/ADMIN_OPERATIONS.md`
+- `docs/ops/GTM_90_DAY_EXECUTION.md`
+- `docs/ops/PILOT_OPERATIONS_PLAYBOOK.md`
+- `docs/ops/FUNDING_PRESALE_SPRINT.md`
 
 ## Current Stage
 

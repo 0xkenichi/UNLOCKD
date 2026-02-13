@@ -5,7 +5,7 @@ module.exports = defineConfig({
   timeout: 60 * 1000,
   use: {
     baseURL: 'http://127.0.0.1:5176',
-    channel: 'chrome',
+    channel: process.env.CI ? undefined : 'chrome',
     trace: 'on-first-retry',
     screenshot: 'on',
     video: 'on'

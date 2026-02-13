@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "concurrently -n backend,frontend -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "lint": "eslint .",
     "security:scan": "./scripts/security-scan.sh",
     "test": "npx hardhat test",
     "test:coverage": "npx hardhat coverage",
@@ -25,6 +26,8 @@
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "autocannon": "^8.0.0",
     "concurrently": "^9.2.0",
+    "eslint": "^10.0.0",
+    "globals": "^17.3.0",
     "hardhat": "^2.22.10",
     "hardhat-deploy": "^0.12.4",
     "solidity-coverage": "^0.8.17"
