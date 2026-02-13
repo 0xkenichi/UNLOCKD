@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import PassportSummary from '../common/PassportSummary.jsx';
 import TierBadge from '../common/TierBadge.jsx';
 
 const TIER_NAMES = {
@@ -28,6 +29,8 @@ export default function VerifiedCard({
   fbs,
   policy,
   attestations = [],
+  passportScore = null,
+  passportStamps = null,
   hasWallet = false,
   loading = false
 }) {
@@ -99,6 +102,15 @@ export default function VerifiedCard({
             <span className="verified-card__stat-value muted">
               {attestations.length} · {totalStamps} stamps
             </span>
+          </div>
+          <div className="verified-card__stat">
+            <span className="verified-card__stat-label">Gitcoin Passport</span>
+            <PassportSummary
+              className="verified-card__stat-value muted"
+              score={passportScore}
+              stamps={passportStamps}
+              showLabel={false}
+            />
           </div>
         </div>
         {policy && (

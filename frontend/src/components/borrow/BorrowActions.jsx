@@ -36,6 +36,12 @@ const formatBorrowUsd = (value) => {
   if (!Number.isFinite(value) || value <= 0) return '';
   return value.toFixed(2);
 };
+const clampPercent = (value) => {
+  if (!Number.isFinite(value)) return 100;
+  if (value < 1) return 1;
+  if (value > 100) return 100;
+  return Math.round(value);
+};
 
 export default function BorrowActions({
   onDetails,
@@ -56,6 +62,7 @@ export default function BorrowActions({
   const [sablierStreamId, setSablierStreamId] = useState('');
   const [sablierWrapperAddress, setSablierWrapperAddress] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('200');
+  const [borrowAgainstPct, setBorrowAgainstPct] = useState(100);
   const [autoBorrow, setAutoBorrow] = useState(true);
   const [autoRepay, setAutoRepay] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(false);
@@ -147,6 +154,14 @@ export default function BorrowActions({
   const tokenAddress = vestingDetails?.[1] ?? previewToken;
   const unlockTimeRaw = vestingDetails?.[2] ?? previewUnlockTime;
   const quantityFromSource = quantityRaw ?? previewQuantity;
+  const pledgedCollateralUnits = useMemo(() => {
+    if (!quantityFromSource) return 0n;
+    const total = BigInt(quantityFromSource);
+    if (total <= 0n) return 0n;
+    const pct = BigInt(clampPercent(borrowAgainstPct));
+    const partial = (total * pct) / 100n;
+    return partial > 0n ? partial : 1n;
+  }, [quantityFromSource, borrowAgainstPct]);
   const tokenAddressValid =
     typeof tokenAddress === 'string' &&
     isAddress(tokenAddress) &&
@@ -201,27 +216,36 @@ export default function BorrowActions({
   useEffect(() => {
     if (!autoBorrow) return;
     if (!maxBorrowUsd || !Number.isFinite(maxBorrowUsd)) return;
-    const next = formatBorrowUsd(maxBorrowUsd);
+    const targetBorrow = maxBorrowUsd * (borrowAgainstPct / 100);
+    const next = formatBorrowUsd(targetBorrow);
     if (next && next !== borrowAmount) {
       setBorrowAmount(next);
     }
-  }, [autoBorrow, borrowAmount, maxBorrowUsd]);
+  }, [autoBorrow, borrowAmount, borrowAgainstPct, maxBorrowUsd]);
 
   useEffect(() => {
     if (!offerBorrowUsd || !Number.isFinite(offerBorrowUsd)) return;
     const next = formatBorrowUsd(offerBorrowUsd);
     if (next && next !== borrowAmount) {
+      if (maxBorrowUsd && Number.isFinite(maxBorrowUsd) && maxBorrowUsd > 0) {
+        const pct = clampPercent((offerBorrowUsd / maxBorrowUsd) * 100);
+        setBorrowAgainstPct(pct);
+      }
       setAutoBorrow(false);
       setBorrowAmount(next);
     }
-  }, [offerBorrowUsd, borrowAmount]);
+  }, [offerBorrowUsd, borrowAmount, maxBorrowUsd]);
 
-  const {
-    data: escrowHash,
-    writeContract: writeEscrow,
-    isPending: isEscrowPending,
-    error: escrowError
-  } = useWriteContract();
+  useEffect(() => {
+    if (!maxBorrowUsd || !Number.isFinite(maxBorrowUsd) || maxBorrowUsd <= 0) return;
+    const enteredBorrow = Number(borrowAmount);
+    if (!Number.isFinite(enteredBorrow) || enteredBorrow <= 0) return;
+    const pct = clampPercent((enteredBorrow / maxBorrowUsd) * 100);
+    if (pct !== borrowAgainstPct) {
+      setBorrowAgainstPct(pct);
+    }
+  }, [borrowAmount, maxBorrowUsd, borrowAgainstPct]);
+
   const {
     data: borrowHash,
     writeContract: writeBorrow,
@@ -229,11 +253,6 @@ export default function BorrowActions({
     error: borrowError
   } = useWriteContract();
 
-  const {
-    isLoading: isEscrowMining,
-    isSuccess: escrowConfirmed,
-    error: escrowReceiptError
-  } = useWaitForTransactionReceipt({ hash: escrowHash });
   const {
     isLoading: isBorrowMining,
     isSuccess: borrowConfirmed,
@@ -245,19 +264,14 @@ export default function BorrowActions({
   const fundingReady = fundingStatus?.ready ?? true;
   const collateralIdValid = Boolean(collateralId) && Number(collateralId) > 0;
   const borrowValid = Boolean(borrowUnits) && borrowUnits > 0n;
-  const canEscrow =
-    Boolean(vestingAdapter) &&
-    hasWallet &&
-    collateralIdValid &&
-    vestingContractValid &&
-    hasGas;
   const canBorrow =
     Boolean(loanManager) &&
     hasWallet &&
     collateralIdValid &&
     vestingContractValid &&
     borrowValid &&
-    verified &&
+    pledgedCollateralUnits > 0n &&
+    hasPreview &&
     fundingReady &&
     agreeTerms;
 
@@ -267,8 +281,9 @@ export default function BorrowActions({
     if (!loanManager) return 'Unsupported network for loan creation.';
     if (!collateralIdValid) return 'Enter a valid collateral ID.';
     if (!vestingContractValid) return 'Enter a valid vesting contract address.';
-    if (!verified) return 'Escrow a vesting position to verify collateral.';
+    if (!hasPreview) return 'Enter a valid vesting position to preview collateral.';
     if (!borrowValid) return 'Enter a borrow amount.';
+    if (pledgedCollateralUnits <= 0n) return 'Choose collateral amount to pledge.';
     if (!fundingReady) return fundingStatus?.reason || 'Fund your wallet first.';
     if (!agreeTerms) return 'Accept the loan agreement to continue.';
     return '';
@@ -277,8 +292,13 @@ export default function BorrowActions({
   const { error: borrowSimError } = useSimulateContract({
     address: loanManager || undefined,
     abi: loanManagerAbi,
-    functionName: 'createLoan',
-    args: [BigInt(collateralId || 0), effectiveVestingContract, borrowUnits || 0n],
+    functionName: 'createLoanWithCollateralAmount',
+    args: [
+      BigInt(collateralId || 0),
+      effectiveVestingContract,
+      borrowUnits || 0n,
+      pledgedCollateralUnits
+    ],
     account: address,
     query: {
       enabled: Boolean(canBorrow)
@@ -286,35 +306,23 @@ export default function BorrowActions({
   });
 
   useEffect(() => {
-    if (escrowConfirmed) {
-      trackEvent('borrow_escrow_confirmed', { chainId });
-    }
-  }, [chainId, escrowConfirmed]);
-
-  useEffect(() => {
     if (borrowConfirmed) {
       trackEvent('borrow_create_confirmed', { chainId });
     }
   }, [borrowConfirmed, chainId]);
-
-  const handleEscrow = () => {
-    if (!canEscrow) return;
-    writeEscrow({
-      address: vestingAdapter,
-      abi: vestingAdapterAbi,
-      functionName: 'escrow',
-      args: [BigInt(collateralId || 0), effectiveVestingContract, address],
-      gas: 500_000n
-    });
-  };
 
   const handleBorrow = () => {
     if (!canBorrow) return;
     writeBorrow({
       address: loanManager,
       abi: loanManagerAbi,
-      functionName: 'createLoan',
-      args: [BigInt(collateralId || 0), effectiveVestingContract, borrowUnits],
+      functionName: 'createLoanWithCollateralAmount',
+      args: [
+        BigInt(collateralId || 0),
+        effectiveVestingContract,
+        borrowUnits,
+        pledgedCollateralUnits
+      ],
       gas: 1_000_000n
     });
   };
@@ -325,11 +333,11 @@ export default function BorrowActions({
         <div>
           <h3 className="section-title">Borrow Actions</h3>
           <div className="section-subtitle">
-            Escrow the vesting claim, then create a loan.
+            Review your vesting collateral, then create a loan.
           </div>
         </div>
         <span className={`tag ${verified ? 'success' : ''}`}>
-          {verified ? 'Verified' : 'Pending'}
+          {hasPreview ? 'Ready' : 'Pending'}
         </span>
       </div>
       <div className="data-table">
@@ -345,7 +353,9 @@ export default function BorrowActions({
               ? 'Error'
               : verified
                 ? 'Verified'
-                : isDetailsLoading
+                : hasPreview
+                  ? 'Preview'
+                  : isDetailsLoading
                   ? 'Reading'
                   : 'Waiting'}
           </div>
@@ -358,12 +368,9 @@ export default function BorrowActions({
           <div>{tokenAddressValid ? tokenAddress : '--'}</div>
         </div>
       </div>
-      {(escrowError || borrowError || escrowReceiptError || borrowReceiptError) && (
+      {(borrowError || borrowReceiptError) && (
         <div className="error-banner">
-          {escrowReceiptError?.message ||
-            borrowReceiptError?.message ||
-            escrowError?.message ||
-            borrowError?.message}
+          {borrowReceiptError?.message || borrowError?.message}
         </div>
       )}
       {borrowSimError && (
@@ -371,19 +378,6 @@ export default function BorrowActions({
           Simulation: {borrowSimError.shortMessage || borrowSimError.message}
         </div>
       )}
-      <TxStatusBanner
-        label="Escrow Transaction"
-        hash={escrowHash}
-        status={
-          escrowConfirmed
-            ? 'Confirmed'
-            : isEscrowMining
-              ? 'Confirming'
-              : isEscrowPending
-                ? 'Pending'
-                : ''
-        }
-      />
       <TxStatusBanner
         label="Loan Transaction"
         hash={borrowHash}
@@ -492,6 +486,30 @@ export default function BorrowActions({
             inputMode="decimal"
           />
         </label>
+        <label className="form-field">
+          Borrow Against Collateral (% of max)
+          <input
+            className="form-input"
+            type="range"
+            min="1"
+            max="100"
+            step="1"
+            value={borrowAgainstPct}
+            onChange={(event) => {
+              const pct = clampPercent(Number(event.target.value));
+              setBorrowAgainstPct(pct);
+              setAutoBorrow(true);
+              if (maxBorrowUsd && Number.isFinite(maxBorrowUsd)) {
+                const next = formatBorrowUsd(maxBorrowUsd * (pct / 100));
+                if (next) setBorrowAmount(next);
+              }
+            }}
+            disabled={!maxBorrowUsd}
+          />
+          <div className="muted" style={{ marginTop: 6 }}>
+            {borrowAgainstPct}% of max borrow capacity
+          </div>
+        </label>
       </div>
       <div className="inline-actions borrow-actions-inline">
         <button
@@ -499,6 +517,7 @@ export default function BorrowActions({
           type="button"
           onClick={() => {
             setAutoBorrow(true);
+            setBorrowAgainstPct(100);
             const next = formatBorrowUsd(Number(maxBorrowUsd));
             if (next) setBorrowAmount(next);
           }}
@@ -513,6 +532,9 @@ export default function BorrowActions({
         >
           {autoBorrow ? 'Auto-fill On' : 'Auto-fill Off'}
         </button>
+      </div>
+      <div className="muted">
+        Loan utilization target: ~{borrowAgainstPct}% of collateral borrowing power.
       </div>
       <div className="section-head">
         <div>
@@ -560,13 +582,6 @@ export default function BorrowActions({
         Repayment priority: {formatPriority(nativeSymbol)}
       </div>
       <div className="inline-actions borrow-actions-cta">
-        <button
-          className="button"
-          onClick={handleEscrow}
-          disabled={isEscrowPending || !canEscrow}
-        >
-          Escrow
-        </button>
         <button
           className="button"
           onClick={handleBorrow}

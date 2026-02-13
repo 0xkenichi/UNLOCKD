@@ -9,8 +9,10 @@ import ValuationForm from '../components/borrow/ValuationForm.jsx';
 import FaucetCard from '../components/borrow/FaucetCard.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
+import PassportSummary from '../components/common/PassportSummary.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
 import { requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
+import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const ASSESSMENT_TESTNET_CHAIN_IDS = new Set([31337, 11155111, 84532]);
 
@@ -41,6 +43,7 @@ export default function Borrow() {
   const [selectedOffer, setSelectedOffer] = useState(null);
   const [browsePools, setBrowsePools] = useState([]);
   const [browseFilter, setBrowseFilter] = useState('all');
+  const passportSummary = usePassportSnapshot(address);
 
   const matchKey = `${vestingDetails?.verified ? '1' : '0'}:${vestingDetails?.collateralId || ''}:${assessment.maxLoan || 0}:${address || ''}`;
 
@@ -139,6 +142,14 @@ export default function Borrow() {
         <h1 className="page-title holo-glow">Borrow</h1>
         <p className="page-subtitle">Escrow vesting, get USDC.</p>
       </div>
+      <PassportSummary
+        as="div"
+        className="muted"
+        style={{ marginTop: -4 }}
+        loading={passportSummary.loading}
+        score={passportSummary.score}
+        stamps={passportSummary.stamps}
+      />
 
       {prefill?.fromFundraise && prefill?.projectId && (
         <div className="holo-card" style={{ marginBottom: 16 }}>

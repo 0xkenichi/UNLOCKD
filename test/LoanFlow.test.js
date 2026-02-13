@@ -214,6 +214,51 @@ describe("Full MVP Flow", () => {
     ).to.be.revertedWith("not beneficiary");
   });
 
+  it("Creates loan against partial collateral amount", async () => {
+    const { lender, borrower, usdc, valuation, pool, loanManager } =
+      await deployFixture();
+    const poolAddress = await pool.getAddress();
+
+    await usdc.connect(lender).mint(lender.address, 1_000_000e6);
+    await usdc.connect(lender).approve(poolAddress, 500_000e6);
+    await pool.connect(lender).deposit(500_000e6);
+
+    const vesting = await deployVestingWallet({
+      borrower,
+      usdc,
+      allocation: 200_000e6,
+      duration: 30 * ONE_DAY,
+    });
+    const vestingAddress = await vesting.getAddress();
+    const usdcAddress = await usdc.getAddress();
+
+    const pledgedCollateral = 80_000e6;
+    const unlockTime = (await vesting.start()) + (await vesting.duration());
+    const [pv, ltvBps] = await valuation.computeDPV(
+      pledgedCollateral,
+      usdcAddress,
+      unlockTime
+    );
+    const maxBorrow = (pv * ltvBps) / 10_000n;
+    const borrowAmount = maxBorrow > 100_000n * 10n ** 6n
+      ? 100_000n * 10n ** 6n
+      : maxBorrow / 2n;
+
+    await loanManager
+      .connect(borrower)
+      .createLoanWithCollateralAmount(77, vestingAddress, borrowAmount, pledgedCollateral);
+
+    const loan = await loanManager.loans(0);
+    expect(loan.collateralAmount).to.equal(pledgedCollateral);
+
+    await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
+    await ethers.provider.send("evm_mine", []);
+    await loanManager.settleAtUnlock(0);
+
+    const released = await vesting.released(usdcAddress);
+    expect(released).to.equal(pledgedCollateral);
+  });
+
   it("Enforces LTV bounds as volatility changes", async () => {
     const { borrower, usdc, valuation } = await deployFixture();
 

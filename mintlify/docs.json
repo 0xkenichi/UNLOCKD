@@ -21,7 +21,7 @@
       },
       {
         "group": "Protocol",
-        "pages": ["overview", "litepaper", "whitepaper"]
+        "pages": ["overview", "litepaper", "whitepaper", "tokenomics"]
       },
       {
         "group": "Risk & Spec",

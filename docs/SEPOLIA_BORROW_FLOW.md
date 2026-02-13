@@ -2,6 +2,10 @@
 
 This is a step-by-step guide to test the full borrow flow on Sepolia testnet: connect wallet → escrow → borrow → repay → settle.
 
+## Visual Flow
+
+![Borrow Flow (Escrow to Loan Issuance)](assets/diagrams/unlockd-borrow-flow.png)
+
 ## Prerequisites
 - Contracts deployed to Sepolia:
   - `npx hardhat deploy --network sepolia --tags full`
@@ -42,6 +46,10 @@ This is a step-by-step guide to test the full borrow flow on Sepolia testnet: co
 - Full repay → tokens released to borrower.
 - Partial repay → seized amount swapped; excess returned.
 - Default → seized and liquidated; pool repaid.
+
+## Settlement Decision Path
+
+![Repay and Settle Flow](assets/diagrams/unlockd-settle-flow.png)
 
 ## Troubleshooting
 - “No funds”: add Sepolia ETH from a faucet.

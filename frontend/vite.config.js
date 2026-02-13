@@ -17,6 +17,7 @@ export default defineConfig({
     react()
   ],
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       buffer: resolve(__dirname, 'node_modules/buffer/index.js'),
       process: resolve(__dirname, 'node_modules/process/browser.js'),
@@ -41,7 +42,8 @@ export default defineConfig({
           if (
             id.includes('/react/') ||
             id.includes('/react-dom/') ||
-            id.includes('/scheduler/')
+            id.includes('/scheduler/') ||
+            id.includes('/@tanstack/react-query/')
           ) {
             return 'react-vendor';
           }
@@ -79,9 +81,6 @@ export default defineConfig({
             return 'motion-vendor';
           }
 
-          if (id.includes('/@tanstack/react-query/')) {
-            return 'query-vendor';
-          }
         }
       }
     }

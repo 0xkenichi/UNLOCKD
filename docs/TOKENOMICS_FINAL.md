@@ -2,6 +2,9 @@
 
 This document defines the Phase 1 CRDT token policy for funding, governance, and long-term protocol alignment.
 
+Version: 1.1  
+Last updated: 2026-02-13
+
 ## Token Specification
 
 - Token name: CRDT
@@ -47,6 +50,25 @@ Default routing for protocol fee revenue:
 - 80% to lenders
 - 15% to treasury
 - 5% to safety module / insurance
+
+This routing is governance-managed and may be tuned by proposal, simulation evidence, and timelock.
+
+Interpretation:
+- Lenders (80%) are paid the majority of fees to keep liquidity deep and stable.
+- Treasury (15%) is protocol-owned revenue for runway, audits, grants, and growth.
+- Safety module (5%) accumulates a risk buffer for tail events and loss absorption.
+
+Formula:
+- If `F` is total protocol fee revenue in a period:
+  - Lenders receive `0.80 * F`
+  - Treasury receives `0.15 * F`
+  - Safety module receives `0.05 * F`
+
+Example:
+- If quarterly protocol fee revenue is `$2,000,000`:
+  - Lenders: `$1,600,000`
+  - Treasury: `$300,000`
+  - Safety module: `$100,000`
 
 ## Governance Controls
 

@@ -37,6 +37,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 principal;
         uint256 interest;
         uint256 collateralId;
+        uint256 collateralAmount;
         uint256 unlockTime;
         bool active;
     }
@@ -133,12 +134,33 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         address vestingContract,
         uint256 borrowAmount
     ) external whenNotPaused nonReentrant {
+        _createLoan(collateralId, vestingContract, borrowAmount, 0);
+    }
+
+    function createLoanWithCollateralAmount(
+        uint256 collateralId,
+        address vestingContract,
+        uint256 borrowAmount,
+        uint256 collateralAmount
+    ) external whenNotPaused nonReentrant {
+        _createLoan(collateralId, vestingContract, borrowAmount, collateralAmount);
+    }
+
+    function _createLoan(
+        uint256 collateralId,
+        address vestingContract,
+        uint256 borrowAmount,
+        uint256 collateralAmount
+    ) internal {
         require(borrowAmount > 0, "amount=0");
 
         adapter.escrow(collateralId, vestingContract, msg.sender);
         (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(collateralId);
+        require(quantity > 0, "quantity=0");
+        uint256 pledgedQuantity = collateralAmount == 0 ? quantity : collateralAmount;
+        require(pledgedQuantity <= quantity, "collateral>available");
 
-        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(quantity, token, unlockTime);
+        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime);
         if (identityLinked[msg.sender] && identityBoostBps > 0) {
             ltvBps = ltvBps + identityBoostBps;
             if (ltvBps > BPS_DENOMINATOR) {
@@ -157,6 +179,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             principal: borrowAmount,
             interest: interest,
             collateralId: collateralId,
+            collateralAmount: pledgedQuantity,
             unlockTime: unlockTime,
             active: true
         });
@@ -340,16 +363,20 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 remainingDebt = loan.principal + loan.interest;
         bool defaulted = remainingDebt > 0;
         (uint256 quantity, address token, ) = adapter.getDetails(loan.collateralId);
+        uint256 collateralAvailable = quantity;
+        if (collateralAvailable > loan.collateralAmount) {
+            collateralAvailable = loan.collateralAmount;
+        }
 
         address unlockTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
         if (!defaulted) {
-            if (quantity > 0) {
-                adapter.releaseTo(loan.collateralId, unlockTreasury, quantity);
+            if (collateralAvailable > 0) {
+                adapter.releaseTo(loan.collateralId, unlockTreasury, collateralAvailable);
             }
-        } else if (quantity > 0) {
+        } else if (collateralAvailable > 0) {
             uint256 seizeAmount = _calculateSeizeAmount(token, remainingDebt);
-            if (seizeAmount > quantity) {
-                seizeAmount = quantity;
+            if (seizeAmount > collateralAvailable) {
+                seizeAmount = collateralAvailable;
             }
 
             if (seizeAmount > 0) {
@@ -375,11 +402,11 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                 }
             }
 
-            if (quantity > seizeAmount) {
+            if (collateralAvailable > seizeAmount) {
                 adapter.releaseTo(
                     loan.collateralId,
                     unlockTreasury,
-                    quantity - seizeAmount
+                    collateralAvailable - seizeAmount
                 );
             }
         }

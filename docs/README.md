@@ -52,3 +52,4 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `FAQ.md` -- Common questions and quick answers.
 - `CHANGELOG.md` -- Doc and MVP changes over time.
 - `INVESTOR_MEMO_ONE_PAGER.md` -- concise investor/grants diligence memo.
+- `assets/diagrams/` -- Architecture and flow images used across docs.

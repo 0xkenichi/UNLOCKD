@@ -21,6 +21,7 @@
     "@supabase/supabase-js": "^2.93.3",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",

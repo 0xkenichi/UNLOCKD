@@ -63,6 +63,12 @@ Primary liquidity providers:
 
 Incentives: time-locked collateral, conservative LTVs, deterministic settlement, and pool-level risk governance.
 
+### Tokenomics Snapshot (Phase 1)
+- Fixed cap: 1,000,000,000 CRDT.
+- Allocation: treasury 30%, team 20%, protocol liquidity reserve 20%, community sale 15%, presale 7%, VC/investors 5%, airdrop 3%.
+- Policy: no discretionary minting in Phase 1; governance + timelock controls treasury emissions.
+- Full schedule and policy: see `docs/TOKENOMICS_FINAL.md`.
+
 ### Optional Auction Path (Debt-Free Exit)
 Users can sell claim rights instead of borrowing:
 1. Escrow claim rights as a non-transferable NFT.

@@ -2,10 +2,12 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { motion, useReducedMotion } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useSwitchChain } from 'wagmi';
 import { routeImports } from '../routes.js';
+import PassportSummary from '../components/common/PassportSummary.jsx';
 import { ALL_EVM_CHAINS } from '../utils/chains.js';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
 import { fetchKpiDashboard } from '../utils/api.js';
+import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const PortfolioPage = lazy(routeImports.portfolio);
 const BorrowPage = lazy(routeImports.borrow);
@@ -111,6 +113,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiError, setKpiError] = useState('');
+  const identityPassport = usePassportSnapshot(address);
   const transitionFrameRef = useRef(null);
   const transitionCommitRef = useRef(null);
 
@@ -368,6 +371,13 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             </div>
           )}
           {kpiError && <div className="muted">{kpiError}</div>}
+          <PassportSummary
+            as="div"
+            className="muted"
+            loading={identityPassport.loading}
+            score={identityPassport.score}
+            stamps={identityPassport.stamps}
+          />
           <div className="muted">Connected: {shortAddress}</div>
         </div>
         <div className="immersive-modules-grid">

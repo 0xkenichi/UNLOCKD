@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PassportSummary from '../components/common/PassportSummary.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import VerifiedCard from '../components/identity/VerifiedCard.jsx';
 import TierBadge from '../components/common/TierBadge.jsx';
 import { fetchIdentity, fetchPassportScore } from '../utils/api.js';
+import { getPassportSnapshotFromAttestations } from '../utils/passport.js';
 
 function formatProviderLabel(provider = '') {
   if (!provider) return 'Unknown provider';
@@ -94,6 +96,9 @@ export default function Identity() {
   const attestations = Array.isArray(profile?.attestations) ? profile.attestations : [];
   const totalStamps = attestations.reduce((sum, item) => sum + Number(item?.stampsCount || 0), 0);
   const hasAttestations = attestations.length > 0;
+  const passportSnapshot = getPassportSnapshotFromAttestations(attestations);
+  const passportScore = passportResult?.score ?? passportSnapshot.score ?? null;
+  const passportStamps = passportResult?.stampsCount ?? passportSnapshot.stamps ?? null;
   const generateSignatureCallback = useCallback(
     async (message) => {
       if (!signMessageAsync) {
@@ -174,6 +179,8 @@ export default function Identity() {
           fbs={profile?.fbs}
           policy={profile?.policy}
           attestations={attestations}
+          passportScore={passportScore}
+          passportStamps={passportStamps}
           hasWallet={Boolean(address)}
           loading={loading}
         />
@@ -187,6 +194,12 @@ export default function Identity() {
               {hasAttestations ? `${attestations.length} attestation${attestations.length > 1 ? 's' : ''}` : 'No attestations yet'}
             </div>
             <div className="pill">Stamps counted: {totalStamps}</div>
+            <PassportSummary
+              as="div"
+              className="pill"
+              score={passportScore}
+              stamps={passportStamps}
+            />
             <div className="pill">Current tier: {tierLabel}</div>
           </div>
           {hasAttestations ? (
@@ -268,7 +281,11 @@ export default function Identity() {
                 <span style={{ color: 'var(--danger-400)' }}>{passportResult.error}</span>
               ) : (
                 <>
-                  Score: {passportResult.score ?? '—'} · Stamps: {passportResult.stampsCount ?? 0}
+                  <PassportSummary
+                    score={passportResult.score}
+                    stamps={passportResult.stampsCount}
+                    showLabel={false}
+                  />
                   {passportResult.attestationCreated && ' · Attestation saved'}
                 </>
               )}

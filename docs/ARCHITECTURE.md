@@ -2,6 +2,10 @@
 
 This doc describes modules, responsibilities, and the core data flows.
 
+## System Architecture Diagram
+
+![UNLOCKD Protocol Architecture](assets/diagrams/unlockd-architecture.png)
+
 ## Core Modules
 - **VestingAdapter**: verifies vesting schedules, escrows claim rights, and releases on settlement.
 - **ValuationEngine**: computes DPV and LTV using on-chain oracles and risk params.
@@ -11,6 +15,9 @@ This doc describes modules, responsibilities, and the core data flows.
 - **Privacy Relay (optional)**: relays escrow, borrow, and settlement actions to reduce linkability while preserving on-chain enforcement.
 
 ## Data Flow (Borrow)
+
+![Borrow Flow (Escrow to Loan Issuance)](assets/diagrams/unlockd-borrow-flow.png)
+
 1. Borrower escrows a vesting position.
 2. Adapter exposes quantity and unlock time.
 3. ValuationEngine returns PV + LTV.
@@ -19,6 +26,9 @@ This doc describes modules, responsibilities, and the core data flows.
 6. (Optional) Privacy Relay can proxy steps 1-5 on behalf of the borrower.
 
 ## Data Flow (Repay/Settle)
+
+![Repay and Settle Flow](assets/diagrams/unlockd-settle-flow.png)
+
 1. Borrower repays principal + interest over time.
 2. At unlock:
    - Full repay → release to borrower.

@@ -13,6 +13,8 @@ Out of scope: legal agreements, custody frameworks, or off-chain lending.
 ## System Overview
 The protocol enables borrowing or selling claim rights on time-locked tokens. Settlement is enforced at unlock, and credit risk is isolated through conservative DPV and LTV caps.
 
+![UNLOCKD Protocol Architecture](assets/diagrams/unlockd-architecture.png)
+
 ## Design Principles
 - **Safety first**: settlement is deterministic and non-bypassable.
 - **Modularity**: adapters, auctions, and privacy components can be swapped.
@@ -117,6 +119,8 @@ Constraints:
 - `createAuction`: claim cannot be simultaneously pledged to a loan.
 
 ## Borrow Flow (Public or Private)
+![Borrow Flow (Escrow to Loan Issuance)](assets/diagrams/unlockd-borrow-flow.png)
+
 1. Borrower escrows claim rights via adapter.
 2. Adapter returns quantity and unlock time for valuation.
 3. ValuationEngine returns PV and max LTV.
@@ -125,6 +129,8 @@ Constraints:
 6. Optional relayer proxies steps 1-5.
 
 ## Repay and Settle
+![Repay and Settle Flow](assets/diagrams/unlockd-settle-flow.png)
+
 1. Borrower repays principal + interest any time pre-unlock.
 2. At unlock, settlement enforces:
    - Full repay: release to borrower.

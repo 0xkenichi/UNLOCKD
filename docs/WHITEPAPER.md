@@ -340,7 +340,7 @@ Wallet anonymity limits repeat lending. Optional opt-in:
 - DAO: Token-weighted voting for parameters (LTV, discounts).
 - Risk committees: Sub-DAOs for onboarding, adjustments.
 - Emergency: Time-locked multisig.
-- Tokenomics: CRDT token (40% community, 20% treasury, etc.); accrues fees for buybacks.
+- Tokenomics: CRDT has a fixed 1B supply with finalized Phase 1 allocation: treasury 30%, team 20%, protocol liquidity reserve 20%, community sale 15%, presale 7%, VC/investors 5%, airdrop 3% (see `docs/TOKENOMICS_FINAL.md`).
 
 ---
 

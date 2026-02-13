@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CRDT Private Tokenomics Calculator</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f9fc; color: #111827; }
+    h1, h2 { margin: 0 0 10px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; }
+    label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
+    input[type="range"] { width: 100%; }
+    .value { font-size: 12px; color: #4b5563; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px; }
+    .metric { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+    .metric .k { font-size: 12px; color: #6b7280; }
+    .metric .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
+    #chart { height: 460px; }
+    #feeChart { height: 360px; }
+    .small { font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>CRDT Private Tokenomics Calculator</h1>
+  <p class="small">Local/private tool. Not linked to public docs. Adjust assumptions to see timeline and valuation effects.</p>
+
+  <div class="card">
+    <h2>Inputs</h2>
+    <div class="grid">
+      <div>
+        <label for="price0">Starting Price (USD)</label>
+        <input id="price0" type="range" min="0.05" max="2.50" step="0.01" value="0.40" />
+        <div class="value" id="price0v"></div>
+      </div>
+      <div>
+        <label for="growth">Annual Price Growth (%)</label>
+        <input id="growth" type="range" min="-30" max="80" step="1" value="15" />
+        <div class="value" id="growthv"></div>
+      </div>
+      <div>
+        <label for="treasuryEmission">Treasury Emitted by Month 60 (%)</label>
+        <input id="treasuryEmission" type="range" min="0" max="100" step="1" value="20" />
+        <div class="value" id="treasuryEmissionv"></div>
+      </div>
+      <div>
+        <label for="liquidityEmission">Liquidity Reserve Emitted by Month 60 (%)</label>
+        <input id="liquidityEmission" type="range" min="0" max="100" step="1" value="25" />
+        <div class="value" id="liquidityEmissionv"></div>
+      </div>
+      <div>
+        <label for="loanBookY5">Year-5 Average Loan Book (USD M)</label>
+        <input id="loanBookY5" type="range" min="10" max="400" step="5" value="120" />
+        <div class="value" id="loanBookY5v"></div>
+      </div>
+      <div>
+        <label for="feeApr">Protocol Fee APR on Loan Book (%)</label>
+        <input id="feeApr" type="range" min="0.5" max="6.0" step="0.1" value="2.5" />
+        <div class="value" id="feeAprv"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Key Outputs (Month 60)</h2>
+    <div class="metrics">
+      <div class="metric"><div class="k">Circulating Supply</div><div class="v" id="circulating60"></div></div>
+      <div class="metric"><div class="k">FDV</div><div class="v" id="fdv60"></div></div>
+      <div class="metric"><div class="k">Market Cap</div><div class="v" id="mcap60"></div></div>
+      <div class="metric"><div class="k">MC / FDV Ratio</div><div class="v" id="ratio60"></div></div>
+      <div class="metric"><div class="k">Year-5 Gross Fees</div><div class="v" id="grossFeesY5"></div></div>
+      <div class="metric"><div class="k">Year-5 To Lenders (80%)</div><div class="v" id="toLendersY5"></div></div>
+      <div class="metric"><div class="k">Year-5 To Treasury (15%)</div><div class="v" id="toTreasuryY5"></div></div>
+      <div class="metric"><div class="k">Year-5 To Safety (5%)</div><div class="v" id="toSafetyY5"></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Timeline: Supply, FDV, and Market Cap</h2>
+    <div id="chart"></div>
+  </div>
+
+  <div class="card">
+    <h2>Fee Routing Projection (Years 1-5)</h2>
+    <div id="feeChart"></div>
+  </div>
+
+  <script>
+    const TOTAL = 1_000_000_000;
+    const ALLOC = {
+      team: 0.20,
+      vc: 0.05,
+      presale: 0.07,
+      community: 0.15,
+      airdrop: 0.03,
+      treasury: 0.30,
+      liquidity: 0.20
+    };
+    const months = Array.from({ length: 61 }, (_, i) => i);
+
+    function fUSD(n) {
+      if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+      if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+      if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}k`;
+      return `$${n.toFixed(0)}`;
+    }
+    function fTok(n) {
+      if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+      if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+      return `${n.toFixed(0)}`;
+    }
+
+    function linearVest(month, cliff, duration, total) {
+      const post = Math.max(month - cliff, 0);
+      return Math.min(post / duration, 1) * total;
+    }
+    function tgeLinear(month, tgePct, duration, total) {
+      const tge = total * tgePct;
+      const rem = total - tge;
+      return tge + Math.min(month / duration, 1) * rem;
+    }
+    function airdrop(month, total) {
+      let v = total * 0.20;
+      if (month >= 6) v += total * 0.30;
+      if (month >= 12) v += total * 0.50;
+      return v;
+    }
+
+    function model() {
+      const price0 = Number(document.getElementById("price0").value);
+      const growth = Number(document.getElementById("growth").value) / 100;
+      const treasuryEmission = Number(document.getElementById("treasuryEmission").value) / 100;
+      const liquidityEmission = Number(document.getElementById("liquidityEmission").value) / 100;
+      const loanBookY5 = Number(document.getElementById("loanBookY5").value) * 1e6;
+      const feeApr = Number(document.getElementById("feeApr").value) / 100;
+
+      const marketFacing = [];
+      const circulating = [];
+      const prices = [];
+      const fdv = [];
+      const mcap = [];
+
+      for (const m of months) {
+        const team = linearVest(m, 12, 36, TOTAL * ALLOC.team);
+        const vc = linearVest(m, 6, 24, TOTAL * ALLOC.vc);
+        const presale = tgeLinear(m, 0.10, 12, TOTAL * ALLOC.presale);
+        const community = tgeLinear(m, 0.25, 9, TOTAL * ALLOC.community);
+        const ad = airdrop(m, TOTAL * ALLOC.airdrop);
+        const mf = team + vc + presale + community + ad;
+        marketFacing.push(mf);
+
+        const emittedTreasury = TOTAL * ALLOC.treasury * treasuryEmission * (m / 60);
+        const emittedLiquidity = TOTAL * ALLOC.liquidity * liquidityEmission * (m / 60);
+        const circ = mf + emittedTreasury + emittedLiquidity;
+        circulating.push(circ);
+
+        const p = price0 * Math.pow(1 + growth, m / 12);
+        prices.push(p);
+        fdv.push(p * TOTAL);
+        mcap.push(p * circ);
+      }
+
+      const xYears = [1, 2, 3, 4, 5];
+      const loanBooks = xYears.map(y => loanBookY5 * Math.pow(y / 5, 1.3));
+      const grossFees = loanBooks.map(lb => lb * feeApr);
+      const toLenders = grossFees.map(v => v * 0.80);
+      const toTreasury = grossFees.map(v => v * 0.15);
+      const toSafety = grossFees.map(v => v * 0.05);
+
+      return { circulating, fdv, mcap, prices, grossFees, toLenders, toTreasury, toSafety, xYears };
+    }
+
+    function refresh() {
+      const ids = ["price0", "growth", "treasuryEmission", "liquidityEmission", "loanBookY5", "feeApr"];
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        document.getElementById(`${id}v`).textContent = el.value;
+      }
+
+      const d = model();
+      const i = d.circulating.length - 1;
+      document.getElementById("circulating60").textContent = fTok(d.circulating[i]);
+      document.getElementById("fdv60").textContent = fUSD(d.fdv[i]);
+      document.getElementById("mcap60").textContent = fUSD(d.mcap[i]);
+      document.getElementById("ratio60").textContent = `${(d.mcap[i] / d.fdv[i] * 100).toFixed(1)}%`;
+      document.getElementById("grossFeesY5").textContent = fUSD(d.grossFees[d.grossFees.length - 1]);
+      document.getElementById("toLendersY5").textContent = fUSD(d.toLenders[d.toLenders.length - 1]);
+      document.getElementById("toTreasuryY5").textContent = fUSD(d.toTreasury[d.toTreasury.length - 1]);
+      document.getElementById("toSafetyY5").textContent = fUSD(d.toSafety[d.toSafety.length - 1]);
+
+      Plotly.react("chart", [
+        { x: months, y: d.circulating, name: "Circulating Supply", yaxis: "y1", line: { width: 3 } },
+        { x: months, y: d.mcap, name: "Market Cap", yaxis: "y2", line: { width: 3 } },
+        { x: months, y: d.fdv, name: "FDV", yaxis: "y2", line: { width: 2, dash: "dot" } },
+      ], {
+        margin: { t: 10, r: 60, b: 40, l: 70 },
+        xaxis: { title: "Month from TGE" },
+        yaxis: { title: "Circulating Tokens", tickformat: "~s" },
+        yaxis2: { title: "USD", overlaying: "y", side: "right", tickformat: "$~s" },
+        legend: { orientation: "h" }
+      }, { responsive: true });
+
+      Plotly.react("feeChart", [
+        { x: d.xYears, y: d.toLenders, name: "To Lenders (80%)", type: "bar" },
+        { x: d.xYears, y: d.toTreasury, name: "To Treasury (15%)", type: "bar" },
+        { x: d.xYears, y: d.toSafety, name: "To Safety (5%)", type: "bar" }
+      ], {
+        barmode: "stack",
+        margin: { t: 10, r: 30, b: 40, l: 70 },
+        xaxis: { title: "Year" },
+        yaxis: { title: "USD", tickformat: "$~s" },
+        legend: { orientation: "h" }
+      }, { responsive: true });
+    }
+
+    document.querySelectorAll("input[type=range]").forEach(el => el.addEventListener("input", refresh));
+    refresh();
+  </script>
+</body>
+</html>

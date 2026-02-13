@@ -154,6 +154,18 @@ export const loanManagerAbi = [
     outputs: []
   },
   {
+    name: 'createLoanWithCollateralAmount',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'collateralId', type: 'uint256' },
+      { name: 'vestingContract', type: 'address' },
+      { name: 'borrowAmount', type: 'uint256' },
+      { name: 'collateralAmount', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
     name: 'repayLoan',
     type: 'function',
     stateMutability: 'nonpayable',
@@ -211,6 +223,7 @@ export const loanManagerAbi = [
       { name: 'principal', type: 'uint256' },
       { name: 'interest', type: 'uint256' },
       { name: 'collateralId', type: 'uint256' },
+      { name: 'collateralAmount', type: 'uint256' },
       { name: 'unlockTime', type: 'uint256' },
       { name: 'active', type: 'bool' }
     ]

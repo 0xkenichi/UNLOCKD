@@ -6,6 +6,7 @@ import Whitepaper from './content/whitepaper.mdx';
 import RiskModels from './content/risk-models.mdx';
 import FAQ from './content/faq.mdx';
 import Home from './content/home.mdx';
+import Tokenomics from './content/tokenomics.mdx';
 
 const docs = [
   {
@@ -42,6 +43,13 @@ const docs = [
     summary: 'DPV tables, Monte Carlo, and governance guidance.',
     component: RiskModels,
     tags: ['Risk', 'Public']
+  },
+  {
+    id: 'tokenomics',
+    title: 'Tokenomics (Phase 1 Final)',
+    summary: 'Finalized CRDT allocation, vesting, and treasury controls.',
+    component: Tokenomics,
+    tags: ['Token', 'Public']
   },
   {
     id: 'faq',

@@ -44,6 +44,7 @@ Start with `docs/README.md` for the full documentation index, then:
 - `docs/OVERVIEW.md`
 - `docs/LITEPAPER.md`
 - `docs/WHITEPAPER.md`
+- `docs/TOKENOMICS_FINAL.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT.md`
 - `docs/SECURITY.md`
