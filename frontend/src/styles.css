@@ -264,7 +264,6 @@ textarea {
 .app-main {
   flex: 1;
   padding: var(--space-6);
-  padding-left: calc(var(--nav-width) + var(--space-6));
 }
 
 .app-main > .stack {
@@ -954,6 +953,9 @@ a.tier-badge-link:hover .tier-badge { filter: brightness(1.1); }
   height: clamp(220px, 34vh, 380px);
   min-height: 220px;
   aspect-ratio: 16 / 10;
+  display: grid;
+  place-items: center;
+  padding: 10px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-secondary);
   background: rgba(10, 14, 20, 0.45);
@@ -965,6 +967,10 @@ a.tier-badge-link:hover .tier-badge { filter: brightness(1.1); }
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.illustration-card--identity .illustration-body {
+  height: clamp(240px, 36vh, 420px);
 }
 
 .pill {
@@ -1517,7 +1523,6 @@ select:focus-visible {
 @media (max-width: 1200px) {
   .app-main {
     padding: var(--space-5);
-    padding-left: calc(var(--nav-width) + var(--space-5));
   }
 
   .app-main > .stack {
@@ -1528,7 +1533,6 @@ select:focus-visible {
 @media (max-width: 1024px) {
   .app-main {
     padding: var(--space-4);
-    padding-left: calc(220px + var(--space-4));
   }
 
   .app-main > .stack {
@@ -1556,10 +1560,6 @@ select:focus-visible {
 
 /* Responsive */
 @media (max-width: 900px) {
-  .app-main {
-    padding-left: 220px;
-  }
-
   .app-main > .stack {
     width: min(1080px, 100%);
   }
@@ -1649,7 +1649,6 @@ select:focus-visible {
   }
   
   .app-main {
-    padding-left: var(--space-6);
     padding-bottom: 140px;
   }
 

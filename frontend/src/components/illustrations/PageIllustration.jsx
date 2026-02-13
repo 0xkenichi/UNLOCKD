@@ -98,26 +98,33 @@ function IdentityPassportGlyph({ identityData }) {
   const scoreNumber = Number(identityData?.compositeScore);
   const hasScore = Number.isFinite(scoreNumber);
   const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : null;
-  const scoreLabel = hasScore ? String(normalizedScore) : '—';
-  const barWidth = hasScore ? Math.round((normalizedScore / 1000) * 106) : 6;
+  const passportScoreNumber = Number(identityData?.passportResult?.score);
+  const hasPassportScore = Number.isFinite(passportScoreNumber) && passportScoreNumber > 0;
+  const scoreLabel = hasScore ? String(normalizedScore) : 'Pending';
+  const barWidth = hasScore ? Math.max(8, Math.round((normalizedScore / 1000) * 116)) : 10;
   const tier = Number.isFinite(Number(identityData?.identityTier))
     ? Number(identityData.identityTier)
     : 0;
   const tierName = identityData?.tierName || 'Anonymous';
+  const passportLabel = hasPassportScore ? String(Math.round(passportScoreNumber)) : '—';
 
   return (
     <g>
-      <rect x="40" y="44" width="108" height="132" rx="16" fill="rgba(10,14,20,0.58)" stroke="rgba(96,165,250,0.28)" />
-      <circle cx="94" cy="90" r="19" fill="rgba(96,165,250,0.22)" />
-      <rect x="70" y="114" width="48" height="22" rx="11" fill="rgba(96,165,250,0.22)" />
+      <rect x="24" y="30" width="272" height="160" rx="20" fill="rgba(10,14,20,0.54)" stroke="rgba(96,165,250,0.24)" />
+      <rect x="40" y="50" width="88" height="118" rx="14" fill="rgba(10,14,20,0.64)" stroke="rgba(96,165,250,0.26)" />
+      <circle cx="84" cy="90" r="16" fill="rgba(96,165,250,0.26)" />
+      <rect x="62" y="110" width="44" height="20" rx="10" fill="rgba(96,165,250,0.22)" />
 
-      <text x="168" y="72" fill="var(--text-muted)" fontSize="9" letterSpacing="1">COMPOSITE SCORE</text>
-      <text x="168" y="100" fill="var(--text-primary)" fontSize="28" fontWeight="700">{scoreLabel}</text>
-      <rect x="168" y="110" width="106" height="10" rx="5" fill="rgba(148,163,184,0.26)" />
-      <rect x="168" y="110" width={barWidth} height="10" rx="5" fill="rgba(52,211,153,0.84)" />
-      <text x="168" y="136" fill="rgba(52,211,153,0.92)" fontSize="10" letterSpacing="0.7">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
-      <rect x="168" y="148" width="80" height="20" rx="10" fill="rgba(96,165,250,0.16)" stroke="rgba(96,165,250,0.34)" />
-      <text x="208" y="161" fill="var(--primary-300)" fontSize="9" textAnchor="middle">KYC SAFE</text>
+      <text x="146" y="64" fill="var(--text-muted)" fontSize="8.5" letterSpacing="0.9">COMPOSITE SCORE</text>
+      <text x="146" y="96" fill="var(--text-primary)" fontSize="27" fontWeight="700">{scoreLabel}</text>
+      <rect x="146" y="106" width="116" height="10" rx="5" fill="rgba(148,163,184,0.24)" />
+      <rect x="146" y="106" width={barWidth} height="10" rx="5" fill="rgba(52,211,153,0.85)" />
+      <text x="146" y="128" fill="rgba(52,211,153,0.95)" fontSize="10" letterSpacing="0.7">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
+
+      <rect x="146" y="138" width="58" height="20" rx="10" fill="rgba(16,185,129,0.14)" stroke="rgba(16,185,129,0.34)" />
+      <text x="175" y="151" fill="var(--success-400)" fontSize="8.5" textAnchor="middle">KYC SAFE</text>
+      <rect x="210" y="138" width="52" height="20" rx="10" fill="rgba(96,165,250,0.14)" stroke="rgba(96,165,250,0.34)" />
+      <text x="236" y="151" fill="var(--primary-300)" fontSize="8.5" textAnchor="middle">{`PASS ${passportLabel}`}</text>
     </g>
   );
 }
