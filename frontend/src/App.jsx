@@ -36,6 +36,7 @@ const AdminAirdrop = lazy(routeImports.adminAirdrop);
 const Airdrop = lazy(routeImports.airdrop);
 const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
+const CommunityPools = lazy(routeImports.communityPools);
 
 function RouteFallback() {
   return (
@@ -63,8 +64,11 @@ function AppShell() {
   const solanaNetwork =
     SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
     SOLANA_NETWORKS[0];
-  const shortConnectedAddress = connectedAddress
-    ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`
+  const activeHeaderAddress = hasSolanaSession
+    ? session.solanaWalletAddress || ''
+    : connectedAddress || '';
+  const shortActiveHeaderAddress = activeHeaderAddress
+    ? `${activeHeaderAddress.slice(0, 6)}…${activeHeaderAddress.slice(-4)}`
     : '';
   const trackedWalletRef = useRef('');
   const headerRef = useRef(null);
@@ -191,6 +195,13 @@ function AppShell() {
               <button
                 className="button ghost"
                 type="button"
+                onClick={() => navigate('/community-pools')}
+              >
+                Community
+              </button>
+              <button
+                className="button ghost"
+                type="button"
                 onClick={() => navigate('/airdrop')}
               >
                 Airdrop
@@ -211,11 +222,13 @@ function AppShell() {
                 {theme === 'dark' ? 'Light mode' : 'Dark mode'}
               </button>
               <button
-                className={`button ${connectedAddress ? 'wallet-connected' : ''}`}
+                className={`button ${activeHeaderAddress ? 'wallet-connected' : ''}`}
                 type="button"
                 onClick={() => setWalletModalOpen(true)}
               >
-                {connectedAddress ? `Connected ${shortConnectedAddress}` : 'Connect'}
+                {activeHeaderAddress
+                  ? `${hasSolanaSession ? 'Phantom' : 'Connected'} ${shortActiveHeaderAddress}`
+                  : 'Connect'}
               </button>
             </div>
           </div>
@@ -254,6 +267,7 @@ function AppShell() {
             <Route path="/admin/airdrop" element={<AdminAirdrop />} />
             <Route path="/airdrop" element={<Airdrop />} />
             <Route path="/feedback" element={<Feedback />} />
+            <Route path="/community-pools" element={<CommunityPools />} />
             {FEATURE_FUNDRAISE_ONBOARD && (
               <Route path="/fundraise" element={<FundraiseOnboard />} />
             )}

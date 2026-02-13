@@ -20,6 +20,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
     uint256 public totalBorrowed;
 
     uint256 public constant BPS_DENOMINATOR = 10000;
+    uint256 public constant REWARD_PRECISION = 1e18;
     uint256 public lowUtilizationThresholdBps = 4000;
     uint256 public highUtilizationThresholdBps = 7500;
     uint256 public lowUtilizationRateBps = 1200;
@@ -54,6 +55,40 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
     PendingLoanManager public pendingLoanManager;
     PendingTreasuryConfig public pendingTreasuryConfig;
     PendingRateModel public pendingRateModel;
+    uint256 public communityPoolCount;
+
+    enum CommunityPoolState {
+        FUNDRAISING,
+        ACTIVE,
+        REFUNDING,
+        CLOSED
+    }
+
+    struct CommunityPool {
+        string name;
+        address creator;
+        uint256 targetAmount;
+        uint256 maxAmount;
+        uint256 deadline;
+        uint256 totalContributed;
+        uint256 totalBuildingUnits;
+        uint256 participantCount;
+        uint256 accRewardPerWeight;
+        uint256 totalRewardFunded;
+        bool rewardsByBuildingSize;
+        CommunityPoolState state;
+    }
+
+    struct CommunityPosition {
+        uint256 contributed;
+        uint256 buildingUnits;
+        uint256 rewardDebt;
+        uint256 pendingRewards;
+        bool joined;
+    }
+
+    mapping(uint256 => CommunityPool) public communityPools;
+    mapping(uint256 => mapping(address => CommunityPosition)) public communityPositions;
 
     event TreasuryConfigUpdated(address issuanceTreasury, address returnsTreasury);
     event LoanManagerUpdated(address indexed loanManager);
@@ -78,6 +113,39 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         uint256 executeAfter
     );
     event RateModelCancelled();
+    event CommunityPoolCreated(
+        uint256 indexed poolId,
+        address indexed creator,
+        string name,
+        uint256 targetAmount,
+        uint256 maxAmount,
+        uint256 deadline,
+        bool rewardsByBuildingSize
+    );
+    event CommunityPoolContribution(
+        uint256 indexed poolId,
+        address indexed contributor,
+        uint256 amount,
+        uint256 buildingUnits
+    );
+    event CommunityPoolActivated(uint256 indexed poolId, uint256 amountMovedToLiquidity);
+    event CommunityPoolMarkedRefunding(uint256 indexed poolId);
+    event CommunityPoolRefunded(
+        uint256 indexed poolId,
+        address indexed contributor,
+        uint256 amount
+    );
+    event CommunityPoolRewardsFunded(
+        uint256 indexed poolId,
+        address indexed funder,
+        uint256 amount
+    );
+    event CommunityPoolRewardsClaimed(
+        uint256 indexed poolId,
+        address indexed contributor,
+        uint256 amount
+    );
+    event CommunityPoolClosed(uint256 indexed poolId);
 
     constructor(address _usdc) Ownable(msg.sender) {
         usdc = IERC20(_usdc);
@@ -352,5 +420,235 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
 
     function availableLiquidity() public view returns (uint256) {
         return totalDeposits - totalBorrowed;
+    }
+
+    function createCommunityPool(
+        string calldata name,
+        uint256 targetAmount,
+        uint256 maxAmount,
+        uint256 deadline,
+        bool rewardsByBuildingSize
+    ) external whenNotPaused returns (uint256 poolId) {
+        require(bytes(name).length > 0, "name required");
+        require(targetAmount > 0, "target=0");
+        require(maxAmount >= targetAmount, "max<target");
+        require(deadline > block.timestamp, "bad deadline");
+
+        poolId = communityPoolCount;
+        communityPoolCount += 1;
+
+        communityPools[poolId] = CommunityPool({
+            name: name,
+            creator: msg.sender,
+            targetAmount: targetAmount,
+            maxAmount: maxAmount,
+            deadline: deadline,
+            totalContributed: 0,
+            totalBuildingUnits: 0,
+            participantCount: 0,
+            accRewardPerWeight: 0,
+            totalRewardFunded: 0,
+            rewardsByBuildingSize: rewardsByBuildingSize,
+            state: CommunityPoolState.FUNDRAISING
+        });
+
+        emit CommunityPoolCreated(
+            poolId,
+            msg.sender,
+            name,
+            targetAmount,
+            maxAmount,
+            deadline,
+            rewardsByBuildingSize
+        );
+    }
+
+    function contributeToCommunityPool(
+        uint256 poolId,
+        uint256 amount,
+        uint256 buildingUnits
+    ) external nonReentrant whenNotPaused {
+        CommunityPool storage cp = communityPools[poolId];
+        require(poolId < communityPoolCount, "bad pool");
+        _syncCommunityPoolState(cp, poolId);
+        require(cp.state == CommunityPoolState.FUNDRAISING, "not fundraising");
+        require(amount > 0, "amount=0");
+        require(cp.totalContributed + amount <= cp.maxAmount, "max exceeded");
+        if (cp.rewardsByBuildingSize) {
+            require(buildingUnits > 0, "building=0");
+        }
+
+        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
+        _accruePosition(cp, pos);
+
+        if (!pos.joined) {
+            pos.joined = true;
+            cp.participantCount += 1;
+        }
+
+        pos.contributed += amount;
+        pos.buildingUnits += buildingUnits;
+        cp.totalContributed += amount;
+        cp.totalBuildingUnits += buildingUnits;
+
+        _resetRewardDebt(cp, pos);
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
+
+        emit CommunityPoolContribution(poolId, msg.sender, amount, buildingUnits);
+
+        if (cp.totalContributed >= cp.targetAmount) {
+            _activateCommunityPool(cp, poolId);
+        }
+    }
+
+    function activateCommunityPool(uint256 poolId) external nonReentrant whenNotPaused {
+        require(poolId < communityPoolCount, "bad pool");
+        CommunityPool storage cp = communityPools[poolId];
+        _syncCommunityPoolState(cp, poolId);
+        require(cp.state == CommunityPoolState.FUNDRAISING, "not fundraising");
+        require(cp.totalContributed >= cp.targetAmount, "target not met");
+        _activateCommunityPool(cp, poolId);
+    }
+
+    function claimCommunityPoolRefund(uint256 poolId) external nonReentrant whenNotPaused {
+        require(poolId < communityPoolCount, "bad pool");
+        CommunityPool storage cp = communityPools[poolId];
+        _syncCommunityPoolState(cp, poolId);
+        require(cp.state == CommunityPoolState.REFUNDING, "not refunding");
+
+        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
+        uint256 refundAmount = pos.contributed;
+        require(refundAmount > 0, "nothing to refund");
+
+        cp.totalContributed -= refundAmount;
+        if (cp.totalBuildingUnits >= pos.buildingUnits) {
+            cp.totalBuildingUnits -= pos.buildingUnits;
+        } else {
+            cp.totalBuildingUnits = 0;
+        }
+        if (cp.participantCount > 0 && pos.joined) {
+            cp.participantCount -= 1;
+        }
+
+        pos.contributed = 0;
+        pos.buildingUnits = 0;
+        pos.rewardDebt = 0;
+        pos.pendingRewards = 0;
+        pos.joined = false;
+
+        usdc.safeTransfer(msg.sender, refundAmount);
+        emit CommunityPoolRefunded(poolId, msg.sender, refundAmount);
+    }
+
+    function fundCommunityPoolRewards(
+        uint256 poolId,
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
+        require(poolId < communityPoolCount, "bad pool");
+        require(amount > 0, "amount=0");
+        CommunityPool storage cp = communityPools[poolId];
+        _syncCommunityPoolState(cp, poolId);
+        require(cp.state == CommunityPoolState.ACTIVE, "not active");
+        uint256 totalWeight = _poolWeight(cp);
+        require(totalWeight > 0, "no weight");
+
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
+        cp.accRewardPerWeight += (amount * REWARD_PRECISION) / totalWeight;
+        cp.totalRewardFunded += amount;
+
+        emit CommunityPoolRewardsFunded(poolId, msg.sender, amount);
+    }
+
+    function claimCommunityPoolRewards(uint256 poolId) external nonReentrant whenNotPaused {
+        require(poolId < communityPoolCount, "bad pool");
+        CommunityPool storage cp = communityPools[poolId];
+        _syncCommunityPoolState(cp, poolId);
+        require(
+            cp.state == CommunityPoolState.ACTIVE || cp.state == CommunityPoolState.CLOSED,
+            "rewards unavailable"
+        );
+
+        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
+        _accruePosition(cp, pos);
+        uint256 amount = pos.pendingRewards;
+        require(amount > 0, "nothing to claim");
+        pos.pendingRewards = 0;
+        _resetRewardDebt(cp, pos);
+
+        usdc.safeTransfer(msg.sender, amount);
+        emit CommunityPoolRewardsClaimed(poolId, msg.sender, amount);
+    }
+
+    function closeCommunityPool(uint256 poolId) external whenNotPaused {
+        require(poolId < communityPoolCount, "bad pool");
+        CommunityPool storage cp = communityPools[poolId];
+        _syncCommunityPoolState(cp, poolId);
+        require(cp.state == CommunityPoolState.ACTIVE, "not active");
+        require(msg.sender == owner() || msg.sender == cp.creator, "not authorized");
+        cp.state = CommunityPoolState.CLOSED;
+        emit CommunityPoolClosed(poolId);
+    }
+
+    function pendingCommunityPoolRewards(
+        uint256 poolId,
+        address user
+    ) external view returns (uint256) {
+        if (poolId >= communityPoolCount) {
+            return 0;
+        }
+        CommunityPool storage cp = communityPools[poolId];
+        CommunityPosition storage pos = communityPositions[poolId][user];
+        uint256 accrued = (uint256(_positionWeight(cp, pos)) * cp.accRewardPerWeight) /
+            REWARD_PRECISION;
+        uint256 delta = accrued > pos.rewardDebt ? accrued - pos.rewardDebt : 0;
+        return pos.pendingRewards + delta;
+    }
+
+    function _syncCommunityPoolState(CommunityPool storage cp, uint256 poolId) internal {
+        if (
+            cp.state == CommunityPoolState.FUNDRAISING &&
+            block.timestamp > cp.deadline &&
+            cp.totalContributed < cp.targetAmount
+        ) {
+            cp.state = CommunityPoolState.REFUNDING;
+            emit CommunityPoolMarkedRefunding(poolId);
+        }
+    }
+
+    function _activateCommunityPool(CommunityPool storage cp, uint256 poolId) internal {
+        require(cp.state == CommunityPoolState.FUNDRAISING, "bad state");
+        require(cp.totalContributed >= cp.targetAmount, "target not met");
+        require(issuanceTreasury != address(0), "issuance=0");
+        cp.state = CommunityPoolState.ACTIVE;
+        totalDeposits += cp.totalContributed;
+        usdc.safeTransfer(issuanceTreasury, cp.totalContributed);
+        emit CommunityPoolActivated(poolId, cp.totalContributed);
+    }
+
+    function _poolWeight(CommunityPool storage cp) internal view returns (uint256) {
+        return cp.rewardsByBuildingSize ? cp.totalBuildingUnits : cp.totalContributed;
+    }
+
+    function _positionWeight(
+        CommunityPool storage cp,
+        CommunityPosition storage pos
+    ) internal view returns (uint256) {
+        return cp.rewardsByBuildingSize ? pos.buildingUnits : pos.contributed;
+    }
+
+    function _accruePosition(CommunityPool storage cp, CommunityPosition storage pos) internal {
+        uint256 weight = _positionWeight(cp, pos);
+        if (weight == 0) {
+            return;
+        }
+        uint256 accrued = (weight * cp.accRewardPerWeight) / REWARD_PRECISION;
+        if (accrued > pos.rewardDebt) {
+            pos.pendingRewards += (accrued - pos.rewardDebt);
+        }
+    }
+
+    function _resetRewardDebt(CommunityPool storage cp, CommunityPosition storage pos) internal {
+        uint256 weight = _positionWeight(cp, pos);
+        pos.rewardDebt = (weight * cp.accRewardPerWeight) / REWARD_PRECISION;
     }
 }

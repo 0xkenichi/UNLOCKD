@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
 import whitepaperDoc from '../../../docs/WHITEPAPER.md?raw';
@@ -95,6 +94,34 @@ const snippetFrom = (content) =>
     .join(' ')
     .slice(0, 220);
 
+function TokenomicsVisual() {
+  return (
+    <svg className="feature-svg" viewBox="0 0 700 250" role="img" aria-label="Tokenomics structure and release timeline">
+      <rect x="16" y="16" width="668" height="218" rx="18" fill="rgba(10,14,20,0.64)" stroke="rgba(88,166,255,0.24)" />
+      <text x="36" y="46" fill="var(--text-primary)" fontSize="14">Tokenomics Structure</text>
+      <text x="36" y="66" fill="var(--text-muted)" fontSize="11">Illustrative allocation and release cadence</text>
+      <rect x="36" y="86" width="210" height="18" rx="8" fill="rgba(88,166,255,0.28)" />
+      <rect x="36" y="112" width="168" height="18" rx="8" fill="rgba(16,185,129,0.25)" />
+      <rect x="36" y="138" width="126" height="18" rx="8" fill="rgba(251,191,36,0.22)" />
+      <rect x="36" y="164" width="84" height="18" rx="8" fill="rgba(167,139,250,0.24)" />
+      <text x="254" y="99" fill="var(--text-secondary)" fontSize="10">Core ecosystem allocation</text>
+      <text x="212" y="125" fill="var(--text-secondary)" fontSize="10">Community and liquidity programs</text>
+      <text x="170" y="151" fill="var(--text-secondary)" fontSize="10">Team and contributor vesting</text>
+      <text x="128" y="177" fill="var(--text-secondary)" fontSize="10">Treasury reserve</text>
+      <line x1="390" y1="84" x2="654" y2="84" stroke="rgba(139,148,158,0.45)" strokeWidth="1.6" />
+      <line x1="390" y1="132" x2="654" y2="132" stroke="rgba(139,148,158,0.22)" strokeWidth="1.2" />
+      <line x1="390" y1="180" x2="654" y2="180" stroke="rgba(139,148,158,0.22)" strokeWidth="1.2" />
+      <circle cx="414" cy="84" r="6" fill="rgba(88,166,255,0.95)" />
+      <circle cx="504" cy="132" r="6" fill="rgba(88,166,255,0.85)" />
+      <circle cx="578" cy="180" r="6" fill="rgba(88,166,255,0.75)" />
+      <text x="404" y="72" fill="var(--text-secondary)" fontSize="10">TGE</text>
+      <text x="487" y="120" fill="var(--text-secondary)" fontSize="10">Cliff unlock</text>
+      <text x="553" y="168" fill="var(--text-secondary)" fontSize="10">Linear vesting</text>
+      <text x="390" y="210" fill="var(--text-muted)" fontSize="10">Roadmap: distribution aligns with protocol maturity milestones.</text>
+    </svg>
+  );
+}
+
 export default function Docs() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -134,9 +161,18 @@ export default function Docs() {
           preview and inline readers.
         </div>
       </div>
-      <div className="grid-2 essentials-row">
-        <EssentialsPanel />
-        <PageIllustration variant="docs" />
+      <PageIllustration variant="docs" />
+      <div className="holo-card feature-visual-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Tokenomics and Release Timeline</h3>
+            <div className="section-subtitle">A visual overview for allocation, schedule, and roadmap framing</div>
+          </div>
+          <button className="button ghost" type="button" onClick={() => openDoc('tokenomics')}>
+            Open tokenomics doc
+          </button>
+        </div>
+        <TokenomicsVisual />
       </div>
 
       <div className="stat-row">
@@ -166,11 +202,11 @@ export default function Docs() {
             stay hidden.
           </p>
           <div className="inline-actions">
-            <div className="pill">Tokenomics</div>
-            <div className="pill">Whitepaper</div>
-            <div className="pill">Litepaper</div>
-            <div className="pill">Technical Spec</div>
-            <div className="pill">Risk Models</div>
+            <button className="button ghost" type="button" onClick={() => openDoc('tokenomics')}>Tokenomics</button>
+            <button className="button ghost" type="button" onClick={() => openDoc('whitepaper')}>Whitepaper</button>
+            <button className="button ghost" type="button" onClick={() => openDoc('litepaper')}>Litepaper</button>
+            <button className="button ghost" type="button" onClick={() => openDoc('technical-spec')}>Technical Spec</button>
+            <button className="button ghost" type="button" onClick={() => openDoc('risk-models')}>Risk Models</button>
           </div>
         </div>
         <div className="holo-card" id="docs-location">
@@ -181,9 +217,15 @@ export default function Docs() {
             content without leaving the app.
           </p>
           <div className="inline-actions">
-            <div className="pill">Public only</div>
-            <div className="pill">Zero gating</div>
-            <div className="pill">Live text</div>
+            <span className="tag">Public only</span>
+            <span className="tag">Zero gating</span>
+            <span className="tag">Live text</span>
+            <button className="button ghost" type="button" onClick={() => navigate('/features')}>
+              Features explainer
+            </button>
+            <button className="button ghost" type="button" onClick={() => navigate('/landing')}>
+              Open minified site
+            </button>
             <button className="button ghost" type="button" onClick={() => navigate('/airdrop')}>
               Airdrop page
             </button>
@@ -191,6 +233,21 @@ export default function Docs() {
               Feedback form
             </button>
           </div>
+        </div>
+      </div>
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Quick Navigation</h3>
+            <div className="section-subtitle">Jump across product areas while reading documentation</div>
+          </div>
+        </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/borrow')}>Borrow</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/lender')}>Lender</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>Community Pools</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/about')}>About team</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/landing')}>Minified site</button>
         </div>
       </div>
 

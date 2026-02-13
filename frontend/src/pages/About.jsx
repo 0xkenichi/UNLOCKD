@@ -1,7 +1,8 @@
-import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+import { useNavigate } from 'react-router-dom';
 
 export default function About() {
+  const navigate = useNavigate();
   return (
     <div className="stack">
       <div className="page-header">
@@ -9,11 +10,19 @@ export default function About() {
         <div className="page-subtitle">
           An institutional-grade protocol for illuminating liquidity from vested assets.
         </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/features')}>
+            Product features
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=whitepaper')}>
+            Read whitepaper
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/landing')}>
+            Open minified site
+          </button>
+        </div>
       </div>
-      <div className="grid-2 essentials-row">
-        <EssentialsPanel />
-        <PageIllustration variant="about" />
-      </div>
+      <PageIllustration variant="about" />
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Mission Focus</div>
@@ -62,6 +71,24 @@ export default function About() {
         <div className="holo-card">
           <div className="section-head">
             <div>
+              <h3 className="section-title">Founder Spotlight</h3>
+              <div className="section-subtitle">Built with conviction and product craft</div>
+            </div>
+            <span className="tag">Founder</span>
+          </div>
+          <p className="muted">
+            <strong>Karichi</strong> leads Vestra with a strong focus on practical execution:
+            professional UX, transparent risk framing, and lender-borrower alignment.
+          </p>
+          <div className="card-list">
+            <div className="pill">Founder-led product direction</div>
+            <div className="pill">High-conviction design and shipping culture</div>
+            <div className="pill">Protocol clarity before marketing noise</div>
+          </div>
+        </div>
+        <div className="holo-card">
+          <div className="section-head">
+            <div>
               <h3 className="section-title">Roadmap</h3>
               <div className="section-subtitle">Next milestones</div>
             </div>
@@ -96,6 +123,21 @@ export default function About() {
             <div className="pill">Design & UX</div>
             <div className="pill">BD & Partnerships</div>
           </div>
+        </div>
+      </div>
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Explore the Platform</h3>
+            <div className="section-subtitle">Navigate by role and workflow</div>
+          </div>
+        </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/borrow')}>Borrower flow</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/repay')}>Repayment</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/lender')}>Lender operations</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>Community pools</button>
+          <button className="button ghost" type="button" onClick={() => navigate('/docs')}>Docs hub</button>
         </div>
       </div>
     </div>

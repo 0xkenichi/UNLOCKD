@@ -1,10 +1,15 @@
 import { lazy, Suspense } from 'react';
-import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
+import { useNavigate } from 'react-router-dom';
+import { useAccount } from 'wagmi';
+import PassportSummary from '../components/common/PassportSummary.jsx';
+import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const CrdtOrb = lazy(() => import('../components/governance/CrdtOrb.jsx'));
 
 export default function Governance() {
+  const navigate = useNavigate();
+  const { address } = useAccount();
+  const passport = usePassportSnapshot(address);
   const holoFallback = (
     <div className="holo-card">
       <div className="loading-row">
@@ -18,12 +23,68 @@ export default function Governance() {
       <div className="page-header">
         <h1 className="page-title holo-glow">Governance</h1>
         <div className="page-subtitle">
-          Governance UI is read-only in the MVP.
+          Governance is passport-aware in the MVP. Voting remains read-only.
+        </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/identity')}>
+            Passport readiness
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=whitepaper')}>
+            Governance context
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/features')}>
+            Feature overview
+          </button>
         </div>
       </div>
-      <div className="grid-2 essentials-row">
-        <EssentialsPanel />
-        <PageIllustration variant="governance" />
+      <div className="grid-2">
+        <div className="holo-card">
+          <div className="section-head">
+            <div>
+              <h3 className="section-title">Governance Passport</h3>
+              <div className="section-subtitle">Identity signal used for future voting eligibility</div>
+            </div>
+            <span className="tag">Passport</span>
+          </div>
+          <PassportSummary
+            as="div"
+            className="pill"
+            loading={passport.loading}
+            score={passport.score}
+            stamps={passport.stamps}
+          />
+          <p className="muted" style={{ marginTop: 10 }}>
+            Connect and strengthen your passport on the Identity page to prepare for governance
+            participation tiers.
+          </p>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => navigate('/identity')}
+          >
+            Open Identity
+          </button>
+        </div>
+        <div className="holo-card">
+          <h3 className="holo-title">Governance Scope</h3>
+          <p className="muted">
+            Current scope focuses on proposal visibility, identity readiness, and community
+            coordination while on-chain voting remains disabled.
+          </p>
+          <div className="card-list" style={{ marginTop: 12 }}>
+            <div className="pill">Passport-tier aware (preview)</div>
+            <div className="pill">Proposal feed live</div>
+            <div className="pill">Voting contracts not active</div>
+          </div>
+          <div className="inline-actions" style={{ marginTop: 14 }}>
+            <button className="button ghost" type="button" onClick={() => navigate('/about')}>
+              Team and roadmap
+            </button>
+            <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
+              Community pools
+            </button>
+          </div>
+        </div>
       </div>
       <div className="stat-row">
         <div className="stat-card">

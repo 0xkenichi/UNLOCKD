@@ -128,9 +128,32 @@ export async function fetchRepaySchedule() {
   return data.items || [];
 }
 
-export async function fetchVestedContracts() {
-  const data = await apiGet('/api/vested-contracts');
-  return data.items || [];
+export async function fetchVestedContracts({ walletAddress, chain } = {}) {
+  const params = new URLSearchParams();
+  if (walletAddress) params.set('wallet', walletAddress);
+  if (chain) params.set('chain', chain);
+  const query = params.toString();
+  const endpoint = `/api/vested-contracts${query ? `?${query}` : ''}`;
+  try {
+    const data = await apiGet(endpoint);
+    return data.items || [];
+  } catch (error) {
+    const msg = String(error?.message || '');
+    if (!/Request failed:\s*404/i.test(msg)) {
+      throw error;
+    }
+    const snapshots = await apiGet('/api/vested-snapshots?full=1');
+    const latestItems = snapshots?.snapshots?.[0]?.items || [];
+    const normalizedWallet = String(walletAddress || '').trim().toLowerCase();
+    const normalizedChain = String(chain || '').trim().toLowerCase();
+    return latestItems.filter((item) => {
+      if (normalizedChain && String(item?.chain || '').trim().toLowerCase() !== normalizedChain) {
+        return false;
+      }
+      if (!normalizedWallet) return true;
+      return String(item?.borrower || '').trim().toLowerCase() === normalizedWallet;
+    });
+  }
 }
 
 export async function fetchPools({ chain, ownerWallet, status } = {}) {
@@ -141,6 +164,21 @@ export async function fetchPools({ chain, ownerWallet, status } = {}) {
   const query = params.toString();
   const data = await apiGet(`/api/pools${query ? `?${query}` : ''}`);
   return data.pools || [];
+}
+
+export async function fetchCommunityPools({ walletAddress, limit } = {}) {
+  const params = new URLSearchParams();
+  if (walletAddress) params.set('wallet', walletAddress);
+  if (limit) params.set('limit', String(limit));
+  const query = params.toString();
+  const data = await apiGet(`/api/community-pools${query ? `?${query}` : ''}`);
+  return data.items || [];
+}
+
+export async function fetchCommunityPool(poolId, walletAddress) {
+  const query = walletAddress ? `?wallet=${encodeURIComponent(walletAddress)}` : '';
+  const data = await apiGet(`/api/community-pools/${poolId}${query}`);
+  return data.item || null;
 }
 
 export async function fetchIdentity(walletAddress) {
@@ -240,6 +278,11 @@ export async function downloadAdminAirdropLeaderboard(windowDays = 30, limit = 2
 export async function fetchSolanaUnmappedMints() {
   const data = await apiGet('/api/solana/unmapped-mints');
   return data.items || [];
+}
+
+export async function fetchSolanaStatus() {
+  const data = await apiGet('/api/solana/status');
+  return data.status || null;
 }
 
 export async function askAgent(message, history = [], captchaToken, context = null) {

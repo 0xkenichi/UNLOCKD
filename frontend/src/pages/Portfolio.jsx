@@ -4,24 +4,42 @@ import { motion } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useReadContracts } from 'wagmi';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
-import { apiDownload, fetchActivity } from '../utils/api.js';
+import {
+  apiDownload,
+  fetchActivity,
+  fetchSolanaStatus,
+  fetchVestedContracts
+} from '../utils/api.js';
+import { useOnchainSession } from '../utils/onchainSession.js';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
 
 const MAX_POSITIONS = 12;
 const MAX_ACTIVITY = 8;
+const isHttpStatusError = (error, code) =>
+  new RegExp(`Request failed:\\s*${code}`, 'i').test(String(error?.message || ''));
 
 export default function Portfolio() {
   const navigate = useNavigate();
   const { address } = useAccount();
   const chainId = useChainId();
+  const { session } = useOnchainSession();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
   const [activity, setActivity] = useState([]);
   const [activityError, setActivityError] = useState('');
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+  const [solanaPositions, setSolanaPositions] = useState([]);
+  const [solanaError, setSolanaError] = useState('');
+  const [isLoadingSolanaPositions, setIsLoadingSolanaPositions] = useState(false);
+  const [hasLoadedSolanaPositions, setHasLoadedSolanaPositions] = useState(false);
+  const [solanaStatus, setSolanaStatus] = useState(null);
+  const [solanaStatusError, setSolanaStatusError] = useState('');
   const [positionQuery, setPositionQuery] = useState('');
   const [positionSort, setPositionSort] = useState('unlock-asc');
   const [showInactive, setShowInactive] = useState(false);
+  const isSolanaSession =
+    session.chainType === 'solana' || Boolean(session.solanaWalletAddress);
+  const solanaWallet = session.solanaWalletAddress || '';
 
   const handleExportActivity = () => {
     apiDownload('/api/exports/activity', 'vestra-activity.csv');
@@ -46,6 +64,95 @@ export default function Portfolio() {
     load();
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!isSolanaSession || !solanaWallet) {
+      setSolanaPositions([]);
+      setSolanaError('');
+      setIsLoadingSolanaPositions(false);
+      setHasLoadedSolanaPositions(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    const loadSolanaVesting = async () => {
+      setIsLoadingSolanaPositions(true);
+      setSolanaError('');
+      setHasLoadedSolanaPositions(false);
+      try {
+        const items = await fetchVestedContracts({
+          chain: 'solana',
+          walletAddress: solanaWallet
+        });
+        if (!active) return;
+        const mapped = (items || []).map((item, idx) => {
+          const unlockTs = Number(item?.unlockTime || 0);
+          const quantity = item?.quantity ? String(item.quantity) : '--';
+          return {
+            loanId: item?.loanId || item?.streamId || `solana-${idx}`,
+            id: `Solana-${item?.loanId || item?.streamId || idx}`,
+            principal: quantity,
+            interest: item?.pv ? String(item.pv) : '0',
+            unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
+            unlockTimestamp: unlockTs,
+            active: Boolean(item?.active)
+          };
+        });
+        setSolanaPositions(mapped);
+      } catch (error) {
+        if (!active) return;
+        setSolanaPositions([]);
+        if (isHttpStatusError(error, 404)) {
+          setSolanaError('Solana vesting endpoint is unavailable on backend (`/api/vested-contracts`).');
+        } else if (String(error?.message || '').toLowerCase().includes('timed out')) {
+          setSolanaError('Solana vesting request timed out. Please retry after backend stabilizes.');
+        } else {
+          setSolanaError(error?.message || 'Failed to load Solana vesting.');
+        }
+      } finally {
+        if (active) {
+          setIsLoadingSolanaPositions(false);
+          setHasLoadedSolanaPositions(true);
+        }
+      }
+    };
+
+    loadSolanaVesting();
+    return () => {
+      active = false;
+    };
+  }, [isSolanaSession, solanaWallet]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isSolanaSession) {
+      setSolanaStatus(null);
+      setSolanaStatusError('');
+      return () => {
+        active = false;
+      };
+    }
+    fetchSolanaStatus()
+      .then((status) => {
+        if (!active) return;
+        setSolanaStatus(status);
+        setSolanaStatusError('');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSolanaStatus(null);
+        if (isHttpStatusError(error, 404) || String(error?.message || '').toLowerCase().includes('timed out')) {
+          setSolanaStatusError('');
+        } else {
+          setSolanaStatusError(error?.message || 'Unable to read Solana indexer status.');
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [isSolanaSession]);
 
   const { data: loanCount } = useReadContract({
     address: loanManager,
@@ -80,7 +187,7 @@ export default function Portfolio() {
     query: { enabled: Boolean(loanManager && recentIds.length) }
   });
 
-  const positions = useMemo(() => {
+  const evmPositions = useMemo(() => {
     if (!loanReads) return [];
     return loanReads
       .filter((r) => r.status === 'success')
@@ -99,6 +206,11 @@ export default function Portfolio() {
         };
       });
   }, [loanReads, recentIds]);
+
+  const positions = useMemo(
+    () => (isSolanaSession ? solanaPositions : evmPositions),
+    [evmPositions, isSolanaSession, solanaPositions]
+  );
 
   const visiblePositions = useMemo(() => {
     const q = positionQuery.trim().toLowerCase();
@@ -163,11 +275,11 @@ export default function Portfolio() {
       <div className="stat-row portfolio-stats">
         <div className="stat-card stat-card-minimal">
           <div className="stat-value">{totals.activeCount}</div>
-          <div className="stat-label">Loans</div>
+          <div className="stat-label">{isSolanaSession ? 'Vesting streams' : 'Loans'}</div>
         </div>
         <div className="stat-card stat-card-minimal">
-          <div className="stat-value">{formattedBalance}</div>
-          <div className="stat-label">USDC</div>
+          <div className="stat-value">{isSolanaSession ? (solanaWallet ? `${solanaWallet.slice(0, 6)}…${solanaWallet.slice(-4)}` : '--') : formattedBalance}</div>
+          <div className="stat-label">{isSolanaSession ? 'Phantom wallet' : 'USDC'}</div>
         </div>
         <div className="stat-card stat-card-minimal">
           <div className="stat-value">{nextUnlock}</div>
@@ -182,6 +294,10 @@ export default function Portfolio() {
         <button
           className="button ghost"
           onClick={() => {
+            if (isSolanaSession) {
+              navigate('/repay');
+              return;
+            }
             const firstActive = visiblePositions.find((pos) => pos.active);
             if (firstActive?.loanId) {
               navigate(`/repay?loanId=${encodeURIComponent(firstActive.loanId)}`);
@@ -196,11 +312,36 @@ export default function Portfolio() {
 
       <div className="holo-card">
         <h3 className="section-title">Positions</h3>
+        {isSolanaSession && solanaStatus?.streamflowEnabled === false && (
+          <p className="error-banner">
+            Solana vesting indexer is disabled on backend (`SOLANA_STREAMFLOW_ENABLED=false`).
+            Enable it and restart backend to load Phantom vesting streams.
+          </p>
+        )}
+        {isSolanaSession && solanaStatus?.streamflowEnabled && (
+          <p className="muted">
+            Solana vesting indexer is enabled ({solanaStatus.cluster || 'mainnet'} cluster).
+          </p>
+        )}
+        {isSolanaSession && solanaStatusError && !solanaError && (
+          <p className="muted">{solanaStatusError}</p>
+        )}
+        {isLoadingSolanaPositions && (
+          <p className="muted">Loading Solana vesting positions...</p>
+        )}
+        {solanaError && (
+          <p className="muted">{solanaError}</p>
+        )}
+        {isSolanaSession && hasLoadedSolanaPositions && !isLoadingSolanaPositions && !solanaError && !visiblePositions.length && (
+          <p className="muted">
+            No Solana vesting streams found for this Phantom wallet. If Jup shows holdings but not vesting streams, those assets may not be Streamflow vesting contracts indexed by this backend.
+          </p>
+        )}
         {visiblePositions.length ? (
           <div className="data-table">
             <div className="table-row header">
               <div>Loan</div>
-              <div>Principal</div>
+              <div>{isSolanaSession ? 'Quantity' : 'Principal'}</div>
               <div>Unlock</div>
               <div>Status</div>
               <div>Action</div>
@@ -220,7 +361,9 @@ export default function Portfolio() {
                     className="button ghost"
                     type="button"
                     onClick={() =>
-                      navigate(`/repay?loanId=${encodeURIComponent(pos.loanId)}`)
+                      isSolanaSession
+                        ? navigate('/repay')
+                        : navigate(`/repay?loanId=${encodeURIComponent(pos.loanId)}`)
                     }
                     disabled={!pos.active}
                   >
@@ -231,7 +374,9 @@ export default function Portfolio() {
             ))}
           </div>
         ) : (
-          <p className="muted">{showInactive ? 'No positions.' : 'No active positions.'}</p>
+          (!isSolanaSession || (hasLoadedSolanaPositions && !isLoadingSolanaPositions && !solanaError)) && (
+            <p className="muted">{showInactive ? 'No positions.' : 'No active positions.'}</p>
+          )
         )}
       </div>
 

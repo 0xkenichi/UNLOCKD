@@ -367,6 +367,98 @@ export const lendingPoolAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'communityPoolCount',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'createCommunityPool',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'name', type: 'string' },
+      { name: 'targetAmount', type: 'uint256' },
+      { name: 'maxAmount', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'rewardsByBuildingSize', type: 'bool' }
+    ],
+    outputs: [{ name: 'poolId', type: 'uint256' }]
+  },
+  {
+    name: 'contributeToCommunityPool',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'poolId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'buildingUnits', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
+    name: 'fundCommunityPoolRewards',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'poolId', type: 'uint256' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
+    name: 'claimCommunityPoolRewards',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'poolId', type: 'uint256' }],
+    outputs: []
+  },
+  {
+    name: 'claimCommunityPoolRefund',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'poolId', type: 'uint256' }],
+    outputs: []
+  },
+  {
+    name: 'closeCommunityPool',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'poolId', type: 'uint256' }],
+    outputs: []
+  },
+  {
+    name: 'pendingCommunityPoolRewards',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'poolId', type: 'uint256' },
+      { name: 'user', type: 'address' }
+    ],
+    outputs: [{ name: '', type: 'uint256' }]
+  },
+  {
+    name: 'communityPools',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'name', type: 'string' },
+      { name: 'creator', type: 'address' },
+      { name: 'targetAmount', type: 'uint256' },
+      { name: 'maxAmount', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'totalContributed', type: 'uint256' },
+      { name: 'totalBuildingUnits', type: 'uint256' },
+      { name: 'participantCount', type: 'uint256' },
+      { name: 'accRewardPerWeight', type: 'uint256' },
+      { name: 'totalRewardFunded', type: 'uint256' },
+      { name: 'rewardsByBuildingSize', type: 'bool' },
+      { name: 'state', type: 'uint8' }
+    ]
   }
 ];
 

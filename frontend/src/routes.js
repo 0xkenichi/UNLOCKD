@@ -14,5 +14,6 @@ export const routeImports = {
   adminAirdrop: () => import('./pages/AdminAirdrop.jsx'),
   airdrop: () => import('./pages/Airdrop.jsx'),
   feedback: () => import('./pages/Feedback.jsx'),
-  fundraiseOnboard: () => import('./pages/FundraiseOnboard.jsx')
+  fundraiseOnboard: () => import('./pages/FundraiseOnboard.jsx'),
+  communityPools: () => import('./pages/CommunityPools.jsx')
 };

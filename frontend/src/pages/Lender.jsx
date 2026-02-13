@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
@@ -24,6 +25,7 @@ const chainOptions = [
 ];
 
 export default function Lender() {
+  const navigate = useNavigate();
   const { address } = useAccount();
   const chainId = useChainId();
   const depositSectionRef = useRef(null);
@@ -493,8 +495,34 @@ export default function Lender() {
             <span className="chip">Testnet lender mode</span>
             <span className="chip">Advisory matching active</span>
           </div>
+          <div className="inline-actions" style={{ marginTop: 10 }}>
+            <button className="button" type="button" onClick={() => navigate('/features')}>
+              Lender model
+            </button>
+            <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=risk-models')}>
+              Risk docs
+            </button>
+            <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
+              Community pools
+            </button>
+          </div>
         </div>
         <EssentialsPanel />
+      </div>
+
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Lender operating flow</h3>
+            <div className="section-subtitle">Configure appetite, fund pool, monitor utilization</div>
+          </div>
+        </div>
+        <div className="card-list">
+          <div className="pill">Set risk tier, LTV bounds, and borrower access policy</div>
+          <div className="pill">Approve and deposit USDC to activate supply</div>
+          <div className="pill">Track utilization, borrow demand, and settlement outcomes</div>
+          <div className="pill">Iterate pool preferences as market and collateral mix evolves</div>
+        </div>
       </div>
 
       <SmartWalletOnboardingCard

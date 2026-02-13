@@ -3,11 +3,12 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useSwitchChain } from 'wagmi';
 import { routeImports } from '../routes.js';
 import PassportSummary from '../components/common/PassportSummary.jsx';
-import { ALL_EVM_CHAINS } from '../utils/chains.js';
+import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from '../utils/chains.js';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
 import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '../utils/api.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
+import { useOnchainSession } from '../utils/onchainSession.js';
 
 const PortfolioPage = lazy(routeImports.portfolio);
 const BorrowPage = lazy(routeImports.borrow);
@@ -19,6 +20,7 @@ const IdentityPage = lazy(routeImports.identity);
 const FeaturesPage = lazy(routeImports.features);
 const DocsPage = lazy(routeImports.docs);
 const AboutPage = lazy(routeImports.about);
+const CommunityPoolsPage = lazy(routeImports.communityPools);
 
 const modules = [
   { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', component: BorrowPage },
@@ -30,7 +32,8 @@ const modules = [
   { id: 'identity', title: 'Identity', subtitle: 'Onchain trust surface', component: IdentityPage },
   { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage },
   { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage },
-  { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage }
+  { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage },
+  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage }
 ];
 
 const moduleLoaders = {
@@ -43,7 +46,8 @@ const moduleLoaders = {
   identity: routeImports.identity,
   features: routeImports.features,
   docs: routeImports.docs,
-  about: routeImports.about
+  about: routeImports.about,
+  communityPools: routeImports.communityPools
 };
 
 const ZOOM_OPEN_DURATION_MS = 720;
@@ -59,7 +63,8 @@ function ModuleMiniPreview({ moduleId }) {
     identity: { top: '38%', line: '52%' },
     features: { top: '66%', line: '80%' },
     docs: { top: '74%', line: '84%' },
-    about: { top: '42%', line: '60%' }
+    about: { top: '42%', line: '60%' },
+    communityPools: { top: '58%', line: '78%' }
   }[moduleId] || { top: '54%', line: '76%' };
 
   return (
@@ -92,6 +97,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const prefersReducedMotion = useReducedMotion();
   const { address } = useAccount();
   const chainId = useChainId();
+  const { session } = useOnchainSession();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
@@ -99,6 +105,14 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
     () => ALL_EVM_CHAINS.find((chain) => chain.id === chainId),
     [chainId]
   );
+  const activeSolanaNetwork = useMemo(
+    () =>
+      SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
+      SOLANA_NETWORKS[0],
+    [session.solanaNetworkId]
+  );
+  const isSolanaSession =
+    session.chainType === 'solana' || Boolean(session.solanaWalletAddress);
   const stageRef = useRef(null);
   const previous = useRef({ x: 0.5, y: 0.5, t: Date.now() });
   const [mouse, setMouse] = useState({ x: 0.5, y: 0.5 });
@@ -136,8 +150,13 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
 
   const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
   const loanCountValue = loanCount ? loanCount.toString() : '0';
-  const shortAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '--';
-  const isWalletConnected = Boolean(address);
+  const activeWalletAddress = isSolanaSession
+    ? session.solanaWalletAddress || ''
+    : address || '';
+  const shortAddress = activeWalletAddress
+    ? `${activeWalletAddress.slice(0, 6)}…${activeWalletAddress.slice(-4)}`
+    : '--';
+  const isWalletConnected = Boolean(activeWalletAddress);
 
   const clearTransitionTimers = useCallback(() => {
     if (transitionFrameRef.current) {
@@ -340,7 +359,9 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             type="button"
             onClick={onOpenWallet}
           >
-            {isWalletConnected ? `Connected ${shortAddress}` : 'Connect'}
+            {isWalletConnected
+              ? `${isSolanaSession ? 'Phantom' : 'Connected'} ${shortAddress}`
+              : 'Connect'}
           </button>
         </div>
       </header>
@@ -373,9 +394,17 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             <button
               className="stat-card stat-card-minimal immersive-network-card"
               type="button"
-              onClick={() => setNetworkPickerOpen((open) => !open)}
+              onClick={() => {
+                if (isSolanaSession) {
+                  onOpenWallet();
+                  return;
+                }
+                setNetworkPickerOpen((open) => !open);
+              }}
             >
-              <div className="stat-value">{activeChain?.name || '—'}</div>
+              <div className="stat-value">
+                {isSolanaSession ? activeSolanaNetwork?.name || 'Solana' : activeChain?.name || '—'}
+              </div>
               <div className="stat-label">Network</div>
             </button>
           </div>
@@ -399,7 +428,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               <div className="stat-label">Defaults (24h)</div>
             </div>
           </div>
-          {networkPickerOpen && (
+          {networkPickerOpen && !isSolanaSession && (
             <div className="immersive-network-picker">
               {ALL_EVM_CHAINS.map((chain) => (
                 <button
@@ -475,7 +504,10 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             score={identityPassport.score}
             stamps={identityPassport.stamps}
           />
-          <div className="muted">Connected: {shortAddress}</div>
+          <div className="muted">
+            Connected: {shortAddress}
+            {isSolanaSession ? ` (${activeSolanaNetwork?.name || 'Solana'})` : ''}
+          </div>
         </div>
         <div className="immersive-modules-grid">
           {modules.map((module) => {

@@ -209,6 +209,12 @@ const erc20Abi = [
   'function decimals() view returns (uint8)'
 ];
 
+const communityPoolReadAbi = [
+  'function communityPoolCount() view returns (uint256)',
+  'function pendingCommunityPoolRewards(uint256 poolId, address user) view returns (uint256)',
+  'function communityPools(uint256) view returns (string name,address creator,uint256 targetAmount,uint256 maxAmount,uint256 deadline,uint256 totalContributed,uint256 totalBuildingUnits,uint256 participantCount,uint256 accRewardPerWeight,uint256 totalRewardFunded,bool rewardsByBuildingSize,uint8 state)'
+];
+
 const vestingWalletReadAbi = [
   'function token() view returns (address)',
   'function totalAllocation() view returns (uint256)',
@@ -1390,6 +1396,58 @@ const normalizePoolPreferences = (pool) => ({
   description: pool?.preferences?.description || null
 });
 
+const COMMUNITY_POOL_STATE_LABELS = ['FUNDRAISING', 'ACTIVE', 'REFUNDING', 'CLOSED'];
+
+const toCommunityPoolItem = (poolId, row, pendingRewards = null) => {
+  const stateIndex = Number(row?.state ?? 0);
+  const safeState = Number.isFinite(stateIndex) ? stateIndex : 0;
+  return {
+    poolId: Number(poolId),
+    name: row?.name || '',
+    creator: row?.creator || '',
+    targetAmount: String(row?.targetAmount ?? '0'),
+    maxAmount: String(row?.maxAmount ?? '0'),
+    deadline: Number(row?.deadline ?? 0),
+    totalContributed: String(row?.totalContributed ?? '0'),
+    totalBuildingUnits: String(row?.totalBuildingUnits ?? '0'),
+    participantCount: String(row?.participantCount ?? '0'),
+    totalRewardFunded: String(row?.totalRewardFunded ?? '0'),
+    rewardsByBuildingSize: Boolean(row?.rewardsByBuildingSize),
+    state: safeState,
+    stateLabel: COMMUNITY_POOL_STATE_LABELS[safeState] || 'UNKNOWN',
+    pendingRewards: pendingRewards === null ? null : String(pendingRewards)
+  };
+};
+
+const readCommunityPools = async ({ walletAddress = null, limit = 50 } = {}) => {
+  const contract = new ethers.Contract(lendingPool.address, communityPoolReadAbi, provider);
+  const totalCountRaw = await contract.communityPoolCount();
+  const totalCount = Number(totalCountRaw || 0n);
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+  const start = Math.max(0, totalCount - safeLimit);
+  const ids = [];
+  for (let i = totalCount - 1; i >= start; i -= 1) {
+    ids.push(i);
+  }
+  const items = await mapWithConcurrency(
+    ids,
+    async (poolId) => {
+      const row = await contract.communityPools(poolId);
+      let pendingRewards = null;
+      if (walletAddress && ethers.isAddress(walletAddress)) {
+        try {
+          pendingRewards = await contract.pendingCommunityPoolRewards(poolId, walletAddress);
+        } catch {
+          pendingRewards = null;
+        }
+      }
+      return toCommunityPoolItem(poolId, row, pendingRewards);
+    },
+    Math.min(RPC_CONCURRENCY_LIMIT, 4)
+  );
+  return { totalCount, items };
+};
+
 const checkTokenBalance = async (wallet, tokenAddress) => {
   if (!wallet || !tokenAddress || !ethers.isAddress(tokenAddress)) return 0n;
   try {
@@ -1753,6 +1811,63 @@ app.get('/api/pools/browse', async (req, res) => {
     res.json({ ok: true, pools: enriched });
   } catch (error) {
     res.status(200).json({ ok: false, error: error?.message || 'Pool browse failed' });
+  }
+});
+
+app.get('/api/community-pools', async (req, res) => {
+  try {
+    const walletAddressRaw =
+      typeof req.query?.wallet === 'string' ? req.query.wallet.trim() : '';
+    const walletAddress = walletAddressRaw && ethers.isAddress(walletAddressRaw)
+      ? ethers.getAddress(walletAddressRaw)
+      : null;
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 50, 1), 200);
+    const data = await readCommunityPools({ walletAddress, limit });
+    res.json({ ok: true, totalCount: data.totalCount, items: data.items });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch community pools',
+      items: []
+    });
+  }
+});
+
+app.get('/api/community-pools/:poolId', async (req, res) => {
+  try {
+    const poolId = Number(req.params.poolId);
+    if (!Number.isFinite(poolId) || poolId < 0) {
+      return res.status(400).json({ ok: false, error: 'Invalid pool id' });
+    }
+    const walletAddressRaw =
+      typeof req.query?.wallet === 'string' ? req.query.wallet.trim() : '';
+    const walletAddress = walletAddressRaw && ethers.isAddress(walletAddressRaw)
+      ? ethers.getAddress(walletAddressRaw)
+      : null;
+    const contract = new ethers.Contract(lendingPool.address, communityPoolReadAbi, provider);
+    const totalCountRaw = await contract.communityPoolCount();
+    const totalCount = Number(totalCountRaw || 0n);
+    if (poolId >= totalCount) {
+      return res.status(404).json({ ok: false, error: 'Community pool not found' });
+    }
+    const row = await contract.communityPools(poolId);
+    let pendingRewards = null;
+    if (walletAddress) {
+      try {
+        pendingRewards = await contract.pendingCommunityPoolRewards(poolId, walletAddress);
+      } catch {
+        pendingRewards = null;
+      }
+    }
+    res.json({
+      ok: true,
+      item: toCommunityPoolItem(poolId, row, pendingRewards)
+    });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch community pool'
+    });
   }
 });
 
@@ -2782,12 +2897,30 @@ const takeVestedSnapshot = async () => {
   }
 };
 
-app.get('/api/vested-contracts', expensiveLimiter, async (_req, res) => {
+app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
+  const normalizeChain = (value) => String(value || '').trim().toLowerCase();
+  const normalizeWallet = (value) => String(value || '').trim();
+  const filterItems = (items) => {
+    const chainFilter = normalizeChain(req.query?.chain);
+    const walletFilter = normalizeWallet(req.query?.wallet);
+    if (!chainFilter && !walletFilter) return items;
+    return (items || []).filter((item) => {
+      if (chainFilter && normalizeChain(item?.chain) !== chainFilter) {
+        return false;
+      }
+      if (!walletFilter) return true;
+      const borrower = normalizeWallet(item?.borrower);
+      if (!borrower) return false;
+      if (borrower === walletFilter) return true;
+      return borrower.toLowerCase() === walletFilter.toLowerCase();
+    });
+  };
   const now = Date.now();
   if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
+    const filteredItems = filterItems(cachedVestedContracts);
     res.json({
       ok: true,
-      items: sanitizeForJson(cachedVestedContracts),
+      items: sanitizeForJson(filteredItems),
       cached: true,
       cachedAt: cachedVestedContractsAt
     });
@@ -2808,17 +2941,19 @@ app.get('/api/vested-contracts', expensiveLimiter, async (_req, res) => {
     const items = await vestedContractsInFlight;
     cachedVestedContracts = items;
     cachedVestedContractsAt = Date.now();
+    const filteredItems = filterItems(items);
     res.json({
       ok: true,
-      items: sanitizeForJson(items),
+      items: sanitizeForJson(filteredItems),
       cached: false,
       cachedAt: cachedVestedContractsAt
     });
   } catch (error) {
     if (cachedVestedContracts.length) {
+      const filteredItems = filterItems(cachedVestedContracts);
       res.json({
         ok: true,
-        items: sanitizeForJson(cachedVestedContracts),
+        items: sanitizeForJson(filteredItems),
         cached: true,
         cachedAt: cachedVestedContractsAt,
         error: error?.message || 'error'
@@ -2848,6 +2983,25 @@ app.get('/api/vested-snapshots', (req, res) => {
 
 app.get('/api/solana/unmapped-mints', (_req, res) => {
   res.json({ ok: true, items: getUnmappedMints() });
+});
+
+app.get('/api/solana/status', (_req, res) => {
+  const streamflowEnabled = process.env.SOLANA_STREAMFLOW_ENABLED === 'true';
+  const clusterRaw = String(process.env.SOLANA_CLUSTER || 'mainnet').toLowerCase();
+  const cluster = clusterRaw.startsWith('dev')
+    ? 'devnet'
+    : clusterRaw.startsWith('test')
+      ? 'testnet'
+      : clusterRaw.startsWith('local')
+        ? 'local'
+        : 'mainnet';
+  res.json({
+    ok: true,
+    status: {
+      streamflowEnabled,
+      cluster
+    }
+  });
 });
 
 app.get('/api/solana/repay-config', (_req, res) => {

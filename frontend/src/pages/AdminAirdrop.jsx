@@ -15,6 +15,36 @@ const ALLOCATION_MODE_OPTIONS = [
   { id: 'weighted', label: 'Score weighted (100%)' },
   { id: 'hybrid', label: 'Hybrid (equal + weighted)' }
 ];
+const STRATEGY_PRESETS = [
+  {
+    id: 'merit',
+    label: 'Merit',
+    description: '20% equal + 80% weighted',
+    mode: 'hybrid',
+    equalPct: 20
+  },
+  {
+    id: 'conservative',
+    label: 'Conservative',
+    description: '50% equal + 50% weighted',
+    mode: 'hybrid',
+    equalPct: 50
+  },
+  {
+    id: 'community',
+    label: 'Community',
+    description: '70% equal + 30% weighted',
+    mode: 'hybrid',
+    equalPct: 70
+  },
+  {
+    id: 'pure-weighted',
+    label: 'Pure Weighted',
+    description: '0% equal + 100% weighted',
+    mode: 'weighted',
+    equalPct: 0
+  }
+];
 
 const shortWallet = (wallet = '') =>
   wallet ? `${wallet.slice(0, 6)}...${wallet.slice(-4)}` : '--';
@@ -157,6 +187,23 @@ export default function AdminAirdrop() {
     }
   };
 
+  const weightedPool = useMemo(() => {
+    if (allocationMode !== 'hybrid') return parsedTokenPool;
+    const safeEqual = Math.max(0, Math.min(100, Number(hybridEqualPct) || 0));
+    return parsedTokenPool * (1 - safeEqual / 100);
+  }, [allocationMode, parsedTokenPool, hybridEqualPct]);
+
+  const equalPool = useMemo(() => {
+    if (allocationMode !== 'hybrid') return 0;
+    return Math.max(0, parsedTokenPool - weightedPool);
+  }, [allocationMode, parsedTokenPool, weightedPool]);
+
+  const applyPreset = (preset) => {
+    if (!preset) return;
+    setAllocationMode(preset.mode);
+    setHybridEqualPct(preset.equalPct);
+  };
+
   return (
     <div className="stack">
       <div className="page-header">
@@ -288,6 +335,15 @@ export default function AdminAirdrop() {
               Build score-only or hybrid distributions for the selected phase/window.
             </div>
           </div>
+          <div className="inline-actions">
+            <div className="pill">
+              {allocationMode === 'hybrid'
+                ? `Hybrid formula: ${Number(hybridEqualPct || 0)}% equal + ${
+                    100 - Number(hybridEqualPct || 0)
+                  }% weighted`
+                : 'Formula: 100% score-weighted'}
+            </div>
+          </div>
         </div>
         <div className="inline-actions">
           <label className="form-field">
@@ -304,6 +360,30 @@ export default function AdminAirdrop() {
               ))}
             </select>
           </label>
+          <div className="form-field">
+            Strategy presets
+            <div className="inline-actions">
+              {STRATEGY_PRESETS.map((preset) => {
+                const isActive =
+                  allocationMode === preset.mode &&
+                  Number(hybridEqualPct) === Number(preset.equalPct);
+                return (
+                  <button
+                    key={preset.id}
+                    className={`button ghost ${isActive ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    title={`Apply ${preset.label}: ${preset.description}`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="muted small">
+              Presets only change mode + equal split; token pool and filters stay untouched.
+            </div>
+          </div>
           <label className="form-field">
             Token pool
             <input
@@ -353,6 +433,7 @@ export default function AdminAirdrop() {
               value={minScore}
               onChange={(event) => setMinScore(Math.max(0, Number(event.target.value) || 0))}
             />
+            <div className="muted small">Exclude low-score wallets from the final split.</div>
           </label>
           <button
             className="button ghost"
@@ -391,7 +472,33 @@ export default function AdminAirdrop() {
                 : 'Score-proportional model'}
             </div>
           </div>
+          <div className="stat-card">
+            <div className="stat-label">Pool breakdown</div>
+            <div className="stat-value">
+              {allocationMode === 'hybrid'
+                ? `${equalPool.toLocaleString(undefined, {
+                    maximumFractionDigits: 2
+                  })} / ${weightedPool.toLocaleString(undefined, {
+                    maximumFractionDigits: 2
+                  })}`
+                : weightedPool.toLocaleString(undefined, {
+                    maximumFractionDigits: 2
+                  })}
+            </div>
+            <div className="stat-delta">
+              {allocationMode === 'hybrid'
+                ? 'Equal pool / weighted pool'
+                : 'Weighted pool'}
+            </div>
+          </div>
         </div>
+
+        {!allocationRows.length && parsedTokenPool > 0 && (
+          <div className="muted small">
+            No allocatable wallets for current filters. Reduce min score, increase recipient cap, or
+            refresh leaderboard data.
+          </div>
+        )}
 
         <div className="data-table">
           <div className="table-row header">

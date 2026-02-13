@@ -1,16 +1,18 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import RepaySlider from '../components/repay/RepaySlider.jsx';
 import RepayActions from '../components/repay/RepayActions.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
 import DemoAccessCard from '../components/common/DemoAccessCard.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
 
 export default function Repay() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [schedule, setSchedule] = useState([]);
   const [scheduleError, setScheduleError] = useState('');
@@ -73,6 +75,32 @@ export default function Repay() {
         <div className="inline-actions" style={{ marginTop: 8 }}>
           <span className="chip">Testnet execution</span>
           <span className="chip">Use borrower wallet only</span>
+        </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/borrow')}>
+            Back to borrow
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/features')}>
+            Repay flow guide
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=technical-spec')}>
+            Technical spec
+          </button>
+        </div>
+      </div>
+      <EssentialsPanel />
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Repayment playbook</h3>
+            <div className="section-subtitle">Simple path to preserve collateral and credit quality</div>
+          </div>
+        </div>
+        <div className="card-list">
+          <div className="pill">Review due timeline and outstanding obligation</div>
+          <div className="pill">Fund wallet before transaction windows close</div>
+          <div className="pill">Repay early when possible to reduce rollover risk</div>
+          <div className="pill">Use schedule export for treasury operations</div>
         </div>
       </div>
 

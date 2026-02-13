@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import BorrowWizard from '../components/borrow/BorrowWizard.jsx';
 import BorrowActions from '../components/borrow/BorrowActions.jsx';
@@ -10,6 +10,7 @@ import FaucetCard from '../components/borrow/FaucetCard.jsx';
 import FundWallet from '../components/common/FundWallet.jsx';
 import DemoAccessCard from '../components/common/DemoAccessCard.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
+import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PassportSummary from '../components/common/PassportSummary.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
 import { requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
@@ -23,6 +24,7 @@ const ValuationPreview3D = lazy(() =>
 );
 
 export default function Borrow() {
+  const navigate = useNavigate();
   const location = useLocation();
   const prefill = location.state?.prefill;
   const { address } = useAccount();
@@ -156,6 +158,17 @@ export default function Borrow() {
           <span className="chip">Testnet readiness mode</span>
           <span className="chip">Mainnet launch disabled</span>
         </div>
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/features')}>
+            How borrowing works
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=risk-models')}>
+            Risk model docs
+          </button>
+          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
+            Community pools
+          </button>
+        </div>
       </div>
       <PassportSummary
         as="div"
@@ -165,6 +178,21 @@ export default function Borrow() {
         score={passportSummary.score}
         stamps={passportSummary.stamps}
       />
+      <EssentialsPanel />
+      <div className="holo-card">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Borrower journey</h3>
+            <div className="section-subtitle">Prepare collateral, verify risk, borrow, and repay</div>
+          </div>
+        </div>
+        <div className="card-list">
+          <div className="pill">1. Connect wallet and verify vesting details</div>
+          <div className="pill">2. Run valuation and inspect risk output</div>
+          <div className="pill">3. Select a pool offer and borrow within limits</div>
+          <div className="pill">4. Track repayment schedule to avoid fallback paths</div>
+        </div>
+      </div>
 
       {prefill?.fromFundraise && prefill?.projectId && (
         <div className="holo-card" style={{ marginBottom: 16 }}>
