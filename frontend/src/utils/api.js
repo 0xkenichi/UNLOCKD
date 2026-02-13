@@ -180,6 +180,12 @@ export async function fetchVestedSnapshots() {
   return data.snapshots || [];
 }
 
+export async function fetchKpiDashboard(windowHours = 24) {
+  const safeWindow = Math.min(Math.max(Number(windowHours) || 24, 1), 24 * 30);
+  const data = await apiGet(`/api/kpi/dashboard?windowHours=${safeWindow}`);
+  return data.kpi || null;
+}
+
 export async function fetchSolanaUnmappedMints() {
   const data = await apiGet('/api/solana/unmapped-mints');
   return data.items || [];

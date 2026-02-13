@@ -11,6 +11,11 @@ const { z } = require('zod');
 const { initAgent, answerAgent } = require('./agent');
 const persistence = require('./persistence');
 const {
+  TIER_NAMES,
+  computeScore: computeIdentityScore,
+  policyCheck
+} = require('./identityCreditScore');
+const {
   fetchStreamflowVestingContracts,
   getUnmappedMints
 } = require('./solana/streamflow');
@@ -66,6 +71,8 @@ const GEO_CACHE_MAX_ITEMS = Number(process.env.GEO_CACHE_MAX_ITEMS || 50000);
 const BLOCK_CACHE_MAX_ITEMS = Number(process.env.BLOCK_CACHE_MAX_ITEMS || 5000);
 const REPAY_CACHE_TTL_MS = Number(process.env.REPAY_CACHE_TTL_MS || 30000);
 const RPC_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.RPC_CONCURRENCY_LIMIT || 6));
+const ADMIN_API_KEY = String(process.env.ADMIN_API_KEY || '').trim();
+const ONE_DAY = 24 * 60 * 60;
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const agent = initAgent();
@@ -408,6 +415,84 @@ const toBigIntSafe = (value) => {
   }
 };
 
+const normalizeWalletAddress = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  try {
+    return ethers.getAddress(value.trim());
+  } catch {
+    return '';
+  }
+};
+
+const isAdminWallet = (walletAddress) => {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) return false;
+  const allowlist = String(process.env.ADMIN_WALLETS || '')
+    .split(',')
+    .map((item) => normalizeWalletAddress(item))
+    .filter(Boolean);
+  return allowlist.includes(normalized);
+};
+
+const getCreditHistoryForWallet = (walletAddress) => {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) {
+    return { repaidCount: 0, defaultedCount: 0 };
+  }
+  const repaidLoans = new Set();
+  let defaultedCount = 0;
+
+  for (const event of activityEvents) {
+    const borrower = normalizeWalletAddress(event?.borrower || '');
+    if (borrower !== normalized) continue;
+    if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
+      repaidLoans.add(String(event.loanId || ''));
+    }
+    if (event.type === 'LoanSettled' && event.defaulted) {
+      defaultedCount += 1;
+    }
+  }
+
+  return {
+    repaidCount: repaidLoans.size,
+    defaultedCount
+  };
+};
+
+const buildIdentityProfile = async (walletAddress) => {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) return null;
+  const profile = await persistence.getIdentityProfileByWallet(normalized);
+  const attestations = await persistence.listIdentityAttestations(normalized);
+  const identity = {
+    linkedAt: profile?.linkedAt || null,
+    identityProofHash: profile?.identityProofHash || null,
+    sanctionsPass:
+      profile?.sanctionsPass === null || profile?.sanctionsPass === undefined
+        ? true
+        : Boolean(profile.sanctionsPass)
+  };
+  const creditHistory = getCreditHistoryForWallet(normalized);
+  const score = computeIdentityScore({
+    identity,
+    attestations,
+    creditHistory
+  });
+
+  return {
+    walletAddress: normalized,
+    ...score,
+    tierName: TIER_NAMES[score.identityTier] || 'Anonymous',
+    policy: {
+      small: policyCheck(score.identityTier, score.compositeScore, 'small'),
+      medium: policyCheck(score.identityTier, score.compositeScore, 'medium'),
+      large: policyCheck(score.identityTier, score.compositeScore, 'large')
+    },
+    attestations,
+    creditHistory
+  };
+};
+
 const requireJsonBody = (req, res, next) => {
   if (req.method !== 'POST') return next();
   if (!req.is('application/json')) {
@@ -556,6 +641,24 @@ const buildSessionFingerprint = (req) => {
   return '';
 };
 
+const recordAdminAudit = async (req, action, details = {}) => {
+  try {
+    await persistence.saveAdminAuditLog({
+      action,
+      actorUserId: req.user?.id || null,
+      actorWallet: req.user?.walletAddress || null,
+      actorRole: req.user?.role || null,
+      targetType: details.targetType || null,
+      targetId: details.targetId || null,
+      ipHash: hashIp(getClientIp(req)),
+      sessionFingerprint: buildSessionFingerprint(req),
+      payload: details.payload || {}
+    });
+  } catch (error) {
+    console.warn('[admin] audit log persist failed', error?.message || error);
+  }
+};
+
 const verifyTurnstile = async (req, res, next) => {
   if (TURNSTILE_BYPASS) return next();
   if (!TURNSTILE_SECRET_KEY) {
@@ -647,6 +750,29 @@ const requireSession = async (req, res, next) => {
   }
 };
 
+const secureEqual = (left, right) => {
+  if (!left || !right) return false;
+  const leftBuf = Buffer.from(String(left));
+  const rightBuf = Buffer.from(String(right));
+  if (leftBuf.length !== rightBuf.length) return false;
+  return crypto.timingSafeEqual(leftBuf, rightBuf);
+};
+
+const requireAdmin = (req, res, next) => {
+  const headerKey = String(req.headers['x-admin-key'] || '').trim();
+  if (ADMIN_API_KEY && secureEqual(headerKey, ADMIN_API_KEY)) {
+    return next();
+  }
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin') {
+    return next();
+  }
+  if (isAdminWallet(req.user?.walletAddress)) {
+    return next();
+  }
+  return res.status(403).json({ ok: false, error: 'Admin access required' });
+};
+
 const attachSession = async (req, _res, next) => {
   const token = getSessionToken(req);
   if (!token) return next();
@@ -693,6 +819,14 @@ const expensiveLimiter = rateLimit({
   legacyHeaders: false
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_ADMIN_MAX || 30),
+  keyGenerator: rateLimitKeyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 app.use(defaultLimiter);
 app.use(requireJsonBody);
 app.use(honeypotCheck);
@@ -712,6 +846,88 @@ app.get('/api/health', (_req, res) => {
       lastPollAt
     }
   });
+});
+
+app.get('/api/identity/:walletAddress', async (req, res) => {
+  const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+  if (!walletAddress) {
+    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+  }
+  try {
+    const profile = await buildIdentityProfile(walletAddress);
+    if (!profile) {
+      return res.status(404).json({ ok: false, error: 'Identity profile unavailable' });
+    }
+    return res.json({ ok: true, ...profile });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Failed to build identity profile'
+    });
+  }
+});
+
+app.get('/api/identity/passport-score/:walletAddress', async (req, res) => {
+  const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+  if (!walletAddress) {
+    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+  }
+  try {
+    const existing = await persistence.listIdentityAttestations(walletAddress);
+    const existingPassport = existing.find(
+      (item) => String(item?.provider || '').toLowerCase() === 'gitcoin_passport'
+    );
+    let attestationCreated = false;
+
+    // Stable pseudo-score for MVP testnet UX until live provider integration.
+    const digest = crypto.createHash('sha256').update(walletAddress).digest('hex');
+    const raw = parseInt(digest.slice(0, 8), 16);
+    const score = Math.round((12 + (raw % 36)) * 100) / 100; // 12.00 - 47.99
+    const stampsCount = 2 + (raw % 12); // 2 - 13
+
+    if (!existingPassport) {
+      await persistence.upsertIdentityAttestation({
+        walletAddress,
+        provider: 'gitcoin_passport',
+        score,
+        stampsCount,
+        verifiedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 180 * ONE_DAY * 1000).toISOString(),
+        metadata: { source: 'mvp_seeded' }
+      });
+      attestationCreated = true;
+    }
+
+    const currentProfile = await persistence.getIdentityProfileByWallet(walletAddress);
+    await persistence.upsertIdentityProfile({
+      walletAddress,
+      linkedAt: currentProfile?.linkedAt || new Date().toISOString(),
+      identityProofHash: currentProfile?.identityProofHash || `0x${digest.slice(0, 64)}`,
+      sanctionsPass:
+        currentProfile?.sanctionsPass === null || currentProfile?.sanctionsPass === undefined
+          ? true
+          : currentProfile.sanctionsPass
+    });
+
+    const profile = await buildIdentityProfile(walletAddress);
+    return res.json({
+      ok: true,
+      score,
+      stampsCount,
+      attestationCreated,
+      identityTier: profile.identityTier,
+      tierName: profile.tierName,
+      compositeScore: profile.compositeScore,
+      ias: profile.ias,
+      fbs: profile.fbs,
+      policy: profile.policy
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Failed to score passport identity'
+    });
+  }
 });
 
 const vestingValidateSchema = z
@@ -1020,6 +1236,14 @@ const docsOpenSchema = z
   .object({
     document: optionalString(200),
     section: optionalString(200)
+  })
+  .strip();
+
+const adminIdentityPatchSchema = z
+  .object({
+    linkedAt: z.string().datetime().optional(),
+    identityProofHash: z.string().trim().max(256).nullable().optional(),
+    sanctionsPass: z.boolean().nullable().optional()
   })
   .strip();
 
@@ -1697,6 +1921,143 @@ app.get('/api/kpi/dashboard', expensiveLimiter, async (req, res) => {
       ok: false,
       error: error?.message || 'Unable to build KPI dashboard',
       kpi: null
+    });
+  }
+});
+
+app.get(
+  '/api/admin/debug/identity/:walletAddress',
+  adminLimiter,
+  requireSession,
+  requireAdmin,
+  async (req, res) => {
+    const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    try {
+      const profile = await persistence.getIdentityProfileByWallet(walletAddress);
+      const attestations = await persistence.listIdentityAttestations(walletAddress);
+      const computed = await buildIdentityProfile(walletAddress);
+      await recordAdminAudit(req, 'admin.identity.read', {
+        targetType: 'identity_profile',
+        targetId: walletAddress,
+        payload: {
+          attestationCount: attestations.length
+        }
+      });
+      return res.json({
+        ok: true,
+        walletAddress,
+        persisted: {
+          profile,
+          attestations
+        },
+        computed
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Failed to read identity debug payload'
+      });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/debug/identity/:walletAddress/profile',
+  adminLimiter,
+  requireSession,
+  requireAdmin,
+  validateBody(adminIdentityPatchSchema),
+  async (req, res) => {
+    const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    try {
+      const existing = await persistence.getIdentityProfileByWallet(walletAddress);
+      const updated = await persistence.upsertIdentityProfile({
+        walletAddress,
+        linkedAt:
+          req.body.linkedAt !== undefined
+            ? req.body.linkedAt
+            : existing?.linkedAt || null,
+        identityProofHash:
+          req.body.identityProofHash !== undefined
+            ? req.body.identityProofHash
+            : existing?.identityProofHash || null,
+        sanctionsPass:
+          req.body.sanctionsPass !== undefined
+            ? req.body.sanctionsPass
+            : existing?.sanctionsPass ?? true
+      });
+      await recordAdminAudit(req, 'admin.identity.profile.patch', {
+        targetType: 'identity_profile',
+        targetId: walletAddress,
+        payload: {
+          previous: {
+            linkedAt: existing?.linkedAt || null,
+            identityProofHash: existing?.identityProofHash || null,
+            sanctionsPass: existing?.sanctionsPass ?? null
+          },
+          next: {
+            linkedAt: updated?.linkedAt || null,
+            identityProofHash: updated?.identityProofHash || null,
+            sanctionsPass: updated?.sanctionsPass ?? null
+          }
+        }
+      });
+      return res.json({ ok: true, profile: updated });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Failed to patch identity profile'
+      });
+    }
+  }
+);
+
+app.get('/api/admin/debug/kpi', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const windowHours = Math.min(Math.max(Number(req.query?.windowHours) || 24, 1), 24 * 30);
+    const kpi = await buildKpiDashboard(windowHours);
+    await recordAdminAudit(req, 'admin.kpi.read', {
+      targetType: 'kpi',
+      targetId: String(windowHours),
+      payload: {
+        windowHours
+      }
+    });
+    return res.json({
+      ok: true,
+      source: persistence.useSupabase ? 'supabase' : 'sqlite',
+      kpi
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Failed to build admin KPI payload'
+    });
+  }
+});
+
+app.get('/api/admin/audit-logs', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
+    const action = typeof req.query?.action === 'string' ? req.query.action : null;
+    const items = await persistence.listAdminAuditLogs({ limit, action });
+    await recordAdminAudit(req, 'admin.audit.read', {
+      targetType: 'admin_audit_logs',
+      targetId: action || 'all',
+      payload: { limit, action }
+    });
+    return res.json({ ok: true, items });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Failed to fetch admin audit logs',
+      items: []
     });
   }
 });

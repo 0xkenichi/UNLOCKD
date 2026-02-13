@@ -48,6 +48,7 @@ Start with `docs/README.md` for the full documentation index, then:
 - `docs/DEPLOYMENT.md`
 - `docs/SECURITY.md`
 - `docs/CRDT.md`
+- `docs/ADMIN_OPERATIONS.md`
 
 ## Current Stage
 

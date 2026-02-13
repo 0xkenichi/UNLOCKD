@@ -184,6 +184,39 @@ const initSqlite = () => {
       source TEXT,
       created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS identity_profiles (
+      wallet_address TEXT PRIMARY KEY,
+      linked_at TEXT,
+      identity_proof_hash TEXT,
+      sanctions_pass INTEGER,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS identity_attestations (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      score REAL,
+      stamps_count INTEGER,
+      verified_at TEXT,
+      expires_at TEXT,
+      metadata TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      UNIQUE(wallet_address, provider)
+    );
+    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      actor_user_id TEXT,
+      actor_wallet TEXT,
+      actor_role TEXT,
+      target_type TEXT,
+      target_id TEXT,
+      ip_hash TEXT,
+      session_fingerprint TEXT,
+      payload TEXT,
+      created_at TEXT
+    );
   `);
 };
 
@@ -534,7 +567,7 @@ const getSessionByToken = async (token) => {
     const { data, error } = await supabaseClient()
       .from('app_sessions')
       .select(
-        'id, user_id, provider, nonce, issued_at, expires_at, ip_hash, app_users ( id, wallet_address )'
+        'id, user_id, provider, nonce, issued_at, expires_at, ip_hash, app_users ( id, wallet_address, role )'
       )
       .eq('provider', 'wallet_session')
       .eq('nonce', token)
@@ -551,13 +584,17 @@ const getSessionByToken = async (token) => {
       expiresAt: data.expires_at ? Date.parse(data.expires_at) : null,
       ipHash: data.ip_hash || '',
       user: data.app_users
-        ? { id: data.app_users.id, walletAddress: data.app_users.wallet_address }
+        ? {
+            id: data.app_users.id,
+            walletAddress: data.app_users.wallet_address,
+            role: data.app_users.role || 'user'
+          }
         : null
     };
   }
   const row = sqlite
     .prepare(
-      `SELECT s.id, s.user_id, s.provider, s.nonce, s.issued_at, s.expires_at, s.ip_hash, u.wallet_address
+      `SELECT s.id, s.user_id, s.provider, s.nonce, s.issued_at, s.expires_at, s.ip_hash, u.wallet_address, u.role
        FROM app_sessions s
        LEFT JOIN app_users u ON s.user_id = u.id
        WHERE s.provider = ? AND s.nonce = ?`
@@ -571,7 +608,9 @@ const getSessionByToken = async (token) => {
     issuedAt: row.issued_at ? Date.parse(row.issued_at) : null,
     expiresAt: row.expires_at ? Date.parse(row.expires_at) : null,
     ipHash: row.ip_hash || '',
-    user: row.user_id ? { id: row.user_id, walletAddress: row.wallet_address } : null
+    user: row.user_id
+      ? { id: row.user_id, walletAddress: row.wallet_address, role: row.role || 'user' }
+      : null
   };
 };
 
@@ -1183,6 +1222,370 @@ const getAnalyticsMetrics = async ({ windowHours = 24 } = {}) => {
   };
 };
 
+const saveAdminAuditLog = async ({
+  action,
+  actorUserId = null,
+  actorWallet = null,
+  actorRole = null,
+  targetType = null,
+  targetId = null,
+  ipHash = null,
+  sessionFingerprint = null,
+  payload = {}
+} = {}) => {
+  if (!action) return null;
+  const id = createId();
+  const createdAt = new Date().toISOString();
+  const normalizedPayload = normalizeJson(payload || {});
+
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('admin_audit_logs').insert({
+      id,
+      action: String(action).slice(0, 120),
+      actor_user_id: actorUserId || null,
+      actor_wallet: actorWallet || null,
+      actor_role: actorRole || null,
+      target_type: targetType || null,
+      target_id: targetId || null,
+      ip_hash: ipHash || null,
+      session_fingerprint: sessionFingerprint || null,
+      payload: normalizedPayload,
+      created_at: createdAt
+    });
+    if (error) throw new Error(`[supabase] saveAdminAuditLog failed: ${error.message}`);
+    return { id, createdAt };
+  }
+
+  sqlite
+    .prepare(
+      `INSERT INTO admin_audit_logs
+      (id, action, actor_user_id, actor_wallet, actor_role, target_type, target_id, ip_hash, session_fingerprint, payload, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      id,
+      String(action).slice(0, 120),
+      actorUserId || null,
+      actorWallet || null,
+      actorRole || null,
+      targetType || null,
+      targetId || null,
+      ipHash || null,
+      sessionFingerprint || null,
+      JSON.stringify(normalizedPayload),
+      createdAt
+    );
+
+  return { id, createdAt };
+};
+
+const listAdminAuditLogs = async ({ limit = 100, action = null } = {}) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
+  const actionFilter = action ? String(action).trim().slice(0, 120) : null;
+
+  if (useSupabase) {
+    let query = supabaseClient()
+      .from('admin_audit_logs')
+      .select(
+        'id, action, actor_user_id, actor_wallet, actor_role, target_type, target_id, ip_hash, session_fingerprint, payload, created_at'
+      )
+      .order('created_at', { ascending: false })
+      .limit(safeLimit);
+    if (actionFilter) {
+      query = query.eq('action', actionFilter);
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(`[supabase] listAdminAuditLogs failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      action: row.action,
+      actorUserId: row.actor_user_id || null,
+      actorWallet: row.actor_wallet || null,
+      actorRole: row.actor_role || null,
+      targetType: row.target_type || null,
+      targetId: row.target_id || null,
+      ipHash: row.ip_hash || null,
+      sessionFingerprint: row.session_fingerprint || null,
+      payload: row.payload || {},
+      createdAt: row.created_at || null
+    }));
+  }
+
+  let sql = `SELECT id, action, actor_user_id, actor_wallet, actor_role, target_type, target_id, ip_hash, session_fingerprint, payload, created_at
+    FROM admin_audit_logs`;
+  const args = [];
+  if (actionFilter) {
+    sql += ' WHERE action = ?';
+    args.push(actionFilter);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  args.push(safeLimit);
+  const rows = sqlite.prepare(sql).all(...args);
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    actorUserId: row.actor_user_id || null,
+    actorWallet: row.actor_wallet || null,
+    actorRole: row.actor_role || null,
+    targetType: row.target_type || null,
+    targetId: row.target_id || null,
+    ipHash: row.ip_hash || null,
+    sessionFingerprint: row.session_fingerprint || null,
+    payload: (() => {
+      try {
+        return row.payload ? JSON.parse(row.payload) : {};
+      } catch {
+        return {};
+      }
+    })(),
+    createdAt: row.created_at || null
+  }));
+};
+
+const getIdentityProfileByWallet = async (walletAddress) => {
+  if (!walletAddress) return null;
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('identity_profiles')
+      .select('wallet_address, linked_at, identity_proof_hash, sanctions_pass, updated_at')
+      .eq('wallet_address', walletAddress)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`[supabase] getIdentityProfileByWallet failed: ${error.message}`);
+    }
+    if (!data) return null;
+    return {
+      walletAddress: data.wallet_address,
+      linkedAt: data.linked_at || null,
+      identityProofHash: data.identity_proof_hash || null,
+      sanctionsPass:
+        data.sanctions_pass === null || data.sanctions_pass === undefined
+          ? null
+          : Boolean(data.sanctions_pass),
+      updatedAt: data.updated_at || null
+    };
+  }
+
+  const row = sqlite
+    .prepare(
+      `SELECT wallet_address, linked_at, identity_proof_hash, sanctions_pass, updated_at
+       FROM identity_profiles
+       WHERE wallet_address = ?`
+    )
+    .get(walletAddress);
+  if (!row) return null;
+  return {
+    walletAddress: row.wallet_address,
+    linkedAt: row.linked_at || null,
+    identityProofHash: row.identity_proof_hash || null,
+    sanctionsPass:
+      row.sanctions_pass === null || row.sanctions_pass === undefined
+        ? null
+        : Boolean(row.sanctions_pass),
+    updatedAt: row.updated_at || null
+  };
+};
+
+const upsertIdentityProfile = async ({
+  walletAddress,
+  linkedAt = null,
+  identityProofHash = null,
+  sanctionsPass = null
+} = {}) => {
+  if (!walletAddress) return null;
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('identity_profiles')
+      .upsert(
+        {
+          wallet_address: walletAddress,
+          linked_at: linkedAt,
+          identity_proof_hash: identityProofHash,
+          sanctions_pass: sanctionsPass,
+          updated_at: now
+        },
+        { onConflict: 'wallet_address' }
+      )
+      .select('wallet_address, linked_at, identity_proof_hash, sanctions_pass, updated_at')
+      .single();
+    if (error) throw new Error(`[supabase] upsertIdentityProfile failed: ${error.message}`);
+    return {
+      walletAddress: data.wallet_address,
+      linkedAt: data.linked_at || null,
+      identityProofHash: data.identity_proof_hash || null,
+      sanctionsPass:
+        data.sanctions_pass === null || data.sanctions_pass === undefined
+          ? null
+          : Boolean(data.sanctions_pass),
+      updatedAt: data.updated_at || null
+    };
+  }
+
+  sqlite
+    .prepare(
+      `INSERT INTO identity_profiles (wallet_address, linked_at, identity_proof_hash, sanctions_pass, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(wallet_address) DO UPDATE SET
+         linked_at = excluded.linked_at,
+         identity_proof_hash = excluded.identity_proof_hash,
+         sanctions_pass = excluded.sanctions_pass,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      walletAddress,
+      linkedAt,
+      identityProofHash,
+      sanctionsPass === null || sanctionsPass === undefined ? null : sanctionsPass ? 1 : 0,
+      now
+    );
+
+  return getIdentityProfileByWallet(walletAddress);
+};
+
+const listIdentityAttestations = async (walletAddress) => {
+  if (!walletAddress) return [];
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('identity_attestations')
+      .select(
+        'id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at'
+      )
+      .eq('wallet_address', walletAddress)
+      .order('verified_at', { ascending: false });
+    if (error) throw new Error(`[supabase] listIdentityAttestations failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      walletAddress: row.wallet_address,
+      provider: row.provider,
+      score: row.score === null || row.score === undefined ? null : Number(row.score),
+      stampsCount:
+        row.stamps_count === null || row.stamps_count === undefined
+          ? null
+          : Number(row.stamps_count),
+      verifiedAt: row.verified_at || null,
+      expiresAt: row.expires_at || null,
+      metadata: row.metadata || {},
+      createdAt: row.created_at || null,
+      updatedAt: row.updated_at || null
+    }));
+  }
+
+  const rows = sqlite
+    .prepare(
+      `SELECT id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at
+       FROM identity_attestations
+       WHERE wallet_address = ?
+       ORDER BY verified_at DESC`
+    )
+    .all(walletAddress);
+
+  return rows.map((row) => ({
+    id: row.id,
+    walletAddress: row.wallet_address,
+    provider: row.provider,
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
+    stampsCount:
+      row.stamps_count === null || row.stamps_count === undefined
+        ? null
+        : Number(row.stamps_count),
+    verifiedAt: row.verified_at || null,
+    expiresAt: row.expires_at || null,
+    metadata: (() => {
+      try {
+        return row.metadata ? JSON.parse(row.metadata) : {};
+      } catch {
+        return {};
+      }
+    })(),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  }));
+};
+
+const upsertIdentityAttestation = async ({
+  walletAddress,
+  provider,
+  score = null,
+  stampsCount = null,
+  verifiedAt = null,
+  expiresAt = null,
+  metadata = {}
+} = {}) => {
+  if (!walletAddress || !provider) return null;
+  const now = new Date().toISOString();
+  const id = createId();
+  const normalizedMetadata = normalizeJson(metadata || {});
+
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('identity_attestations')
+      .upsert(
+        {
+          id,
+          wallet_address: walletAddress,
+          provider: String(provider).toLowerCase(),
+          score,
+          stamps_count: stampsCount,
+          verified_at: verifiedAt || now,
+          expires_at: expiresAt,
+          metadata: normalizedMetadata,
+          updated_at: now
+        },
+        { onConflict: 'wallet_address,provider' }
+      )
+      .select(
+        'id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at'
+      )
+      .single();
+    if (error) throw new Error(`[supabase] upsertIdentityAttestation failed: ${error.message}`);
+    return {
+      id: data.id,
+      walletAddress: data.wallet_address,
+      provider: data.provider,
+      score: data.score === null || data.score === undefined ? null : Number(data.score),
+      stampsCount:
+        data.stamps_count === null || data.stamps_count === undefined
+          ? null
+          : Number(data.stamps_count),
+      verifiedAt: data.verified_at || null,
+      expiresAt: data.expires_at || null,
+      metadata: data.metadata || {},
+      createdAt: data.created_at || null,
+      updatedAt: data.updated_at || null
+    };
+  }
+
+  sqlite
+    .prepare(
+      `INSERT INTO identity_attestations
+      (id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(wallet_address, provider) DO UPDATE SET
+        score = excluded.score,
+        stamps_count = excluded.stamps_count,
+        verified_at = excluded.verified_at,
+        expires_at = excluded.expires_at,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at`
+    )
+    .run(
+      id,
+      walletAddress,
+      String(provider).toLowerCase(),
+      score,
+      stampsCount,
+      verifiedAt || now,
+      expiresAt,
+      JSON.stringify(normalizedMetadata),
+      now,
+      now
+    );
+
+  const rows = await listIdentityAttestations(walletAddress);
+  return rows.find((item) => item.provider === String(provider).toLowerCase()) || null;
+};
+
 const saveVestingSource = async ({
   chainId,
   vestingContract,
@@ -1378,6 +1781,12 @@ module.exports = {
   saveAnalyticsEvent,
   getAnalyticsSummary,
   getAnalyticsMetrics,
+  saveAdminAuditLog,
+  listAdminAuditLogs,
+  getIdentityProfileByWallet,
+  upsertIdentityProfile,
+  listIdentityAttestations,
+  upsertIdentityAttestation,
   saveVestingSource,
   createFundraisingSource,
   getFundraisingSource,

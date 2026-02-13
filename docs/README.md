@@ -21,6 +21,7 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `SECURITY.md` -- Threat model and audit checklist.
 - `SECURITY_ROADMAP.md` -- Security milestones from MVP to mainnet readiness.
 - `INCIDENT_RESPONSE_RUNBOOK.md` -- Incident severity, response, and postmortem process.
+- `ADMIN_OPERATIONS.md` -- Admin endpoint controls, access policy, and audit trail.
 - `FRONTEND.md` -- UI notes, wallet flows, and Wagmi/RainbowKit hooks.
 
 ## Governance, Token, and Growth
@@ -29,6 +30,12 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `RISK_COMMITTEE_CHARTER.md` -- Risk governance scope, voting, emergency controls.
 - `METRICS.md` -- KPI definitions and reporting cadence.
 - `GTM_PIPELINE.md` -- Partner pipeline and go-to-market milestones.
+- `SLITHER_TRIAGE.md` -- static analysis baseline and remediation priorities.
+
+## Pilot Readiness
+- `PILOT_LOI_TEMPLATE.md` -- partner LOI template for pilot intent.
+- `PILOT_CHECKLIST.md` -- launch gate checklist.
+- `WEEKLY_KPI_REPORT_TEMPLATE.md` -- weekly reporting format for pilots.
 
 ## Product & UX
 - `CRDT_FIGMA_FRAME_MAP.md`

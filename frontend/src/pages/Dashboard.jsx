@@ -5,6 +5,7 @@ import { routeImports } from '../routes.js';
 import { ALL_EVM_CHAINS } from '../utils/chains.js';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
+import { fetchKpiDashboard } from '../utils/api.js';
 
 const PortfolioPage = lazy(routeImports.portfolio);
 const BorrowPage = lazy(routeImports.borrow);
@@ -107,6 +108,9 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   const [networkPickerOpen, setNetworkPickerOpen] = useState(false);
   const [transitioningId, setTransitioningId] = useState(null);
   const [transitionProgress, setTransitionProgress] = useState(0);
+  const [kpi, setKpi] = useState(null);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [kpiError, setKpiError] = useState('');
   const transitionFrameRef = useRef(null);
   const transitionCommitRef = useRef(null);
 
@@ -177,6 +181,28 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
   }, []);
 
   useEffect(() => clearTransitionTimers, [clearTransitionTimers]);
+
+  useEffect(() => {
+    let active = true;
+    setKpiLoading(true);
+    setKpiError('');
+    fetchKpiDashboard(24)
+      .then((nextKpi) => {
+        if (!active) return;
+        setKpi(nextKpi);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setKpi(null);
+        setKpiError(error?.message || 'Failed to load KPI data');
+      })
+      .finally(() => {
+        if (active) setKpiLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const openModule = useCallback((moduleId) => {
     if (!moduleId || activeId === moduleId || transitioningId) return;
@@ -303,6 +329,26 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               <div className="stat-label">Network</div>
             </button>
           </div>
+          <div className="stat-row">
+            <div className="stat-card stat-card-minimal">
+              <div className="stat-value">
+                {kpiLoading ? '...' : (kpi?.growth?.uniqueWallets ?? 0).toString()}
+              </div>
+              <div className="stat-label">Unique wallets (24h)</div>
+            </div>
+            <div className="stat-card stat-card-minimal">
+              <div className="stat-value">
+                {kpiLoading ? '...' : (kpi?.credit?.loansCreated ?? 0).toString()}
+              </div>
+              <div className="stat-label">Loans created (24h)</div>
+            </div>
+            <div className="stat-card stat-card-minimal">
+              <div className="stat-value">
+                {kpiLoading ? '...' : (kpi?.risk?.defaults ?? 0).toString()}
+              </div>
+              <div className="stat-label">Defaults (24h)</div>
+            </div>
+          </div>
           {networkPickerOpen && (
             <div className="immersive-network-picker">
               {ALL_EVM_CHAINS.map((chain) => (
@@ -321,6 +367,7 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               ))}
             </div>
           )}
+          {kpiError && <div className="muted">{kpiError}</div>}
           <div className="muted">Connected: {shortAddress}</div>
         </div>
         <div className="immersive-modules-grid">
