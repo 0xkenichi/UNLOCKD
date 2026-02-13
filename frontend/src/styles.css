@@ -938,6 +938,55 @@ a.tier-badge-link:hover .tier-badge { filter: brightness(1.1); }
 .verified-card__next { margin-top: 4px; }
 .verified-card__privacy { font-size: 11px; padding-top: var(--space-3); border-top: 1px solid var(--border-secondary); }
 
+.identity-attestations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.identity-attestations__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.identity-attestations__list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.identity-attestations__item {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: rgba(88, 166, 255, 0.04);
+  padding: var(--space-3);
+}
+
+.identity-attestations__provider {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.identity-attestations__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.identity-attestations__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.identity-attestations__actions .button {
+  text-decoration: none;
+}
+
 .essentials-row {
   align-items: start;
 }

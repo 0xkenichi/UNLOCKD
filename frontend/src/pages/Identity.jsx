@@ -6,6 +6,22 @@ import VerifiedCard from '../components/identity/VerifiedCard.jsx';
 import TierBadge from '../components/common/TierBadge.jsx';
 import { fetchIdentity, fetchPassportScore } from '../utils/api.js';
 
+function formatProviderLabel(provider = '') {
+  if (!provider) return 'Unknown provider';
+  return String(provider)
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatDateLabel(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString();
+}
+
 export default function Identity() {
   const { address } = useAccount();
   const [profile, setProfile] = useState(null);
@@ -50,10 +66,15 @@ export default function Identity() {
     try {
       const data = await fetchPassportScore(address);
       setPassportResult(data);
-      if (data?.identityTier != null && profile) {
-        setProfile((prev) => ({ ...prev, ...data }));
-      } else if (data?.ok && data?.identityTier != null) {
-        setProfile((prev) => ({ ...prev, ...data }));
+      if (data?.ok) {
+        try {
+          const refreshed = await fetchIdentity(address);
+          setProfile(refreshed);
+        } catch {
+          if (data?.identityTier != null) {
+            setProfile((prev) => ({ ...prev, ...data }));
+          }
+        }
       }
     } catch (err) {
       setPassportResult({ error: err?.message || 'Passport check failed' });
@@ -69,6 +90,9 @@ export default function Identity() {
           profile.identityTier
         ]
       : 'Anonymous');
+  const attestations = Array.isArray(profile?.attestations) ? profile.attestations : [];
+  const totalStamps = attestations.reduce((sum, item) => sum + Number(item?.stampsCount || 0), 0);
+  const hasAttestations = attestations.length > 0;
 
   return (
     <div className="stack">
@@ -136,31 +160,60 @@ export default function Identity() {
           ias={profile?.ias}
           fbs={profile?.fbs}
           policy={profile?.policy}
-          attestations={[]}
+          attestations={attestations}
           hasWallet={Boolean(address)}
           loading={loading}
         />
-        <div className="holo-card">
-          <h3 className="holo-title">Tier upgrade</h3>
+        <div className="holo-card identity-attestations">
+          <h3 className="holo-title" id="attestations-heading">Attestations and stamps</h3>
           <div className="muted">
-            Higher tiers require more verification (e.g. Gitcoin Passport, World ID) and repayment
-            history.
+            Add and maintain attestations to improve your tier and unlock better borrowing terms.
           </div>
-          <div className="stack" style={{ marginTop: 12 }}>
-            <div className="pill">Current: {tierLabel}</div>
-            <div className="pill">Target: Verified (Tier 3) or higher</div>
+          <div className="identity-attestations__summary">
+            <div className="pill">
+              {hasAttestations ? `${attestations.length} attestation${attestations.length > 1 ? 's' : ''}` : 'No attestations yet'}
+            </div>
+            <div className="pill">Stamps counted: {totalStamps}</div>
+            <div className="pill">Current tier: {tierLabel}</div>
           </div>
-          <button
-            className="button"
-            type="button"
-            onClick={() =>
-              document
-                .getElementById('identity-checklist')
-                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }
-          >
-            View requirements
-          </button>
+          {hasAttestations ? (
+            <ul className="identity-attestations__list" aria-labelledby="attestations-heading">
+              {attestations.map((item) => (
+                <li className="identity-attestations__item" key={item.id || item.provider}>
+                  <div className="identity-attestations__provider">{formatProviderLabel(item.provider)}</div>
+                  <div className="identity-attestations__meta">
+                    Score: {item.score ?? '—'} · Stamps: {item.stampsCount ?? 0} · Verified:{' '}
+                    {formatDateLabel(item.verifiedAt)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="muted">Run a passport check below to create your first attestation.</div>
+          )}
+          <div className="identity-attestations__actions">
+            <a
+              className="button ghost"
+              href="https://passport.gitcoin.co/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open Gitcoin Passport in a new tab"
+            >
+              Open Gitcoin Passport
+            </a>
+            <button
+              className="button"
+              type="button"
+              onClick={() =>
+                document
+                  .getElementById('identity-checklist')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+              aria-controls="identity-checklist"
+            >
+              Verify now
+            </button>
+          </div>
         </div>
       </div>
       <div className="holo-card" id="identity-checklist">
@@ -174,8 +227,8 @@ export default function Identity() {
           <div className={`pill ${address ? 'success' : ''}`} style={address ? { borderColor: 'var(--success-600)' } : {}}>
             {address ? '✓ ' : ''}Connect wallet
           </div>
-          <div className={`pill ${(profile?.identityTier ?? 0) >= 1 ? 'success' : ''}`}>
-            {(profile?.identityTier ?? 0) >= 1 ? '✓ ' : ''}Add verification (Passport or attest)
+          <div className={`pill ${hasAttestations ? 'success' : ''}`}>
+            {hasAttestations ? '✓ ' : ''}Add verification (Passport or attest)
           </div>
           <div className={`pill ${(profile?.identityTier ?? 0) >= 2 ? 'success' : ''}`}>
             {(profile?.identityTier ?? 0) >= 2 ? '✓ ' : ''}Reach Standard tier for best access
@@ -187,11 +240,17 @@ export default function Identity() {
             className="button button--secondary"
             onClick={handlePassportCheck}
             disabled={!address || passportLoading}
+            aria-disabled={!address || passportLoading}
           >
             {passportLoading ? 'Checking...' : 'Verify with Gitcoin Passport'}
           </button>
           {passportResult && (
-            <div className="muted" style={{ fontSize: 12 }}>
+            <div
+              className="muted"
+              style={{ fontSize: 12 }}
+              role="status"
+              aria-live="polite"
+            >
               {passportResult.error ? (
                 <span style={{ color: 'var(--danger-400)' }}>{passportResult.error}</span>
               ) : (

@@ -33,10 +33,18 @@ export default function VerifiedCard({
 }) {
   const tierLabel = tierName || TIER_NAMES[identityTier] || 'Anonymous';
   const band = useMemo(() => scoreBand(compositeScore), [compositeScore]);
+  const totalStamps = useMemo(
+    () => attestations.reduce((sum, item) => sum + Number(item?.stampsCount || 0), 0),
+    [attestations]
+  );
   const steps = useMemo(() => {
+    const attestationLabel =
+      attestations.length > 0
+        ? `Add verification (${attestations.length} linked)`
+        : 'Add verification (e.g. Gitcoin Passport)';
     const list = [
       { id: 'connect', label: 'Connect wallet', done: hasWallet },
-      { id: 'attest', label: 'Add verification (e.g. Gitcoin Passport)', done: attestations.length > 0 },
+      { id: 'attest', label: attestationLabel, done: attestations.length > 0 },
       { id: 'bind', label: 'Identity linked to address', done: identityTier >= 1 && attestations.length > 0 }
     ];
     return list;
@@ -86,6 +94,12 @@ export default function VerifiedCard({
               <span className="verified-card__stat-value muted">{ias ?? '—'} / {fbs ?? '—'}</span>
             </div>
           )}
+          <div className="verified-card__stat">
+            <span className="verified-card__stat-label">Attestations</span>
+            <span className="verified-card__stat-value muted">
+              {attestations.length} · {totalStamps} stamps
+            </span>
+          </div>
         </div>
         {policy && (
           <div className="verified-card__policy">
