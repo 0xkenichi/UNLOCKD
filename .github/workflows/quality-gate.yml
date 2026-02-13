@@ -1,0 +1,109 @@
+name: Quality Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "scripts/**"
+      - "backend/**"
+      - "frontend/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/quality-gate.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "scripts/**"
+      - "backend/**"
+      - "frontend/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/quality-gate.yml"
+
+jobs:
+  protocol-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run contract tests
+        run: npm test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  backend-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Start backend
+        run: |
+          PORT=4100 INDEXER_ENABLED=false node backend/server.js > /tmp/unlockd-backend.log 2>&1 &
+          echo $! > /tmp/unlockd-backend.pid
+
+      - name: Wait for health endpoint
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4100/api/health >/dev/null; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend health check failed"
+          cat /tmp/unlockd-backend.log || true
+          exit 1
+
+      - name: Print backend logs on failure
+        if: failure()
+        run: cat /tmp/unlockd-backend.log || true
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f /tmp/unlockd-backend.pid ]; then
+            kill "$(cat /tmp/unlockd-backend.pid)" || true
+          fi

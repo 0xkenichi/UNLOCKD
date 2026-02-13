@@ -1,0 +1,100 @@
+name: Security and Coverage
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "hardhat.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/security-and-coverage.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "contracts/**"
+      - "test/**"
+      - "hardhat.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/security-and-coverage.yml"
+
+jobs:
+  coverage-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run solidity coverage
+        run: npm run test:coverage
+
+      - name: Enforce minimum coverage thresholds
+        run: |
+          node -e '
+          const fs = require("fs");
+          const path = "coverage/coverage-summary.json";
+          if (!fs.existsSync(path)) {
+            console.error("coverage-summary.json not found at " + path);
+            process.exit(1);
+          }
+          const summary = JSON.parse(fs.readFileSync(path, "utf8"));
+          const total = summary.total || {};
+          const checks = [
+            ["statements", 80],
+            ["branches", 70],
+            ["functions", 80],
+            ["lines", 80]
+          ];
+          let failed = false;
+          for (const [key, min] of checks) {
+            const pct = Number(total[key]?.pct || 0);
+            console.log(`${key}: ${pct}% (min ${min}%)`);
+            if (pct < min) failed = true;
+          }
+          if (failed) {
+            console.error("Coverage threshold check failed");
+            process.exit(1);
+          }'
+
+  slither-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Slither
+        run: pip install slither-analyzer
+
+      - name: Run Slither static analysis
+        run: |
+          slither . \
+            --exclude-low \
+            --exclude-informational \
+            --filter-paths "node_modules|frontend|backend|docs|scripts|deployments"
