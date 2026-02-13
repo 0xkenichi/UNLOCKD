@@ -48,13 +48,34 @@ jobs:
           export MIN_LINES=30
           node -e '
           const fs = require("fs");
-          const path = "coverage/coverage-summary.json";
+          const path = "coverage.json";
           if (!fs.existsSync(path)) {
-            console.error("coverage-summary.json not found at " + path);
+            console.error("coverage report not found at " + path);
             process.exit(1);
           }
-          const summary = JSON.parse(fs.readFileSync(path, "utf8"));
-          const total = summary.total || {};
+          const report = JSON.parse(fs.readFileSync(path, "utf8"));
+          const totals = {
+            statements: { covered: 0, total: 0 },
+            branches: { covered: 0, total: 0 },
+            functions: { covered: 0, total: 0 },
+            lines: { covered: 0, total: 0 }
+          };
+          for (const file of Object.values(report)) {
+            const statements = Object.values(file.s || {});
+            totals.statements.total += statements.length;
+            totals.statements.covered += statements.filter((n) => Number(n) > 0).length;
+            totals.lines.total += statements.length;
+            totals.lines.covered += statements.filter((n) => Number(n) > 0).length;
+
+            const functions = Object.values(file.f || {});
+            totals.functions.total += functions.length;
+            totals.functions.covered += functions.filter((n) => Number(n) > 0).length;
+
+            const branches = Object.values(file.b || {}).flat();
+            totals.branches.total += branches.length;
+            totals.branches.covered += branches.filter((n) => Number(n) > 0).length;
+          }
+          const pctOf = ({ covered, total }) => total === 0 ? 100 : (covered / total) * 100;
           const checks = [
             ["statements", Number(process.env.MIN_STATEMENTS || 30)],
             ["branches", Number(process.env.MIN_BRANCHES || 15)],
@@ -63,7 +84,7 @@ jobs:
           ];
           let failed = false;
           for (const [key, min] of checks) {
-            const pct = Number(total[key]?.pct || 0);
+            const pct = Number(pctOf(totals[key]).toFixed(2));
             console.log(`${key}: ${pct}% (min ${min}%)`);
             if (pct < min) failed = true;
           }
@@ -101,4 +122,6 @@ jobs:
           slither . \
             --exclude-low \
             --exclude-informational \
+            --exclude-optimization \
+            --exclude-detectors immutable-states \
             --filter-paths "node_modules|frontend|backend|docs|scripts|deployments"

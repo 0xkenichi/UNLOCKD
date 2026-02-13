@@ -47,28 +47,46 @@ The allocation sums to 100%.
 
 Default routing for protocol fee revenue:
 
-- 80% to lenders
-- 15% to treasury
-- 5% to safety module / insurance
+- Low-risk loans: 85% to lenders, 12% to treasury, 3% to safety module / insurance
+- Balanced-risk loans: 80% to lenders, 14% to treasury, 6% to safety module / insurance
+- High-risk loans: 72% to lenders, 13% to treasury, 15% to safety module / insurance
 
 This routing is governance-managed and may be tuned by proposal, simulation evidence, and timelock.
 
 Interpretation:
-- Lenders (80%) are paid the majority of fees to keep liquidity deep and stable.
-- Treasury (15%) is protocol-owned revenue for runway, audits, grants, and growth.
-- Safety module (5%) accumulates a risk buffer for tail events and loss absorption.
+- Low-risk routing prioritizes lender yield and competitiveness while maintaining a basic protection layer.
+- Balanced-risk routing is the default middle profile for standard collateral and duration.
+- High-risk routing increases safety module accrual to improve resilience against tail losses.
 
 Formula:
 - If `F` is total protocol fee revenue in a period:
-  - Lenders receive `0.80 * F`
-  - Treasury receives `0.15 * F`
-  - Safety module receives `0.05 * F`
+  - Low-risk:
+    - Lenders receive `0.85 * F`
+    - Treasury receives `0.12 * F`
+    - Safety module receives `0.03 * F`
+  - Balanced-risk:
+    - Lenders receive `0.80 * F`
+    - Treasury receives `0.14 * F`
+    - Safety module receives `0.06 * F`
+  - High-risk:
+    - Lenders receive `0.72 * F`
+    - Treasury receives `0.13 * F`
+    - Safety module receives `0.15 * F`
 
 Example:
 - If quarterly protocol fee revenue is `$2,000,000`:
-  - Lenders: `$1,600,000`
-  - Treasury: `$300,000`
-  - Safety module: `$100,000`
+  - Low-risk:
+    - Lenders: `$1,700,000`
+    - Treasury: `$240,000`
+    - Safety module: `$60,000`
+  - Balanced-risk:
+    - Lenders: `$1,600,000`
+    - Treasury: `$280,000`
+    - Safety module: `$120,000`
+  - High-risk:
+    - Lenders: `$1,440,000`
+    - Treasury: `$260,000`
+    - Safety module: `$300,000`
 
 ## Governance Controls
 
