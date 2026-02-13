@@ -2,9 +2,10 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_EVM_CHAIN } from './chains.js';
 import { apiPost } from './api.js';
+import { readWalletAuth, writeWalletAuth } from './authStorage.js';
+import { trackEvent } from './analytics.js';
 
 const SESSION_KEY = ['onchain-session'];
-const AUTH_STORAGE_KEY = 'wallet-auth';
 
 const defaultSession = {
   chainType: 'evm',
@@ -38,36 +39,11 @@ function writeSession(value) {
 }
 
 function readAuth() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const expiresAtMs = parsed?.expiresAt ? Date.parse(parsed.expiresAt) : null;
-    if (expiresAtMs && Date.now() > expiresAtMs) {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
-      return null;
-    }
-    return parsed;
-  } catch (error) {
-    console.warn('Failed to read auth session', error);
-    return null;
-  }
+  return readWalletAuth();
 }
 
 function writeAuth(value) {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!value) {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(value));
-    }
-  } catch (error) {
-    console.warn('Failed to write auth session', error);
-  }
+  writeWalletAuth(value);
 }
 
 export async function requestWalletSession({ address, signMessageAsync }) {
@@ -93,6 +69,9 @@ export async function requestWalletSession({ address, signMessageAsync }) {
     expiresAt: verifyResponse.expiresAt || null
   };
   writeAuth(auth);
+  trackEvent('wallet_session_created', {
+    walletAddress: auth.walletAddress
+  });
   return auth;
 }
 

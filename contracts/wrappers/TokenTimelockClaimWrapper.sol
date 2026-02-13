@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface ITokenTimelock {
     function beneficiary() external view returns (address);
@@ -12,8 +13,11 @@ interface ITokenTimelock {
 }
 
 contract TokenTimelockClaimWrapper is Ownable {
+    using SafeERC20 for IERC20;
+
     address public beneficiary;
     address public token;
+    address public operator;
     uint256 public totalAllocation;
 
     address public timelock;
@@ -22,6 +26,8 @@ contract TokenTimelockClaimWrapper is Ownable {
     bool public initialized;
 
     mapping(address => uint256) private releasedAmounts;
+
+    event OperatorUpdated(address indexed operator);
 
     constructor(
         address _beneficiary,
@@ -64,12 +70,19 @@ contract TokenTimelockClaimWrapper is Ownable {
         return token;
     }
 
-    function released(address tokenAddress) external view returns (uint256) {
-        require(tokenAddress == token, "token mismatch");
+    function released(address tokenAddr) external view returns (uint256) {
+        require(tokenAddr == token, "token mismatch");
         return releasedAmounts[token];
     }
 
+    function setOperator(address newOperator) external onlyOwner {
+        require(newOperator != address(0), "operator=0");
+        operator = newOperator;
+        emit OperatorUpdated(newOperator);
+    }
+
     function releaseTo(address to, uint256 amount) external {
+        require(msg.sender == operator, "not authorized");
         require(initialized, "not initialized");
         require(to != address(0), "to=0");
         require(amount > 0, "amount=0");
@@ -78,6 +91,6 @@ contract TokenTimelockClaimWrapper is Ownable {
         uint256 available = IERC20(token).balanceOf(address(this));
         require(amount <= available, "amount>available");
         releasedAmounts[token] += amount;
-        IERC20(token).transfer(to, amount);
+        IERC20(token).safeTransfer(to, amount);
     }
 }

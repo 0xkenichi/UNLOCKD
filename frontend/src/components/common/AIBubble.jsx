@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAccount, useChainId } from 'wagmi';
 import { askAgent, requestMatchQuote } from '../../utils/api.js';
 import { generateRiskPaths } from '../../utils/riskPaths.js';
 import { findLocalAnswer, FALLBACK_ANSWER } from '../../data/vestraKnowledge.js';
@@ -21,8 +22,110 @@ const buildRiskPaths = (stats) => {
   return generateRiskPaths({ pv: mean, ltvBps });
 };
 
+const buildUsageGuide = () =>
+  [
+    'Quick start:',
+    '1) Connect wallet and confirm network.',
+    '2) Borrow: escrow vesting collateral, review max borrow, then create a loan.',
+    '3) Repay: fund gas + USDC, approve USDC, then repay by loan ID.',
+    '4) Portfolio: track active loans, collateral, and settlement status.',
+    '',
+    'Repay checklist:',
+    '- Use the same borrower wallet that created the loan.',
+    '- Check loan status is active on the current network.',
+    '- Approve at least your repay amount in USDC before submitting repay.'
+  ].join('\n');
+
+const sanitizeKnowledgeAnswer = (answer) => {
+  const text = String(answer || '').trim();
+  if (!text) return '';
+  const blockedPrefixes = [
+    'Related prior conversation context:',
+    'No direct simulation/tool output was needed',
+    'Using provider:',
+    'Sources'
+  ];
+  const seen = new Set();
+  const filtered = text
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .filter((line) => !blockedPrefixes.some((prefix) => line.startsWith(prefix)))
+    .filter((line) => !line.startsWith('Question:'))
+    .filter((line) => !/^-\s*Prior solved Q&A:/i.test(line))
+    .filter((line) => !/knowledge-base mode right now/i.test(line))
+    .filter((line) => {
+      const normalized = line.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!normalized) return false;
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .join('\n')
+    .trim();
+  return filtered;
+};
+
+const shouldUseUsageGuide = (query, answer) => {
+  const q = String(query || '').toLowerCase();
+  const a = String(answer || '').toLowerCase();
+  const asksForGuide =
+    q.includes('how to use') ||
+    q === 'explain' ||
+    q.includes('walk me through') ||
+    q.includes('getting started');
+  const noisyAnswer =
+    a.includes('related prior conversation context') ||
+    a.includes('no direct simulation/tool output') ||
+    a.includes('knowledge-base mode right now');
+  return asksForGuide && noisyAnswer;
+};
+
+const AI_PANEL_STORAGE_KEY = 'vestra_ai_open_by_route';
+const GUIDE_TARGET_ID_RE = /^[a-zA-Z0-9_-]{1,80}$/;
+
+const isSafeInternalPath = (value) => {
+  if (typeof value !== 'string') return false;
+  if (!value.startsWith('/') || value.startsWith('//')) return false;
+  return !/^\s*(?:https?:|javascript:|data:)/i.test(value);
+};
+
+const readOpenStateByRoute = () => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(AI_PANEL_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const getSavedOpenState = (pathname) => {
+  const stateByRoute = readOpenStateByRoute();
+  if (Object.prototype.hasOwnProperty.call(stateByRoute, pathname)) {
+    return Boolean(stateByRoute[pathname]);
+  }
+  return false;
+};
+
+const saveOpenState = (pathname, isOpen) => {
+  if (typeof window === 'undefined') return;
+  const stateByRoute = readOpenStateByRoute();
+  stateByRoute[pathname] = Boolean(isOpen);
+  try {
+    window.localStorage.setItem(AI_PANEL_STORAGE_KEY, JSON.stringify(stateByRoute));
+  } catch {
+    // Ignore storage failures and keep in-memory behavior.
+  }
+};
+
 export default function AIBubble() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { address } = useAccount();
+  const chainId = useChainId();
   const shellRef = useRef(null);
   const inputRef = useRef(null);
   const threadRef = useRef(null);
@@ -30,15 +133,32 @@ export default function AIBubble() {
   const [messages, setMessages] = useState([]);
   const [sources, setSources] = useState([]);
   const [provider, setProvider] = useState('');
+  const [intent, setIntent] = useState('');
+  const [confidence, setConfidence] = useState(null);
   const [actions, setActions] = useState([]);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(() =>
+    getSavedOpenState(typeof window === 'undefined' ? '/' : window.location.pathname)
+  );
   const [hasUnreadHint, setHasUnreadHint] = useState(false);
   const [captchaToken, setCaptchaToken] = useState('');
   const [captchaError, setCaptchaError] = useState('');
   const [captchaKey, setCaptchaKey] = useState(0);
   const [poolMatches, setPoolMatches] = useState({});
+  const [guidedFlow, setGuidedFlow] = useState(null);
+  const [guidedStepIndex, setGuidedStepIndex] = useState(0);
+  const [pendingGuideStep, setPendingGuideStep] = useState(null);
+  const [guideNotice, setGuideNotice] = useState('');
+  const [autoAdvanceGuide, setAutoAdvanceGuide] = useState(true);
+  const highlightedRef = useRef(null);
+  const highlightTimerRef = useRef(null);
+  const highlightClickHandlerRef = useRef(null);
+  const highlightedBadgeRef = useRef(null);
+  const clickAdvanceTimerRef = useRef(null);
+  const guidedFlowRef = useRef(null);
+  const guidedStepIndexRef = useRef(0);
+  const autoAdvancePendingRef = useRef(false);
 
   const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
   const captchaReady = !turnstileSiteKey || Boolean(captchaToken);
@@ -70,6 +190,46 @@ export default function AIBubble() {
   }, [messages, status, isOpen]);
 
   useEffect(() => {
+    setIsOpen(getSavedOpenState(location.pathname));
+  }, [location.pathname]);
+
+  useEffect(() => {
+    saveOpenState(location.pathname, isOpen);
+  }, [location.pathname, isOpen]);
+
+  useEffect(() => {
+    guidedFlowRef.current = guidedFlow;
+  }, [guidedFlow]);
+
+  useEffect(() => {
+    guidedStepIndexRef.current = guidedStepIndex;
+  }, [guidedStepIndex]);
+
+  useEffect(
+    () => () => {
+      if (highlightedRef.current) {
+        if (highlightClickHandlerRef.current) {
+          highlightedRef.current.removeEventListener('click', highlightClickHandlerRef.current);
+        }
+        highlightedRef.current.classList.remove('guide-glow');
+      }
+      if (highlightedBadgeRef.current) {
+        highlightedBadgeRef.current.remove();
+      }
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+      if (clickAdvanceTimerRef.current) {
+        clearTimeout(clickAdvanceTimerRef.current);
+      }
+      highlightClickHandlerRef.current = null;
+      highlightedBadgeRef.current = null;
+      clickAdvanceTimerRef.current = null;
+    },
+    []
+  );
+
+  useEffect(() => {
     if (!isOpen) return undefined;
     const onPointerDown = (event) => {
       if (!shellRef.current) return;
@@ -79,6 +239,19 @@ export default function AIBubble() {
     document.addEventListener('mousedown', onPointerDown);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
     };
   }, [isOpen]);
 
@@ -94,15 +267,43 @@ export default function AIBubble() {
     setStatus('thinking');
     setError('');
     setCaptchaError('');
+    const context = {
+      path: location.pathname,
+      chainId: Number.isFinite(chainId) ? chainId : undefined,
+      walletAddress: address || undefined,
+      page: 'frontend'
+    };
     try {
-      const data = await askAgent(trimmed, nextHistory, captchaToken || undefined);
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.answer || 'No answer yet.' }]);
+      const data = await askAgent(
+        trimmed,
+        nextHistory,
+        captchaToken || undefined,
+        context
+      );
+      const useGuide = shouldUseUsageGuide(trimmed, data.answer);
+      const cleaned = sanitizeKnowledgeAnswer(data.answer || '');
+      const content = useGuide ? buildUsageGuide() : cleaned || 'No answer yet.';
+      setMessages((prev) => [...prev, { role: 'assistant', content }]);
       if (!isOpen) {
         setHasUnreadHint(true);
       }
       setSources(data.sources || []);
       setProvider(data.provider || (data.mode === 'knowledge-base' ? 'Knowledge Base' : ''));
+      setIntent(data.intent || '');
+      setConfidence(Number.isFinite(data.confidence) ? data.confidence : null);
       setActions(data.actions || []);
+      const guideAction = (data.actions || []).find(
+        (action) => action.type === 'guided_flow' && Array.isArray(action.data?.steps)
+      );
+      if (guideAction) {
+        setGuidedFlow(guideAction.data);
+        setGuidedStepIndex(0);
+        setGuideNotice('Interactive guide ready. Press highlight to follow steps.');
+      } else {
+        setGuidedFlow(null);
+        setGuidedStepIndex(0);
+        setGuideNotice('');
+      }
     } catch (err) {
       const local = findLocalAnswer(trimmed);
       if (local) {
@@ -111,6 +312,8 @@ export default function AIBubble() {
           setHasUnreadHint(true);
         }
         setProvider('Knowledge Base (offline)');
+        setIntent('knowledge_fallback');
+        setConfidence(null);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -120,6 +323,8 @@ export default function AIBubble() {
           setHasUnreadHint(true);
         }
         setProvider('Fallback');
+        setIntent('fallback');
+        setConfidence(null);
       }
       setError('');
     } finally {
@@ -137,7 +342,13 @@ export default function AIBubble() {
     setMessages([]);
     setSources([]);
     setError('');
+    setIntent('');
+    setConfidence(null);
     setActions([]);
+    setGuidedFlow(null);
+    setGuidedStepIndex(0);
+    setPendingGuideStep(null);
+    setGuideNotice('');
   };
 
   const handleQuickReply = async (text) => {
@@ -175,6 +386,142 @@ export default function AIBubble() {
     }
   };
 
+  const clearGuideHighlight = () => {
+    if (highlightedRef.current) {
+      if (highlightClickHandlerRef.current) {
+        highlightedRef.current.removeEventListener('click', highlightClickHandlerRef.current);
+      }
+      highlightedRef.current.classList.remove('guide-glow');
+      highlightedRef.current = null;
+      highlightClickHandlerRef.current = null;
+    }
+    if (highlightedBadgeRef.current) {
+      highlightedBadgeRef.current.remove();
+      highlightedBadgeRef.current = null;
+    }
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = null;
+    }
+    if (clickAdvanceTimerRef.current) {
+      clearTimeout(clickAdvanceTimerRef.current);
+      clickAdvanceTimerRef.current = null;
+    }
+  };
+
+  const applyGuideHighlight = (targetId, stepIndex = null, totalSteps = null) => {
+    clearGuideHighlight();
+    if (typeof targetId !== 'string' || !GUIDE_TARGET_ID_RE.test(targetId)) {
+      setGuideNotice('Invalid guide target.');
+      return false;
+    }
+    const escapedTargetId = window.CSS?.escape ? window.CSS.escape(targetId) : targetId;
+    const target = document.querySelector(`[data-guide-id="${escapedTargetId}"]`);
+    if (!target) {
+      setGuideNotice('Target not visible yet. Open the correct page/module first.');
+      return false;
+    }
+    target.classList.add('guide-glow');
+    const badge = document.createElement('span');
+    badge.className = 'guide-step-pill';
+    const safeStepIndex =
+      Number.isFinite(stepIndex) && Number(stepIndex) >= 0 ? Number(stepIndex) + 1 : null;
+    const safeTotal =
+      Number.isFinite(totalSteps) && Number(totalSteps) > 0 ? Number(totalSteps) : null;
+    badge.textContent =
+      safeStepIndex && safeTotal
+        ? `Step ${safeStepIndex}/${safeTotal}`
+        : 'Next step';
+    if (safeStepIndex && safeTotal) {
+      const ratio = safeStepIndex / safeTotal;
+      if (ratio <= 0.34) {
+        badge.classList.add('guide-step-pill--start');
+      } else if (ratio <= 0.67) {
+        badge.classList.add('guide-step-pill--mid');
+      } else {
+        badge.classList.add('guide-step-pill--final');
+      }
+    }
+    target.appendChild(badge);
+    highlightedBadgeRef.current = badge;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    highlightedRef.current = target;
+    highlightClickHandlerRef.current = () => {
+      if (!autoAdvanceGuide) return;
+      const flow = guidedFlowRef.current;
+      const currentIndex = guidedStepIndexRef.current;
+      if (!flow?.steps?.length) return;
+      if (highlightedBadgeRef.current) {
+        highlightedBadgeRef.current.textContent = 'Done';
+        highlightedBadgeRef.current.classList.add('guide-step-pill--done');
+      }
+      const isLast = currentIndex >= flow.steps.length - 1;
+      if (isLast) {
+        setGuideNotice('Nice. Guide complete. Need more help?');
+        clickAdvanceTimerRef.current = window.setTimeout(() => {
+          clearGuideHighlight();
+        }, 700);
+        return;
+      }
+      const nextIndex = currentIndex + 1;
+      clickAdvanceTimerRef.current = window.setTimeout(() => {
+        autoAdvancePendingRef.current = true;
+        setGuidedStepIndex(nextIndex);
+        setGuideNotice(`Great. Next: ${flow.steps[nextIndex]?.label || 'continue'}`);
+      }, 340);
+    };
+    target.addEventListener('click', highlightClickHandlerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      clearGuideHighlight();
+    }, 5000);
+    setGuideNotice('Highlighted next step.');
+    return true;
+  };
+
+  const runGuideStep = (step) => {
+    if (!step) return;
+    const flow = guidedFlowRef.current;
+    const stepIndex = guidedStepIndexRef.current;
+    const totalSteps = Array.isArray(flow?.steps) ? flow.steps.length : null;
+    const safePath = isSafeInternalPath(step.path) ? step.path : '';
+    if (step.path && !safePath) {
+      setGuideNotice('Blocked unsafe guide route.');
+      return;
+    }
+    if (safePath && location.pathname !== safePath) {
+      setPendingGuideStep(step);
+      navigate(safePath);
+      return;
+    }
+    applyGuideHighlight(step.targetId, stepIndex, totalSteps);
+  };
+
+  useEffect(() => {
+    if (!autoAdvancePendingRef.current) return;
+    autoAdvancePendingRef.current = false;
+    const flow = guidedFlowRef.current;
+    const step = flow?.steps?.[guidedStepIndexRef.current];
+    if (!step) return;
+    const timer = window.setTimeout(() => {
+      runGuideStep(step);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [guidedStepIndex, location.pathname]);
+
+  useEffect(() => {
+    if (!pendingGuideStep) return;
+    const pendingSafePath = isSafeInternalPath(pendingGuideStep.path) ? pendingGuideStep.path : '';
+    if (pendingSafePath && pendingSafePath !== location.pathname) return;
+    const timer = window.setTimeout(() => {
+      const flow = guidedFlowRef.current;
+      const stepIndex = guidedStepIndexRef.current;
+      const totalSteps = Array.isArray(flow?.steps) ? flow.steps.length : null;
+      applyGuideHighlight(pendingGuideStep.targetId, stepIndex, totalSteps);
+      setPendingGuideStep(null);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [location.pathname, pendingGuideStep]);
+
   return (
     <div ref={shellRef} className={`ai-bubble-shell ${isOpen ? 'open' : ''}`}>
       <button
@@ -187,6 +534,7 @@ export default function AIBubble() {
         aria-label="Open Vestra AI"
       >
         <CRDTMascot size={44} className="ai-bubble-mascot" />
+        <span className="ai-fab-label">CRDT AI</span>
       </button>
       <div
         className={`ai-bubble ${isOpen ? 'open' : ''} ${shouldExpand ? 'expanded' : ''}`}
@@ -249,7 +597,61 @@ export default function AIBubble() {
             <button className="button ghost" type="button" onClick={handleNewThread}>
               New Thread
             </button>
+            <button className="button ghost" type="button" onClick={() => setIsOpen(false)}>
+              Hide
+            </button>
           </div>
+          {guidedFlow && Array.isArray(guidedFlow.steps) && guidedFlow.steps.length > 0 && (
+            <div className="ai-panel">
+              <div className="section-subtitle">{guidedFlow.title || 'Interactive guide'}</div>
+              <div className="muted small">
+                Step {guidedStepIndex + 1} of {guidedFlow.steps.length}
+              </div>
+              <div className="muted">
+                {guidedFlow.steps[guidedStepIndex]?.label || 'Follow the next highlighted action.'}
+              </div>
+              {guidedFlow.steps[guidedStepIndex]?.hint && (
+                <div className="muted small">{guidedFlow.steps[guidedStepIndex].hint}</div>
+              )}
+              {guideNotice && <div className="muted small">{guideNotice}</div>}
+              <div className="inline-actions">
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => runGuideStep(guidedFlow.steps[guidedStepIndex])}
+                >
+                  Highlight Next
+                </button>
+                <button
+                  className="button ghost"
+                  type="button"
+                  onClick={() => setAutoAdvanceGuide((value) => !value)}
+                >
+                  {autoAdvanceGuide ? 'Auto-advance On' : 'Auto-advance Off'}
+                </button>
+                <button
+                  className="button ghost"
+                  type="button"
+                  disabled={guidedStepIndex <= 0}
+                  onClick={() => setGuidedStepIndex((index) => Math.max(0, index - 1))}
+                >
+                  Prev
+                </button>
+                <button
+                  className="button ghost"
+                  type="button"
+                  disabled={guidedStepIndex >= guidedFlow.steps.length - 1}
+                  onClick={() =>
+                    setGuidedStepIndex((index) =>
+                      Math.min(guidedFlow.steps.length - 1, index + 1)
+                    )
+                  }
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
           <div ref={threadRef} className="stack ai-thread">
             {!messages.length && (
               <div className="muted">Ask about DPV, LTV, unlock safety, or governance steps.</div>
@@ -267,6 +669,12 @@ export default function AIBubble() {
             {provider && (
               <div className="muted small">
                 Using provider: <span className="chip">{provider}</span>
+              </div>
+            )}
+            {(intent || confidence !== null) && (
+              <div className="muted small">
+                {intent ? `Intent: ${intent}` : 'Intent: unknown'}
+                {confidence !== null ? ` • Confidence: ${(confidence * 100).toFixed(0)}%` : ''}
               </div>
             )}
           </div>

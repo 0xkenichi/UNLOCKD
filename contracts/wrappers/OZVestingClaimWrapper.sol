@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface IOZVestingWallet {
     function beneficiary() external view returns (address);
@@ -13,8 +14,11 @@ interface IOZVestingWallet {
 }
 
 contract OZVestingClaimWrapper is Ownable {
+    using SafeERC20 for IERC20;
+
     address public beneficiary;
     address public token;
+    address public operator;
     uint256 public totalAllocation;
 
     address public vesting;
@@ -23,6 +27,8 @@ contract OZVestingClaimWrapper is Ownable {
     bool public initialized;
 
     mapping(address => uint256) private releasedAmounts;
+
+    event OperatorUpdated(address indexed operator);
 
     constructor(address _beneficiary, address _token, uint256 _totalAllocation) Ownable(msg.sender) {
         require(_beneficiary != address(0), "beneficiary=0");
@@ -61,7 +67,14 @@ contract OZVestingClaimWrapper is Ownable {
         return releasedAmounts[token];
     }
 
+    function setOperator(address newOperator) external onlyOwner {
+        require(newOperator != address(0), "operator=0");
+        operator = newOperator;
+        emit OperatorUpdated(newOperator);
+    }
+
     function releaseTo(address to, uint256 amount) external {
+        require(msg.sender == operator, "not authorized");
         require(initialized, "not initialized");
         require(to != address(0), "to=0");
         require(amount > 0, "amount=0");
@@ -70,6 +83,6 @@ contract OZVestingClaimWrapper is Ownable {
         uint256 available = IERC20(token).balanceOf(address(this));
         require(amount <= available, "amount>available");
         releasedAmounts[token] += amount;
-        IERC20(token).transfer(to, amount);
+        IERC20(token).safeTransfer(to, amount);
     }
 }

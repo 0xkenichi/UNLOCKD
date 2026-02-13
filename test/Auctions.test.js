@@ -156,8 +156,8 @@ describe("Auction contracts", () => {
     const nonceB = 98765;
     const bidA = reserve + 500n * 10n ** 6n;
     const bidB = reserve + 1_000n * 10n ** 6n;
-    const commitA = ethers.keccak256(ethers.solidityPacked(["uint256", "uint256"], [bidA, nonceA]));
-    const commitB = ethers.keccak256(ethers.solidityPacked(["uint256", "uint256"], [bidB, nonceB]));
+    const commitA = await sealed.buildCommitment(0, bidA, nonceA);
+    const commitB = await sealed.buildCommitment(0, bidB, nonceB);
 
     await sealed.connect(bidderA).commitBid(0, commitA);
     await sealed.connect(bidderB).commitBid(0, commitB);

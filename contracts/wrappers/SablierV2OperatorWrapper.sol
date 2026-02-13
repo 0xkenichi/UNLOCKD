@@ -17,6 +17,9 @@ contract SablierV2OperatorWrapper is Ownable {
     ISablierV2Lockup public lockup;
     uint256 public streamId;
     address public beneficiary;
+    address public operator;
+
+    event OperatorUpdated(address indexed operator);
 
     constructor(address lockupAddress, uint256 _streamId, address _beneficiary) Ownable(msg.sender) {
         require(lockupAddress != address(0), "lockup=0");
@@ -47,7 +50,14 @@ contract SablierV2OperatorWrapper is Ownable {
         return lockup.getWithdrawnAmount(streamId);
     }
 
+    function setOperator(address newOperator) external onlyOwner {
+        require(newOperator != address(0), "operator=0");
+        operator = newOperator;
+        emit OperatorUpdated(newOperator);
+    }
+
     function releaseTo(address to, uint256 amount) external {
+        require(msg.sender == operator, "not authorized");
         require(to != address(0), "to=0");
         require(amount > 0, "amount=0");
         lockup.withdraw(streamId, to, uint128(amount));

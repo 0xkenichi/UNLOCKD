@@ -20,8 +20,12 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `TESTING.md` -- Unit/integration tests and coverage expectations.
 - `SECURITY.md` -- Threat model and audit checklist.
 - `SECURITY_ROADMAP.md` -- Security milestones from MVP to mainnet readiness.
+- `SECURITY_AUDIT_CLOSEOUT_2026-02-13.md` -- completed hardening changes, verification, and residual risk list.
 - `INCIDENT_RESPONSE_RUNBOOK.md` -- Incident severity, response, and postmortem process.
 - `ADMIN_OPERATIONS.md` -- Admin endpoint controls, access policy, and audit trail.
+- `API_AUTH_MATRIX.md` -- endpoint-by-endpoint auth requirements for testnet operations.
+- `WAVE2_RED_GREEN_REPORT.md` -- execution status of Wave 2 checks and remaining warnings.
+- `WAVE3_MOBILE_A11Y_REPORT.md` -- mobile responsiveness and accessibility improvements + validation.
 - `FRONTEND.md` -- UI notes, wallet flows, and Wagmi/RainbowKit hooks.
 
 ## Governance, Token, and Growth
@@ -36,6 +40,9 @@ This docs hub is the complete entry point for CRDT/UNLOCKD: concept â†’ design â
 - `PILOT_LOI_TEMPLATE.md` -- partner LOI template for pilot intent.
 - `PILOT_CHECKLIST.md` -- launch gate checklist.
 - `WEEKLY_KPI_REPORT_TEMPLATE.md` -- weekly reporting format for pilots.
+- `TESTNET_FAUCET_DEMO_ONE_PAGER.md` -- external tester onboarding for faucets + demo flow.
+- `TESTNET_VESTING_CREATION_QUICKSTART.md` -- create sample testnet vesting contracts for demos.
+- `ELITE_9X_EXECUTION_MASTER_PLAN.md` -- full testnet-first operating plan to reach 9/10 readiness.
 
 ## Product & UX
 - `CRDT_FIGMA_FRAME_MAP.md`

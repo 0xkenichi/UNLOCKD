@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -18,6 +19,8 @@ interface IIdentityVerifier {
 }
 
 contract LoanManager is Ownable, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     ValuationEngine public valuation;
     VestingAdapter public adapter;
     LendingPool public pool;
@@ -29,6 +32,27 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     uint256 public liquidationSlippageBps;
     address public issuanceTreasury;
     address public returnsTreasury;
+    uint256 public originationFeeBps;
+    bool public adminTimelockEnabled;
+    uint256 public adminTimelockDelay = 1 days;
+
+    struct PendingTreasuryConfig {
+        address issuanceTreasury;
+        address returnsTreasury;
+        uint256 executeAfter;
+        bool exists;
+    }
+
+    struct PendingLiquidationConfig {
+        address router;
+        uint24 poolFee;
+        uint256 slippageBps;
+        uint256 executeAfter;
+        bool exists;
+    }
+
+    PendingTreasuryConfig public pendingTreasuryConfig;
+    PendingLiquidationConfig public pendingLiquidationConfig;
 
     uint256 public constant BPS_DENOMINATOR = 10000;
 
@@ -62,6 +86,12 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     event LiquidationConfigUpdated(address router, uint24 poolFee, uint256 slippageBps);
     event TreasuryConfigUpdated(address issuanceTreasury, address returnsTreasury);
     event RepayTokenPriorityUpdated(address[] tokens);
+    event OriginationFeeUpdated(uint256 originationFeeBps);
+    event AdminTimelockConfigUpdated(bool enabled, uint256 delaySeconds);
+    event TreasuryConfigQueued(address issuanceTreasury, address returnsTreasury, uint256 executeAfter);
+    event TreasuryConfigCancelled();
+    event LiquidationConfigQueued(address router, uint24 poolFee, uint256 slippageBps, uint256 executeAfter);
+    event LiquidationConfigCancelled();
     event CollateralLiquidated(
         uint256 indexed loanId,
         address indexed token,
@@ -90,6 +120,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         usdc = pool.usdc();
         issuanceTreasury = msg.sender;
         returnsTreasury = msg.sender;
+        originationFeeBps = 150;
     }
 
     function setIdentityConfig(address verifier, uint256 boostBps) external onlyOwner {
@@ -104,6 +135,88 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint24 newPoolFee,
         uint256 slippageBps
     ) external onlyOwner {
+        require(!adminTimelockEnabled, "timelocked");
+        _applyLiquidationConfig(router, newPoolFee, slippageBps);
+    }
+
+    function queueLiquidationConfig(
+        address router,
+        uint24 newPoolFee,
+        uint256 slippageBps
+    ) external onlyOwner {
+        require(adminTimelockEnabled, "timelock disabled");
+        require(router != address(0), "router=0");
+        require(slippageBps > 0 && slippageBps <= BPS_DENOMINATOR, "bad slippage");
+        uint256 executeAfter = block.timestamp + adminTimelockDelay;
+        pendingLiquidationConfig = PendingLiquidationConfig({
+            router: router,
+            poolFee: newPoolFee,
+            slippageBps: slippageBps,
+            executeAfter: executeAfter,
+            exists: true
+        });
+        emit LiquidationConfigQueued(router, newPoolFee, slippageBps, executeAfter);
+    }
+
+    function executeQueuedLiquidationConfig() external onlyOwner {
+        PendingLiquidationConfig memory pending = pendingLiquidationConfig;
+        require(pending.exists, "no queued config");
+        require(block.timestamp >= pending.executeAfter, "timelock pending");
+        delete pendingLiquidationConfig;
+        _applyLiquidationConfig(pending.router, pending.poolFee, pending.slippageBps);
+    }
+
+    function cancelQueuedLiquidationConfig() external onlyOwner {
+        require(pendingLiquidationConfig.exists, "no queued config");
+        delete pendingLiquidationConfig;
+        emit LiquidationConfigCancelled();
+    }
+
+    function setTreasuries(address issuance, address returnsAddr) external onlyOwner {
+        require(!adminTimelockEnabled, "timelocked");
+        _applyTreasuries(issuance, returnsAddr);
+    }
+
+    function queueTreasuries(address issuance, address returnsAddr) external onlyOwner {
+        require(adminTimelockEnabled, "timelock disabled");
+        require(issuance != address(0), "issuance=0");
+        require(returnsAddr != address(0), "returns=0");
+        uint256 executeAfter = block.timestamp + adminTimelockDelay;
+        pendingTreasuryConfig = PendingTreasuryConfig({
+            issuanceTreasury: issuance,
+            returnsTreasury: returnsAddr,
+            executeAfter: executeAfter,
+            exists: true
+        });
+        emit TreasuryConfigQueued(issuance, returnsAddr, executeAfter);
+    }
+
+    function executeQueuedTreasuries() external onlyOwner {
+        PendingTreasuryConfig memory pending = pendingTreasuryConfig;
+        require(pending.exists, "no queued config");
+        require(block.timestamp >= pending.executeAfter, "timelock pending");
+        delete pendingTreasuryConfig;
+        _applyTreasuries(pending.issuanceTreasury, pending.returnsTreasury);
+    }
+
+    function cancelQueuedTreasuries() external onlyOwner {
+        require(pendingTreasuryConfig.exists, "no queued config");
+        delete pendingTreasuryConfig;
+        emit TreasuryConfigCancelled();
+    }
+
+    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
+        require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
+        adminTimelockEnabled = enabled;
+        adminTimelockDelay = delaySeconds;
+        emit AdminTimelockConfigUpdated(enabled, delaySeconds);
+    }
+
+    function _applyLiquidationConfig(
+        address router,
+        uint24 newPoolFee,
+        uint256 slippageBps
+    ) internal {
         require(router != address(0), "router=0");
         require(slippageBps > 0 && slippageBps <= BPS_DENOMINATOR, "bad slippage");
         uniswapRouter = ISwapRouter(router);
@@ -112,12 +225,18 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         emit LiquidationConfigUpdated(router, newPoolFee, slippageBps);
     }
 
-    function setTreasuries(address issuance, address returnsAddr) external onlyOwner {
+    function _applyTreasuries(address issuance, address returnsAddr) internal {
         require(issuance != address(0), "issuance=0");
         require(returnsAddr != address(0), "returns=0");
         issuanceTreasury = issuance;
         returnsTreasury = returnsAddr;
         emit TreasuryConfigUpdated(issuance, returnsAddr);
+    }
+
+    function setOriginationFeeBps(uint256 feeBps) external onlyOwner {
+        require(feeBps <= 2000, "fee too high");
+        originationFeeBps = feeBps;
+        emit OriginationFeeUpdated(feeBps);
     }
 
     function linkIdentity(bytes calldata proof) external whenNotPaused nonReentrant returns (bool) {
@@ -171,7 +290,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         require(borrowAmount <= maxBorrow, "exceeds LTV");
 
         uint256 interestRateBps = pool.getInterestRateBps();
-        uint256 interest = (borrowAmount * interestRateBps) / 10000;
+        uint256 interest = (borrowAmount * interestRateBps) / BPS_DENOMINATOR;
+        uint256 originationFee = (borrowAmount * originationFeeBps) / BPS_DENOMINATOR;
+        interest += originationFee;
 
         uint256 loanId = loanCount;
         loans[loanId] = Loan({
@@ -196,7 +317,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         require(amount > 0, "amount=0");
 
         address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-        require(usdc.transferFrom(msg.sender, paymentTreasury, amount), "transfer failed");
+        usdc.safeTransferFrom(msg.sender, paymentTreasury, amount);
         _applyRepayment(loanId, amount);
     }
 
@@ -216,12 +337,12 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 usdcReceived;
         if (tokenIn == address(usdc)) {
             address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            require(usdc.transferFrom(msg.sender, paymentTreasury, amountIn), "transfer failed");
+            usdc.safeTransferFrom(msg.sender, paymentTreasury, amountIn);
             usdcReceived = amountIn;
         } else {
             require(address(uniswapRouter) != address(0), "router=0");
-            require(IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn), "transfer failed");
-            IERC20(tokenIn).approve(address(uniswapRouter), amountIn);
+            IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+            IERC20(tokenIn).forceApprove(address(uniswapRouter), amountIn);
 
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
                 .ExactInputSingleParams({
@@ -237,7 +358,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
 
             usdcReceived = uniswapRouter.exactInputSingle(params);
             address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            require(usdc.transfer(paymentTreasury, usdcReceived), "usdc transfer failed");
+            usdc.safeTransfer(paymentTreasury, usdcReceived);
         }
 
         _applyRepayment(loanId, usdcReceived);
@@ -271,12 +392,12 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             uint256 usdcReceived;
             if (tokenIn == address(usdc)) {
                 address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-                require(usdc.transferFrom(msg.sender, paymentTreasury, amountIn), "transfer failed");
+                usdc.safeTransferFrom(msg.sender, paymentTreasury, amountIn);
                 usdcReceived = amountIn;
             } else {
                 require(address(uniswapRouter) != address(0), "router=0");
-                require(IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn), "transfer failed");
-                IERC20(tokenIn).approve(address(uniswapRouter), amountIn);
+                IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+                IERC20(tokenIn).forceApprove(address(uniswapRouter), amountIn);
 
                 ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
                     .ExactInputSingleParams({
@@ -292,7 +413,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
 
                 usdcReceived = uniswapRouter.exactInputSingle(params);
                 address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-                require(usdc.transfer(paymentTreasury, usdcReceived), "usdc transfer failed");
+                usdc.safeTransfer(paymentTreasury, usdcReceived);
             }
 
             _applyRepayment(loanId, usdcReceived);
@@ -395,7 +516,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                     address payout = returnsTreasury == address(0)
                         ? address(pool)
                         : returnsTreasury;
-                    require(usdc.transfer(payout, usdcReceived), "usdc transfer failed");
+                    usdc.safeTransfer(payout, usdcReceived);
                     if (repayAmount > 0) {
                         pool.repay(repayAmount);
                     }
@@ -427,7 +548,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             return 0;
         }
 
-        IERC20(token).approve(address(uniswapRouter), seizeAmount);
+        IERC20(token).forceApprove(address(uniswapRouter), seizeAmount);
         uint256 minOut = _minUsdcOut(token, seizeAmount);
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
@@ -450,12 +571,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         address token,
         uint256 amountIn
     ) internal view returns (uint256) {
-        AggregatorV3Interface priceFeed = valuation.priceFeed();
-        (, int256 answer, , , ) = priceFeed.latestRoundData();
-        require(answer > 0, "bad price");
-        uint256 price = uint256(answer);
+        (uint256 price, uint8 priceDecimals) = _readValidatedOraclePrice(token);
 
-        uint8 priceDecimals = priceFeed.decimals();
         uint8 tokenDecimals = IERC20Metadata(token).decimals();
         uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
 
@@ -472,12 +589,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             return debtUsdc;
         }
 
-        AggregatorV3Interface priceFeed = valuation.priceFeed();
-        (, int256 answer, , , ) = priceFeed.latestRoundData();
-        require(answer > 0, "bad price");
-        uint256 price = uint256(answer);
+        (uint256 price, uint8 priceDecimals) = _readValidatedOraclePrice(token);
 
-        uint8 priceDecimals = priceFeed.decimals();
         uint8 tokenDecimals = IERC20Metadata(token).decimals();
         uint8 usdcDecimals = IERC20Metadata(address(usdc)).decimals();
 
@@ -487,6 +600,27 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             10 ** usdcDecimals
         );
         return Math.mulDiv(tokenAmountAtOne, 10 ** priceDecimals, price);
+    }
+
+    function _readValidatedOraclePrice(
+        address token
+    ) internal view returns (uint256 price, uint8 decimals) {
+        address feedAddress = valuation.getPriceFeedForToken(token);
+        require(feedAddress != address(0), "feed=0");
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(feedAddress);
+        (
+            uint80 roundId,
+            int256 answer,
+            ,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = priceFeed.latestRoundData();
+        require(answer > 0, "bad price");
+        require(answeredInRound >= roundId, "stale round");
+        require(updatedAt > 0, "bad timestamp");
+        require(block.timestamp >= updatedAt, "future round");
+        require(block.timestamp - updatedAt <= valuation.maxPriceAge(), "stale price");
+        return (uint256(answer), priceFeed.decimals());
     }
 
     function pause() external onlyOwner {

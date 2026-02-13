@@ -23,6 +23,7 @@ async function deployFixture() {
     valuationDeployment.address,
     deployer
   );
+  await valuation.setMaxPriceAge(7 * ONE_DAY);
   const pool = await ethers.getContractAt(
     "LendingPool",
     poolDeployment.address,
@@ -60,7 +61,7 @@ async function deployVestingWallet({ borrower, usdc, allocation, duration }) {
 
 describe("Full MVP Flow", () => {
   it("Creates, repays, and settles loan", async () => {
-    const { lender, borrower, usdc, pool, loanManager } = await deployFixture();
+    const { lender, borrower, usdc, valuation, pool, loanManager } = await deployFixture();
     const poolAddress = await pool.getAddress();
     const loanManagerAddress = await loanManager.getAddress();
 
@@ -99,6 +100,11 @@ describe("Full MVP Flow", () => {
     // Advance time to unlock and settle
     await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
     await ethers.provider.send("evm_mine", []);
+    const freshPriceFeed = await ethers.getContractAt(
+      "MockPriceFeed",
+      await valuation.priceFeed()
+    );
+    await freshPriceFeed.setPrice(1e8);
     await loanManager.settleAtUnlock(0);
 
     const settled = await loanManager.loans(0);
@@ -145,6 +151,7 @@ describe("Full MVP Flow", () => {
 
     await ethers.provider.send("evm_increaseTime", [8 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
+    await priceFeed.setPrice(1e8);
 
     await expect(loanManager.settleAtUnlock(0))
       .to.emit(loanManager, "LoanSettled")
@@ -253,6 +260,11 @@ describe("Full MVP Flow", () => {
 
     await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
+    const refreshedPriceFeed = await ethers.getContractAt(
+      "MockPriceFeed",
+      await valuation.priceFeed()
+    );
+    await refreshedPriceFeed.setPrice(1e8);
     await loanManager.settleAtUnlock(0);
 
     const released = await vesting.released(usdcAddress);
@@ -293,7 +305,7 @@ describe("Full MVP Flow", () => {
   });
 
   it("Escrows Sablier v2 wrapper and creates then settles loan", async () => {
-    const { lender, borrower, usdc, valuation, pool, loanManager } =
+    const { deployer, lender, borrower, usdc, valuation, pool, loanManager } =
       await deployFixture();
     const poolAddress = await pool.getAddress();
 
@@ -335,6 +347,8 @@ describe("Full MVP Flow", () => {
       borrower.address
     );
     await wrapper.waitForDeployment();
+    const adapterDeployment = await deployments.get("VestingAdapter");
+    await wrapper.connect(deployer).setOperator(adapterDeployment.address);
     await sablier
       .connect(borrower)
       .setApproved(streamId, await wrapper.getAddress(), true);
@@ -366,6 +380,7 @@ describe("Full MVP Flow", () => {
 
     await ethers.provider.send("evm_increaseTime", [366 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
+    await priceFeed.setPrice(1e8);
 
     await loanManager.settleAtUnlock(0);
     const settled = await loanManager.loans(0);

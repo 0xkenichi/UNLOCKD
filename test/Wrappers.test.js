@@ -36,6 +36,7 @@ describe("Claim wrappers", () => {
     await expect(wrapper.connect(deployer).initVesting(await vesting.getAddress())).to.be.revertedWith(
       "already initialized"
     );
+    await wrapper.connect(deployer).setOperator(deployer.address);
 
     await ethers.provider.send("evm_increaseTime", [ONE_DAY + 10]);
     await ethers.provider.send("evm_mine", []);
@@ -72,12 +73,15 @@ describe("Claim wrappers", () => {
     await token.transfer(await timelock.getAddress(), total);
 
     await wrapper.initTimelock(await timelock.getAddress());
-    await expect(wrapper.releaseTo(recipient.address, 1)).to.be.revertedWith("not released");
+    await wrapper.setOperator(beneficiary.address);
+    await expect(
+      wrapper.connect(beneficiary).releaseTo(recipient.address, 1)
+    ).to.be.revertedWith("not released");
 
     await ethers.provider.send("evm_increaseTime", [duration + 10]);
     await ethers.provider.send("evm_mine", []);
     const amount = 5_000n * 10n ** 6n;
-    await wrapper.releaseTo(recipient.address, amount);
+    await wrapper.connect(beneficiary).releaseTo(recipient.address, amount);
     expect(await token.balanceOf(recipient.address)).to.equal(amount);
     expect(await wrapper.released(await token.getAddress())).to.equal(amount);
   });
@@ -97,12 +101,15 @@ describe("Claim wrappers", () => {
     await wrapper.waitForDeployment();
 
     await token.transfer(await wrapper.getAddress(), total);
-    await expect(wrapper.releaseTo(recipient.address, 1)).to.be.revertedWith("not unlocked");
+    await wrapper.setOperator(beneficiary.address);
+    await expect(
+      wrapper.connect(beneficiary).releaseTo(recipient.address, 1)
+    ).to.be.revertedWith("not unlocked");
 
     await ethers.provider.send("evm_increaseTime", [ONE_DAY + 10]);
     await ethers.provider.send("evm_mine", []);
     const amount = 1_000n * 10n ** 6n;
-    await wrapper.releaseTo(recipient.address, amount);
+    await wrapper.connect(beneficiary).releaseTo(recipient.address, amount);
     expect(await token.balanceOf(recipient.address)).to.equal(amount);
     expect(await wrapper.released(await token.getAddress())).to.equal(amount);
   });
@@ -134,12 +141,39 @@ describe("Claim wrappers", () => {
     await wrapper.waitForDeployment();
 
     await lockup.connect(beneficiary).setApproved(streamId, await wrapper.getAddress(), true);
+    await wrapper.setOperator(beneficiary.address);
     expect(await wrapper.totalAllocation()).to.equal(streamDeposit);
     expect(await wrapper.token()).to.equal(await token.getAddress());
     expect(await wrapper.duration()).to.be.greaterThan(0);
 
     const releaseAmount = 500n * 10n ** 6n;
-    await wrapper.releaseTo(recipient.address, releaseAmount);
+    await wrapper.connect(beneficiary).releaseTo(recipient.address, releaseAmount);
     expect(await token.balanceOf(recipient.address)).to.equal(releaseAmount);
+  });
+
+  it("blocks unauthorized release callers after operator hardening", async () => {
+    const { deployer, beneficiary, recipient, token } = await deployTokenFixture();
+    const now = (await ethers.provider.getBlock("latest")).timestamp;
+    const SuperfluidClaimWrapper = await ethers.getContractFactory("SuperfluidClaimWrapper");
+    const total = 10_000n * 10n ** 6n;
+    const wrapper = await SuperfluidClaimWrapper.deploy(
+      beneficiary.address,
+      await token.getAddress(),
+      total,
+      now,
+      ONE_DAY
+    );
+    await wrapper.waitForDeployment();
+
+    await token.transfer(await wrapper.getAddress(), total);
+    await wrapper.connect(deployer).setOperator(beneficiary.address);
+
+    await ethers.provider.send("evm_increaseTime", [ONE_DAY + 5]);
+    await ethers.provider.send("evm_mine", []);
+
+    await expect(wrapper.connect(deployer).releaseTo(recipient.address, 1)).to.be.revertedWith(
+      "not authorized"
+    );
+    await expect(wrapper.connect(beneficiary).releaseTo(recipient.address, 1)).to.not.be.reverted;
   });
 });

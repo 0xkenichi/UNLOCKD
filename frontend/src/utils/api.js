@@ -1,18 +1,12 @@
+import { readWalletAuthToken } from './authStorage.js';
+
 const API_BASE =
   import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000);
 const API_GET_RETRIES = Number(import.meta.env.VITE_API_GET_RETRIES || 1);
 
 function readAuthToken() {
-  if (typeof window === 'undefined') return '';
-  try {
-    const raw = window.localStorage.getItem('wallet-auth');
-    if (!raw) return '';
-    const parsed = JSON.parse(raw);
-    return parsed?.token || '';
-  } catch (error) {
-    return '';
-  }
+  return readWalletAuthToken();
 }
 
 function normalizeNetworkError(error) {
@@ -47,7 +41,11 @@ export async function apiPost(path, payload = {}, options = {}) {
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status}`);
     }
-    return response.json();
+    const data = await response.json();
+    if (data && data.ok === false) {
+      throw new Error(data.error || 'Request failed');
+    }
+    return data;
   } catch (error) {
     throw normalizeNetworkError(error);
   } finally {
@@ -56,11 +54,15 @@ export async function apiPost(path, payload = {}, options = {}) {
 }
 
 export async function apiGet(path) {
+  const authToken = readAuthToken();
   for (let attempt = 0; attempt <= API_GET_RETRIES; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
     try {
       const response = await fetch(`${API_BASE}${path}`, {
+        headers: {
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
         signal: controller.signal
       });
       if (!response.ok) {
@@ -73,7 +75,11 @@ export async function apiGet(path) {
         }
         throw new Error(`Request failed: ${response.status}`);
       }
-      return response.json();
+      const data = await response.json();
+      if (data && data.ok === false) {
+        throw new Error(data.error || 'Request failed');
+      }
+      return data;
     } catch (error) {
       const timedOut = error?.name === 'AbortError';
       if (attempt < API_GET_RETRIES) {
@@ -92,7 +98,12 @@ export async function apiGet(path) {
 }
 
 export async function apiDownload(path, filename) {
-  const response = await fetch(`${API_BASE}${path}`);
+  const authToken = readAuthToken();
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+    }
+  });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -194,17 +205,50 @@ export async function fetchKpiDashboard(windowHours = 24) {
   return data.kpi || null;
 }
 
+export async function fetchAnalyticsBenchmark(windowDays = 30) {
+  const safeWindow = Math.min(Math.max(Number(windowDays) || 30, 1), 365);
+  const data = await apiGet(`/api/analytics/benchmark?windowDays=${safeWindow}`);
+  return data.benchmark || null;
+}
+
+export async function fetchAgentReplay(windowHours = 48) {
+  const safeWindow = Math.min(Math.max(Number(windowHours) || 48, 1), 24 * 14);
+  const data = await apiGet(`/api/agent/replay?windowHours=${safeWindow}`);
+  return data.replay || null;
+}
+
+export async function fetchAdminAirdropLeaderboard(windowDays = 30, limit = 200, phase = 'all') {
+  const safeWindow = Math.min(Math.max(Number(windowDays) || 30, 1), 365);
+  const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+  const safePhase = String(phase || 'all').trim().toLowerCase();
+  const data = await apiGet(
+    `/api/admin/airdrop/leaderboard?windowDays=${safeWindow}&limit=${safeLimit}&phase=${encodeURIComponent(safePhase)}`
+  );
+  return data.leaderboard || null;
+}
+
+export async function downloadAdminAirdropLeaderboard(windowDays = 30, limit = 200, phase = 'all') {
+  const safeWindow = Math.min(Math.max(Number(windowDays) || 30, 1), 365);
+  const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+  const safePhase = String(phase || 'all').trim().toLowerCase();
+  await apiDownload(
+    `/api/admin/airdrop/leaderboard.csv?windowDays=${safeWindow}&limit=${safeLimit}&phase=${encodeURIComponent(safePhase)}`,
+    `airdrop-leaderboard-${safePhase}-${safeWindow}d.csv`
+  );
+}
+
 export async function fetchSolanaUnmappedMints() {
   const data = await apiGet('/api/solana/unmapped-mints');
   return data.items || [];
 }
 
-export async function askAgent(message, history = [], captchaToken) {
+export async function askAgent(message, history = [], captchaToken, context = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const authToken = readAuthToken();
     const payload = { message, history };
+    if (context && typeof context === 'object') payload.context = context;
     if (captchaToken) payload.captchaToken = captchaToken;
     const headers = {
       'Content-Type': 'application/json',
@@ -227,7 +271,12 @@ export async function askAgent(message, history = [], captchaToken) {
       sources: data.sources || [],
       mode: data.mode || 'unknown',
       provider: data.provider || null,
-      actions: data.actions || []
+      actions: data.actions || [],
+      intent: data.intent || '',
+      confidence:
+        typeof data.confidence === 'number' && Number.isFinite(data.confidence)
+          ? data.confidence
+          : null
     };
   } finally {
     clearTimeout(timeout);

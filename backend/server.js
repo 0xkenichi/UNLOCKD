@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const { fetch } = require('undici');
 const fs = require('fs');
 const { ethers } = require('ethers');
+const { PublicKey } = require('@solana/web3.js');
 const { z } = require('zod');
 const { initAgent, answerAgent } = require('./agent');
 const persistence = require('./persistence');
@@ -66,6 +67,9 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 const TURNSTILE_BYPASS = process.env.TURNSTILE_BYPASS === 'true';
 const SESSION_TTL_MINUTES = Number(process.env.SESSION_TTL_MINUTES || 60 * 24 * 3);
 const NONCE_TTL_MINUTES = Number(process.env.NONCE_TTL_MINUTES || 10);
+const NONCE_MAX_AGE_MS = Number(
+  process.env.NONCE_MAX_AGE_MS || NONCE_TTL_MINUTES * 60 * 1000
+);
 const GEO_LOOKUP_URL = process.env.GEO_LOOKUP_URL || 'https://ipapi.co';
 const GEO_LOOKUP_TIMEOUT_MS = Number(process.env.GEO_LOOKUP_TIMEOUT_MS || 2200);
 const GEO_CACHE_TTL_MS = Number(process.env.GEO_CACHE_TTL_MS || 24 * 60 * 60 * 1000);
@@ -381,10 +385,19 @@ const corsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const corsOptions = corsOrigins.length
-  ? { origin: corsOrigins, credentials: true }
-  : null;
-app.use(corsOptions ? cors(corsOptions) : cors());
+const isProduction = process.env.NODE_ENV === 'production';
+const allowWildcardOrigin = corsOrigins.includes('*');
+const corsOptions = allowWildcardOrigin
+  ? { origin: true, credentials: false }
+  : corsOrigins.length
+    ? { origin: corsOrigins, credentials: true }
+  : isProduction
+    ? { origin: false, credentials: false }
+    : { origin: true, credentials: true };
+if (isProduction && !corsOrigins.length) {
+  console.warn('[security] CORS_ORIGINS missing in production; cross-origin requests blocked');
+}
+app.use(cors(corsOptions));
 
 const jsonLimit = process.env.JSON_BODY_LIMIT || '200kb';
 app.use(express.json({ limit: jsonLimit }));
@@ -530,11 +543,12 @@ const validateBody = (schema) => (req, res, next) => {
 };
 
 const getClientIp = (req) => {
+  const trustProxyEnabled = Boolean(app.get('trust proxy'));
   const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length) {
+  if (trustProxyEnabled && typeof forwarded === 'string' && forwarded.length) {
     return forwarded.split(',')[0].trim();
   }
-  return req.ip || '';
+  return typeof req.ip === 'string' ? req.ip : '';
 };
 
 const hashIp = (ip) => {
@@ -752,6 +766,15 @@ const requireSession = async (req, res, next) => {
   }
 };
 
+const requireWalletOwnerParam = (paramKey) => (req, res, next) => {
+  const sessionWallet = normalizeWalletAddress(req.user?.walletAddress || '');
+  const targetWallet = normalizeWalletAddress(req.params?.[paramKey] || '');
+  if (!sessionWallet || !targetWallet || sessionWallet !== targetWallet) {
+    return res.status(403).json({ ok: false, error: 'Wallet mismatch' });
+  }
+  return next();
+};
+
 const secureEqual = (left, right) => {
   if (!left || !right) return false;
   const leftBuf = Buffer.from(String(left));
@@ -869,7 +892,11 @@ app.get('/api/identity/:walletAddress', async (req, res) => {
   }
 });
 
-app.get('/api/identity/passport-score/:walletAddress', async (req, res) => {
+app.get(
+  '/api/identity/passport-score/:walletAddress',
+  requireSession,
+  requireWalletOwnerParam('walletAddress'),
+  async (req, res) => {
   const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
   if (!walletAddress) {
     return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
@@ -914,6 +941,9 @@ app.get('/api/identity/passport-score/:walletAddress', async (req, res) => {
     const profile = await buildIdentityProfile(walletAddress);
     return res.json({
       ok: true,
+      environment: process.env.NODE_ENV || 'development',
+      provider: 'gitcoin_passport_seeded',
+      mock: true,
       score,
       stampsCount,
       attestationCreated,
@@ -930,7 +960,8 @@ app.get('/api/identity/passport-score/:walletAddress', async (req, res) => {
       error: error?.message || 'Failed to score passport identity'
     });
   }
-});
+  }
+);
 
 const vestingValidateSchema = z
   .object({
@@ -996,7 +1027,7 @@ app.post('/api/vesting/validate', validateBody(vestingValidateSchema), async (re
   }
 });
 
-app.post('/api/fundraising/link', validateBody(fundraisingLinkSchema), async (req, res) => {
+app.post('/api/fundraising/link', requireSession, validateBody(fundraisingLinkSchema), async (req, res) => {
   try {
     const source = await persistence.createFundraisingSource({
       projectId: req.body.projectId,
@@ -1011,7 +1042,7 @@ app.post('/api/fundraising/link', validateBody(fundraisingLinkSchema), async (re
   }
 });
 
-app.get('/api/fundraising/sources', async (req, res) => {
+app.get('/api/fundraising/sources', requireSession, async (req, res) => {
   try {
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : null;
     const chain = typeof req.query.chain === 'string' ? req.query.chain : null;
@@ -1023,7 +1054,7 @@ app.get('/api/fundraising/sources', async (req, res) => {
   }
 });
 
-app.get('/api/fundraising/sources/:id', async (req, res) => {
+app.get('/api/fundraising/sources/:id', requireSession, async (req, res) => {
   try {
     const source = await persistence.getFundraisingSource(req.params.id);
     if (!source) return res.status(404).json({ ok: false, error: 'Not found' });
@@ -1033,7 +1064,7 @@ app.get('/api/fundraising/sources/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/fundraising/sources/:id', validateBody(z.object({
+app.patch('/api/fundraising/sources/:id', requireSession, validateBody(z.object({
   token: z.string().trim().max(42).optional(),
   treasury: z.string().trim().max(42).optional(),
   vestingPolicyRef: z.string().trim().max(200).optional()
@@ -1074,7 +1105,7 @@ const poolPreferencesSchema = z
   .object({
     riskTier: z.enum(['conservative', 'balanced', 'aggressive']).optional(),
     maxLtvBps: z.number().int().min(0).max(10000).optional(),
-    interestBps: z.number().int().min(0).max(4000).optional(),
+    interestBps: z.number().int().min(0).max(5000).optional(),
     minLiquidityUsd: z.number().min(0).optional(),
     minWalletAgeDays: z.number().min(0).optional(),
     minVolumeUsd: z.number().min(0).optional(),
@@ -1163,6 +1194,33 @@ const walletVerifySchema = z
   })
   .strip();
 
+const isValidSolanaPublicKey = (value) => {
+  try {
+    return Boolean(new PublicKey(String(value).trim()));
+  } catch {
+    return false;
+  }
+};
+
+const solanaRepaySchema = z
+  .object({
+    owner: z
+      .string()
+      .trim()
+      .refine((value) => isValidSolanaPublicKey(value), 'Invalid owner public key'),
+    maxUsdc: z
+      .union([
+        z.string().trim().regex(/^\d+$/, 'maxUsdc must be a non-negative integer'),
+        z.number().int().min(0)
+      ])
+      .optional()
+  })
+  .strip()
+  .transform((value) => ({
+    ...value,
+    maxUsdc: value.maxUsdc === undefined ? undefined : String(value.maxUsdc)
+  }));
+
 const chatSchema = z
   .object({
     message: stringField(2000),
@@ -1174,6 +1232,14 @@ const chatSchema = z
         })
       )
       .max(10)
+      .optional(),
+    context: z
+      .object({
+        path: optionalString(160),
+        chainId: z.number().int().positive().optional(),
+        walletAddress: optionalAddress,
+        page: optionalString(80)
+      })
       .optional(),
     captchaToken: optionalString(2048)
   })
@@ -1249,12 +1315,13 @@ const adminIdentityPatchSchema = z
   })
   .strip();
 
-const buildWalletMessage = (walletAddress, nonce) => {
+const buildWalletMessage = (walletAddress, nonce, issuedAtIso) => {
+  const issuedAt = issuedAtIso || new Date().toISOString();
   return [
     'Vestra authentication request',
     `Wallet: ${walletAddress}`,
     `Nonce: ${nonce}`,
-    `Issued at: ${new Date().toISOString()}`,
+    `Issued at: ${issuedAt}`,
     'Only sign if you trust this request.'
   ].join('\n');
 };
@@ -1275,7 +1342,7 @@ const getPoolInterestBps = async () => {
     const rate = await contract.getInterestRateBps();
     return Number(rate);
   } catch {
-    return 800;
+    return 1800;
   }
 };
 
@@ -1414,6 +1481,7 @@ app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) =>
     const walletAddress = ethers.getAddress(req.body.walletAddress);
     const user = await persistence.getOrCreateUserByWallet(walletAddress);
     const nonce = crypto.randomBytes(16).toString('hex');
+    const issuedAt = new Date();
     const expiresAt = new Date(Date.now() + NONCE_TTL_MINUTES * 60 * 1000);
     const ipHash = hashIp(getClientIp(req));
     await persistence.clearSessionsByProvider(user.id, 'wallet_nonce');
@@ -1421,15 +1489,16 @@ app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) =>
       userId: user.id,
       provider: 'wallet_nonce',
       nonce,
-      issuedAt: new Date(),
+      issuedAt,
       expiresAt,
       ipHash
     });
+    const issuedAtIso = issuedAt.toISOString();
     res.json({
       ok: true,
       walletAddress,
       nonce,
-      message: buildWalletMessage(walletAddress, nonce),
+      message: buildWalletMessage(walletAddress, nonce, issuedAtIso),
       expiresAt: expiresAt.toISOString()
     });
   } catch (error) {
@@ -1455,7 +1524,17 @@ app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) 
     if (nonceSession.expiresAt && Date.now() > nonceSession.expiresAt) {
       return res.status(401).json({ ok: false, error: 'Nonce expired' });
     }
-    const message = buildWalletMessage(walletAddress, req.body.nonce);
+    const nonceIssuedAtMs = Date.parse(String(nonceSession.issuedAt || ''));
+    if (!Number.isFinite(nonceIssuedAtMs)) {
+      await persistence.deleteSession(nonceSession.id);
+      return res.status(401).json({ ok: false, error: 'Nonce expired' });
+    }
+    if (Date.now() - nonceIssuedAtMs > NONCE_MAX_AGE_MS) {
+      await persistence.deleteSession(nonceSession.id);
+      return res.status(401).json({ ok: false, error: 'Nonce expired' });
+    }
+    const nonceIssuedAtIso = new Date(nonceIssuedAtMs).toISOString();
+    const message = buildWalletMessage(walletAddress, req.body.nonce, nonceIssuedAtIso);
     const recovered = ethers.verifyMessage(message, req.body.signature);
     if (ethers.getAddress(recovered) !== walletAddress) {
       return res.status(401).json({ ok: false, error: 'Signature invalid' });
@@ -1526,7 +1605,8 @@ app.post(
     const result = await answerAgent(agent, {
       message: req.body?.message,
       history,
-      memory
+      memory,
+      context: req.body?.context || null
     });
     try {
       await persistence.saveAgentConversation({
@@ -1538,7 +1618,9 @@ app.post(
         provider: result.provider || '',
         metadata: {
           sourceFiles: (result.sources || []).map((source) => source.file).slice(0, 8),
-          actionTypes: (result.actions || []).map((action) => action.type).slice(0, 8)
+          actionTypes: (result.actions || []).map((action) => action.type).slice(0, 8),
+          intent: result.intent || '',
+          confidence: result.confidence ?? null
         }
       });
     } catch (error) {
@@ -1796,7 +1878,11 @@ app.post(
       await persistence.saveAnalyticsEvent({
         event: payload.event,
         page: payload.page || null,
-        walletAddress: payload.walletAddress || req.user?.walletAddress || null,
+        walletAddress:
+          payload.walletAddress ||
+          payload.properties?.walletAddress ||
+          req.user?.walletAddress ||
+          null,
         properties: payload.properties || {},
         userId: req.user?.id || null,
         sessionFingerprint: buildSessionFingerprint(req),
@@ -1824,6 +1910,151 @@ app.get('/api/analytics/summary', expensiveLimiter, async (req, res) => {
       ok: false,
       error: error?.message || 'Unable to fetch analytics summary',
       summary: null
+    });
+  }
+});
+
+app.get('/api/analytics/benchmark', expensiveLimiter, async (req, res) => {
+  try {
+    const windowDays = Math.min(Math.max(Number(req.query?.windowDays) || 30, 1), 365);
+    const benchmark = await persistence.getAnalyticsBenchmark({ windowDays });
+    res.json({ ok: true, benchmark });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch analytics benchmark',
+      benchmark: null
+    });
+  }
+});
+
+const buildAgentReplaySummary = (rows, windowHours) => {
+  const now = Date.now();
+  const windowMs = windowHours * 60 * 60 * 1000;
+  const since = now - windowMs;
+  const filtered = (rows || [])
+    .map((row) => {
+      const createdAtMs = row?.createdAt ? Date.parse(row.createdAt) : NaN;
+      if (!Number.isFinite(createdAtMs) || createdAtMs < since) return null;
+      const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      const intent =
+        typeof metadata.intent === 'string' && metadata.intent
+          ? metadata.intent
+          : 'unknown';
+      const confidence = Number(metadata.confidence);
+      return {
+        createdAtMs,
+        intent,
+        confidence: Number.isFinite(confidence) ? confidence : null
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.createdAtMs - b.createdAtMs);
+
+  const intentCounts = {};
+  let confidenceSum = 0;
+  let confidenceCount = 0;
+  filtered.forEach((item) => {
+    intentCounts[item.intent] = (intentCounts[item.intent] || 0) + 1;
+    if (item.confidence !== null) {
+      confidenceSum += item.confidence;
+      confidenceCount += 1;
+    }
+  });
+  const avgConfidence =
+    confidenceCount > 0 ? Math.round((confidenceSum / confidenceCount) * 1000) / 1000 : null;
+  const topIntentEntry = Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0] || null;
+  const topIntent = topIntentEntry ? topIntentEntry[0] : 'unknown';
+
+  const bucketSizeMs = 60 * 60 * 1000;
+  const bucketMap = new Map();
+  const bucketStart = Math.floor(since / bucketSizeMs) * bucketSizeMs;
+  const bucketEnd = Math.floor(now / bucketSizeMs) * bucketSizeMs;
+  for (let ts = bucketStart; ts <= bucketEnd; ts += bucketSizeMs) {
+    bucketMap.set(ts, {
+      t: new Date(ts).toISOString(),
+      count: 0,
+      confidenceAvg: null,
+      confidenceSum: 0,
+      confidenceCount: 0,
+      dominantIntent: 'unknown',
+      intents: {}
+    });
+  }
+  filtered.forEach((item) => {
+    const key = Math.floor(item.createdAtMs / bucketSizeMs) * bucketSizeMs;
+    const bucket = bucketMap.get(key);
+    if (!bucket) return;
+    bucket.count += 1;
+    bucket.intents[item.intent] = (bucket.intents[item.intent] || 0) + 1;
+    if (item.confidence !== null) {
+      bucket.confidenceSum += item.confidence;
+      bucket.confidenceCount += 1;
+    }
+  });
+  const timeline = Array.from(bucketMap.values()).map((bucket) => {
+    const dominantIntent =
+      Object.entries(bucket.intents).sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
+    const confidenceAvg =
+      bucket.confidenceCount > 0
+        ? Math.round((bucket.confidenceSum / bucket.confidenceCount) * 1000) / 1000
+        : null;
+    return {
+      t: bucket.t,
+      count: bucket.count,
+      confidenceAvg,
+      dominantIntent
+    };
+  });
+
+  const half = Math.max(1, Math.floor(timeline.length / 2));
+  const firstHalf = timeline.slice(0, half).filter((item) => item.confidenceAvg !== null);
+  const secondHalf = timeline.slice(half).filter((item) => item.confidenceAvg !== null);
+  const avg = (arr) =>
+    arr.length
+      ? arr.reduce((sum, item) => sum + Number(item.confidenceAvg || 0), 0) / arr.length
+      : null;
+  const firstHalfAvg = avg(firstHalf);
+  const secondHalfAvg = avg(secondHalf);
+  const confidenceDelta =
+    firstHalfAvg !== null && secondHalfAvg !== null
+      ? Math.round((secondHalfAvg - firstHalfAvg) * 1000) / 1000
+      : null;
+
+  return {
+    windowHours,
+    generatedAt: new Date().toISOString(),
+    totalTurns: filtered.length,
+    avgConfidence,
+    topIntent,
+    intentCounts,
+    drift: {
+      firstHalfAvg:
+        firstHalfAvg !== null ? Math.round(firstHalfAvg * 1000) / 1000 : null,
+      secondHalfAvg:
+        secondHalfAvg !== null ? Math.round(secondHalfAvg * 1000) / 1000 : null,
+      confidenceDelta
+    },
+    timeline
+  };
+};
+
+app.get('/api/agent/replay', expensiveLimiter, async (req, res) => {
+  try {
+    const windowHours = Math.min(Math.max(Number(req.query?.windowHours) || 48, 1), 24 * 14);
+    const sessionFingerprint = buildSessionFingerprint(req);
+    const rows = await persistence.listRecentAgentConversations({
+      limit: 400,
+      userId: req.user?.id || undefined,
+      sessionFingerprint: req.user?.id ? undefined : sessionFingerprint
+    });
+    const replay = buildAgentReplaySummary(rows, windowHours);
+    res.json({ ok: true, replay });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch agent replay',
+      replay: null
     });
   }
 });
@@ -2043,6 +2274,101 @@ app.get('/api/admin/debug/kpi', adminLimiter, requireSession, requireAdmin, asyn
     });
   }
 });
+
+app.get(
+  '/api/admin/airdrop/leaderboard',
+  adminLimiter,
+  requireSession,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const windowDays = Math.min(Math.max(Number(req.query?.windowDays) || 30, 1), 365);
+      const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
+      const phase = String(req.query?.phase || 'all').trim().toLowerCase();
+      const leaderboard = await persistence.getAirdropLeaderboard({ windowDays, limit, phase });
+      await recordAdminAudit(req, 'admin.airdrop.leaderboard.read', {
+        targetType: 'airdrop_leaderboard',
+        targetId: String(windowDays),
+        payload: {
+          windowDays,
+          limit,
+          phase
+        }
+      });
+      return res.json({ ok: true, leaderboard });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Failed to build airdrop leaderboard',
+        leaderboard: null
+      });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/airdrop/leaderboard.csv',
+  adminLimiter,
+  requireSession,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const windowDays = Math.min(Math.max(Number(req.query?.windowDays) || 30, 1), 365);
+      const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
+      const phase = String(req.query?.phase || 'all').trim().toLowerCase();
+      const payload = await persistence.getAirdropLeaderboard({ windowDays, limit, phase });
+      const rows = [
+        [
+          'rank',
+          'wallet_address',
+          'score',
+          'event_count',
+          'unique_events',
+          'high_value_actions',
+          'feedback_count',
+          'penalties',
+          'last_seen_at'
+        ],
+        ...(payload?.leaderboard || []).map((row) => [
+          row.rank,
+          row.walletAddress,
+          row.score,
+          row.eventCount,
+          row.uniqueEvents,
+          row.highValueActions,
+          row.feedbackCount,
+          row.penalties,
+          row.lastSeenAt || ''
+        ])
+      ];
+      const csv = rows
+        .map((row) =>
+          row
+            .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+            .join(',')
+        )
+        .join('\n');
+      const filename = `airdrop-leaderboard-${payload?.phase || phase}-${windowDays}d.csv`;
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      await recordAdminAudit(req, 'admin.airdrop.leaderboard.export', {
+        targetType: 'airdrop_leaderboard_csv',
+        targetId: String(windowDays),
+        payload: {
+          windowDays,
+          limit,
+          phase
+        }
+      });
+      return res.send(csv);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Failed to export airdrop leaderboard CSV'
+      });
+    }
+  }
+);
 
 app.get('/api/admin/audit-logs', adminLimiter, requireSession, requireAdmin, async (req, res) => {
   try {
@@ -2375,6 +2701,7 @@ const getEvmVestedContracts = async () => {
     async (loanId) => {
       const loan = await loanContract.loans(loanId);
       const collateralId = loan[3];
+      const vestingContract = await adapterContract.vestingContracts(collateralId);
       const [quantity, token, unlockTime] = await adapterContract.getDetails(collateralId);
 
       let tokenSymbol = '';
@@ -2413,6 +2740,7 @@ const getEvmVestedContracts = async () => {
         principal: loan[1].toString(),
         interest: loan[2].toString(),
         collateralId: collateralId.toString(),
+        vestingContract: vestingContract || '',
         unlockTime: unlockTimestamp,
         active: Boolean(loan[5]),
         token,
@@ -2526,14 +2854,10 @@ app.get('/api/solana/repay-config', (_req, res) => {
   res.json({ ok: true, config: getRepayConfig() });
 });
 
-app.post('/api/solana/repay-plan', async (req, res) => {
+app.post('/api/solana/repay-plan', requireSession, requireAdmin, validateBody(solanaRepaySchema), async (req, res) => {
   try {
-    const owner = req.body?.owner;
-    const maxUsdc = req.body?.maxUsdc;
-    if (!owner) {
-      res.status(400).json({ ok: false, error: 'owner required' });
-      return;
-    }
+    const owner = req.body.owner;
+    const maxUsdc = req.body.maxUsdc;
     const plan = await buildRepayPlan({ owner, maxUsdc });
     res.json({ ok: true, plan });
   } catch (error) {
@@ -2544,14 +2868,10 @@ app.post('/api/solana/repay-plan', async (req, res) => {
   }
 });
 
-app.post('/api/solana/repay-sweep', async (req, res) => {
+app.post('/api/solana/repay-sweep', requireSession, requireAdmin, validateBody(solanaRepaySchema), async (req, res) => {
   try {
-    const owner = req.body?.owner;
-    const maxUsdc = req.body?.maxUsdc;
-    if (!owner) {
-      res.status(400).json({ ok: false, error: 'owner required' });
-      return;
-    }
+    const owner = req.body.owner;
+    const maxUsdc = req.body.maxUsdc;
     const result = await executeRepaySweep({ owner, maxUsdc });
     res.json(result);
   } catch (error) {

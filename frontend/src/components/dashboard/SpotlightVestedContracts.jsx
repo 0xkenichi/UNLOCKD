@@ -53,15 +53,35 @@ function riskTag(risk) {
   return 'tag';
 }
 
-function isLink(value) {
-  return typeof value === 'string' && value.toLowerCase().startsWith('http');
+const TRUSTED_EVIDENCE_HOSTS = [
+  'etherscan.io',
+  'basescan.org',
+  'solscan.io',
+  'explorer.solana.com',
+  'github.com',
+  'docs.vestra.xyz',
+  'vestra.xyz'
+];
+
+function isTrustedEvidenceUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return TRUSTED_EVIDENCE_HOSTS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isVerified(item) {
   return (
-    isLink(item.evidence?.escrowTx) &&
-    isLink(item.evidence?.wallet) &&
-    isLink(item.evidence?.tokenomics)
+    isTrustedEvidenceUrl(item.evidence?.escrowTx) &&
+    isTrustedEvidenceUrl(item.evidence?.wallet) &&
+    isTrustedEvidenceUrl(item.evidence?.tokenomics)
   );
 }
 
@@ -80,7 +100,7 @@ function computeEligibilityScore(item) {
   const daysToUnlock = toNumber(item.metrics?.daysToUnlock ?? 0);
   const historicalUnlocks = toNumber(item.metrics?.historicalUnlocks ?? 0);
   const evidenceCount = Object.values(item.evidence || {}).filter(
-    (value) => value && value.toLowerCase().startsWith('http')
+    (value) => isTrustedEvidenceUrl(value)
   ).length;
 
   const liquidityScore = Math.min(40, (liquidityUsd / 20000000) * 40);
@@ -95,7 +115,7 @@ function computeEligibilityScore(item) {
 
 function renderEvidence(value) {
   if (!value) return '--';
-  return isLink(value) ? (
+  return isTrustedEvidenceUrl(value) ? (
     <a className="button ghost" href={value} target="_blank" rel="noreferrer">
       View
     </a>
@@ -551,7 +571,7 @@ export default function SpotlightVestedContracts() {
                       <div>Evidence Links</div>
                       <div>
                         {Object.values(item.evidence || {}).filter(
-                          (value) => value && value.toLowerCase().startsWith('http')
+                          (value) => isTrustedEvidenceUrl(value)
                         ).length || 0}
                       </div>
                       <div>Verified links increase transparency score.</div>

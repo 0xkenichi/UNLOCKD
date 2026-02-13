@@ -3,15 +3,21 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract SuperfluidClaimWrapper is Ownable {
+    using SafeERC20 for IERC20;
+
     address public beneficiary;
     address public token;
+    address public operator;
     uint256 public totalAllocation;
     uint256 public startTime;
     uint256 public vestingDuration;
 
     mapping(address => uint256) public released;
+
+    event OperatorUpdated(address indexed operator);
 
     constructor(
         address _beneficiary,
@@ -43,13 +49,20 @@ contract SuperfluidClaimWrapper is Ownable {
         return token;
     }
 
+    function setOperator(address newOperator) external onlyOwner {
+        require(newOperator != address(0), "operator=0");
+        operator = newOperator;
+        emit OperatorUpdated(newOperator);
+    }
+
     function releaseTo(address to, uint256 amount) external {
+        require(msg.sender == operator, "not authorized");
         require(to != address(0), "to=0");
         require(amount > 0, "amount=0");
         require(block.timestamp >= startTime + vestingDuration, "not unlocked");
         uint256 available = IERC20(token).balanceOf(address(this));
         require(amount <= available, "amount>available");
         released[token] += amount;
-        IERC20(token).transfer(to, amount);
+        IERC20(token).safeTransfer(to, amount);
     }
 }

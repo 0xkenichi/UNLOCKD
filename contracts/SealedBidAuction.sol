@@ -12,6 +12,14 @@ contract SealedBidAuction is BaseAuction {
 
     constructor(address _adapter, address _usdc) BaseAuction(_adapter, _usdc) {}
 
+    function buildCommitment(
+        uint256 auctionId,
+        uint256 bidAmount,
+        uint256 nonce
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(auctionId, bidAmount, nonce));
+    }
+
     function commitBid(uint256 auctionId, bytes32 commitment) external whenNotPaused {
         AuctionItem storage auction = auctions[auctionId];
         require(_isActive(auction), "ended");
@@ -40,7 +48,7 @@ contract SealedBidAuction is BaseAuction {
         require(commitment != bytes32(0), "no commit");
         require(revealedBids[auctionId][msg.sender] == 0, "revealed");
         require(
-            commitment == keccak256(abi.encodePacked(bidAmount, nonce)),
+            commitment == buildCommitment(auctionId, bidAmount, nonce),
             "bad reveal"
         );
 
