@@ -951,8 +951,9 @@ a.tier-badge-link:hover .tier-badge { filter: brightness(1.1); }
 
 .illustration-body {
   position: relative;
-  height: clamp(220px, 32vh, 320px);
+  height: clamp(220px, 34vh, 380px);
   min-height: 220px;
+  aspect-ratio: 16 / 10;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-secondary);
   background: rgba(10, 14, 20, 0.45);

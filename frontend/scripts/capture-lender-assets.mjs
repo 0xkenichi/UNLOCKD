@@ -6,6 +6,8 @@ const APP_URL = process.env.APP_URL || 'http://localhost:5174';
 const OUT_DIR = process.env.OUT_DIR
   ? path.resolve(process.env.OUT_DIR)
   : path.resolve(process.cwd(), '..', 'artifacts', 'alchemy-application');
+const CAPTURE_WIDTH = Number(process.env.CAPTURE_WIDTH || 1920);
+const CAPTURE_HEIGHT = Number(process.env.CAPTURE_HEIGHT || 1080);
 
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
@@ -35,13 +37,15 @@ async function safeFill(page, selector, value) {
 
 async function captureScreenshots() {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT }
+  });
   const page = await context.newPage();
 
-  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1800);
+  await page.goto(`${APP_URL}/dashboard`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2200);
   await page.screenshot({
-    path: path.join(OUT_DIR, '01-home.png'),
+    path: path.join(OUT_DIR, '01-dashboard.png'),
     fullPage: false
   });
 
@@ -55,7 +59,14 @@ async function captureScreenshots() {
   await safeFill(page, 'input[placeholder="Enter target USDC"]', '1000');
   await page.waitForTimeout(600);
   await page.screenshot({
-    path: path.join(OUT_DIR, '03-lender-onboarding-capital.png'),
+    path: path.join(OUT_DIR, '03-lender-capital-entered.png'),
+    fullPage: false
+  });
+
+  await page.goto(`${APP_URL}/identity`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2200);
+  await page.screenshot({
+    path: path.join(OUT_DIR, '04-identity.png'),
     fullPage: false
   });
 
@@ -69,8 +80,8 @@ async function captureVideo() {
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    recordVideo: { dir: videoTempDir, size: { width: 1440, height: 900 } }
+    viewport: { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT },
+    recordVideo: { dir: videoTempDir, size: { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT } }
   });
   const page = await context.newPage();
 
@@ -107,9 +118,10 @@ async function writeManifest() {
     `App URL: ${APP_URL}`,
     '',
     'Files:',
-    '- 01-home.png',
+    '- 01-dashboard.png',
     '- 02-lender-overview.png',
-    '- 03-lender-onboarding-capital.png',
+    '- 03-lender-capital-entered.png',
+    '- 04-identity.png',
     '- lender-onboarding-demo.webm'
   ].join('\n');
 

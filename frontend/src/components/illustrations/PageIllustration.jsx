@@ -1,149 +1,220 @@
-import { Suspense, useMemo } from 'react';
+import { Suspense, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 
-const VARIANT_LABELS = {
-  dashboard: 'Portfolio radar',
-  portfolio: 'Positions timeline',
-  lender: 'Liquidity profile',
-  borrow: 'Risk preview',
-  repay: 'Repayment path',
-  auction: 'Auction flow',
-  governance: 'Consensus signal',
-  identity: 'Privacy shield',
-  features: 'Protocol stack',
-  docs: 'Knowledge hub',
-  about: 'Mission map'
+const ILLUSTRATIONS_DISABLED = String(import.meta.env.VITE_DISABLE_ILLUSTRATIONS || '').trim() === 'true';
+
+const VARIANT_META = {
+  dashboard: { label: 'Protocol telemetry', badge: 'Live' },
+  portfolio: { label: 'Position distribution', badge: 'Portfolio' },
+  lender: { label: 'Liquidity runway', badge: 'Lender' },
+  borrow: { label: 'Borrow confidence', badge: 'Borrow' },
+  repay: { label: 'Repayment readiness', badge: 'Repay' },
+  auction: { label: 'Auction pressure map', badge: 'Auction' },
+  governance: { label: 'Governance voting flow', badge: 'Governance' },
+  identity: { label: 'Identity trust envelope', badge: 'Identity' },
+  features: { label: 'Protocol capability map', badge: 'Features' },
+  docs: { label: 'Documentation pathways', badge: 'Docs' },
+  about: { label: 'Mission and operating model', badge: 'About' }
 };
 
-function OrbScene() {
+const VARIANT_THEME = {
+  dashboard: { a: '#60A5FA', b: '#22D3EE', c: '#34D399' },
+  portfolio: { a: '#818CF8', b: '#38BDF8', c: '#22D3EE' },
+  lender: { a: '#10B981', b: '#22D3EE', c: '#60A5FA' },
+  borrow: { a: '#F59E0B', b: '#FB7185', c: '#F97316' },
+  repay: { a: '#34D399', b: '#60A5FA', c: '#22D3EE' },
+  auction: { a: '#FB7185', b: '#A78BFA', c: '#60A5FA' },
+  governance: { a: '#A78BFA', b: '#60A5FA', c: '#22D3EE' },
+  identity: { a: '#60A5FA', b: '#34D399', c: '#22D3EE' },
+  features: { a: '#22D3EE', b: '#A78BFA', c: '#60A5FA' },
+  docs: { a: '#60A5FA', b: '#22D3EE', c: '#94A3B8' },
+  about: { a: '#A78BFA', b: '#34D399', c: '#60A5FA' }
+};
+
+function LiveCore({ theme }) {
+  const orbRef = useRef(null);
+  const ringRef = useRef(null);
+  const knotRef = useRef(null);
+
+  useFrame((state, delta) => {
+    const t = state.clock.elapsedTime;
+    if (orbRef.current) {
+      orbRef.current.rotation.y += delta * 0.32;
+      orbRef.current.rotation.x = Math.sin(t * 0.22) * 0.2;
+    }
+    if (ringRef.current) {
+      ringRef.current.rotation.z += delta * 0.55;
+      ringRef.current.rotation.x = Math.sin(t * 0.35) * 0.25;
+    }
+    if (knotRef.current) {
+      knotRef.current.rotation.x += delta * 0.28;
+      knotRef.current.rotation.y += delta * 0.25;
+      knotRef.current.position.y = Math.sin(t * 0.8) * 0.08;
+    }
+  });
+
   return (
-    <Canvas className="illustration-canvas">
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[2, 3, 4]} intensity={0.6} />
-      <mesh rotation={[0.3, 0.6, 0]}>
-        <icosahedronGeometry args={[1.15, 0]} />
-        <meshStandardMaterial color="#C0C0C0" emissive="#1f3b5a" />
+    <>
+      <ambientLight intensity={0.72} />
+      <pointLight position={[-2.3, 1.9, 2.6]} intensity={18} color={theme.a} />
+      <pointLight position={[2.1, -1.2, 2.4]} intensity={14} color={theme.b} />
+      <pointLight position={[0, 2.2, -2]} intensity={10} color={theme.c} />
+
+      <group ref={orbRef}>
+        <mesh>
+          <icosahedronGeometry args={[1.18, 2]} />
+          <meshStandardMaterial color={theme.a} transparent opacity={0.18} metalness={0.42} roughness={0.28} />
+        </mesh>
+      </group>
+
+      <mesh ref={ringRef} rotation={[0.9, 0.1, 0]}>
+        <torusGeometry args={[1.5, 0.05, 24, 120]} />
+        <meshStandardMaterial color={theme.b} transparent opacity={0.78} emissive={theme.b} emissiveIntensity={0.2} />
       </mesh>
+
+      <mesh ref={knotRef} scale={0.56}>
+        <torusKnotGeometry args={[0.82, 0.22, 120, 18]} />
+        <meshStandardMaterial color={theme.c} metalness={0.2} roughness={0.35} />
+      </mesh>
+    </>
+  );
+}
+
+function LiveIllustration3D({ variant }) {
+  const theme = VARIANT_THEME[variant] || VARIANT_THEME.dashboard;
+  return (
+    <Canvas
+      className="illustration-canvas"
+      camera={{ position: [0, 0, 4.2], fov: 42 }}
+      dpr={[1, 1.6]}
+    >
+      <LiveCore theme={theme} />
     </Canvas>
   );
 }
 
-function IdentityPassportSvg({ identityData }) {
+function IdentityPassportGlyph({ identityData }) {
   const scoreNumber = Number(identityData?.compositeScore);
   const hasScore = Number.isFinite(scoreNumber);
   const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : null;
   const scoreLabel = hasScore ? String(normalizedScore) : '—';
-  const barWidth = hasScore ? Math.round((normalizedScore / 1000) * 118) : 8;
+  const barWidth = hasScore ? Math.round((normalizedScore / 1000) * 106) : 6;
   const tier = Number.isFinite(Number(identityData?.identityTier))
     ? Number(identityData.identityTier)
     : 0;
   const tierName = identityData?.tierName || 'Anonymous';
-  const hasWallet = Boolean(identityData?.walletAddress);
-  const passportScore = Number(identityData?.passportResult?.score);
-  const hasPassportScore = Number.isFinite(passportScore) && passportScore > 0;
-  const passportChip = hasPassportScore
-    ? `Passport ${Math.round(passportScore)}`
-    : 'Passport —';
-  const walletChip = hasWallet ? 'Wallet on' : 'Wallet off';
-  const tierChip = `Tier ${tier}`;
 
   return (
-    <svg
-      className="illustration-svg"
-      viewBox="0 0 320 220"
-      role="img"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="passportFrame" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="rgba(88,166,255,0.26)" />
-          <stop offset="100%" stopColor="rgba(96,165,250,0.08)" />
-        </linearGradient>
-        <linearGradient id="scoreBar" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="rgba(56,139,253,0.85)" />
-          <stop offset="100%" stopColor="rgba(52,211,153,0.85)" />
-        </linearGradient>
-      </defs>
+    <g>
+      <rect x="40" y="44" width="108" height="132" rx="16" fill="rgba(10,14,20,0.58)" stroke="rgba(96,165,250,0.28)" />
+      <circle cx="94" cy="90" r="19" fill="rgba(96,165,250,0.22)" />
+      <rect x="70" y="114" width="48" height="22" rx="11" fill="rgba(96,165,250,0.22)" />
 
-      <rect x="16" y="14" width="288" height="192" rx="20" fill="rgba(255,255,255,0.03)" />
-      <rect x="26" y="24" width="268" height="172" rx="16" fill="url(#passportFrame)" stroke="rgba(88,166,255,0.24)" />
+      <text x="168" y="72" fill="var(--text-muted)" fontSize="9" letterSpacing="1">COMPOSITE SCORE</text>
+      <text x="168" y="100" fill="var(--text-primary)" fontSize="28" fontWeight="700">{scoreLabel}</text>
+      <rect x="168" y="110" width="106" height="10" rx="5" fill="rgba(148,163,184,0.26)" />
+      <rect x="168" y="110" width={barWidth} height="10" rx="5" fill="rgba(52,211,153,0.84)" />
+      <text x="168" y="136" fill="rgba(52,211,153,0.92)" fontSize="10" letterSpacing="0.7">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
+      <rect x="168" y="148" width="80" height="20" rx="10" fill="rgba(96,165,250,0.16)" stroke="rgba(96,165,250,0.34)" />
+      <text x="208" y="161" fill="var(--primary-300)" fontSize="9" textAnchor="middle">KYC SAFE</text>
+    </g>
+  );
+}
 
-      <text x="42" y="48" fill="var(--text-secondary)" fontSize="10" letterSpacing="1.2">IDENTITY PASSPORT</text>
-      <text x="42" y="66" fill="var(--text-muted)" fontSize="8" letterSpacing="1">PRIVACY-PRESERVING PROOF</text>
+function VariantGlyph({ variant, identityData }) {
+  if (variant === 'identity') {
+    return <IdentityPassportGlyph identityData={identityData} />;
+  }
 
-      <rect x="42" y="78" width="88" height="88" rx="10" fill="rgba(13,17,24,0.65)" stroke="rgba(139,148,158,0.25)" />
-      <circle cx="86" cy="108" r="18" fill="rgba(88,166,255,0.25)" />
-      <rect x="64" y="132" width="44" height="18" rx="9" fill="rgba(88,166,255,0.2)" />
+  if (variant === 'lender') {
+    return (
+      <g>
+        <rect x="40" y="138" width="34" height="40" rx="8" fill="rgba(16,185,129,0.35)" />
+        <rect x="82" y="116" width="34" height="62" rx="8" fill="rgba(34,211,238,0.35)" />
+        <rect x="124" y="96" width="34" height="82" rx="8" fill="rgba(96,165,250,0.35)" />
+        <rect x="166" y="74" width="34" height="104" rx="8" fill="rgba(52,211,153,0.42)" />
+        <path d="M44 96C88 84 122 70 162 48C178 40 196 34 220 36" stroke="rgba(52,211,153,0.95)" strokeWidth="4" fill="none" strokeLinecap="round" />
+        <path d="M214 30L236 34L222 50" stroke="rgba(52,211,153,0.95)" strokeWidth="4" fill="none" strokeLinecap="round" />
+        <text x="224" y="176" fill="var(--text-secondary)" fontSize="10" textAnchor="end">Liquidity Growth</text>
+      </g>
+    );
+  }
 
-      <text x="150" y="88" fill="var(--text-muted)" fontSize="9" letterSpacing="0.8">COMPOSITE SCORE</text>
-      <text x="150" y="112" fill="var(--text-primary)" fontSize="24" fontWeight="700">{scoreLabel}</text>
-      <rect x="150" y="122" width="118" height="10" rx="5" fill="rgba(139,148,158,0.24)" />
-      <rect x="150" y="122" width={barWidth} height="10" rx="5" fill="url(#scoreBar)" />
-      <text x="150" y="146" fill="var(--success-400)" fontSize="9" letterSpacing="0.8">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
+  if (variant === 'docs') {
+    return (
+      <g>
+        <rect x="56" y="54" width="72" height="98" rx="12" fill="rgba(96,165,250,0.22)" stroke="rgba(96,165,250,0.36)" />
+        <rect x="136" y="46" width="82" height="110" rx="12" fill="rgba(34,211,238,0.18)" stroke="rgba(34,211,238,0.3)" />
+        <rect x="226" y="60" width="42" height="90" rx="10" fill="rgba(148,163,184,0.2)" stroke="rgba(148,163,184,0.34)" />
+      </g>
+    );
+  }
 
-      <rect x="150" y="156" width="60" height="16" rx="8" fill="rgba(56,139,253,0.16)" stroke="rgba(88,166,255,0.28)" />
-      <text x="180" y="167" fill="var(--primary-300)" fontSize="8" textAnchor="middle">{walletChip}</text>
-      <rect x="214" y="156" width="72" height="16" rx="8" fill="rgba(16,185,129,0.14)" stroke="rgba(16,185,129,0.32)" />
-      <text x="250" y="167" fill="var(--success-400)" fontSize="8" textAnchor="middle">{passportChip}</text>
-      <rect x="150" y="176" width="42" height="14" rx="7" fill="rgba(59,130,246,0.16)" stroke="rgba(96,165,250,0.34)" />
-      <text x="171" y="185" fill="var(--primary-300)" fontSize="8" textAnchor="middle">{tierChip}</text>
-    </svg>
+  if (variant === 'governance') {
+    return (
+      <g>
+        <circle cx="82" cy="82" r="16" fill="rgba(167,139,250,0.42)" />
+        <circle cx="156" cy="58" r="16" fill="rgba(96,165,250,0.42)" />
+        <circle cx="238" cy="86" r="16" fill="rgba(34,211,238,0.42)" />
+        <circle cx="130" cy="138" r="16" fill="rgba(167,139,250,0.42)" />
+        <circle cx="212" cy="146" r="16" fill="rgba(96,165,250,0.42)" />
+        <path d="M82 82L156 58L238 86L212 146L130 138L82 82" stroke="rgba(167,139,250,0.8)" strokeWidth="2.4" fill="none" />
+      </g>
+    );
+  }
+
+  return (
+    <g>
+      <rect x="40" y="46" width="240" height="132" rx="18" fill="rgba(8,12,18,0.36)" stroke="rgba(148,163,184,0.24)" />
+      <path d="M56 152C86 112 126 96 168 104C206 112 236 124 264 98" fill="none" stroke="rgba(96,165,250,0.78)" strokeWidth="3" strokeLinecap="round" />
+      <path d="M56 134C96 94 142 78 194 86C226 92 246 102 268 82" fill="none" stroke="rgba(34,211,238,0.72)" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="92" cy="86" r="20" fill="rgba(96,165,250,0.24)" />
+      <circle cx="226" cy="124" r="28" fill="rgba(34,211,238,0.2)" />
+    </g>
   );
 }
 
 function IllustrationSvg({ variant, identityData }) {
-  if (variant === 'identity') {
-    return <IdentityPassportSvg identityData={identityData} />;
-  }
+  const meta = VARIANT_META[variant] || VARIANT_META.dashboard;
+  const theme = VARIANT_THEME[variant] || VARIANT_THEME.dashboard;
+  const gradId = `ill-grad-${variant}`;
+  const glowId = `ill-glow-${variant}`;
 
   return (
-    <svg
-      className="illustration-svg"
-      viewBox="0 0 320 220"
-      role="img"
-      aria-hidden="true"
-    >
+    <svg className="illustration-svg" viewBox="0 0 320 220" role="img" aria-hidden="true">
       <defs>
-        <linearGradient id="illGradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="var(--illustration-accent)" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="var(--illustration-accent-2)" stopOpacity="0.35" />
+        <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={theme.a} stopOpacity="0.95" />
+          <stop offset="100%" stopColor={theme.b} stopOpacity="0.5" />
         </linearGradient>
+        <radialGradient id={glowId} cx="50%" cy="50%" r="58%">
+          <stop offset="0%" stopColor={theme.c} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={theme.c} stopOpacity="0" />
+        </radialGradient>
       </defs>
-      <rect x="16" y="18" width="288" height="184" rx="24" fill="rgba(255,255,255,0.04)" />
-      <circle className="illustration-orb" cx="92" cy="84" r="34" fill="url(#illGradient)" />
-      <circle className="illustration-orb" cx="220" cy="120" r="46" fill="url(#illGradient)" />
-      <path
-        d="M40 162C78 128 120 124 162 136C192 144 226 156 280 128"
-        fill="none"
-        stroke="var(--illustration-accent)"
-        strokeWidth="3"
-        strokeLinecap="round"
-        opacity="0.7"
-      />
-      <path
-        d="M60 142C96 112 142 108 196 122C230 130 260 140 290 116"
-        fill="none"
-        stroke="var(--illustration-accent-2)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity="0.6"
-      />
-      <rect x="34" y="36" width="90" height="10" rx="5" fill="var(--illustration-accent)" opacity="0.5" />
-      <rect x="34" y="54" width="120" height="8" rx="4" fill="var(--illustration-accent-2)" opacity="0.35" />
-      <rect x="34" y="172" width="160" height="8" rx="4" fill="var(--illustration-accent)" opacity="0.2" />
+
+      <rect x="16" y="16" width="288" height="188" rx="24" fill="rgba(7,11,17,0.68)" />
+      <rect x="16" y="16" width="288" height="188" rx="24" fill={`url(#${glowId})`} />
+      <rect x="26" y="28" width="160" height="20" rx="10" fill={`url(#${gradId})`} opacity="0.55" />
+      <rect x="26" y="54" width="98" height="8" rx="4" fill={theme.b} opacity="0.46" />
+      <text x="34" y="43" fill="var(--text-primary)" fontSize="8.5" letterSpacing="0.9">{meta.badge.toUpperCase()}</text>
+
+      <VariantGlyph variant={variant} identityData={identityData} />
     </svg>
   );
 }
 
 export default function PageIllustration({ variant = 'dashboard', identityData = null }) {
-  const shouldReduceMotion = useReducedMotion();
-  const label = VARIANT_LABELS[variant] || 'Protocol overview';
-  const show3d = useMemo(
-    () =>
-      !shouldReduceMotion &&
-      ['borrow', 'repay', 'governance', 'dashboard'].includes(variant),
-    [shouldReduceMotion, variant]
+  if (ILLUSTRATIONS_DISABLED) {
+    return null;
+  }
+
+  const label = VARIANT_META[variant]?.label || 'Protocol overview';
+  const prefersReducedMotion = useReducedMotion();
+  const useLive3d = useMemo(
+    () => !prefersReducedMotion && variant !== 'identity',
+    [prefersReducedMotion, variant]
   );
 
   return (
@@ -156,9 +227,9 @@ export default function PageIllustration({ variant = 'dashboard', identityData =
         <span className="tag">Visual</span>
       </div>
       <div className="illustration-body">
-        {show3d ? (
+        {useLive3d ? (
           <Suspense fallback={<IllustrationSvg variant={variant} identityData={identityData} />}>
-            <OrbScene />
+            <LiveIllustration3D variant={variant} />
           </Suspense>
         ) : (
           <IllustrationSvg variant={variant} identityData={identityData} />

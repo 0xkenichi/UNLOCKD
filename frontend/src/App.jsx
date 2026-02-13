@@ -14,7 +14,6 @@ import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import UnifiedWalletModal from './components/common/UnifiedWalletModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
-import TabBar from './components/common/TabBar.jsx';
 
 const Landing = lazy(routeImports.landing);
 const Dashboard = lazy(routeImports.dashboard);
@@ -155,7 +154,6 @@ function AppShell() {
         onClose={() => setWalletModalOpen(false)}
       />
       {!isLanding && <AIBubble />}
-      {!isLanding && !isImmersiveDashboard && <TabBar />}
       {!isImmersiveDashboard && (
         <footer className="app-footer">
           Testnet • VestraProtocol.io • Not financial advice

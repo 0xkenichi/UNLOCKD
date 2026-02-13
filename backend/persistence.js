@@ -23,6 +23,52 @@ const normalizeJson = (value) =>
     )
   );
 
+const AUDIT_REDACTED = '[REDACTED]';
+const AUDIT_MAX_REDACTION_DEPTH = 8;
+const SENSITIVE_AUDIT_KEY_FRAGMENTS = [
+  'token',
+  'secret',
+  'password',
+  'signature',
+  'privatekey',
+  'private_key',
+  'apikey',
+  'api_key',
+  'auth',
+  'proof',
+  'hash',
+  'seed',
+  'mnemonic',
+  'cookie'
+];
+
+const isSensitiveAuditKey = (key) => {
+  const lowered = String(key || '')
+    .trim()
+    .toLowerCase();
+  if (!lowered) return false;
+  return SENSITIVE_AUDIT_KEY_FRAGMENTS.some((fragment) => lowered.includes(fragment));
+};
+
+const redactAuditPayload = (value, depth = 0) => {
+  if (depth > AUDIT_MAX_REDACTION_DEPTH) return AUDIT_REDACTED;
+  if (Array.isArray(value)) {
+    return value.map((item) => redactAuditPayload(item, depth + 1));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const output = {};
+  Object.entries(value).forEach(([key, item]) => {
+    if (isSensitiveAuditKey(key)) {
+      output[key] = AUDIT_REDACTED;
+      return;
+    }
+    output[key] = redactAuditPayload(item, depth + 1);
+  });
+  return output;
+};
+
 const toEvent = (row) => ({
   txHash: row.tx_hash || row.txHash,
   logIndex: Number(row.log_index ?? row.logIndex ?? 0),
@@ -1236,7 +1282,7 @@ const saveAdminAuditLog = async ({
   if (!action) return null;
   const id = createId();
   const createdAt = new Date().toISOString();
-  const normalizedPayload = normalizeJson(payload || {});
+  const normalizedPayload = redactAuditPayload(normalizeJson(payload || {}));
 
   if (useSupabase) {
     const { error } = await supabaseClient().from('admin_audit_logs').insert({

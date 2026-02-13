@@ -29,6 +29,7 @@ This document defines protected backend endpoints used for operational debugging
 
 - Every admin debug endpoint writes an audit record to `admin_audit_logs`.
 - Records include actor identity (`user_id`, wallet, role), target object, IP hash, session fingerprint, payload delta, and timestamp.
+- Sensitive payload fields (tokens, signatures, secrets, proof/hash-like keys) are redacted before persistence.
 - Supabase migration: `backend/migrations/0004_admin_audit_logs.sql`.
 
 ## Security Notes
