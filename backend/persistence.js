@@ -172,6 +172,18 @@ const initSqlite = () => {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id TEXT PRIMARY KEY,
+      event TEXT NOT NULL,
+      page TEXT,
+      wallet_address TEXT,
+      properties TEXT,
+      user_id TEXT,
+      session_fingerprint TEXT,
+      ip_hash TEXT,
+      source TEXT,
+      created_at TEXT
+    );
   `);
 };
 
@@ -977,6 +989,200 @@ const saveAgentConversation = async ({
   return { id, createdAt };
 };
 
+const saveAnalyticsEvent = async ({
+  event,
+  page = null,
+  walletAddress = null,
+  properties = {},
+  userId = null,
+  sessionFingerprint = '',
+  ipHash = '',
+  source = 'web'
+} = {}) => {
+  if (!event) return null;
+  const id = createId();
+  const createdAt = new Date().toISOString();
+  const normalizedProps = normalizeJson(properties || {});
+
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('analytics_events').insert({
+      id,
+      event: String(event).slice(0, 120),
+      page: page ? String(page).slice(0, 200) : null,
+      wallet_address: walletAddress || null,
+      properties: normalizedProps,
+      user_id: userId || null,
+      session_fingerprint: sessionFingerprint || null,
+      ip_hash: ipHash || null,
+      source: String(source || 'web').slice(0, 40),
+      created_at: createdAt
+    });
+    if (error) throw new Error(`[supabase] saveAnalyticsEvent failed: ${error.message}`);
+    return { id, createdAt };
+  }
+
+  sqlite
+    .prepare(
+      `INSERT INTO analytics_events
+      (id, event, page, wallet_address, properties, user_id, session_fingerprint, ip_hash, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      id,
+      String(event).slice(0, 120),
+      page ? String(page).slice(0, 200) : null,
+      walletAddress || null,
+      JSON.stringify(normalizedProps),
+      userId || null,
+      sessionFingerprint || null,
+      ipHash || null,
+      String(source || 'web').slice(0, 40),
+      createdAt
+    );
+  return { id, createdAt };
+};
+
+const getAnalyticsSummary = async ({ windowHours = 24 } = {}) => {
+  const hours = Math.max(1, Math.min(Number(windowHours) || 24, 24 * 30));
+  const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('analytics_events')
+      .select('event, wallet_address, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(`[supabase] getAnalyticsSummary failed: ${error.message}`);
+
+    const rows = data || [];
+    const byEvent = new Map();
+    const wallets = new Set();
+    rows.forEach((row) => {
+      const key = row.event || 'unknown';
+      byEvent.set(key, (byEvent.get(key) || 0) + 1);
+      if (row.wallet_address) wallets.add(row.wallet_address.toLowerCase());
+    });
+    const topEvents = Array.from(byEvent.entries())
+      .map(([event, count]) => ({ event, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12);
+    return {
+      windowHours: hours,
+      since: sinceIso,
+      totalEvents: rows.length,
+      uniqueWallets: wallets.size,
+      topEvents
+    };
+  }
+
+  const row = sqlite
+    .prepare(
+      `SELECT
+        COUNT(*) as total_events,
+        COUNT(DISTINCT lower(wallet_address)) as unique_wallets
+       FROM analytics_events
+       WHERE created_at >= ?`
+    )
+    .get(sinceIso);
+
+  const topRows = sqlite
+    .prepare(
+      `SELECT event, COUNT(*) as count
+       FROM analytics_events
+       WHERE created_at >= ?
+       GROUP BY event
+       ORDER BY count DESC
+       LIMIT 12`
+    )
+    .all(sinceIso);
+
+  return {
+    windowHours: hours,
+    since: sinceIso,
+    totalEvents: Number(row?.total_events || 0),
+    uniqueWallets: Number(row?.unique_wallets || 0),
+    topEvents: topRows.map((item) => ({
+      event: item.event || 'unknown',
+      count: Number(item.count || 0)
+    }))
+  };
+};
+
+const getAnalyticsMetrics = async ({ windowHours = 24 } = {}) => {
+  const hours = Math.max(1, Math.min(Number(windowHours) || 24, 24 * 30));
+  const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('analytics_events')
+      .select('event, wallet_address, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(10000);
+    if (error) throw new Error(`[supabase] getAnalyticsMetrics failed: ${error.message}`);
+
+    const rows = data || [];
+    const wallets = new Set();
+    const eventCounts = {};
+    let lastEventAt = null;
+    rows.forEach((row) => {
+      const event = row.event || 'unknown';
+      eventCounts[event] = (eventCounts[event] || 0) + 1;
+      if (row.wallet_address) {
+        wallets.add(String(row.wallet_address).toLowerCase());
+      }
+      if (!lastEventAt || (row.created_at && row.created_at > lastEventAt)) {
+        lastEventAt = row.created_at || lastEventAt;
+      }
+    });
+
+    return {
+      windowHours: hours,
+      since: sinceIso,
+      totalEvents: rows.length,
+      uniqueWallets: wallets.size,
+      eventCounts,
+      lastEventAt
+    };
+  }
+
+  const totalRow = sqlite
+    .prepare(
+      `SELECT
+        COUNT(*) as total_events,
+        COUNT(DISTINCT lower(wallet_address)) as unique_wallets,
+        MAX(created_at) as last_event_at
+       FROM analytics_events
+       WHERE created_at >= ?`
+    )
+    .get(sinceIso);
+
+  const eventRows = sqlite
+    .prepare(
+      `SELECT event, COUNT(*) as count
+       FROM analytics_events
+       WHERE created_at >= ?
+       GROUP BY event`
+    )
+    .all(sinceIso);
+
+  const eventCounts = {};
+  eventRows.forEach((row) => {
+    const event = row.event || 'unknown';
+    eventCounts[event] = Number(row.count || 0);
+  });
+
+  return {
+    windowHours: hours,
+    since: sinceIso,
+    totalEvents: Number(totalRow?.total_events || 0),
+    uniqueWallets: Number(totalRow?.unique_wallets || 0),
+    eventCounts,
+    lastEventAt: totalRow?.last_event_at || null
+  };
+};
+
 const saveVestingSource = async ({
   chainId,
   vestingContract,
@@ -1169,6 +1375,9 @@ module.exports = {
   createMatchEvent,
   listRecentAgentConversations,
   saveAgentConversation,
+  saveAnalyticsEvent,
+  getAnalyticsSummary,
+  getAnalyticsMetrics,
   saveVestingSource,
   createFundraisingSource,
   getFundraisingSource,

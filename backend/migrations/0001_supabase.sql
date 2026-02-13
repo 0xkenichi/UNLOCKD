@@ -131,6 +131,20 @@ create table if not exists agent_conversations (
   created_at timestamptz default now()
 );
 
+-- Product analytics events
+create table if not exists analytics_events (
+  id uuid primary key default gen_random_uuid(),
+  event text not null,
+  page text,
+  wallet_address text,
+  properties jsonb,
+  user_id uuid references app_users(id) on delete set null,
+  session_fingerprint text,
+  ip_hash text,
+  source text default 'web',
+  created_at timestamptz default now()
+);
+
 -- RLS
 alter table app_users enable row level security;
 alter table app_sessions enable row level security;
@@ -144,6 +158,7 @@ alter table meta enable row level security;
 alter table lending_pools enable row level security;
 alter table match_events enable row level security;
 alter table agent_conversations enable row level security;
+alter table analytics_events enable row level security;
 
 -- Service role full access (backend)
 do $$ begin
@@ -238,6 +253,14 @@ do $$ begin
   perform 1 from pg_policies where policyname = 'service role all agent_conversations';
   if not found then
     create policy "service role all agent_conversations" on agent_conversations for all
+      using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+  end if;
+end $$;
+
+do $$ begin
+  perform 1 from pg_policies where policyname = 'service role all analytics_events';
+  if not found then
+    create policy "service role all analytics_events" on analytics_events for all
       using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
   end if;
 end $$;

@@ -1564,10 +1564,180 @@ app.post(
   strictLimiter,
   validateBody(analyticsSchema),
   sanitizePayload,
-  (req, res) => {
-  res.json({ ok: true, action: 'analytics', data: req.body || {} });
+  async (req, res) => {
+    try {
+      const payload = req.body || {};
+      await persistence.saveAnalyticsEvent({
+        event: payload.event,
+        page: payload.page || null,
+        walletAddress: payload.walletAddress || req.user?.walletAddress || null,
+        properties: payload.properties || {},
+        userId: req.user?.id || null,
+        sessionFingerprint: buildSessionFingerprint(req),
+        ipHash: hashIp(getClientIp(req)),
+        source: 'frontend'
+      });
+      res.json({ ok: true, action: 'analytics', data: payload });
+    } catch (error) {
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'Unable to persist analytics',
+        data: req.body || {}
+      });
+    }
   }
 );
+
+app.get('/api/analytics/summary', expensiveLimiter, async (req, res) => {
+  try {
+    const windowHours = Math.min(Math.max(Number(req.query?.windowHours) || 24, 1), 24 * 30);
+    const summary = await persistence.getAnalyticsSummary({ windowHours });
+    res.json({ ok: true, summary });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to fetch analytics summary',
+      summary: null
+    });
+  }
+});
+
+const safeRate = (num, denom) => {
+  if (!denom) return 0;
+  return Math.round((num / denom) * 10000) / 100;
+};
+
+const countActivitySince = (sinceEpochSec) => {
+  const counts = {};
+  activityEvents.forEach((item) => {
+    const ts = Number(item.timestamp || 0);
+    if (ts < sinceEpochSec) return;
+    const key = item.type || 'Unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return counts;
+};
+
+const countDefaultsSince = (sinceEpochSec) => {
+  let total = 0;
+  activityEvents.forEach((item) => {
+    const ts = Number(item.timestamp || 0);
+    if (ts < sinceEpochSec) return;
+    if (item.type === 'LoanSettled' && item.defaulted) {
+      total += 1;
+    }
+  });
+  return total;
+};
+
+const buildKpiDashboard = async (windowHours) => {
+  const metrics = await persistence.getAnalyticsMetrics({ windowHours });
+  const sinceEpochSec = Math.floor(Date.now() / 1000 - windowHours * 60 * 60);
+  const activityCounts = countActivitySince(sinceEpochSec);
+  const defaultCount = countDefaultsSince(sinceEpochSec);
+  const latestSnapshot = vestedSnapshots[0]?.summary || null;
+  const events = metrics.eventCounts || {};
+
+  const walletConnect = events.wallet_connect || 0;
+  const borrowStart = events.borrow_start || 0;
+  const quoteRequested = events.quote_requested || 0;
+  const quoteAccepted = events.quote_accepted || 0;
+  const loanCreated = activityCounts.LoanCreated || events.loan_created || 0;
+  const loanRepaid = activityCounts.LoanRepaid || events.loan_repaid || 0;
+  const loanSettled = activityCounts.LoanSettled || events.loan_settled || 0;
+
+  return {
+    windowHours,
+    generatedAt: new Date().toISOString(),
+    growth: {
+      uniqueWallets: metrics.uniqueWallets || 0,
+      trackedEvents: metrics.totalEvents || 0,
+      lastActivityAt: metrics.lastEventAt || null
+    },
+    credit: {
+      loansCreated: loanCreated,
+      loansRepaid: loanRepaid,
+      loansSettled: loanSettled,
+      activeLoans: latestSnapshot?.active || 0,
+      trackedCollateralPositions: latestSnapshot?.total || 0
+    },
+    risk: {
+      defaults: defaultCount,
+      avgLtvBps: latestSnapshot?.avgLtvBps || 0,
+      avgPv: latestSnapshot?.avgPv || 0
+    },
+    engagement: {
+      funnel: {
+        walletConnect,
+        borrowStart,
+        quoteRequested,
+        quoteAccepted,
+        loanCreated
+      },
+      conversionRatesPct: {
+        walletToBorrowStart: safeRate(borrowStart, walletConnect),
+        borrowStartToQuote: safeRate(quoteRequested, borrowStart),
+        quoteToLoanCreated: safeRate(loanCreated, quoteRequested)
+      }
+    },
+    raw: {
+      analyticsEvents: events,
+      activityEvents: activityCounts
+    }
+  };
+};
+
+app.get('/api/kpi/dashboard', expensiveLimiter, async (req, res) => {
+  try {
+    const windowHours = Math.min(Math.max(Number(req.query?.windowHours) || 24, 1), 24 * 30);
+    const kpi = await buildKpiDashboard(windowHours);
+    res.json({ ok: true, kpi });
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to build KPI dashboard',
+      kpi: null
+    });
+  }
+});
+
+app.get('/api/exports/kpi.csv', expensiveLimiter, async (req, res) => {
+  try {
+    const windowHours = Math.min(Math.max(Number(req.query?.windowHours) || 24, 1), 24 * 30);
+    const kpi = await buildKpiDashboard(windowHours);
+    const rows = [
+      ['metric', 'value'],
+      ['window_hours', String(kpi.windowHours)],
+      ['generated_at', kpi.generatedAt],
+      ['growth.unique_wallets', String(kpi.growth.uniqueWallets)],
+      ['growth.tracked_events', String(kpi.growth.trackedEvents)],
+      ['credit.loans_created', String(kpi.credit.loansCreated)],
+      ['credit.loans_repaid', String(kpi.credit.loansRepaid)],
+      ['credit.loans_settled', String(kpi.credit.loansSettled)],
+      ['credit.active_loans', String(kpi.credit.activeLoans)],
+      ['risk.defaults', String(kpi.risk.defaults)],
+      ['risk.avg_ltv_bps', String(kpi.risk.avgLtvBps)],
+      ['risk.avg_pv', String(kpi.risk.avgPv)],
+      ['engagement.wallet_connect', String(kpi.engagement.funnel.walletConnect)],
+      ['engagement.borrow_start', String(kpi.engagement.funnel.borrowStart)],
+      ['engagement.quote_requested', String(kpi.engagement.funnel.quoteRequested)],
+      ['engagement.quote_accepted', String(kpi.engagement.funnel.quoteAccepted)],
+      ['engagement.loan_created', String(kpi.engagement.funnel.loanCreated)],
+      ['engagement.wallet_to_borrow_start_pct', String(kpi.engagement.conversionRatesPct.walletToBorrowStart)],
+      ['engagement.borrow_start_to_quote_pct', String(kpi.engagement.conversionRatesPct.borrowStartToQuote)],
+      ['engagement.quote_to_loan_created_pct', String(kpi.engagement.conversionRatesPct.quoteToLoanCreated)]
+    ];
+    const csv = rows.map((row) => row.join(',')).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="unlockd-kpi-dashboard.csv"');
+    res.send(csv);
+  } catch (error) {
+    res.status(200).json({
+      ok: false,
+      error: error?.message || 'Unable to export KPI CSV'
+    });
+  }
+});
 
 app.post(
   '/api/notify/auction',
