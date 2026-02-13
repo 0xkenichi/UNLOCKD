@@ -94,46 +94,54 @@ function LiveIllustration3D({ variant }) {
   );
 }
 
-function IdentityPassportGlyph({ identityData }) {
+function IdentityPassportWidgetPreview({ identityData }) {
   const scoreNumber = Number(identityData?.compositeScore);
   const hasScore = Number.isFinite(scoreNumber);
-  const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : null;
+  const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : 'Pending';
   const passportScoreNumber = Number(identityData?.passportResult?.score);
   const hasPassportScore = Number.isFinite(passportScoreNumber) && passportScoreNumber > 0;
-  const scoreLabel = hasScore ? String(normalizedScore) : 'Pending';
-  const barWidth = hasScore ? Math.max(8, Math.round((normalizedScore / 1000) * 116)) : 10;
+  const barWidth = hasScore
+    ? `${Math.max(12, Math.round((Number(normalizedScore) / 1000) * 100))}%`
+    : '12%';
   const tier = Number.isFinite(Number(identityData?.identityTier))
     ? Number(identityData.identityTier)
     : 0;
   const tierName = identityData?.tierName || 'Anonymous';
   const passportLabel = hasPassportScore ? String(Math.round(passportScoreNumber)) : '—';
+  const shortAddress = identityData?.walletAddress
+    ? `${identityData.walletAddress.slice(0, 6)}...${identityData.walletAddress.slice(-4)}`
+    : 'Connect wallet';
 
   return (
-    <g>
-      <rect x="24" y="30" width="272" height="160" rx="20" fill="rgba(10,14,20,0.54)" stroke="rgba(96,165,250,0.24)" />
-      <rect x="40" y="50" width="88" height="118" rx="14" fill="rgba(10,14,20,0.64)" stroke="rgba(96,165,250,0.26)" />
-      <circle cx="84" cy="90" r="16" fill="rgba(96,165,250,0.26)" />
-      <rect x="62" y="110" width="44" height="20" rx="10" fill="rgba(96,165,250,0.22)" />
-
-      <text x="146" y="64" fill="var(--text-muted)" fontSize="8.5" letterSpacing="0.9">COMPOSITE SCORE</text>
-      <text x="146" y="96" fill="var(--text-primary)" fontSize="27" fontWeight="700">{scoreLabel}</text>
-      <rect x="146" y="106" width="116" height="10" rx="5" fill="rgba(148,163,184,0.24)" />
-      <rect x="146" y="106" width={barWidth} height="10" rx="5" fill="rgba(52,211,153,0.85)" />
-      <text x="146" y="128" fill="rgba(52,211,153,0.95)" fontSize="10" letterSpacing="0.7">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
-
-      <rect x="146" y="138" width="58" height="20" rx="10" fill="rgba(16,185,129,0.14)" stroke="rgba(16,185,129,0.34)" />
-      <text x="175" y="151" fill="var(--success-400)" fontSize="8.5" textAnchor="middle">KYC SAFE</text>
-      <rect x="210" y="138" width="52" height="20" rx="10" fill="rgba(96,165,250,0.14)" stroke="rgba(96,165,250,0.34)" />
-      <text x="236" y="151" fill="var(--primary-300)" fontSize="8.5" textAnchor="middle">{`PASS ${passportLabel}`}</text>
-    </g>
+    <div className="identity-widget-preview" role="img" aria-label="Passport score widget preview">
+      <div className="identity-widget-preview__code">
+        <span>&lt;PassportScoreWidget</span>
+        <span>  apiKey={'{VESTRA_PASSPORT_API_KEY}'}</span>
+        <span>  scorerId={'{VESTRA_PASSPORT_SCORER_ID}'}</span>
+        <span>  address={'{userAddress}'}</span>
+        <span>  generateSignatureCallback={'{signMessage}'}</span>
+        <span>  theme={'{VestraDarkTheme}'}</span>
+        <span>/&gt;</span>
+      </div>
+      <div className="identity-widget-preview__surface">
+        <div className="identity-widget-preview__head">
+          <span className="tag">Vestra Passport</span>
+          <span className="identity-widget-preview__address">{shortAddress}</span>
+        </div>
+        <div className="identity-widget-preview__score">{normalizedScore}</div>
+        <div className="identity-widget-preview__bar">
+          <span style={{ width: barWidth }} />
+        </div>
+        <div className="identity-widget-preview__meta">
+          <span>{`${tierName} Tier ${tier}`}</span>
+          <span>{`Passport ${passportLabel}`}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function VariantGlyph({ variant, identityData }) {
-  if (variant === 'identity') {
-    return <IdentityPassportGlyph identityData={identityData} />;
-  }
-
   if (variant === 'lender') {
     return (
       <g>
@@ -234,7 +242,9 @@ export default function PageIllustration({ variant = 'dashboard', identityData =
         <span className="tag">Visual</span>
       </div>
       <div className="illustration-body">
-        {useLive3d ? (
+        {variant === 'identity' ? (
+          <IdentityPassportWidgetPreview identityData={identityData} />
+        ) : useLive3d ? (
           <Suspense fallback={<IllustrationSvg variant={variant} identityData={identityData} />}>
             <LiveIllustration3D variant={variant} />
           </Suspense>

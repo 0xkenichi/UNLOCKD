@@ -1020,6 +1020,92 @@ a.tier-badge-link:hover .tier-badge { filter: brightness(1.1); }
 
 .illustration-card--identity .illustration-body {
   height: clamp(240px, 36vh, 420px);
+  align-items: stretch;
+  padding: var(--space-3);
+}
+
+.identity-widget-preview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-3);
+}
+
+.identity-widget-preview__code {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-secondary);
+  background: rgba(8, 12, 18, 0.78);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--primary-300);
+  padding: var(--space-3);
+  display: grid;
+}
+
+.identity-widget-preview__surface {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(88, 166, 255, 0.16), transparent 36%),
+    radial-gradient(circle at 88% 92%, rgba(154, 139, 110, 0.16), transparent 42%),
+    rgba(10, 14, 20, 0.82);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.identity-widget-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.identity-widget-preview__address {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.identity-widget-preview__score {
+  font-family: var(--font-mono);
+  font-size: clamp(28px, 5vw, 38px);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+}
+
+.identity-widget-preview__bar {
+  width: 100%;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: rgba(139, 148, 158, 0.3);
+  overflow: hidden;
+}
+
+.identity-widget-preview__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--success-500), var(--primary-500));
+}
+
+.identity-widget-preview__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.identity-widget-preview__meta span {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  background: rgba(88, 166, 255, 0.08);
 }
 
 .pill {
