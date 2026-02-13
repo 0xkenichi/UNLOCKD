@@ -409,18 +409,5 @@ export function getContractAddress(chainId, name) {
   const envKey = `VITE_${name.toUpperCase()}_ADDRESS`;
   const envValueChain = import.meta.env?.[envKeyChain];
   const envValue = import.meta.env?.[envKey];
-  if (name === 'testnetPriceFeed') {
-    const legacyChain = import.meta.env?.[`VITE_MOCK_PRICE_FEED_ADDRESS_${chainId}`];
-    const legacy = import.meta.env?.VITE_MOCK_PRICE_FEED_ADDRESS;
-    return (
-      envValueChain ||
-      envValue ||
-      legacyChain ||
-      legacy ||
-      CONTRACTS[chainId]?.[name] ||
-      CONTRACTS[chainId]?.mockPriceFeed ||
-      ''
-    );
-  }
   return envValueChain || envValue || CONTRACTS[chainId]?.[name] || '';
 }

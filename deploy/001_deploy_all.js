@@ -5,11 +5,11 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const { deployer } = await getNamedAccounts();
 
   const mockUSDC = await deploy("MockUSDC", { from: deployer, log: true });
-  const mockPriceFeed = await deploy("MockPriceFeed", { from: deployer, log: true });
+  const testnetPriceFeed = await deploy("MockPriceFeed", { from: deployer, log: true });
 
   await deploy("ValuationEngine", {
     from: deployer,
-    args: [mockPriceFeed.address],
+    args: [testnetPriceFeed.address],
     log: true,
   });
   await deploy("VestingAdapter", { from: deployer, log: true });

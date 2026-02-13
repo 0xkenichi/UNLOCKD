@@ -29,7 +29,74 @@ function OrbScene() {
   );
 }
 
-function IllustrationSvg() {
+function IdentityPassportSvg({ identityData }) {
+  const scoreNumber = Number(identityData?.compositeScore);
+  const hasScore = Number.isFinite(scoreNumber);
+  const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : null;
+  const scoreLabel = hasScore ? String(normalizedScore) : '—';
+  const barWidth = hasScore ? Math.round((normalizedScore / 1000) * 118) : 8;
+  const tier = Number.isFinite(Number(identityData?.identityTier))
+    ? Number(identityData.identityTier)
+    : 0;
+  const tierName = identityData?.tierName || 'Anonymous';
+  const hasWallet = Boolean(identityData?.walletAddress);
+  const passportScore = Number(identityData?.passportResult?.score);
+  const hasPassportScore = Number.isFinite(passportScore) && passportScore > 0;
+  const passportChip = hasPassportScore
+    ? `Passport ${Math.round(passportScore)}`
+    : 'Passport —';
+  const walletChip = hasWallet ? 'Wallet on' : 'Wallet off';
+  const tierChip = `Tier ${tier}`;
+
+  return (
+    <svg
+      className="illustration-svg"
+      viewBox="0 0 320 220"
+      role="img"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="passportFrame" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="rgba(88,166,255,0.26)" />
+          <stop offset="100%" stopColor="rgba(96,165,250,0.08)" />
+        </linearGradient>
+        <linearGradient id="scoreBar" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="rgba(56,139,253,0.85)" />
+          <stop offset="100%" stopColor="rgba(52,211,153,0.85)" />
+        </linearGradient>
+      </defs>
+
+      <rect x="16" y="14" width="288" height="192" rx="20" fill="rgba(255,255,255,0.03)" />
+      <rect x="26" y="24" width="268" height="172" rx="16" fill="url(#passportFrame)" stroke="rgba(88,166,255,0.24)" />
+
+      <text x="42" y="48" fill="var(--text-secondary)" fontSize="10" letterSpacing="1.2">IDENTITY PASSPORT</text>
+      <text x="42" y="66" fill="var(--text-muted)" fontSize="8" letterSpacing="1">PRIVACY-PRESERVING PROOF</text>
+
+      <rect x="42" y="78" width="88" height="88" rx="10" fill="rgba(13,17,24,0.65)" stroke="rgba(139,148,158,0.25)" />
+      <circle cx="86" cy="108" r="18" fill="rgba(88,166,255,0.25)" />
+      <rect x="64" y="132" width="44" height="18" rx="9" fill="rgba(88,166,255,0.2)" />
+
+      <text x="150" y="88" fill="var(--text-muted)" fontSize="9" letterSpacing="0.8">COMPOSITE SCORE</text>
+      <text x="150" y="112" fill="var(--text-primary)" fontSize="24" fontWeight="700">{scoreLabel}</text>
+      <rect x="150" y="122" width="118" height="10" rx="5" fill="rgba(139,148,158,0.24)" />
+      <rect x="150" y="122" width={barWidth} height="10" rx="5" fill="url(#scoreBar)" />
+      <text x="150" y="146" fill="var(--success-400)" fontSize="9" letterSpacing="0.8">{`${tierName.toUpperCase()} · TIER ${tier}`}</text>
+
+      <rect x="150" y="156" width="60" height="16" rx="8" fill="rgba(56,139,253,0.16)" stroke="rgba(88,166,255,0.28)" />
+      <text x="180" y="167" fill="var(--primary-300)" fontSize="8" textAnchor="middle">{walletChip}</text>
+      <rect x="214" y="156" width="72" height="16" rx="8" fill="rgba(16,185,129,0.14)" stroke="rgba(16,185,129,0.32)" />
+      <text x="250" y="167" fill="var(--success-400)" fontSize="8" textAnchor="middle">{passportChip}</text>
+      <rect x="150" y="176" width="42" height="14" rx="7" fill="rgba(59,130,246,0.16)" stroke="rgba(96,165,250,0.34)" />
+      <text x="171" y="185" fill="var(--primary-300)" fontSize="8" textAnchor="middle">{tierChip}</text>
+    </svg>
+  );
+}
+
+function IllustrationSvg({ variant, identityData }) {
+  if (variant === 'identity') {
+    return <IdentityPassportSvg identityData={identityData} />;
+  }
+
   return (
     <svg
       className="illustration-svg"
@@ -69,13 +136,13 @@ function IllustrationSvg() {
   );
 }
 
-export default function PageIllustration({ variant = 'dashboard' }) {
+export default function PageIllustration({ variant = 'dashboard', identityData = null }) {
   const shouldReduceMotion = useReducedMotion();
   const label = VARIANT_LABELS[variant] || 'Protocol overview';
   const show3d = useMemo(
     () =>
       !shouldReduceMotion &&
-      ['borrow', 'repay', 'governance', 'identity', 'dashboard'].includes(variant),
+      ['borrow', 'repay', 'governance', 'dashboard'].includes(variant),
     [shouldReduceMotion, variant]
   );
 
@@ -90,11 +157,11 @@ export default function PageIllustration({ variant = 'dashboard' }) {
       </div>
       <div className="illustration-body">
         {show3d ? (
-          <Suspense fallback={<IllustrationSvg />}>
+          <Suspense fallback={<IllustrationSvg variant={variant} identityData={identityData} />}>
             <OrbScene />
           </Suspense>
         ) : (
-          <IllustrationSvg />
+          <IllustrationSvg variant={variant} identityData={identityData} />
         )}
       </div>
     </div>
