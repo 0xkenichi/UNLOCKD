@@ -1,5 +1,7 @@
 const path = require('path');
 const crypto = require('crypto');
+// Prefer backend/.env for local backend runs; fallback to repo-root .env if present.
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
 const cors = require('cors');
