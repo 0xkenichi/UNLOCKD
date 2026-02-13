@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useCallback, useEffect, useState } from 'react';
+import { useAccount, useSignMessage } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import VerifiedCard from '../components/identity/VerifiedCard.jsx';
@@ -24,6 +24,7 @@ function formatDateLabel(value) {
 
 export default function Identity() {
   const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [passportLoading, setPassportLoading] = useState(false);
@@ -93,6 +94,15 @@ export default function Identity() {
   const attestations = Array.isArray(profile?.attestations) ? profile.attestations : [];
   const totalStamps = attestations.reduce((sum, item) => sum + Number(item?.stampsCount || 0), 0);
   const hasAttestations = attestations.length > 0;
+  const generateSignatureCallback = useCallback(
+    async (message) => {
+      if (!signMessageAsync) {
+        throw new Error('Wallet signature unavailable');
+      }
+      return signMessageAsync({ message });
+    },
+    [signMessageAsync]
+  );
 
   return (
     <div className="stack">
@@ -110,9 +120,12 @@ export default function Identity() {
           identityData={{
             walletAddress: address || null,
             compositeScore: profile?.compositeScore ?? null,
+            ias: profile?.ias ?? null,
+            fbs: profile?.fbs ?? null,
             identityTier: profile?.identityTier ?? 0,
             tierName: tierLabel,
-            passportResult
+            passportResult,
+            generateSignatureCallback
           }}
         />
       </div>

@@ -89,11 +89,16 @@ export default function Borrow() {
     let active = true;
     const loadBrowse = async () => {
       try {
-        const pools = await fetchPoolsBrowse({
+        const browseData = await fetchPoolsBrowse({
           chain: chainName,
           borrowerWallet: address || undefined,
           accessFilter: browseFilter
         });
+        const pools = Array.isArray(browseData)
+          ? browseData
+          : Array.isArray(browseData?.pools)
+            ? browseData.pools
+            : [];
         if (active) setBrowsePools(pools);
       } catch {
         if (active) setBrowsePools([]);

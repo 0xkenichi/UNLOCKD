@@ -15,6 +15,17 @@ function readAuthToken() {
   }
 }
 
+function normalizeNetworkError(error) {
+  if (error?.name === 'AbortError') {
+    return new Error('Request timed out');
+  }
+  // Browser fetch throws TypeError("Failed to fetch") when backend is unreachable.
+  if (error instanceof TypeError) {
+    return new Error('Cannot reach backend API. Ensure backend is running on localhost:4000.');
+  }
+  return error;
+}
+
 export async function apiPost(path, payload = {}, options = {}) {
   const authToken = options.sessionToken || readAuthToken();
   const bodyPayload = {
@@ -38,10 +49,7 @@ export async function apiPost(path, payload = {}, options = {}) {
     }
     return response.json();
   } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
-    throw error;
+    throw normalizeNetworkError(error);
   } finally {
     clearTimeout(timeout);
   }
@@ -75,7 +83,7 @@ export async function apiGet(path) {
       if (timedOut) {
         throw new Error('Request timed out');
       }
-      throw error;
+      throw normalizeNetworkError(error);
     } finally {
       clearTimeout(timeout);
     }

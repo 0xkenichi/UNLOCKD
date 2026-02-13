@@ -1,6 +1,7 @@
 import { Suspense, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { Canvas, useFrame } from '@react-three/fiber';
+import { DarkTheme, PassportScoreWidget } from '@human.tech/passport-embed';
 
 const ILLUSTRATIONS_DISABLED = String(import.meta.env.VITE_DISABLE_ILLUSTRATIONS || '').trim() === 'true';
 
@@ -94,47 +95,76 @@ function LiveIllustration3D({ variant }) {
   );
 }
 
-function IdentityPassportWidgetPreview({ identityData }) {
-  const scoreNumber = Number(identityData?.compositeScore);
-  const hasScore = Number.isFinite(scoreNumber);
-  const normalizedScore = hasScore ? Math.max(0, Math.min(1000, Math.round(scoreNumber))) : 'Pending';
-  const passportScoreNumber = Number(identityData?.passportResult?.score);
-  const hasPassportScore = Number.isFinite(passportScoreNumber) && passportScoreNumber > 0;
-  const barWidth = hasScore
-    ? `${Math.max(12, Math.round((Number(normalizedScore) / 1000) * 100))}%`
-    : '12%';
-  const tier = Number.isFinite(Number(identityData?.identityTier))
-    ? Number(identityData.identityTier)
-    : 0;
-  const tierName = identityData?.tierName || 'Anonymous';
-  const passportLabel = hasPassportScore ? String(Math.round(passportScoreNumber)) : '—';
-  const shortAddress = identityData?.walletAddress
-    ? `${identityData.walletAddress.slice(0, 6)}...${identityData.walletAddress.slice(-4)}`
-    : 'Connect wallet';
+function IdentityPassportEmbed({ identityData }) {
+  const apiKey = String(import.meta.env.VITE_PASSPORT_API_KEY || import.meta.env.VITE_GC_API_KEY || '').trim();
+  const scorerId = String(import.meta.env.VITE_PASSPORT_SCORER_ID || import.meta.env.VITE_GC_SCORER_ID || '').trim();
+  const address = identityData?.walletAddress;
+  const generateSignatureCallback = identityData?.generateSignatureCallback;
+  const fbs = Number(identityData?.fbs);
+  const hasFbs = Number.isFinite(fbs) && fbs >= 0;
+  const fbsClamped = hasFbs ? Math.max(0, Math.min(1000, fbs)) : null;
+  const fbsProgress = fbsClamped != null ? Math.round((fbsClamped / 1000) * 100) : 0;
+  const ias = Number(identityData?.ias);
+  const hasIas = Number.isFinite(ias) && ias >= 0;
+  const tierLabel = identityData?.tierName || 'Anonymous';
+  const passportScore = Number(identityData?.passportResult?.score);
+  const hasPassportScore = Number.isFinite(passportScore) && passportScore >= 0;
+  const fbsBand =
+    fbsClamped == null
+      ? 'Pending'
+      : fbsClamped >= 740
+      ? 'Strong'
+      : fbsClamped >= 620
+      ? 'Healthy'
+      : fbsClamped >= 500
+      ? 'Building'
+      : 'Early';
 
   return (
-    <div className="identity-widget-preview" role="img" aria-label="Passport score widget preview">
-      <div className="identity-widget-preview__code">
-        <span>&lt;PassportScoreWidget</span>
-        <span>  apiKey={'{VESTRA_PASSPORT_API_KEY}'}</span>
-        <span>  scorerId={'{VESTRA_PASSPORT_SCORER_ID}'}</span>
-        <span>  address={'{userAddress}'}</span>
-        <span>  generateSignatureCallback={'{signMessage}'}</span>
-        <span>  theme={'{VestraDarkTheme}'}</span>
-        <span>/&gt;</span>
+    <div className="identity-signal-grid">
+      <div className="identity-passport-shell">
+        <div className="identity-passport-shell__head">
+          <div className="pill">Human Passport Score</div>
+          {hasPassportScore && <div className="pill is-done">Score {passportScore}</div>}
+        </div>
+        {!apiKey || !scorerId ? (
+          <div className="identity-passport-shell__empty">
+            Configure `VITE_PASSPORT_API_KEY` and `VITE_PASSPORT_SCORER_ID` to enable live Passport data.
+          </div>
+        ) : (
+          <PassportScoreWidget
+            apiKey={apiKey}
+            scorerId={scorerId}
+            address={address}
+            generateSignatureCallback={generateSignatureCallback}
+            theme={DarkTheme}
+            collapseMode="off"
+            className="identity-passport-shell__widget"
+          />
+        )}
       </div>
-      <div className="identity-widget-preview__surface">
-        <div className="identity-widget-preview__head">
-          <span className="tag">Vestra Passport</span>
-          <span className="identity-widget-preview__address">{shortAddress}</span>
+      <div className="identity-fbs-shell">
+        <div className="identity-fbs-shell__head">
+          <div>
+            <div className="section-title">FBS Signal</div>
+            <div className="section-subtitle">Financial behavior score readiness</div>
+          </div>
+          <span className="tag">Internal</span>
         </div>
-        <div className="identity-widget-preview__score">{normalizedScore}</div>
-        <div className="identity-widget-preview__bar">
-          <span style={{ width: barWidth }} />
+        <div className="identity-fbs-shell__score-row">
+          <div className="identity-fbs-shell__score-value">{fbsClamped != null ? fbsClamped : '—'}</div>
+          <div className="identity-fbs-shell__score-band">{fbsBand}</div>
         </div>
-        <div className="identity-widget-preview__meta">
-          <span>{`${tierName} Tier ${tier}`}</span>
-          <span>{`Passport ${passportLabel}`}</span>
+        <div className="identity-fbs-shell__meter" role="img" aria-label={`FBS progress ${fbsProgress}%`}>
+          <div className="identity-fbs-shell__meter-fill" style={{ width: `${fbsProgress}%` }} />
+        </div>
+        <div className="identity-fbs-shell__stats">
+          <div className="pill">IAS {hasIas ? ias : '—'}</div>
+          <div className="pill">Tier {tierLabel}</div>
+          <div className="pill">Wallet {address ? 'Connected' : 'Not connected'}</div>
+        </div>
+        <div className="muted small">
+          FBS combines account health and behavior indicators to support eligibility and limits.
         </div>
       </div>
     </div>
@@ -243,7 +273,7 @@ export default function PageIllustration({ variant = 'dashboard', identityData =
       </div>
       <div className="illustration-body">
         {variant === 'identity' ? (
-          <IdentityPassportWidgetPreview identityData={identityData} />
+          <IdentityPassportEmbed identityData={identityData} />
         ) : useLive3d ? (
           <Suspense fallback={<IllustrationSvg variant={variant} identityData={identityData} />}>
             <LiveIllustration3D variant={variant} />
