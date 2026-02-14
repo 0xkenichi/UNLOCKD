@@ -445,6 +445,21 @@ const normalizeWalletAddress = (value) => {
   }
 };
 
+const normalizeSolanaAddress = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  try {
+    return new PublicKey(value.trim()).toBase58();
+  } catch {
+    return '';
+  }
+};
+
+const normalizeAnyWalletAddress = (value) =>
+  normalizeWalletAddress(value) || normalizeSolanaAddress(value);
+
+const detectChainTypeForWallet = (value) =>
+  normalizeWalletAddress(value) ? 'evm' : normalizeSolanaAddress(value) ? 'solana' : '';
+
 const isAdminWallet = (walletAddress) => {
   const normalized = normalizeWalletAddress(walletAddress);
   if (!normalized) return false;
@@ -481,7 +496,9 @@ const getCreditHistoryForWallet = (walletAddress) => {
 };
 
 const buildIdentityProfile = async (walletAddress) => {
-  const normalized = normalizeWalletAddress(walletAddress);
+  const normalizedEvm = normalizeWalletAddress(walletAddress);
+  const normalizedSolana = normalizeSolanaAddress(walletAddress);
+  const normalized = normalizedEvm || normalizedSolana;
   if (!normalized) return null;
   const profile = await persistence.getIdentityProfileByWallet(normalized);
   const attestations = await persistence.listIdentityAttestations(normalized);
@@ -493,7 +510,9 @@ const buildIdentityProfile = async (walletAddress) => {
         ? true
         : Boolean(profile.sanctionsPass)
   };
-  const creditHistory = getCreditHistoryForWallet(normalized);
+  const creditHistory = normalizedEvm
+    ? getCreditHistoryForWallet(normalized)
+    : { repaidCount: 0, defaultedCount: 0 };
   const score = computeIdentityScore({
     identity,
     attestations,
@@ -773,9 +792,21 @@ const requireSession = async (req, res, next) => {
 };
 
 const requireWalletOwnerParam = (paramKey) => (req, res, next) => {
-  const sessionWallet = normalizeWalletAddress(req.user?.walletAddress || '');
-  const targetWallet = normalizeWalletAddress(req.params?.[paramKey] || '');
-  if (!sessionWallet || !targetWallet || sessionWallet !== targetWallet) {
+  const rawTargetWallet = String(req.params?.[paramKey] || '').trim();
+  const targetWallet = normalizeAnyWalletAddress(rawTargetWallet);
+  if (!targetWallet) {
+    return res.status(403).json({ ok: false, error: 'Wallet mismatch' });
+  }
+  const sessionWallet = normalizeAnyWalletAddress(req.user?.walletAddress || '');
+  if (sessionWallet && sessionWallet === targetWallet) {
+    return next();
+  }
+  const linkedWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
+  const linkedMatch = linkedWallets.some((wallet) => {
+    const candidate = normalizeAnyWalletAddress(wallet?.walletAddress || '');
+    return Boolean(candidate && candidate === targetWallet);
+  });
+  if (!linkedMatch) {
     return res.status(403).json({ ok: false, error: 'Wallet mismatch' });
   }
   return next();
@@ -880,14 +911,24 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/identity/:walletAddress', async (req, res) => {
-  const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+  const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
   if (!walletAddress) {
     return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
   }
   try {
-    const profile = await buildIdentityProfile(walletAddress);
+    const chainType = detectChainTypeForWallet(walletAddress);
+    const evmLinkedWallet =
+      chainType === 'solana'
+        ? await persistence.getLinkedEvmWallet({ chainType, walletAddress })
+        : '';
+    const identityWallet = evmLinkedWallet || walletAddress;
+    const profile = await buildIdentityProfile(identityWallet);
     if (!profile) {
       return res.status(404).json({ ok: false, error: 'Identity profile unavailable' });
+    }
+    if (identityWallet !== walletAddress) {
+      profile.requestedWalletAddress = walletAddress;
+      profile.resolvedWalletAddress = identityWallet;
     }
     return res.json({ ok: true, ...profile });
   } catch (error) {
@@ -903,26 +944,42 @@ app.get(
   requireSession,
   requireWalletOwnerParam('walletAddress'),
   async (req, res) => {
-  const walletAddress = normalizeWalletAddress(req.params.walletAddress || '');
+  const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
   if (!walletAddress) {
     return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
   }
+  const targetChain = detectChainTypeForWallet(walletAddress);
+  const sessionWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
+  const linkedEvmWallet =
+    targetChain === 'solana'
+      ? await persistence.getLinkedEvmWallet({ chainType: 'solana', walletAddress })
+      : '';
+  const evmWalletForIdentity =
+    (targetChain === 'evm' ? walletAddress : '') ||
+    linkedEvmWallet ||
+    normalizeWalletAddress(req.user?.walletAddress || '') ||
+    normalizeWalletAddress(
+      sessionWallets.find(
+        (wallet) => String(wallet?.chainType || '').toLowerCase() === 'evm'
+      )?.walletAddress || ''
+    );
+  const identityWallet = evmWalletForIdentity || walletAddress;
   try {
-    const existing = await persistence.listIdentityAttestations(walletAddress);
+    const existing = await persistence.listIdentityAttestations(identityWallet);
     const existingPassport = existing.find(
       (item) => String(item?.provider || '').toLowerCase() === 'gitcoin_passport'
     );
     let attestationCreated = false;
 
     // Stable pseudo-score for MVP testnet UX until live provider integration.
-    const digest = crypto.createHash('sha256').update(walletAddress).digest('hex');
+    const digest = crypto.createHash('sha256').update(identityWallet).digest('hex');
     const raw = parseInt(digest.slice(0, 8), 16);
     const score = Math.round((12 + (raw % 36)) * 100) / 100; // 12.00 - 47.99
     const stampsCount = 2 + (raw % 12); // 2 - 13
 
     if (!existingPassport) {
       await persistence.upsertIdentityAttestation({
-        walletAddress,
+        walletAddress: identityWallet,
         provider: 'gitcoin_passport',
         score,
         stampsCount,
@@ -933,9 +990,9 @@ app.get(
       attestationCreated = true;
     }
 
-    const currentProfile = await persistence.getIdentityProfileByWallet(walletAddress);
+    const currentProfile = await persistence.getIdentityProfileByWallet(identityWallet);
     await persistence.upsertIdentityProfile({
-      walletAddress,
+      walletAddress: identityWallet,
       linkedAt: currentProfile?.linkedAt || new Date().toISOString(),
       identityProofHash: currentProfile?.identityProofHash || `0x${digest.slice(0, 64)}`,
       sanctionsPass:
@@ -944,7 +1001,7 @@ app.get(
           : currentProfile.sanctionsPass
     });
 
-    const profile = await buildIdentityProfile(walletAddress);
+    const profile = await buildIdentityProfile(identityWallet);
     return res.json({
       ok: true,
       environment: process.env.NODE_ENV || 'development',
@@ -1197,6 +1254,13 @@ const walletVerifySchema = z
     walletAddress: stringField(120),
     nonce: stringField(256),
     signature: stringField(500)
+  })
+  .strip();
+
+const linkWalletSchema = z
+  .object({
+    chainType: z.enum(['evm', 'solana']),
+    walletAddress: stringField(120)
   })
   .strip();
 
@@ -1609,17 +1673,51 @@ app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) 
       expiresAt,
       ipHash
     });
+    const linkedWallets = await persistence.listWalletLinksByUser(user.id);
     const clientIp = getClientIp(req);
     captureUserGeoPresence({ userId: user.id, ip: clientIp });
     res.json({
       ok: true,
       walletAddress,
       sessionToken,
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
+      linkedWallets
     });
   } catch (error) {
     console.error('[auth] verify error', error?.message || error);
     res.status(500).json({ ok: false, error: 'Unable to verify signature' });
+  }
+});
+
+app.post('/api/auth/link-wallet', requireSession, validateBody(linkWalletSchema), async (req, res) => {
+  try {
+    const chainType = req.body.chainType === 'solana' ? 'solana' : 'evm';
+    const walletAddress =
+      chainType === 'solana'
+        ? normalizeSolanaAddress(req.body.walletAddress)
+        : normalizeWalletAddress(req.body.walletAddress);
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    await persistence.linkWalletToUser({
+      userId: req.user?.id,
+      chainType,
+      walletAddress
+    });
+    const linkedWallets = await persistence.listWalletLinksByUser(req.user?.id);
+    return res.json({
+      ok: true,
+      linkedWallets
+    });
+  } catch (error) {
+    const message = String(error?.message || 'Unable to link wallet');
+    if (/already linked/i.test(message)) {
+      return res.status(409).json({ ok: false, error: message });
+    }
+    return res.status(500).json({
+      ok: false,
+      error: message
+    });
   }
 });
 

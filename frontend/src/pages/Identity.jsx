@@ -7,6 +7,7 @@ import VerifiedCard from '../components/identity/VerifiedCard.jsx';
 import TierBadge from '../components/common/TierBadge.jsx';
 import { fetchIdentity, fetchPassportScore } from '../utils/api.js';
 import { getPassportSnapshotFromAttestations } from '../utils/passport.js';
+import { getActiveIdentity, useOnchainSession } from '../utils/onchainSession.js';
 
 function formatProviderLabel(provider = '') {
   if (!provider) return 'Unknown provider';
@@ -26,6 +27,9 @@ function formatDateLabel(value) {
 
 export default function Identity() {
   const { address } = useAccount();
+  const { session } = useOnchainSession();
+  const activeIdentity = getActiveIdentity(session, address);
+  const activeWalletAddress = activeIdentity.walletAddress || '';
   const { signMessageAsync } = useSignMessage();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -34,14 +38,14 @@ export default function Identity() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!address) {
+    if (!activeWalletAddress) {
       setProfile(null);
       return;
     }
     let active = true;
     setLoading(true);
     setError('');
-    fetchIdentity(address)
+    fetchIdentity(activeWalletAddress)
       .then((data) => {
         if (active) {
           setProfile(data);
@@ -60,18 +64,18 @@ export default function Identity() {
     return () => {
       active = false;
     };
-  }, [address]);
+  }, [activeWalletAddress]);
 
   const handlePassportCheck = async () => {
-    if (!address) return;
+    if (!activeWalletAddress) return;
     setPassportLoading(true);
     setPassportResult(null);
     try {
-      const data = await fetchPassportScore(address);
+      const data = await fetchPassportScore(activeWalletAddress);
       setPassportResult(data);
       if (data?.ok) {
         try {
-          const refreshed = await fetchIdentity(address);
+          const refreshed = await fetchIdentity(activeWalletAddress);
           setProfile(refreshed);
         } catch {
           if (data?.identityTier != null) {
@@ -120,6 +124,11 @@ export default function Identity() {
         <div className="inline-actions" style={{ marginTop: 8 }}>
           <span className="chip">Testnet identity mode</span>
           <span className="chip">Seeded passport scoring</span>
+          {activeWalletAddress && (
+            <span className="chip">
+              Active identity: {activeIdentity.chainType === 'solana' ? 'Solana' : 'EVM'}
+            </span>
+          )}
         </div>
       </div>
       <div className="grid-2 essentials-row">
@@ -127,7 +136,7 @@ export default function Identity() {
         <PageIllustration
           variant="identity"
           identityData={{
-            walletAddress: address || null,
+            walletAddress: activeWalletAddress || null,
             compositeScore: profile?.compositeScore ?? null,
             ias: profile?.ias ?? null,
             fbs: profile?.fbs ?? null,
@@ -142,7 +151,7 @@ export default function Identity() {
         <div className="stat-card">
           <div className="stat-label">Verification Tier</div>
           <div className="stat-value">
-            {address ? (
+            {activeWalletAddress ? (
               <TierBadge tier={profile?.identityTier ?? 0} tierName={tierLabel} size="medium" />
             ) : (
               '—'
@@ -185,7 +194,7 @@ export default function Identity() {
           attestations={attestations}
           passportScore={passportScore}
           passportStamps={passportStamps}
-          hasWallet={Boolean(address)}
+          hasWallet={Boolean(activeWalletAddress)}
           loading={loading}
         />
         <div className="holo-card identity-attestations">
@@ -254,8 +263,8 @@ export default function Identity() {
           </div>
         </div>
         <div className="card-list" style={{ marginBottom: 16 }}>
-          <div className={`pill ${address ? 'success' : ''}`} style={address ? { borderColor: 'var(--success-600)' } : {}}>
-            {address ? '✓ ' : ''}Connect wallet
+          <div className={`pill ${activeWalletAddress ? 'success' : ''}`} style={activeWalletAddress ? { borderColor: 'var(--success-600)' } : {}}>
+            {activeWalletAddress ? '✓ ' : ''}Connect wallet
           </div>
           <div className={`pill ${hasAttestations ? 'success' : ''}`}>
             {hasAttestations ? '✓ ' : ''}Add verification (Passport or attest)
@@ -269,8 +278,8 @@ export default function Identity() {
             type="button"
             className="button button--secondary"
             onClick={handlePassportCheck}
-            disabled={!address || passportLoading}
-            aria-disabled={!address || passportLoading}
+            disabled={!activeWalletAddress || passportLoading}
+            aria-disabled={!activeWalletAddress || passportLoading}
           >
             {passportLoading ? 'Checking...' : 'Verify with Gitcoin Passport'}
           </button>

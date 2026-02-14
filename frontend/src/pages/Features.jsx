@@ -1,110 +1,37 @@
 import { useNavigate } from 'react-router-dom';
 
 function ProtocolArchitectureVisual() {
-  const layers = [
-    {
-      id: 'input',
-      label: 'Input Signals',
-      nodes: [
-        { title: 'Borrowers', meta: 'Vesting profile + requested tenor' },
-        { title: 'Lenders', meta: 'Pool limits + risk appetite' }
-      ]
-    },
-    {
-      id: 'decision',
-      label: 'Decision Layer',
-      nodes: [
-        { title: 'Risk Engine', meta: 'LTV, haircut, behavior-adjusted quote' },
-        { title: 'Community Pools', meta: 'Co-funded capacity and queue depth' }
-      ]
-    },
-    {
-      id: 'execution',
-      label: 'Execution Layer',
-      nodes: [
-        { title: 'Borrow Route', meta: 'Escrow rights -> USDC disbursement' },
-        { title: 'Settlement Rail', meta: 'Repay, auto-settle, or fallback path' }
-      ]
-    }
-  ];
-
   return (
-    <div className="feature-diagram feature-diagram--architecture" role="img" aria-label="Protocol architecture diagram">
-      <div className="feature-diagram__overlay" aria-hidden="true" />
-      <div className="feature-diagram__layers">
-        {layers.map((layer, index) => (
-          <div key={layer.id} className="feature-diagram__layer">
-            <div className="feature-diagram__layer-head">
-              <span className="feature-diagram__layer-index">0{index + 1}</span>
-              <span>{layer.label}</span>
-            </div>
-            <div className="feature-diagram__layer-grid">
-              {layer.nodes.map((node) => (
-                <article key={node.title} className="feature-diagram__node">
-                  <h4>{node.title}</h4>
-                  <p>{node.meta}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="feature-diagram feature-diagram--image" aria-label="UNLOCKD protocol architecture diagram">
+      <img
+        className="feature-diagram__img"
+        src="/diagrams/unlockd-architecture.png"
+        alt="UNLOCKD Protocol Architecture"
+        loading="lazy"
+        decoding="async"
+      />
     </div>
   );
 }
 
-function FlowLane({ title, steps, footer, tone = 'info' }) {
-  return (
-    <section className={`flow-lane flow-lane--${tone}`} aria-label={title}>
-      <div className="flow-lane__title">{title}</div>
-      <ol className="flow-lane__steps">
-        {steps.map((step, idx) => (
-          <li key={step.title} className="flow-lane__step">
-            <span className="flow-lane__step-index">{idx + 1}</span>
-            <div>
-              <h5>{step.title}</h5>
-              <p>{step.copy}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <p className="flow-lane__footer">{footer}</p>
-    </section>
-  );
-}
-
 function BorrowAndSettleVisual() {
-  const borrowSteps = [
-    { title: 'Escrow position synced', copy: 'Unlock schedule and cliff terms are verified on-chain.' },
-    { title: 'Risk quote generated', copy: 'LTV and haircut are computed from tenor, liquidity, and behavior.' },
-    { title: 'Borrow route selected', copy: 'Best-fit lender or community pool allocates USDC capacity.' },
-    { title: 'USDC disbursed', copy: 'Borrower receives funds while collateral rights remain escrowed.' }
-  ];
-
-  const settleSteps = [
-    { title: 'Repayment window opens', copy: 'Borrower can close early for lower carry and stronger score.' },
-    { title: 'Auto-settle checks', copy: 'Contracts evaluate due date, amount paid, and unlock eligibility.' },
-    { title: 'Grace + notice', copy: 'Protocol emits warnings before any fallback action is allowed.' },
-    { title: 'Fallback execution', copy: 'Partial seize / auction path is invoked only when conditions fail.' }
-  ];
-
   return (
-    <div className="feature-diagram feature-diagram--flow" role="img" aria-label="Borrow and settle flow diagrams">
-      <div className="feature-diagram__overlay" aria-hidden="true" />
-      <div className="feature-diagram__flow-grid">
-        <FlowLane
-          title="Borrow Flow"
-          tone="borrow"
-          steps={borrowSteps}
-          footer="Quote -> allocation -> disbursement is fully deterministic from contract state."
-        />
-        <FlowLane
-          title="Settle Flow"
-          tone="settle"
-          steps={settleSteps}
-          footer="Settlement is default path; fallback triggers only after explicit guardrails."
-        />
-      </div>
+    <div className="feature-diagram feature-diagram--image-stack" aria-label="Borrow and settle flow diagrams">
+      <img
+        className="feature-diagram__img"
+        src="/diagrams/unlockd-borrow-flow.png"
+        alt="Borrow Flow (Escrow to Loan Issuance)"
+        loading="lazy"
+        decoding="async"
+      />
+      <div className="feature-diagram__divider" aria-hidden="true" />
+      <img
+        className="feature-diagram__img"
+        src="/diagrams/unlockd-settle-flow.png"
+        alt="Repay and Settle Flow"
+        loading="lazy"
+        decoding="async"
+      />
     </div>
   );
 }

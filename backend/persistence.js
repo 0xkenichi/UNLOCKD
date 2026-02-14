@@ -16,6 +16,9 @@ const createId = () =>
     ? crypto.randomUUID()
     : crypto.randomBytes(16).toString('hex');
 
+const normalizeChainType = (value) =>
+  String(value || 'evm').trim().toLowerCase() === 'solana' ? 'solana' : 'evm';
+
 const normalizeJson = (value) =>
   JSON.parse(
     JSON.stringify(value, (_key, val) =>
@@ -135,6 +138,14 @@ const initSqlite = () => {
       issued_at TEXT,
       expires_at TEXT,
       ip_hash TEXT
+    );
+    CREATE TABLE IF NOT EXISTS user_wallet_links (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      chain_type TEXT NOT NULL,
+      wallet_address TEXT NOT NULL,
+      created_at TEXT,
+      UNIQUE(chain_type, wallet_address)
     );
     CREATE TABLE IF NOT EXISTS user_geo_presence (
       user_id TEXT PRIMARY KEY,
@@ -503,40 +514,273 @@ const insertNotification = async ({ channel, template, payload, userId, status }
   if (error) throw new Error(`[supabase] insertNotification failed: ${error.message}`);
 };
 
-const getOrCreateUserByWallet = async (walletAddress) => {
+const getOrCreateUserByWallet = async (walletAddress, chainType = 'evm') => {
+  const chain = normalizeChainType(chainType);
   if (useSupabase) {
     const client = supabaseClient();
-    const { data: existing, error: selectError } = await client
-      .from('app_users')
-      .select('id, wallet_address')
-      .eq('wallet_address', walletAddress)
-      .maybeSingle();
-    if (selectError && selectError.code !== 'PGRST116') {
-      throw new Error(`[supabase] get user failed: ${selectError.message}`);
+    const lookupTable = chain === 'evm' ? 'app_users' : 'user_wallet_links';
+    const lookupColumn = chain === 'evm' ? 'wallet_address' : 'wallet_address';
+    let existing = null;
+    if (chain === 'evm') {
+      const { data, error: selectError } = await client
+        .from('app_users')
+        .select('id, wallet_address')
+        .eq('wallet_address', walletAddress)
+        .maybeSingle();
+      if (selectError && selectError.code !== 'PGRST116') {
+        throw new Error(`[supabase] get user failed: ${selectError.message}`);
+      }
+      existing = data || null;
+    } else {
+      const { data, error: linkError } = await client
+        .from(lookupTable)
+        .select('id, user_id, chain_type, wallet_address')
+        .eq(lookupColumn, walletAddress)
+        .eq('chain_type', chain)
+        .maybeSingle();
+      if (linkError && linkError.code !== 'PGRST116') {
+        throw new Error(`[supabase] get wallet link failed: ${linkError.message}`);
+      }
+      if (data?.user_id) {
+        const { data: userRow, error: userError } = await client
+          .from('app_users')
+          .select('id, wallet_address')
+          .eq('id', data.user_id)
+          .maybeSingle();
+        if (userError && userError.code !== 'PGRST116') {
+          throw new Error(`[supabase] get linked user failed: ${userError.message}`);
+        }
+        existing = userRow || { id: data.user_id, wallet_address: null };
+      }
     }
     if (existing) return { id: existing.id, walletAddress: existing.wallet_address };
+    const insertPayload = chain === 'evm' ? { wallet_address: walletAddress } : {};
     const { data, error } = await client
       .from('app_users')
-      .insert({ wallet_address: walletAddress })
+      .insert(insertPayload)
       .select('id, wallet_address')
       .single();
     if (error) throw new Error(`[supabase] insert user failed: ${error.message}`);
+    const nowIso = new Date().toISOString();
+    const { error: linkInsertError } = await client
+      .from('user_wallet_links')
+      .upsert(
+        {
+          id: createId(),
+          user_id: data.id,
+          chain_type: chain,
+          wallet_address: walletAddress,
+          created_at: nowIso
+        },
+        { onConflict: 'chain_type,wallet_address' }
+      );
+    if (linkInsertError) {
+      throw new Error(`[supabase] insert wallet link failed: ${linkInsertError.message}`);
+    }
     return { id: data.id, walletAddress: data.wallet_address };
   }
-  const existing = sqlite
-    .prepare('SELECT id, wallet_address FROM app_users WHERE wallet_address = ?')
-    .get(walletAddress);
+  let existing = null;
+  if (chain === 'evm') {
+    existing = sqlite
+      .prepare('SELECT id, wallet_address FROM app_users WHERE wallet_address = ?')
+      .get(walletAddress);
+  } else {
+    existing = sqlite
+      .prepare(
+        `SELECT u.id, u.wallet_address
+         FROM user_wallet_links l
+         JOIN app_users u ON u.id = l.user_id
+         WHERE l.chain_type = ? AND l.wallet_address = ?`
+      )
+      .get(chain, walletAddress);
+  }
   if (existing) {
     return { id: existing.id, walletAddress: existing.wallet_address };
   }
   const id = createId();
   const now = new Date().toISOString();
+  if (chain === 'evm') {
+    sqlite
+      .prepare(
+        'INSERT INTO app_users (id, wallet_address, created_at, last_seen_at) VALUES (?, ?, ?, ?)'
+      )
+      .run(id, walletAddress, now, now);
+  } else {
+    sqlite
+      .prepare(
+        'INSERT INTO app_users (id, wallet_address, created_at, last_seen_at) VALUES (?, ?, ?, ?)'
+      )
+      .run(id, null, now, now);
+  }
   sqlite
     .prepare(
-      'INSERT INTO app_users (id, wallet_address, created_at, last_seen_at) VALUES (?, ?, ?, ?)'
+      `INSERT OR IGNORE INTO user_wallet_links
+       (id, user_id, chain_type, wallet_address, created_at)
+       VALUES (?, ?, ?, ?, ?)`
     )
-    .run(id, walletAddress, now, now);
+    .run(createId(), id, chain, walletAddress, now);
   return { id, walletAddress };
+};
+
+const linkWalletToUser = async ({ userId, chainType, walletAddress }) => {
+  if (!userId || !walletAddress) return null;
+  const chain = normalizeChainType(chainType);
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const client = supabaseClient();
+    const { data: existing, error: existingError } = await client
+      .from('user_wallet_links')
+      .select('id, user_id, chain_type, wallet_address, created_at')
+      .eq('chain_type', chain)
+      .eq('wallet_address', walletAddress)
+      .maybeSingle();
+    if (existingError && existingError.code !== 'PGRST116') {
+      throw new Error(`[supabase] get wallet link failed: ${existingError.message}`);
+    }
+    if (existing && existing.user_id !== userId) {
+      throw new Error('Wallet already linked to another user');
+    }
+    const payload = {
+      id: existing?.id || createId(),
+      user_id: userId,
+      chain_type: chain,
+      wallet_address: walletAddress,
+      created_at: existing?.created_at || now
+    };
+    const { data, error } = await client
+      .from('user_wallet_links')
+      .upsert(payload, { onConflict: 'chain_type,wallet_address' })
+      .select('id, user_id, chain_type, wallet_address, created_at')
+      .single();
+    if (error) throw new Error(`[supabase] linkWalletToUser failed: ${error.message}`);
+    return {
+      id: data.id,
+      userId: data.user_id,
+      chainType: data.chain_type,
+      walletAddress: data.wallet_address,
+      createdAt: data.created_at || null
+    };
+  }
+  const existing = sqlite
+    .prepare(
+      `SELECT id, user_id, chain_type, wallet_address, created_at
+       FROM user_wallet_links
+       WHERE chain_type = ? AND wallet_address = ?`
+    )
+    .get(chain, walletAddress);
+  if (existing && existing.user_id !== userId) {
+    throw new Error('Wallet already linked to another user');
+  }
+  const id = existing?.id || createId();
+  sqlite
+    .prepare(
+      `INSERT INTO user_wallet_links (id, user_id, chain_type, wallet_address, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(chain_type, wallet_address) DO UPDATE SET
+         user_id = excluded.user_id`
+    )
+    .run(id, userId, chain, walletAddress, existing?.created_at || now);
+  return {
+    id,
+    userId,
+    chainType: chain,
+    walletAddress,
+    createdAt: existing?.created_at || now
+  };
+};
+
+const listWalletLinksByUser = async (userId) => {
+  if (!userId) return [];
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('user_wallet_links')
+      .select('id, user_id, chain_type, wallet_address, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(`[supabase] listWalletLinksByUser failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      chainType: row.chain_type,
+      walletAddress: row.wallet_address,
+      createdAt: row.created_at || null
+    }));
+  }
+  const rows = sqlite
+    .prepare(
+      `SELECT id, user_id, chain_type, wallet_address, created_at
+       FROM user_wallet_links
+       WHERE user_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(userId);
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    chainType: row.chain_type,
+    walletAddress: row.wallet_address,
+    createdAt: row.created_at || null
+  }));
+};
+
+const getLinkedEvmWallet = async ({ chainType, walletAddress }) => {
+  const chain = normalizeChainType(chainType);
+  if (!walletAddress) return '';
+  if (chain === 'evm') return walletAddress;
+  if (useSupabase) {
+    const client = supabaseClient();
+    const { data: sourceLink, error: sourceErr } = await client
+      .from('user_wallet_links')
+      .select('user_id')
+      .eq('chain_type', chain)
+      .eq('wallet_address', walletAddress)
+      .maybeSingle();
+    if (sourceErr && sourceErr.code !== 'PGRST116') {
+      throw new Error(`[supabase] getLinkedEvmWallet source failed: ${sourceErr.message}`);
+    }
+    if (!sourceLink?.user_id) return '';
+    const { data: evmLink, error: evmErr } = await client
+      .from('user_wallet_links')
+      .select('wallet_address')
+      .eq('user_id', sourceLink.user_id)
+      .eq('chain_type', 'evm')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (evmErr && evmErr.code !== 'PGRST116') {
+      throw new Error(`[supabase] getLinkedEvmWallet evm link failed: ${evmErr.message}`);
+    }
+    if (evmLink?.wallet_address) return evmLink.wallet_address;
+    const { data: userRow, error: userErr } = await client
+      .from('app_users')
+      .select('wallet_address')
+      .eq('id', sourceLink.user_id)
+      .maybeSingle();
+    if (userErr && userErr.code !== 'PGRST116') {
+      throw new Error(`[supabase] getLinkedEvmWallet user failed: ${userErr.message}`);
+    }
+    return userRow?.wallet_address || '';
+  }
+  const source = sqlite
+    .prepare(
+      `SELECT user_id FROM user_wallet_links
+       WHERE chain_type = ? AND wallet_address = ?`
+    )
+    .get(chain, walletAddress);
+  if (!source?.user_id) return '';
+  const evmLink = sqlite
+    .prepare(
+      `SELECT wallet_address FROM user_wallet_links
+       WHERE user_id = ? AND chain_type = 'evm'
+       ORDER BY created_at ASC
+       LIMIT 1`
+    )
+    .get(source.user_id);
+  if (evmLink?.wallet_address) return evmLink.wallet_address;
+  const userRow = sqlite
+    .prepare('SELECT wallet_address FROM app_users WHERE id = ?')
+    .get(source.user_id);
+  return userRow?.wallet_address || '';
 };
 
 const createSession = async ({ userId, provider, nonce, issuedAt, expiresAt, ipHash }) => {
@@ -622,6 +866,9 @@ const getSessionByToken = async (token) => {
       throw new Error(`[supabase] session lookup failed: ${error.message}`);
     }
     if (!data) return null;
+    const linkedWallets = data.user_id
+      ? await listWalletLinksByUser(data.user_id)
+      : [];
     return {
       id: data.id,
       provider: data.provider,
@@ -633,7 +880,8 @@ const getSessionByToken = async (token) => {
         ? {
             id: data.app_users.id,
             walletAddress: data.app_users.wallet_address,
-            role: data.app_users.role || 'user'
+            role: data.app_users.role || 'user',
+            linkedWallets
           }
         : null
     };
@@ -647,6 +895,7 @@ const getSessionByToken = async (token) => {
     )
     .get('wallet_session', token);
   if (!row) return null;
+  const linkedWallets = row.user_id ? await listWalletLinksByUser(row.user_id) : [];
   return {
     id: row.id,
     provider: row.provider,
@@ -655,7 +904,12 @@ const getSessionByToken = async (token) => {
     expiresAt: row.expires_at ? Date.parse(row.expires_at) : null,
     ipHash: row.ip_hash || '',
     user: row.user_id
-      ? { id: row.user_id, walletAddress: row.wallet_address, role: row.role || 'user' }
+      ? {
+          id: row.user_id,
+          walletAddress: row.wallet_address,
+          role: row.role || 'user',
+          linkedWallets
+        }
       : null
   };
 };
@@ -2139,6 +2393,9 @@ module.exports = {
   insertSubmission,
   insertNotification,
   getOrCreateUserByWallet,
+  linkWalletToUser,
+  listWalletLinksByUser,
+  getLinkedEvmWallet,
   createSession,
   getNonceSession,
   getSessionByToken,

@@ -9,8 +9,12 @@ const SESSION_KEY = ['onchain-session'];
 
 const defaultSession = {
   chainType: 'evm',
+  primaryIdentity: 'evm',
   evmChainId: DEFAULT_EVM_CHAIN.id,
+  evmWalletAddress: null,
   solanaNetworkId: 'mainnet-beta',
+  solanaWalletAddress: null,
+  solanaWalletName: null,
   onrampProvider: 'onramper',
   bridgeProvider: 'lifi'
 };
@@ -66,7 +70,10 @@ export async function requestWalletSession({ address, signMessageAsync }) {
   const auth = {
     token: verifyResponse.sessionToken,
     walletAddress: verifyResponse.walletAddress || address,
-    expiresAt: verifyResponse.expiresAt || null
+    expiresAt: verifyResponse.expiresAt || null,
+    linkedWallets: Array.isArray(verifyResponse.linkedWallets)
+      ? verifyResponse.linkedWallets
+      : []
   };
   writeAuth(auth);
   trackEvent('wallet_session_created', {
@@ -130,5 +137,26 @@ export function useOnchainSession() {
   return {
     session: query.data,
     setSession
+  };
+}
+
+export function getActiveIdentity(session, evmAddress) {
+  const chainType = session?.chainType === 'solana' ? 'solana' : 'evm';
+  const primaryIdentity = session?.primaryIdentity === 'solana' ? 'solana' : 'evm';
+  const evmWalletAddress = evmAddress || session?.evmWalletAddress || null;
+  const solanaWalletAddress = session?.solanaWalletAddress || null;
+  const hasBothWallets = Boolean(evmWalletAddress && solanaWalletAddress);
+  const preferred = hasBothWallets ? primaryIdentity : chainType;
+  if (preferred === 'solana' && solanaWalletAddress) {
+    return {
+      chainType: 'solana',
+      walletAddress: solanaWalletAddress,
+      hasBothWallets
+    };
+  }
+  return {
+    chainType: 'evm',
+    walletAddress: evmWalletAddress,
+    hasBothWallets
   };
 }

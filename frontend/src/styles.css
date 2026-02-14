@@ -2283,6 +2283,31 @@ select:focus-visible {
   isolation: isolate;
 }
 
+.feature-diagram--image {
+  padding: var(--space-3);
+}
+
+.feature-diagram--image-stack {
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.feature-diagram__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: calc(var(--radius-md) - 4px);
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.feature-diagram__divider {
+  height: 1px;
+  width: 100%;
+  background: var(--border-primary);
+}
+
 .feature-diagram__overlay {
   position: absolute;
   inset: 0;
@@ -2448,6 +2473,11 @@ select:focus-visible {
 @media (max-width: 640px) {
   .feature-diagram__layer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .feature-diagram--image,
+  .feature-diagram--image-stack {
+    padding: var(--space-2);
   }
 }
 

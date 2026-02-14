@@ -30,7 +30,6 @@ export default function SolanaWalletCard() {
     if (connected && address) {
       trackEvent('solana_connect', { address, wallet: wallet?.adapter?.name });
       setSession({
-        chainType: 'solana',
         solanaWalletAddress: address,
         solanaWalletName: wallet?.adapter?.name || null
       });
@@ -41,11 +40,21 @@ export default function SolanaWalletCard() {
     if (!connected && (session.solanaWalletAddress != null || session.solanaWalletName != null)) {
       trackEvent('solana_disconnect');
       setSession({
+        chainType: session.primaryIdentity === 'solana' ? 'evm' : session.chainType,
+        primaryIdentity:
+          session.primaryIdentity === 'solana' ? 'evm' : session.primaryIdentity,
         solanaWalletAddress: null,
         solanaWalletName: null
       });
     }
-  }, [connected, session.solanaWalletAddress, session.solanaWalletName, setSession]);
+  }, [
+    connected,
+    session.chainType,
+    session.primaryIdentity,
+    session.solanaWalletAddress,
+    session.solanaWalletName,
+    setSession
+  ]);
 
   return (
     <div className="stack">

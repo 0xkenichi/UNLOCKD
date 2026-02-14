@@ -8,7 +8,7 @@ import {
 } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from './utils/chains.js';
-import { useOnchainSession } from './utils/onchainSession.js';
+import { getActiveIdentity, useOnchainSession } from './utils/onchainSession.js';
 import { routeImports } from './routes.js';
 import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
@@ -55,18 +55,16 @@ function AppShell() {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const { address: connectedAddress, isConnecting, isReconnecting } = useAccount();
-  const { session } = useOnchainSession();
+  const { session, setSession } = useOnchainSession();
   const allChainIds = ALL_EVM_CHAINS.map((chain) => chain.id);
   const isEvm = session.chainType !== 'solana';
   const showChainWarning = isEvm && chainId && !allChainIds.includes(chainId);
-  const hasSolanaSession =
-    session.chainType === 'solana' || Boolean(session.solanaWalletAddress);
+  const hasSolanaSession = Boolean(session.solanaWalletAddress);
   const solanaNetwork =
     SOLANA_NETWORKS.find((network) => network.id === session.solanaNetworkId) ||
     SOLANA_NETWORKS[0];
-  const activeHeaderAddress = hasSolanaSession
-    ? session.solanaWalletAddress || ''
-    : connectedAddress || '';
+  const activeIdentity = getActiveIdentity(session, connectedAddress);
+  const activeHeaderAddress = activeIdentity.walletAddress || '';
   const shortActiveHeaderAddress = activeHeaderAddress
     ? `${activeHeaderAddress.slice(0, 6)}…${activeHeaderAddress.slice(-4)}`
     : '';
@@ -124,6 +122,19 @@ function AppShell() {
     });
     flushAnalyticsQueue();
   }, [connectedAddress, chainId]);
+
+  useEffect(() => {
+    if (!connectedAddress) {
+      setSession((prev) =>
+        prev?.evmWalletAddress ? { ...prev, evmWalletAddress: null } : prev
+      );
+      return;
+    }
+    setSession((prev) => ({
+      ...prev,
+      evmWalletAddress: connectedAddress
+    }));
+  }, [connectedAddress, setSession]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -227,7 +238,7 @@ function AppShell() {
                 onClick={() => setWalletModalOpen(true)}
               >
                 {activeHeaderAddress
-                  ? `${hasSolanaSession ? 'Phantom' : 'Connected'} ${shortActiveHeaderAddress}`
+                  ? `${activeIdentity.chainType === 'solana' ? 'Phantom' : 'Connected'} ${shortActiveHeaderAddress}`
                   : 'Connect'}
               </button>
             </div>
@@ -240,6 +251,7 @@ function AppShell() {
         </div>
       )}
       {!showChainWarning &&
+        session.chainType === 'solana' &&
         hasSolanaSession &&
         solanaNetwork && (
         <div className="chain-warning">
