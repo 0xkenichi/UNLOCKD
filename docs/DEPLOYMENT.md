@@ -56,6 +56,12 @@
 - The backend will fall back to local SQLite if Supabase is not configured, but Supabase is recommended for shared state and durability.
 - Apply schema: run `supabase db push --env-file backend/.env` (Supabase CLI) or paste `backend/migrations/0001_supabase.sql` into the Supabase SQL editor.
 
+## Frontend (Vercel)
+- **Root Directory:** In the Vercel project settings, set **Root Directory** to `frontend` so the build uses `frontend/package.json` and `frontend/vercel.json`. If the root is the repo root, the deploy may serve the wrong output or fail.
+- **Build:** Uses `npm run build` and `outputDirectory: dist`. The build needs enough memory; the repo uses `NODE_OPTIONS=--max-old-space-size=8192` in `package.json` scripts (Vercel usually has enough).
+- **CSP:** `frontend/vercel.json` sets a Content-Security-Policy. It includes `'unsafe-inline'` and `'unsafe-eval'` for `script-src` so RainbowKit/WalletConnect can run; without these, the app can render a black screen in production.
+- **Env (optional):** `VITE_WC_PROJECT_ID`, `VITE_ALCHEMY_ACCOUNT_KIT_API_KEY`, `VITE_ALCHEMY_ACCOUNT_KIT_POLICY_ID`, `VITE_ALCHEMY_ACCOUNT_KIT_CHAIN` as needed.
+
 ## Turnstile setup
 - Create a Turnstile site in Cloudflare and set the **Site Key** in the frontend (`VITE_TURNSTILE_SITE_KEY`) and the **Secret Key** in the backend (`TURNSTILE_SECRET_KEY`).
 - For local development without captcha, set `TURNSTILE_BYPASS=true`.
