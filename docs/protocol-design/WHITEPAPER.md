@@ -266,7 +266,7 @@ This deterministic curve is more conservative than the Monte Carlo 5th percentil
 User escrows vesting claim; engine computes limit; loan issued from pool.
 
 ### Accrual
-Interest compounds (rates: 5-15% APR, based on utilization/risk).
+Interest compounds (rates: 5-15% APR, based on utilization/risk). For the on-chain rate model (utilization tiers, governance) and lending pool time/lifecycle, see [INTEREST_RATES_AND_POOL_LIFECYCLE.md](../risk/INTEREST_RATES_AND_POOL_LIFECYCLE.md).
 
 ### Repayment
 Flexible (partial/full); early optional.

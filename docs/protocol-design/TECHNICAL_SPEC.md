@@ -1,6 +1,6 @@
 # Technical Specification
 
-This document defines the system architecture, module responsibilities, and core flows for VESTRA. It complements `ARCHITECTURE.md` and the litepaper and is intended to be implementable without ambiguity.
+This document defines the system architecture, module responsibilities, and core flows for VESTRA. It complements [ARCHITECTURE.md](ARCHITECTURE.md) and the litepaper and is intended to be implementable without ambiguity.
 
 ## Scope
 - On-chain escrow and settlement of claim rights.
@@ -13,7 +13,7 @@ Out of scope: legal agreements, custody frameworks, or off-chain lending.
 ## System Overview
 The protocol enables borrowing or selling claim rights on time-locked tokens. Settlement is enforced at unlock, and credit risk is isolated through conservative DPV and LTV caps.
 
-![UNLOCKD Protocol Architecture](assets/diagrams/unlockd-architecture.png)
+![UNLOCKD Protocol Architecture](../assets/diagrams/unlockd-architecture.png)
 
 ## Design Principles
 - **Safety first**: settlement is deterministic and non-bypassable.
@@ -119,7 +119,7 @@ Constraints:
 - `createAuction`: claim cannot be simultaneously pledged to a loan.
 
 ## Borrow Flow (Public or Private)
-![Borrow Flow (Escrow to Loan Issuance)](assets/diagrams/unlockd-borrow-flow.png)
+![Borrow Flow (Escrow to Loan Issuance)](../assets/diagrams/unlockd-borrow-flow.png)
 
 1. Borrower escrows claim rights via adapter.
 2. Adapter returns quantity and unlock time for valuation.
@@ -129,7 +129,7 @@ Constraints:
 6. Optional relayer proxies steps 1-5.
 
 ## Repay and Settle
-![Repay and Settle Flow](assets/diagrams/unlockd-settle-flow.png)
+![Repay and Settle Flow](../assets/diagrams/unlockd-settle-flow.png)
 
 1. Borrower repays principal + interest any time pre-unlock.
 2. At unlock, settlement enforces:
@@ -139,11 +139,19 @@ Constraints:
 3. Optional auto-repay after maturity can use wallet balances with a priority
    order (stables -> major tokens -> native token -> long-tail), disclosed in the
    loan agreement.
-4. Auto-repay on EVM uses `repayWithSwap` / `repayWithSwapBatch`:
+4. Auto-repay on EVM uses opt-in + keeper-initiated repayment:
+   - Borrower must opt in on-chain (`setAutoRepayOptIn(true)`).
+   - Auto-repay calls are initiated by an always-on keeper using
+     `repayWithSwapFor` / `repayWithSwapBatchFor` so the borrower does not need
+     to be online.
+   - Repayments are capped to the remaining debt and any USDC overpayment is
+     refunded back to the borrower.
+   - Auto-repay uses token priority and swap limits to prevent abusive slippage.
+5. Borrower-initiated repay on EVM uses `repayLoan` / `repayWithSwap` / `repayWithSwapBatch`:
    - Tokens must be whitelisted and ordered via `setRepayTokenPriority`.
    - Swaps execute through the configured Uniswap v3 router into USDC.
    - Borrower must pre-approve the loan manager for each token used.
-5. Solana auto-repay (optional) uses a server-side sweep:
+6. Solana auto-repay (optional) uses a server-side sweep:
    - The borrower delegates token accounts to the repay authority.
    - The server transfers balances in the configured priority order.
    - In `usdc-only` mode, only USDC is pulled; other mints are skipped.
@@ -199,7 +207,7 @@ Defaults resolve at unlock, not before:
 - Unit tests for valuation, settlement, and auction logic.
 - Property tests for edge cases (partial repay, price shocks).
 - Integration tests for borrow/repay/settle flows.
-- Security review checklist per `SECURITY.md`.
+- Security review checklist per [SECURITY.md](../security/SECURITY.md).
 
 ## Non-Functional Requirements
 - Deterministic settlement within target gas limits.

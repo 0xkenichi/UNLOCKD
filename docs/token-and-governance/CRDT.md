@@ -10,7 +10,7 @@ the protocol token and the governance token for the DAO. CRDT aligns protocol
 participants, secures governance, and funds long term development.
 
 For final Phase 1 allocation, vesting, and treasury policy, see
-`TOKENOMICS_FINAL.md`.
+[TOKENOMICS_FINAL.md](TOKENOMICS_FINAL.md).
 
 ## Core Concepts
 

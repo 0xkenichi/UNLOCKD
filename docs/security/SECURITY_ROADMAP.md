@@ -71,3 +71,8 @@ The protocol does not proceed to unrestricted mainnet operation unless:
 - All high-severity findings have accepted mitigations
 - Emergency controls tested and documented
 - Security owners and on-call rotation assigned
+
+## Related Documents
+
+- **Risks and gamification:** `docs/RISKS_GAPS_AND_GAMIFICATION.md`
+- **Remediation and staying ahead:** `docs/REMEDIATION_AND_STAYING_AHEAD.md` — use for sprint alignment (Sprint A/B/C) and recurring stay-ahead process (quarterly review, monitoring, game-theory pass).

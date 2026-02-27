@@ -1,0 +1,465 @@
+/**
+ * Reusable Dashboard Design System
+ * Dark theme + accent green. Copy this file into any project.
+ * Usage: <link rel="stylesheet" href="reusable-dashboard.css" />
+ *
+ * Class prefix: .ds- (design system) to avoid clashes.
+ */
+
+/* ============== CSS Custom Properties (Theme) ============== */
+:root {
+  /* Backgrounds */
+  --ds-bg-primary: #0a0a0c;
+  --ds-bg-secondary: #141418;
+  --ds-bg-tertiary: #1c1c22;
+  --ds-bg-card: #1a1a20;
+  --ds-bg-sidebar: #121218;
+  --ds-bg-elevated: #222228;
+
+  /* Text */
+  --ds-text-primary: #ffffff;
+  --ds-text-secondary: #a0a0a8;
+  --ds-text-muted: #6b6b72;
+
+  /* Accent (neon green) */
+  --ds-accent: #00d26a;
+  --ds-accent-hover: #00e676;
+  --ds-accent-muted: rgba(0, 210, 106, 0.15);
+  --ds-accent-text: #ffffff;
+
+  /* Borders & dividers */
+  --ds-border: rgba(255, 255, 255, 0.08);
+  --ds-border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Shadows */
+  --ds-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --ds-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --ds-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+
+  /* Radii */
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 10px;
+  --ds-radius-lg: 14px;
+  --ds-radius-full: 9999px;
+
+  /* Spacing (optional scale) */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-sidebar-width: 240px;
+}
+
+/* ============== Base layout (optional) ============== */
+.ds-app {
+  min-height: 100vh;
+  background: var(--ds-bg-primary);
+  color: var(--ds-text-primary);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* ============== Sidebar ============== */
+.ds-sidebar {
+  width: var(--ds-sidebar-width);
+  min-width: var(--ds-sidebar-width);
+  background: var(--ds-bg-sidebar);
+  padding: var(--ds-space-4) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+}
+
+.ds-sidebar-brand {
+  padding: 0 var(--ds-space-4);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ds-text-primary);
+}
+
+.ds-sidebar-section-title {
+  padding: 0 var(--ds-space-4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ds-text-muted);
+}
+
+.ds-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) var(--ds-space-4);
+  color: var(--ds-text-secondary);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  border-radius: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ds-sidebar-link:hover {
+  color: var(--ds-text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ds-sidebar-link.is-active {
+  color: var(--ds-text-primary);
+  background: var(--ds-bg-tertiary);
+}
+
+.ds-sidebar-link .ds-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  opacity: 0.9;
+}
+
+/* ============== Cards / Widgets ============== */
+.ds-card {
+  background: var(--ds-bg-card);
+  border-radius: var(--ds-radius-md);
+  padding: var(--ds-space-5);
+  box-shadow: var(--ds-shadow-sm);
+  border: 1px solid var(--ds-border);
+}
+
+.ds-card-header {
+  margin-bottom: var(--ds-space-4);
+}
+
+.ds-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ds-text-primary);
+  margin: 0;
+}
+
+.ds-card-subtitle {
+  font-size: 0.8125rem;
+  color: var(--ds-text-muted);
+  margin: var(--ds-space-1) 0 0 0;
+}
+
+/* ============== Buttons ============== */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-4);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  border-radius: var(--ds-radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.ds-btn:active {
+  transform: scale(0.98);
+}
+
+.ds-btn-primary {
+  background: var(--ds-accent);
+  color: var(--ds-accent-text);
+}
+
+.ds-btn-primary:hover {
+  background: var(--ds-accent-hover);
+}
+
+.ds-btn-secondary {
+  background: var(--ds-bg-elevated);
+  color: var(--ds-text-primary);
+}
+
+.ds-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ds-btn-ghost {
+  background: transparent;
+  color: var(--ds-text-secondary);
+}
+
+.ds-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ds-text-primary);
+}
+
+.ds-btn-lg {
+  padding: var(--ds-space-3) var(--ds-space-6);
+  font-size: 1rem;
+  border-radius: var(--ds-radius-lg);
+}
+
+.ds-btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--ds-radius-full);
+}
+
+.ds-btn-icon.ds-btn-lg {
+  width: 48px;
+  height: 48px;
+}
+
+/* ============== Tabs ============== */
+.ds-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--ds-bg-tertiary);
+  border-radius: var(--ds-radius-sm);
+  width: fit-content;
+}
+
+.ds-tab {
+  padding: var(--ds-space-2) var(--ds-space-4);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ds-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ds-tab:hover {
+  color: var(--ds-text-primary);
+}
+
+.ds-tab.is-active {
+  color: var(--ds-text-primary);
+  background: var(--ds-bg-primary);
+}
+
+/* ============== Data table (widget) ============== */
+.ds-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--ds-radius-sm);
+}
+
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ds-table th,
+.ds-table td {
+  padding: var(--ds-space-2) var(--ds-space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.ds-table th {
+  font-weight: 600;
+  color: var(--ds-text-secondary);
+}
+
+.ds-table td {
+  color: var(--ds-text-primary);
+}
+
+.ds-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ds-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ============== List with colored dots (e.g. country %) ============== */
+.ds-list-dots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ds-list-dots li {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) 0;
+  font-size: 0.875rem;
+  color: var(--ds-text-primary);
+}
+
+.ds-list-dots .ds-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ds-radius-full);
+  flex-shrink: 0;
+}
+
+.ds-list-dots .ds-dot-red { background: #ef4444; }
+.ds-list-dots .ds-dot-orange { background: #f97316; }
+.ds-list-dots .ds-dot-green { background: var(--ds-accent); }
+.ds-list-dots .ds-dot-blue { background: #3b82f6; }
+.ds-list-dots .ds-dot-purple { background: #8b5cf6; }
+
+.ds-list-dots .ds-label { flex: 1; }
+.ds-list-dots .ds-value { color: var(--ds-text-secondary); font-variant-numeric: tabular-nums; }
+
+/* ============== Map / chart widget chrome ============== */
+.ds-map-wrap {
+  background: var(--ds-bg-primary);
+  border-radius: var(--ds-radius-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+.ds-map-legend {
+  position: absolute;
+  bottom: var(--ds-space-4);
+  left: var(--ds-space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  font-size: 0.75rem;
+  color: var(--ds-text-muted);
+}
+
+.ds-map-legend-gradient {
+  width: 120px;
+  height: 8px;
+  border-radius: var(--ds-radius-full);
+  background: linear-gradient(to right, rgba(0, 210, 106, 0.2), var(--ds-accent));
+}
+
+.ds-map-zoom {
+  position: absolute;
+  top: var(--ds-space-4);
+  right: var(--ds-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-map-zoom-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  color: var(--ds-text-primary);
+  cursor: pointer;
+  font-size: 1.125rem;
+  line-height: 1;
+  transition: background 0.15s ease;
+}
+
+.ds-map-zoom-btn:hover {
+  background: var(--ds-bg-tertiary);
+}
+
+/* ============== Overlay / panel (e.g. wallet extension style) ============== */
+.ds-overlay-panel {
+  background: var(--ds-bg-secondary);
+  border-radius: var(--ds-radius-lg);
+  border: 1px solid var(--ds-border);
+  box-shadow: var(--ds-shadow-lg);
+  overflow: hidden;
+  max-width: 360px;
+}
+
+.ds-overlay-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ds-space-4);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.ds-overlay-panel-body {
+  padding: var(--ds-space-4);
+}
+
+.ds-overlay-panel-footer {
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-top: 1px solid var(--ds-border);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.ds-overlay-panel-footer .ds-nav-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--ds-text-muted);
+  font-size: 0.6875rem;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--ds-space-2);
+}
+
+.ds-overlay-panel-footer .ds-nav-icon.is-active,
+.ds-overlay-panel-footer .ds-nav-icon:hover {
+  color: var(--ds-accent);
+}
+
+/* ============== Utility classes ============== */
+.ds-flex { display: flex; }
+.ds-flex-col { flex-direction: column; }
+.ds-items-center { align-items: center; }
+.ds-justify-between { justify-content: space-between; }
+.ds-gap-2 { gap: var(--ds-space-2); }
+.ds-gap-4 { gap: var(--ds-space-4); }
+.ds-mb-4 { margin-bottom: var(--ds-space-4); }
+.ds-text-muted { color: var(--ds-text-muted); }
+.ds-text-accent { color: var(--ds-accent); }
+
+/* ============== Layout: sidebar + main ============== */
+.ds-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.ds-layout-main {
+  flex: 1;
+  padding: var(--ds-space-6);
+  background: var(--ds-bg-primary);
+  display: grid;
+  gap: var(--ds-space-5);
+  align-content: start;
+}
+
+/* Simple grid for dashboard widgets */
+.ds-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--ds-space-5);
+}
+
+.ds-dashboard-grid .ds-card-wide {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 900px) {
+  .ds-dashboard-grid .ds-card-wide {
+    grid-column: span 2;
+  }
+}

@@ -55,7 +55,7 @@ export default function OnboardingModal() {
     () => [
       {
         title: 'Welcome to VESTRA',
-        subtitle: 'Seamless onchain borrowing across Base, Arbitrum, Avalanche.',
+        subtitle: 'Seamless onchain borrowing across Flow EVM, Base, Arbitrum, Avalanche.',
         content:
           'Borrow against vested tokens with non-custodial security, DPV valuation, and auto-settlement.',
         image: onboardingHeroImage

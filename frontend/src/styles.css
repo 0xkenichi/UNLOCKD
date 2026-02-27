@@ -2852,3 +2852,22 @@ select:focus-visible {
     opacity: 0.35;
   }
 }
+
+/* Modal primitives (used in borrow agreement) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 8, 12, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 999;
+}
+
+.modal {
+  width: min(920px, 100%);
+  max-height: min(86vh, 920px);
+  overflow: auto;
+}

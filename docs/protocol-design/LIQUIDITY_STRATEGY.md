@@ -16,6 +16,17 @@ becomes fully autonomous, additional liquidity sources can be layered in.
   existing lending pool contract.
 - This creates immediate liquidity without protocol custody of private keys.
 
+### Phase 1b: Hybrid deposits (on-demand + fixed-term)
+
+To support a more passive lender experience (USD+-style simplicity) while keeping
+borrower-side agreements detailed, Vestra supports a hybrid liquidity surface:
+
+- **On-demand deposits** into the main pool (`LendingPool.sol`) with utilization-based
+  rate displays as **estimates** (not guarantees).
+- **Fixed-term tranche deposits** (`TermVault.sol`) that offer a **minimum return**
+  funded by a treasury/reward reserve budget (deposits revert if the vault is not
+  prefunded enough to honor the minimum).
+
 ## Phase 2: Treasury-Funded Loans (Agent-Led)
 
 Once the agent is live and the matching system is stable, the protocol treasury

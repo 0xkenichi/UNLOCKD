@@ -97,6 +97,24 @@ export async function apiGet(path) {
   throw new Error('Request failed');
 }
 
+export async function apiDelete(path) {
+  const authToken = readAuthToken();
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (data && data.ok === false) {
+    throw new Error(data.error || 'Request failed');
+  }
+  return data;
+}
+
 export async function apiDownload(path, filename) {
   const authToken = readAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
@@ -128,10 +146,11 @@ export async function fetchRepaySchedule() {
   return data.items || [];
 }
 
-export async function fetchVestedContracts({ walletAddress, chain } = {}) {
+export async function fetchVestedContracts({ walletAddress, chain, privacyMode } = {}) {
   const params = new URLSearchParams();
   if (walletAddress) params.set('wallet', walletAddress);
   if (chain) params.set('chain', chain);
+  if (privacyMode) params.set('privacy', '1');
   const query = params.toString();
   const endpoint = `/api/vested-contracts${query ? `?${query}` : ''}`;
   try {
@@ -140,6 +159,10 @@ export async function fetchVestedContracts({ walletAddress, chain } = {}) {
   } catch (error) {
     const msg = String(error?.message || '');
     if (!/Request failed:\s*404/i.test(msg)) {
+      throw error;
+    }
+    if (privacyMode) {
+      // Avoid falling back to public snapshots in private mode.
       throw error;
     }
     const snapshots = await apiGet('/api/vested-snapshots?full=1');
@@ -151,7 +174,10 @@ export async function fetchVestedContracts({ walletAddress, chain } = {}) {
         return false;
       }
       if (!normalizedWallet) return true;
-      return String(item?.borrower || '').trim().toLowerCase() === normalizedWallet;
+      const borrower = String(item?.borrower || '').trim().toLowerCase();
+      // In privacy mode, the backend may omit borrower fields.
+      if (!borrower && privacyMode) return true;
+      return borrower === normalizedWallet;
     });
   }
 }
@@ -275,6 +301,29 @@ export async function downloadAdminAirdropLeaderboard(windowDays = 30, limit = 2
   );
 }
 
+export async function fetchAdminRiskFlags(wallet = null, token = null) {
+  const params = new URLSearchParams();
+  if (wallet) params.set('wallet', wallet);
+  if (token) params.set('token', token);
+  const data = await apiGet(`/api/admin/risk/flags?${params.toString()}`);
+  return data.flags || [];
+}
+
+export async function createAdminRiskFlag(payload) {
+  const data = await apiPost('/api/admin/risk/flags', payload);
+  return data.flag;
+}
+
+export async function deleteAdminRiskFlag(id) {
+  await apiDelete(`/api/admin/risk/flags/${id}`);
+}
+
+export async function fetchAdminRiskCohort(by = 'borrower', limit = 100) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const data = await apiGet(`/api/admin/risk/cohort?by=${encodeURIComponent(by)}&limit=${safeLimit}`);
+  return by === 'token' ? { byToken: data.byToken || [] } : { borrowers: data.borrowers || [] };
+}
+
 export async function fetchSolanaUnmappedMints() {
   const data = await apiGet('/api/solana/unmapped-mints');
   return data.items || [];
@@ -283,6 +332,23 @@ export async function fetchSolanaUnmappedMints() {
 export async function fetchSolanaStatus() {
   const data = await apiGet('/api/solana/status');
   return data.status || null;
+}
+
+export async function fetchLenderProjections(amountUsd) {
+  const amount = Number(amountUsd || 0);
+  const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
+  const data = await apiGet(`/api/lender/projections?amountUsd=${encodeURIComponent(String(safeAmount))}`);
+  return data;
+}
+
+export async function fetchLenderPortfolioLight() {
+  const data = await apiGet('/api/lender/portfolio-light');
+  return data;
+}
+
+export async function requestChainSupport(payload = {}) {
+  const data = await apiPost('/api/chains/request', payload);
+  return data;
 }
 
 export async function askAgent(message, history = [], captchaToken, context = null) {

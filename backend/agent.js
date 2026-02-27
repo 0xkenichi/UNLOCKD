@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const MiniSearch = require('minisearch');
 
+const { getPriceBehavior } = require('./lib/priceBehavior');
+
 const DOC_DIR = path.join(__dirname, '..', 'docs');
 const RISK_DATA_PATH = path.join(__dirname, '..', 'notebooks', 'risk_sim_results.csv');
 const MAX_CHUNK_LENGTH = 900;
@@ -54,6 +56,10 @@ const INTENT_DEFINITIONS = [
     keywords: ['risk', 'monte', 'p5', 'es5', 'volatility', 'stress', 'simulation']
   },
   {
+    id: 'price_behavior',
+    keywords: ['price behavior', 'price behaviour', 'ath', 'atl', 'all time high', 'all time low', 'drawdown', 'price history', 'how has', 'token price']
+  },
+  {
     id: 'portfolio',
     keywords: ['portfolio', 'positions', 'loans', 'status', 'dashboard']
   }
@@ -65,6 +71,7 @@ const INTENT_DOC_BOOST = {
   pool_matching: ['LIQUIDITY', 'TECHNICAL_SPEC', 'ARCHITECTURE'],
   governance: ['GOVERNANCE', 'RISK_COMMITTEE', 'METRICS'],
   risk_model: ['WHITEPAPER', 'RISK', 'METRICS'],
+  price_behavior: ['RISK_MODELS', 'ORACLES_AND_PRICE_BEHAVIOR', 'SECURITY_ORACLES'],
   portfolio: ['METRICS', 'ARCHITECTURE', 'MVP']
 };
 
@@ -354,7 +361,16 @@ const buildGuidedFlow = ({ path = '/', intent = 'general' } = {}) => {
   return null;
 };
 
-const runAgentTools = (message, riskData, context = null) => {
+const extractSymbolForPriceBehavior = (message) => {
+  const str = String(message || '');
+  const forMatch = str.match(/(?:for|token|symbol)\s+([A-Za-z]{2,8})\b/i);
+  if (forMatch) return forMatch[1].toUpperCase();
+  const tickerMatch = str.match(/\b([A-Z]{2,6})\b/);
+  if (tickerMatch) return tickerMatch[1].toUpperCase();
+  return null;
+};
+
+const runAgentTools = async (message, riskData, context = null) => {
   const actions = [];
   const normalized = String(message || '').toLowerCase();
   const wantsRiskSim = /risk|monte|simulation|percentile|p5|p1|curve|volatility|stress/.test(normalized);
@@ -362,6 +378,7 @@ const runAgentTools = (message, riskData, context = null) => {
   const wantsGovernance = /governance|proposal|vote|dao|committee|shock factor|risk parameter/.test(normalized);
   const wantsPoolMatch = /pool|match|liquidity|lender|borrow offer/.test(normalized);
   const wantsGuidedFlow = /how to|walk me|step by step|what do i click|guide me|interactive|explain/.test(normalized);
+  const wantsPriceBehavior = /price behavior|price behaviour|ath|atl|all.time.high|all.time.low|drawdown|price history|how has.*(price|performed)|token price/.test(normalized);
   const inferredIntent = (() => {
     if (/repay|repayment|allowance|loan id|revert|inactive|not borrower/.test(normalized)) {
       return 'repay_troubleshoot';
@@ -459,6 +476,35 @@ const runAgentTools = (message, riskData, context = null) => {
       }
     });
     summary += `${summary ? '\n\n' : ''}Pool match ready: provide collateral ID and desired amount to fetch lender offers.`;
+  }
+
+  if (wantsPriceBehavior) {
+    const symbol = extractSymbolForPriceBehavior(message);
+    const chainId = context?.chainId != null ? Number(context.chainId) : undefined;
+    try {
+      const data = await getPriceBehavior(symbol || 'UNKNOWN', chainId);
+      actions.push({
+        type: 'price_behavior',
+        data: {
+          symbol: symbol || 'unknown',
+          price: data.price,
+          ath: data.ath,
+          atl: data.atl,
+          drawdownBps: data.drawdownBps,
+          rangeRatioBps: data.rangeRatioBps,
+          suggestion: data.suggestion,
+          source: data.source,
+          athAtlSource: data.athAtlSource
+        }
+      });
+      if (data.price != null && data.ath != null && data.atl != null) {
+        summary += `${summary ? '\n\n' : ''}Price behavior (${symbol || 'token'}): spot $${data.price.toFixed(4)}; ATH $${data.ath.toFixed(4)}, ATL $${data.atl.toFixed(4)}; drawdown ${(data.drawdownBps / 100).toFixed(1)}%; range ratio ${(data.rangeRatioBps / 100).toFixed(1)}%. ${data.suggestion}`;
+      } else {
+        summary += `${summary ? '\n\n' : ''}Price behavior: ATH/ATL not configured for this token (set PRICE_BEHAVIOR_<SYMBOL>_ATH and _ATL for metrics). ${data.suggestion}`;
+      }
+    } catch (err) {
+      summary += `${summary ? '\n\n' : ''}Price behavior: unavailable (${err?.message || 'error'}). Use on-chain valuation.`;
+    }
   }
 
   if (wantsGuidedFlow || inferredIntent === 'getting_started' || inferredIntent === 'repay_troubleshoot') {
@@ -694,8 +740,7 @@ const buildContextHints = (context) => {
   if (context.path) hints.push(`Current page: ${context.path}`);
   if (context.chainId) hints.push(`Chain ID: ${context.chainId}`);
   if (context.walletAddress) {
-    const value = String(context.walletAddress);
-    hints.push(`Wallet connected: ${value.slice(0, 6)}…${value.slice(-4)}`);
+    hints.push('Wallet connected: yes');
   }
   return hints;
 };
@@ -759,7 +804,8 @@ const buildSystemPrompt = (
   latestUserMessage = '',
   memorySummary = '',
   intent = 'general',
-  runtimeContext = null
+  runtimeContext = null,
+  platformSnapshot = null
 ) => {
   const languageHint = latestUserMessage
     ? `Detect the user's language from their latest message (${latestUserMessage.slice(
@@ -776,19 +822,26 @@ const buildSystemPrompt = (
   const memoryContext = memorySummary
     ? `\nPrior conversation memory summary (compressed): ${memorySummary}`
     : '';
+  const snapshotContext = platformSnapshot
+    ? `\n\nPlatform snapshot (aggregate only; use to inform users what is happening on the platform—no individual user or wallet data): ${JSON.stringify(platformSnapshot)}`
+    : '';
+  const privacyRule =
+    'You have protocol knowledge and aggregate platform stats only. Never infer or expose individual user or wallet activity; never ask for or store wallet addresses.';
   return [
     'You are CRDT AI, a protocol assistant for the UNLOCKD / VESTRA vesting-credit system.',
     'Answer with concise, actionable steps. When you reference facts, cite the source file name.',
     'If something is unspecified or TODO in docs, say it clearly and suggest what data is needed.',
     'Prefer risk-first guidance: DPV, LTV, unlock timelines, governance/process integrity.',
     'Never invent parameters. Do not give financial advice; keep it product/support oriented.',
+    privacyRule,
     'If the user asks something unrelated to the protocol, reply anyway in a Deadpool/Ryan Reynolds tone: witty, dark, sarcastic, with jokes, but stay brief and safe.',
     languageHint,
     'Use the provided context and say if the answer is not in docs.',
     `Detected intent: ${intent}. Keep the response structured with sections: "Answer", "Checks", "Next steps", "Sources".`,
     runtimeContext
-      ? `Runtime context: ${JSON.stringify(runtimeContext).slice(0, 800)}`
+      ? `Runtime context: ${JSON.stringify({ ...runtimeContext, walletAddress: undefined }).slice(0, 800)}`
       : '',
+    snapshotContext,
     '\nContext:\n',
     contextText,
     memoryContext
@@ -797,6 +850,12 @@ const buildSystemPrompt = (
 
 const callLLM = async (messages) => {
   const candidates = [
+    {
+      name: 'asi-one',
+      apiKey: process.env.ASI_ONE_API_KEY,
+      baseUrl: process.env.ASI_ONE_BASE_URL || 'https://api.asi1.ai/v1',
+      model: process.env.ASI_ONE_MODEL || 'asi1'
+    },
     {
       name: 'primary',
       apiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY,
@@ -829,8 +888,11 @@ const callLLM = async (messages) => {
   let lastError = null;
   for (const candidate of candidates) {
     try {
-      const base = (candidate.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
-      const model = candidate.model || 'gpt-4o-mini';
+      const defaultBase =
+        candidate.name === 'asi-one' ? 'https://api.asi1.ai/v1' : 'https://api.openai.com/v1';
+      const base = (candidate.baseUrl || defaultBase).replace(/\/$/, '');
+      const defaultModel = candidate.name === 'asi-one' ? 'asi1' : 'gpt-4o-mini';
+      const model = candidate.model || defaultModel;
       const url = `${base}/chat/completions`;
       const body = {
         model,
@@ -891,7 +953,7 @@ const answerAgent = async (agent, input) => {
   }
 
   const intentResult = classifyIntent(trimmed);
-  const toolOutput = runAgentTools(trimmed, agent.riskData || [], input?.context || null);
+  const toolOutput = await runAgentTools(trimmed, agent.riskData || [], input?.context || null);
   const snippets = selectSnippets(
     agent.search,
     agent.docs,
@@ -908,7 +970,8 @@ const answerAgent = async (agent, input) => {
     trimmed,
     memorySummary.summaryText,
     intentResult.intent,
-    input?.context || null
+    input?.context || null,
+    input?.platformSnapshot || null
   )}${toolContext}`;
   const prior = sanitizeHistory(history);
   const messages = [{ role: 'system', content: systemPrompt }, ...prior, { role: 'user', content: trimmed }];

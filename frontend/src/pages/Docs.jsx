@@ -3,13 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
 import whitepaperDoc from '../../../docs/WHITEPAPER.md?raw';
-import litepaperDoc from '../../../docs/LITEPAPER.md?raw';
-import faqDoc from '../../../docs/FAQ.md?raw';
-import technicalSpecDoc from '../../../docs/TECHNICAL_SPEC.md?raw';
+import litepaperDoc from '../../../docs/protocol-design/LITEPAPER.md?raw';
+import faqDoc from '../../../docs/reference/FAQ.md?raw';
+import technicalSpecDoc from '../../../docs/protocol-design/TECHNICAL_SPEC.md?raw';
 import riskModelsDoc from '../../../docs/RISK_MODELS.md?raw';
-import tokenomicsDoc from '../../../docs/TOKENOMICS_FINAL.md?raw';
-import testnetFaucetDemoDoc from '../../../docs/TESTNET_FAUCET_DEMO_ONE_PAGER.md?raw';
-import testnetVestingQuickstartDoc from '../../../docs/TESTNET_VESTING_CREATION_QUICKSTART.md?raw';
+import tokenomicsDoc from '../../../docs/token-and-governance/TOKENOMICS_FINAL.md?raw';
+import testnetFaucetDemoDoc from '../../../docs/build-and-deploy/TESTNET_FAUCET_DEMO_ONE_PAGER.md?raw';
+import testnetVestingQuickstartDoc from '../../../docs/build-and-deploy/TESTNET_VESTING_CREATION_QUICKSTART.md?raw';
 
 const docLibrary = [
   {

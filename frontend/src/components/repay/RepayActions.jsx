@@ -4,6 +4,7 @@ import {
   useChainId,
   usePublicClient,
   useReadContract,
+  useSignTypedData,
   useSimulateContract,
   useWaitForTransactionReceipt,
   useWriteContract
@@ -15,6 +16,8 @@ import {
   usdcAbi
 } from '../../utils/contracts.js';
 import { toUnits } from '../../utils/format.js';
+import { apiPost } from '../../utils/api.js';
+import { makeRelayerAuth } from '../../utils/privacy.js';
 import TxStatusBanner from '../common/TxStatusBanner.jsx';
 import { trackEvent } from '../../utils/analytics.js';
 
@@ -42,16 +45,20 @@ const normalizeTxError = (error) => {
   return message;
 };
 
-export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
+export default function RepayActions({ fundingStatus, initialLoanId = '', privacyMode = false }) {
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
+  const { signTypedDataAsync } = useSignTypedData();
 
   const [loanId, setLoanId] = useState('0');
   const [repayAmount, setRepayAmount] = useState('50');
   const [actionError, setActionError] = useState('');
+  const [relayerStatus, setRelayerStatus] = useState('');
+  const [relayerBusy, setRelayerBusy] = useState(false);
+  const [settleBusy, setSettleBusy] = useState(false);
 
   useEffect(() => {
     if (!initialLoanId) return;
@@ -70,6 +77,22 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
     functionName: 'loans',
     args: [BigInt(loanId || 0)],
     query: { enabled: Boolean(loanManager) }
+  });
+
+  const { data: isPrivateLoan } = useReadContract({
+    address: loanManager,
+    abi: loanManagerAbi,
+    functionName: 'isPrivateLoan',
+    args: [BigInt(loanId || 0)],
+    query: { enabled: Boolean(loanManager) }
+  });
+
+  const { data: privateLoan } = useReadContract({
+    address: loanManager,
+    abi: loanManagerAbi,
+    functionName: 'privateLoans',
+    args: [BigInt(loanId || 0)],
+    query: { enabled: Boolean(loanManager && isPrivateLoan) }
   });
 
   const { data: allowance } = useReadContract({
@@ -121,13 +144,33 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
   const interest = loan?.[2] ?? 0n;
   const totalDue = principal + interest;
   const active = Boolean(loan?.[6]);
+
+  const privateVault = privateLoan?.[0] || ZERO_ADDRESS;
+  const privatePrincipal = privateLoan?.[1] ?? 0n;
+  const privateInterest = privateLoan?.[2] ?? 0n;
+  const privateTotalDue = privatePrincipal + privateInterest;
+  const privateUnlockTime = privateLoan?.[5] ?? 0n;
+  const privateActive = Boolean(privateLoan?.[6]);
+
+  const effectiveIsPrivate = Boolean(isPrivateLoan);
+  const effectiveActive = effectiveIsPrivate ? privateActive : active;
+  const effectiveTotalDue = effectiveIsPrivate ? privateTotalDue : totalDue;
+  const effectivePrincipal = effectiveIsPrivate ? privatePrincipal : principal;
+  const effectiveInterest = effectiveIsPrivate ? privateInterest : interest;
   const hasWallet = Boolean(address);
   const isBorrower =
     hasWallet && loanBorrower !== ZERO_ADDRESS
       ? loanBorrower.toLowerCase() === address.toLowerCase()
       : false;
-  const overpaying = Boolean(repayUnits && totalDue > 0n && repayUnits > totalDue);
+  const overpaying = Boolean(repayUnits && effectiveTotalDue > 0n && repayUnits > effectiveTotalDue);
   const repayDisabledReason = (() => {
+    if (privacyMode && effectiveIsPrivate) {
+      if (!fundingReady) return fundingStatus?.reason || 'Ensure relayer is reachable.';
+      if (!effectiveActive) return 'Private loan is inactive or not found.';
+      if (!repayUnits || repayUnits <= 0n) return 'Enter a valid repay amount.';
+      if (overpaying) return 'Repay amount exceeds total due.';
+      return '';
+    }
     if (!hasWallet) return 'Connect the borrower wallet to repay.';
     if (!loanManager) return 'Unsupported network for repayments.';
     if (!fundingReady) return fundingStatus?.reason || 'Fund wallet with gas and USDC.';
@@ -146,8 +189,62 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
     isBorrower &&
     Boolean(repayUnits && repayUnits > 0n);
 
+  const canSettlePrivate =
+    privacyMode &&
+    effectiveIsPrivate &&
+    effectiveActive &&
+    privateUnlockTime &&
+    privateUnlockTime > 0n &&
+    Math.floor(Date.now() / 1000) >= Number(privateUnlockTime);
+
+  const handleSettlePrivate = async () => {
+    setActionError('');
+    setRelayerStatus('');
+    setSettleBusy(true);
+    try {
+      setRelayerStatus('Submitting private settlement via relayer...');
+      if (!signTypedDataAsync || !address) {
+        throw new Error('Wallet signature unavailable for private-mode relayer auth.');
+      }
+      const payload = { loanId: String(loanId || 0) };
+      const auth = makeRelayerAuth({
+        chainId,
+        verifyingContract: loanManager,
+        user: address,
+        vault: privateVault,
+        action: 'settle-private-loan',
+        payload
+      });
+      const signature = await signTypedDataAsync(auth.typedData);
+      const result = await apiPost('/api/relayer/evm/settle-private-loan', {
+        ...payload,
+        signature,
+        nonce: auth.nonce,
+        issuedAt: auth.issuedAt,
+        expiresAt: auth.expiresAt,
+        payloadHash: auth.payloadHash
+      });
+      setRelayerStatus(
+        result?.txHash
+          ? `Settlement tx submitted: ${String(result.txHash).slice(0, 10)}…`
+          : 'Settlement tx submitted.'
+      );
+      trackEvent('settle_private_relayer_submitted', { chainId, loanId });
+    } catch (err) {
+      setActionError(err?.message || 'Relayer settlement failed.');
+      trackEvent('settle_private_relayer_error', {
+        chainId,
+        loanId,
+        message: String(err?.message || '').slice(0, 160)
+      });
+    } finally {
+      setSettleBusy(false);
+    }
+  };
+
   const handleApprove = () => {
     setActionError('');
+    setRelayerStatus('');
     trackEvent('repay_approve_start', {
       chainId,
       loanId,
@@ -164,12 +261,56 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
 
   const handleRepay = async () => {
     setActionError('');
+    setRelayerStatus('');
     trackEvent('repay_start', {
       chainId,
       loanId,
       repayAmountUsdc: repayAmount,
       hasAllowance
     });
+    if (privacyMode && effectiveIsPrivate) {
+      setRelayerBusy(true);
+      try {
+        setRelayerStatus('Submitting private repayment via relayer...');
+        if (!signTypedDataAsync || !address) {
+          throw new Error('Wallet signature unavailable for private-mode relayer auth.');
+        }
+        const payload = { loanId: String(loanId || 0), amount: repayUnits.toString() };
+        const auth = makeRelayerAuth({
+          chainId,
+          verifyingContract: loanManager,
+          user: address,
+          vault: privateVault,
+          action: 'repay-private-loan',
+          payload
+        });
+        const signature = await signTypedDataAsync(auth.typedData);
+        const result = await apiPost('/api/relayer/evm/repay-private-loan', {
+          ...payload,
+          signature,
+          nonce: auth.nonce,
+          issuedAt: auth.issuedAt,
+          expiresAt: auth.expiresAt,
+          payloadHash: auth.payloadHash
+        });
+        setRelayerStatus(
+          result?.txHash
+            ? `Relayer tx submitted: ${String(result.txHash).slice(0, 10)}…`
+            : 'Relayer tx submitted.'
+        );
+        trackEvent('repay_private_relayer_submitted', { chainId, loanId });
+      } catch (err) {
+        setActionError(err?.message || 'Relayer repayment failed.');
+        trackEvent('repay_private_relayer_error', {
+          chainId,
+          loanId,
+          message: String(err?.message || '').slice(0, 160)
+        });
+      } finally {
+        setRelayerBusy(false);
+      }
+      return;
+    }
     if (!loanManager || !repayUnits || !publicClient || !address) return;
     try {
       const args = [BigInt(loanId || 0), repayUnits];
@@ -214,7 +355,7 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
     args: [BigInt(loanId || 0), repayUnits || 0n],
     account: address,
     query: {
-      enabled: Boolean(loanManager && repayUnits && address)
+      enabled: Boolean(loanManager && repayUnits && address && !(privacyMode && effectiveIsPrivate))
     }
   });
 
@@ -254,7 +395,9 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
         <div>
           <h3 className="section-title">Repay Live Loan</h3>
           <div className="section-subtitle">
-            Approve USDC then submit a repayment.
+            {privacyMode && effectiveIsPrivate
+              ? 'Private loans repay via relayer/vault (borrower wallet not required).'
+              : 'Approve USDC then submit a repayment.'}
           </div>
         </div>
         <span className="tag">USDC</span>
@@ -330,7 +473,7 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
       <div className="data-table">
         <div className="table-row header">
           <div>Loan Status</div>
-          <div>Borrower Match</div>
+          <div>{effectiveIsPrivate ? 'Private' : 'Borrower Match'}</div>
           <div>Allowance</div>
           <div>Needed</div>
           <div>Principal</div>
@@ -338,22 +481,34 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
           <div>Total Due</div>
         </div>
         <div className="table-row">
-          <div>{active ? 'Active' : 'Inactive'}</div>
-          <div>{isBorrower ? 'Yes' : 'No'}</div>
+          <div>{effectiveActive ? 'Active' : 'Inactive'}</div>
+          <div>{effectiveIsPrivate ? 'Yes' : isBorrower ? 'Yes' : 'No'}</div>
           <div>{formatUsdc(allowance)} USDC</div>
           <div>{formatUsdc(repayUnits)} USDC</div>
-          <div>{formatUsdc(principal)} USDC</div>
-          <div>{formatUsdc(interest)} USDC</div>
-          <div>{formatUsdc(totalDue)} USDC</div>
+          <div>{formatUsdc(effectivePrincipal)} USDC</div>
+          <div>{formatUsdc(effectiveInterest)} USDC</div>
+          <div>{formatUsdc(effectiveTotalDue)} USDC</div>
         </div>
       </div>
+      {privacyMode && effectiveIsPrivate && privateVault !== ZERO_ADDRESS && (
+        <div className="muted" style={{ marginTop: 10 }}>
+          Private vault: {String(privateVault).slice(0, 8)}…{String(privateVault).slice(-6)} · Unlock:{' '}
+          {privateUnlockTime && privateUnlockTime > 0n
+            ? new Date(Number(privateUnlockTime) * 1000).toLocaleDateString()
+            : '--'}
+        </div>
+      )}
       {repayDisabledReason && <div className="muted">{repayDisabledReason}</div>}
       <div className="inline-actions">
         <button
           className="button"
           data-guide-id="repay-approve-usdc"
           onClick={handleApprove}
-          disabled={isApprovePending || isApproveMining || !canApprove}
+          disabled={
+            privacyMode && effectiveIsPrivate
+              ? true
+              : isApprovePending || isApproveMining || !canApprove
+          }
         >
           Approve
         </button>
@@ -361,20 +516,37 @@ export default function RepayActions({ fundingStatus, initialLoanId = '' }) {
           className="button"
           data-guide-id="repay-submit"
           onClick={handleRepay}
-          disabled={isRepayPending || isRepayMining || Boolean(repayDisabledReason)}
+          disabled={
+            relayerBusy ||
+            isRepayPending ||
+            isRepayMining ||
+            Boolean(repayDisabledReason)
+          }
         >
-          Repay
+          {privacyMode && effectiveIsPrivate ? (relayerBusy ? 'Working…' : 'Repay (Relayer)') : 'Repay'}
         </button>
         <button
           className="button ghost"
           type="button"
           data-guide-id="repay-use-total-due"
-          onClick={() => setRepayAmount(formatUnits(totalDue, USDC_DECIMALS))}
-          disabled={!active || totalDue <= 0n}
+          onClick={() => setRepayAmount(formatUnits(effectiveTotalDue, USDC_DECIMALS))}
+          disabled={!effectiveActive || effectiveTotalDue <= 0n}
         >
           Use Total Due
         </button>
+        {privacyMode && effectiveIsPrivate && (
+          <button
+            className="button ghost"
+            type="button"
+            onClick={handleSettlePrivate}
+            disabled={settleBusy || !canSettlePrivate}
+            aria-disabled={settleBusy || !canSettlePrivate}
+          >
+            {settleBusy ? 'Settling…' : 'Settle at unlock (Relayer)'}
+          </button>
+        )}
       </div>
+      {relayerStatus && <div className="muted">{relayerStatus}</div>}
     </div>
   );
 }

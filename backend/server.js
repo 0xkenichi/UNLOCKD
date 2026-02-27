@@ -10,6 +10,7 @@ const { fetch } = require('undici');
 const fs = require('fs');
 const { ethers } = require('ethers');
 const { PublicKey } = require('@solana/web3.js');
+const nacl = require('tweetnacl');
 const { z } = require('zod');
 const { initAgent, answerAgent } = require('./agent');
 const persistence = require('./persistence');
@@ -27,6 +28,16 @@ const {
   buildRepayPlan,
   executeRepaySweep
 } = require('./solana/repay');
+const { runBackfillConcentration } = require('./lib/backfillConcentration');
+const {
+  deployVestraVault,
+  execViaVault,
+  getRelayerWallet,
+  deploySablierV2OperatorWrapper,
+  deployOZVestingClaimWrapper,
+  deployTokenTimelockClaimWrapper,
+  deploySuperfluidClaimWrapper
+} = require('./relayer/evmRelayer');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -47,6 +58,9 @@ const INDEXER_LOOKBACK_BLOCKS = Number(
 );
 const INDEXER_POLL_INTERVAL_MS = Number(
   process.env.INDEXER_POLL_INTERVAL_MS || 15000
+);
+const INDEXER_MAX_BLOCKS_PER_POLL = Number(
+  process.env.INDEXER_MAX_BLOCKS_PER_POLL || 500
 );
 const INDEXER_MAX_EVENTS = Number(process.env.INDEXER_MAX_EVENTS || 200);
 const INDEXER_VESTED_LIMIT = Number(process.env.INDEXER_VESTED_LIMIT || 20);
@@ -78,7 +92,37 @@ const BLOCK_CACHE_MAX_ITEMS = Number(process.env.BLOCK_CACHE_MAX_ITEMS || 5000);
 const REPAY_CACHE_TTL_MS = Number(process.env.REPAY_CACHE_TTL_MS || 30000);
 const RPC_CONCURRENCY_LIMIT = Math.max(1, Number(process.env.RPC_CONCURRENCY_LIMIT || 6));
 const ADMIN_API_KEY = String(process.env.ADMIN_API_KEY || '').trim();
+// Insider-aware LTV cap when wallet+token is flagged (bps). See docs/FOUNDER_INSIDER_RISK_AND_FLAGGING.md
+const INSIDER_LTV_BPS = Math.min(10000, Math.max(0, Number(process.env.INSIDER_LTV_BPS || 1500)));
+const CONCENTRATION_MAX_USD_PER_TOKEN = process.env.CONCENTRATION_MAX_USD_PER_TOKEN
+  ? Number(process.env.CONCENTRATION_MAX_USD_PER_TOKEN)
+  : null;
+const MIN_INTEREST_BPS = process.env.MIN_INTEREST_BPS ? Number(process.env.MIN_INTEREST_BPS) : null;
 const ONE_DAY = 24 * 60 * 60;
+
+// Always-on keepers (optional; disabled by default)
+const EVM_KEEPER_ENABLED = process.env.EVM_KEEPER_ENABLED === 'true';
+const EVM_KEEPER_PRIVATE_KEY = String(process.env.EVM_KEEPER_PRIVATE_KEY || '').trim();
+const EVM_KEEPER_INTERVAL_MS = Number(process.env.EVM_KEEPER_INTERVAL_MS || 60000);
+const EVM_KEEPER_MAX_TX_PER_TICK = Math.max(1, Number(process.env.EVM_KEEPER_MAX_TX_PER_TICK || 4));
+const EVM_KEEPER_RECENT_SCAN = Math.max(0, Number(process.env.EVM_KEEPER_RECENT_SCAN || 200));
+const EVM_KEEPER_ROTATING_SCAN = Math.max(0, Number(process.env.EVM_KEEPER_ROTATING_SCAN || 200));
+
+const EVM_REPAY_KEEPER_ENABLED = process.env.EVM_REPAY_KEEPER_ENABLED === 'true';
+const EVM_REPAY_KEEPER_INTERVAL_MS = Number(process.env.EVM_REPAY_KEEPER_INTERVAL_MS || 60000);
+const EVM_REPAY_KEEPER_MAX_TX_PER_TICK = Math.max(1, Number(process.env.EVM_REPAY_KEEPER_MAX_TX_PER_TICK || 2));
+const EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS = Math.max(
+  0,
+  Number(process.env.EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS || 3 * 24 * 60 * 60)
+);
+const EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN = Math.max(
+  1,
+  Number(process.env.EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN || 5)
+);
+
+const SOLANA_REPAY_JOBS_ENABLED = process.env.SOLANA_REPAY_JOBS_ENABLED === 'true';
+const SOLANA_REPAY_JOBS_INTERVAL_MS = Number(process.env.SOLANA_REPAY_JOBS_INTERVAL_MS || 30000);
+const SOLANA_REPAY_JOBS_MAX_PER_TICK = Math.max(1, Number(process.env.SOLANA_REPAY_JOBS_MAX_PER_TICK || 4));
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const agent = initAgent();
@@ -88,6 +132,8 @@ const seenEvents = new Set();
 let lastIndexedBlock = null;
 let latestChainBlock = null;
 let lastPollAt = 0;
+let pollInFlight = false;
+let snapshotInFlight = false;
 let cachedRepaySchedule = [];
 let lastScheduleRefresh = 0;
 const vestedSnapshots = [];
@@ -96,6 +142,9 @@ let cachedVestedContractsAt = 0;
 const geoLookupCache = new Map();
 let vestedContractsInFlight = null;
 let repayScheduleInFlight = null;
+let evmKeeperInFlight = false;
+let evmRepayKeeperInFlight = false;
+let solanaRepayJobsInFlight = false;
 
 const repayScheduleCache = {
   items: [],
@@ -107,6 +156,17 @@ const withTimeout = (promise, ms, fallback) =>
     promise,
     new Promise((resolve) =>
       setTimeout(() => resolve(fallback), Math.max(0, ms))
+    )
+  ]);
+
+const withTimeoutReject = (promise, ms, label = 'operation') =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        Math.max(0, ms)
+      )
     )
   ]);
 
@@ -157,6 +217,29 @@ const loadPersistedSnapshots = async () => {
 
 const initPersistence = async () => {
   await persistence.init();
+  let chainId = null;
+  try {
+    const net = await provider.getNetwork();
+    chainId = net?.chainId != null ? String(net.chainId) : null;
+  } catch (_) {
+    chainId = null;
+  }
+
+  const persistedChainId = await persistence.getMeta('indexerChainId');
+  const chainMatches = chainId && persistedChainId && String(chainId) === String(persistedChainId);
+
+  if (!chainMatches) {
+    // Switching networks (localhost ↔ sepolia) should not reuse cached indexer state.
+    // Clear cache so we start from latest - lookback and avoid huge backfills.
+    await persistence.clearIndexerCache();
+    if (chainId) await persistence.setMeta('indexerChainId', chainId);
+    lastIndexedBlock = null;
+    activityEvents.length = 0;
+    vestedSnapshots.length = 0;
+    seenEvents.clear();
+    return;
+  }
+
   const persistedLastIndexed = await persistence.getMeta('lastIndexedBlock');
   if (persistedLastIndexed !== null) {
     lastIndexedBlock = Number(persistedLastIndexed);
@@ -243,7 +326,8 @@ const normalizeEvent = async (log) => {
   }
   const base = {
     txHash: log.transactionHash,
-    logIndex: Number(log.logIndex),
+    // ethers v6 uses `index` for log index (not `logIndex`)
+    logIndex: Number(log.index ?? log.logIndex ?? 0),
     blockNumber,
     timestamp
   };
@@ -256,10 +340,27 @@ const normalizeEvent = async (log) => {
       amount: parsed.args.amount.toString()
     };
   }
+  if (parsed.name === 'PrivateLoanCreated') {
+    // Do not include vault address in public-facing activity payloads.
+    return {
+      ...base,
+      type: 'PrivateLoanCreated',
+      loanId: parsed.args.loanId.toString(),
+      amount: parsed.args.amount.toString()
+    };
+  }
   if (parsed.name === 'LoanRepaid') {
     return {
       ...base,
       type: 'LoanRepaid',
+      loanId: parsed.args.loanId.toString(),
+      amount: parsed.args.amount.toString()
+    };
+  }
+  if (parsed.name === 'PrivateLoanRepaid') {
+    return {
+      ...base,
+      type: 'PrivateLoanRepaid',
       loanId: parsed.args.loanId.toString(),
       amount: parsed.args.amount.toString()
     };
@@ -278,6 +379,14 @@ const normalizeEvent = async (log) => {
     return {
       ...base,
       type: 'LoanSettled',
+      loanId: parsed.args.loanId.toString(),
+      defaulted: Boolean(parsed.args.defaulted)
+    };
+  }
+  if (parsed.name === 'PrivateLoanSettled') {
+    return {
+      ...base,
+      type: 'PrivateLoanSettled',
       loanId: parsed.args.loanId.toString(),
       defaulted: Boolean(parsed.args.defaulted)
     };
@@ -323,7 +432,11 @@ const getLogsWithRetry = async (params) => {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await provider.getLogs(params);
+      return await withTimeoutReject(
+        provider.getLogs(params),
+        Number(process.env.RPC_GETLOGS_TIMEOUT_MS || 12000),
+        'eth_getLogs'
+      );
     } catch (err) {
       if (attempt < maxAttempts && is429(err)) {
         const delay = Math.min(2000 * Math.pow(2, attempt - 1), 8000);
@@ -336,6 +449,8 @@ const getLogsWithRetry = async (params) => {
 };
 
 const pollEvents = async () => {
+  if (pollInFlight) return;
+  pollInFlight = true;
   try {
     const latestBlock = await provider.getBlockNumber();
     latestChainBlock = latestBlock;
@@ -347,21 +462,32 @@ const pollEvents = async () => {
     if (startBlock > latestBlock) {
       return;
     }
+    const maxBlocks = Math.max(10, Math.min(INDEXER_MAX_BLOCKS_PER_POLL, 250000));
+    const endBlock = Math.min(latestBlock, startBlock + maxBlocks - 1);
     const chunkSize = 10;
-    for (let from = startBlock; from <= latestBlock; from += chunkSize) {
-      const to = Math.min(from + chunkSize - 1, latestBlock);
+    for (let from = startBlock; from <= endBlock; from += chunkSize) {
+      const to = Math.min(from + chunkSize - 1, endBlock);
       const loanCreatedTopic = getEventTopic(loanManager.iface, 'LoanCreated');
+      const privateLoanCreatedTopic = getEventTopic(loanManager.iface, 'PrivateLoanCreated');
       const loanRepaidTopic = getEventTopic(loanManager.iface, 'LoanRepaid');
+      const privateLoanRepaidTopic = getEventTopic(loanManager.iface, 'PrivateLoanRepaid');
       const loanRepaidSwapTopic = getEventTopic(loanManager.iface, 'LoanRepaidWithSwap');
       const loanSettledTopic = getEventTopic(loanManager.iface, 'LoanSettled');
+      const privateLoanSettledTopic = getEventTopic(loanManager.iface, 'PrivateLoanSettled');
 
       const logParams = (topic) =>
         topic ? { address: loanManager.address, fromBlock: from, toBlock: to, topics: [topic] } : null;
       const loanCreatedLogs = logParams(loanCreatedTopic)
         ? await getLogsWithRetry(logParams(loanCreatedTopic))
         : [];
+      const privateLoanCreatedLogs = logParams(privateLoanCreatedTopic)
+        ? await getLogsWithRetry(logParams(privateLoanCreatedTopic))
+        : [];
       const loanRepaidLogs = logParams(loanRepaidTopic)
         ? await getLogsWithRetry(logParams(loanRepaidTopic))
+        : [];
+      const privateLoanRepaidLogs = logParams(privateLoanRepaidTopic)
+        ? await getLogsWithRetry(logParams(privateLoanRepaidTopic))
         : [];
       const loanRepaidSwapLogs = logParams(loanRepaidSwapTopic)
         ? await getLogsWithRetry(logParams(loanRepaidSwapTopic))
@@ -369,21 +495,46 @@ const pollEvents = async () => {
       const loanSettledLogs = logParams(loanSettledTopic)
         ? await getLogsWithRetry(logParams(loanSettledTopic))
         : [];
+      const privateLoanSettledLogs = logParams(privateLoanSettledTopic)
+        ? await getLogsWithRetry(logParams(privateLoanSettledTopic))
+        : [];
 
       const normalized = await Promise.all(
         [
           ...loanCreatedLogs,
+          ...privateLoanCreatedLogs,
           ...loanRepaidLogs,
+          ...privateLoanRepaidLogs,
           ...loanRepaidSwapLogs,
-          ...loanSettledLogs
+          ...loanSettledLogs,
+          ...privateLoanSettledLogs
         ].map(normalizeEvent)
       );
+      const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
+      const adapterContractForIndexer = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
+      for (const e of normalized) {
+        if (!e || (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated')) continue;
+        try {
+          const loan =
+            e.type === 'PrivateLoanCreated'
+              ? await loanManagerContract.privateLoans(e.loanId)
+              : await loanManagerContract.loans(e.loanId);
+          const collateralId = loan?.collateralId ?? loan?.[3];
+          if (collateralId != null) {
+            const details = await adapterContractForIndexer.getDetails(collateralId);
+            const token = details?.[1];
+            if (token) e.tokenAddress = typeof token === 'string' ? token : (token?.toString?.() ?? null);
+          }
+        } catch (_) {}
+      }
       await pushEvents(normalized.filter(Boolean));
     }
-    lastIndexedBlock = latestBlock;
+    lastIndexedBlock = endBlock;
     await persistence.setMeta('lastIndexedBlock', lastIndexedBlock);
   } catch (error) {
     console.error('[indexer] poll error', error?.message || error);
+  } finally {
+    pollInFlight = false;
   }
 };
 
@@ -459,6 +610,109 @@ const normalizeAnyWalletAddress = (value) =>
 
 const detectChainTypeForWallet = (value) =>
   normalizeWalletAddress(value) ? 'evm' : normalizeSolanaAddress(value) ? 'solana' : '';
+
+// --- Relayer request auth (EIP-712, offchain only) ---
+
+const sortKeysDeep = (value) => {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  Object.keys(value)
+    .sort()
+    .forEach((key) => {
+      out[key] = sortKeysDeep(value[key]);
+    });
+  return out;
+};
+
+const stableStringify = (value) => JSON.stringify(sortKeysDeep(value));
+
+const relayerTypes = {
+  RelayerRequest: [
+    { name: 'user', type: 'address' },
+    { name: 'vault', type: 'address' },
+    { name: 'action', type: 'string' },
+    { name: 'payloadHash', type: 'bytes32' },
+    { name: 'nonce', type: 'string' },
+    { name: 'issuedAt', type: 'uint256' },
+    { name: 'expiresAt', type: 'uint256' }
+  ]
+};
+
+let cachedEvmChainId = null;
+const getEvmChainId = async () => {
+  if (cachedEvmChainId != null) return cachedEvmChainId;
+  try {
+    const net = await provider.getNetwork();
+    cachedEvmChainId = Number(net?.chainId || 0);
+  } catch {
+    cachedEvmChainId = Number(process.env.EVM_CHAIN_ID || 0) || 0;
+  }
+  return cachedEvmChainId;
+};
+
+const hashRelayerPayload = (payload) =>
+  ethers.keccak256(ethers.toUtf8Bytes(stableStringify(payload || {})));
+
+const verifyRelayerAuth = async ({ req, action, payload, vaultAddress } = {}) => {
+  const sessionWallet = normalizeWalletAddress(req.user?.walletAddress || '');
+  if (!sessionWallet) throw new Error('Session wallet required');
+  if (!vaultAddress || !ethers.isAddress(vaultAddress)) throw new Error('Vault address required');
+
+  const signature = String(req.body?.signature || '').trim();
+  const nonce = String(req.body?.nonce || '').trim();
+  const issuedAt = Number(req.body?.issuedAt || 0);
+  const expiresAt = Number(req.body?.expiresAt || 0);
+  if (!signature || !nonce || !issuedAt || !expiresAt) throw new Error('Missing relayer auth');
+
+  const now = Math.floor(Date.now() / 1000);
+  if (issuedAt > now + 60) throw new Error('Relayer auth not yet valid');
+  if (expiresAt < now) throw new Error('Relayer auth expired');
+  if (expiresAt - issuedAt > 10 * 60) throw new Error('Relayer auth window too long');
+
+  const chainId = await getEvmChainId();
+  if (!chainId) throw new Error('Chain ID unavailable');
+
+  const payloadHash = hashRelayerPayload(payload);
+  const claimedHash = String(req.body?.payloadHash || '').trim();
+  if (claimedHash && claimedHash.toLowerCase() !== payloadHash.toLowerCase()) {
+    throw new Error('Relayer payload hash mismatch');
+  }
+
+  const domain = {
+    name: 'VestraRelayer',
+    version: '1',
+    chainId,
+    verifyingContract: loanManager.address
+  };
+  const message = {
+    user: sessionWallet,
+    vault: ethers.getAddress(vaultAddress),
+    action: String(action || ''),
+    payloadHash,
+    nonce,
+    issuedAt,
+    expiresAt
+  };
+  let recovered = '';
+  try {
+    recovered = ethers.verifyTypedData(domain, relayerTypes, message, signature);
+  } catch (_) {
+    throw new Error('Invalid relayer signature');
+  }
+  if (!recovered || recovered.toLowerCase() !== sessionWallet.toLowerCase()) {
+    throw new Error('Relayer signature wallet mismatch');
+  }
+
+  // Replay protection.
+  await persistence.consumeRelayerNonce({
+    userId: req.user?.id,
+    action,
+    nonce,
+    expiresAt
+  });
+  return { ok: true, payloadHash };
+};
 
 const isAdminWallet = (walletAddress) => {
   const normalized = normalizeWalletAddress(walletAddress);
@@ -552,19 +806,30 @@ const honeypotCheck = (req, res, next) => {
 };
 
 const validateBody = (schema) => (req, res, next) => {
-  const result = schema.safeParse(req.body);
-  if (!result.success) {
+  // Zod generally returns `{ success: false }` for invalid payloads, but a malformed
+  // schema (e.g. an undefined field in a z.object shape) can throw at parse-time.
+  // This must never crash the request handler.
+  try {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid payload',
+        details: result.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+    }
+    req.body = result.data;
+    return next();
+  } catch (error) {
     return res.status(400).json({
       ok: false,
       error: 'Invalid payload',
-      details: result.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
-        message: issue.message
-      }))
+      details: [{ path: '', message: error?.message || 'Schema validation failed' }]
     });
   }
-  req.body = result.data;
-  return next();
 };
 
 const getClientIp = (req) => {
@@ -910,6 +1175,37 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+const { getPriceBehavior } = require('./lib/priceBehavior');
+
+app.get('/api/price-behavior', async (req, res) => {
+  const symbol = (req.query.symbol || req.query.token || '').toString().trim().toUpperCase();
+  const chainId = req.query.chainId != null ? Number(req.query.chainId) : undefined;
+  if (!symbol) {
+    return res.status(400).json({ ok: false, error: 'Missing symbol or token query' });
+  }
+  try {
+    const data = await getPriceBehavior(symbol, chainId);
+    return res.json({ ok: true, ...data });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Price behavior unavailable'
+    });
+  }
+});
+
+app.get('/api/platform/snapshot', async (_req, res) => {
+  try {
+    const snapshot = await getPlatformSnapshot();
+    return res.json({ ok: true, ...snapshot });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Platform snapshot unavailable'
+    });
+  }
+});
+
 app.get('/api/identity/:walletAddress', async (req, res) => {
   const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
   if (!walletAddress) {
@@ -1145,6 +1441,18 @@ app.patch('/api/fundraising/sources/:id', requireSession, validateBody(z.object(
   }
 });
 
+app.get('/api/vesting/sources', strictLimiter, async (req, res) => {
+  try {
+    const chainId = (req.query?.chainId || req.query?.chain || '').trim() || null;
+    const protocol = (req.query?.protocol || '').trim() || null;
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
+    const sources = await persistence.listVestingSources({ chainId, protocol, limit });
+    res.json({ ok: true, sources });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err?.message || 'Failed to list vesting sources', sources: [] });
+  }
+});
+
 const stringField = (max) => z.string().trim().min(1).max(max);
 const optionalString = (max) => z.string().trim().max(max).optional();
 const optionalEmail = (max) =>
@@ -1223,6 +1531,8 @@ const matchQuoteSchema = z
     collateralId: optionalString(200),
     vestingContract: optionalString(200),
     token: optionalString(200),
+    tokenType: optionalString(60),
+    tokenCategory: optionalString(40),
     quantity: z.union([z.string(), z.number()]).optional(),
     unlockTime: z.number().int().positive().optional(),
     streamId: optionalString(200),
@@ -1260,7 +1570,134 @@ const walletVerifySchema = z
 const linkWalletSchema = z
   .object({
     chainType: z.enum(['evm', 'solana']),
+    walletAddress: stringField(120),
+    // For Solana wallet linking, require an offchain signature from the wallet being linked.
+    signature: optionalString(600),
+    issuedAt: optionalString(64)
+  })
+  .strip();
+
+const solanaNonceSchema = z
+  .object({
     walletAddress: stringField(120)
+  })
+  .strip();
+
+const solanaLinkWalletSchema = z
+  .object({
+    walletAddress: stringField(120),
+    nonce: stringField(256),
+    signature: stringField(500)
+  })
+  .strip();
+
+const privateLoanCreateSchema = z
+  .object({
+    collateralId: z.union([
+      z.string().trim().regex(/^\d+$/, 'collateralId must be an integer'),
+      z.number().int().min(0)
+    ]),
+    vestingContract: stringField(120),
+    borrowAmount: z.union([
+      z.string().trim().regex(/^\d+$/, 'borrowAmount must be an integer'),
+      z.number().int().positive()
+    ]),
+    collateralAmount: z
+      .union([
+        z.string().trim().regex(/^\d+$/, 'collateralAmount must be an integer'),
+        z.number().int().positive()
+      ])
+      .optional()
+      .nullable(),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const privateLoanRepaySchema = z
+  .object({
+    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
+    amount: z.union([z.string().trim().regex(/^\d+$/, 'amount must be an integer'), z.number().int().positive()]),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const privateLoanSettleSchema = z
+  .object({
+    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const sablierUpgradeSchema = z
+  .object({
+    lockupAddress: stringField(120),
+    streamId: z.union([z.string().trim().regex(/^\d+$/, 'streamId must be an integer'), z.number().int().positive()]),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const ozUpgradeSchema = z
+  .object({
+    vestingAddress: stringField(120),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const timelockUpgradeSchema = z
+  .object({
+    timelockAddress: stringField(120),
+    durationSeconds: z.union([
+      z.string().trim().regex(/^\d+$/, 'durationSeconds must be an integer'),
+      z.number().int().positive()
+    ]),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
+  })
+  .strip();
+
+const superfluidUpgradeSchema = z
+  .object({
+    token: stringField(120),
+    totalAllocation: z.union([
+      z.string().trim().regex(/^\d+$/, 'totalAllocation must be an integer'),
+      z.number().int().positive()
+    ]),
+    startTime: z.union([
+      z.string().trim().regex(/^\d+$/, 'startTime must be an integer'),
+      z.number().int().nonnegative()
+    ]),
+    durationSeconds: z.union([
+      z.string().trim().regex(/^\d+$/, 'durationSeconds must be an integer'),
+      z.number().int().positive()
+    ]),
+    signature: stringField(800),
+    nonce: stringField(220),
+    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
+    payloadHash: stringField(80).optional()
   })
   .strip();
 
@@ -1323,6 +1760,22 @@ const analyticsSchema = z
     properties: z.record(z.unknown()).optional()
   })
   .strip();
+
+const chainRequestSchema = z
+  .object({
+    chainId: z.number().int().positive().optional(),
+    chainName: optionalString(60),
+    feature: optionalString(60),
+    vestingStandard: optionalString(80),
+    message: optionalString(500),
+    walletAddress: optionalAddress.optional(),
+    page: optionalString(120)
+  })
+  .strip()
+  .refine(
+    (value) => Boolean(value.chainId || value.chainName),
+    'Provide chainId or chainName'
+  );
 
 const notifySchema = z
   .object({
@@ -1396,6 +1849,37 @@ const buildWalletMessage = (walletAddress, nonce, issuedAtIso) => {
   ].join('\n');
 };
 
+const buildSolanaLinkMessage = (userId, walletAddress, nonce, issuedAtIso) => {
+  const issuedAt = issuedAtIso || new Date().toISOString();
+  return [
+    'Vestra Solana wallet link request',
+    `User: ${String(userId || '').slice(0, 36)}`,
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Issued at: ${issuedAt}`,
+    'Only sign if you trust this request.'
+  ].join('\n');
+};
+
+const verifySolanaDetachedSignature = ({ walletAddress, message, signatureBase64 }) => {
+  if (!walletAddress || !message || !signatureBase64) return false;
+  let pubkey = null;
+  try {
+    pubkey = new PublicKey(walletAddress);
+  } catch {
+    return false;
+  }
+  let sig = null;
+  try {
+    sig = Buffer.from(String(signatureBase64), 'base64');
+  } catch {
+    return false;
+  }
+  if (!sig || sig.length !== 64) return false;
+  const msgBytes = Buffer.from(String(message), 'utf8');
+  return nacl.sign.detached.verify(msgBytes, sig, pubkey.toBytes());
+};
+
 const getDaysToUnlock = (unlockTime) => {
   if (!unlockTime) return null;
   const millis = Number(unlockTime) * 1000 - Date.now();
@@ -1410,10 +1894,77 @@ const getPoolInterestBps = async () => {
       provider
     );
     const rate = await contract.getInterestRateBps();
-    return Number(rate);
+    let bps = Number(rate);
+    if (MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 && bps < MIN_INTEREST_BPS) bps = MIN_INTEREST_BPS;
+    return bps;
   } catch {
-    return 1800;
+    return MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 ? MIN_INTEREST_BPS : 1800;
   }
+};
+
+const USDC_UNITS = 1_000_000n;
+const toUsdFromUsdcUnits = (value) => {
+  try {
+    const units = typeof value === 'bigint' ? value : BigInt(value || 0);
+    const whole = units / USDC_UNITS;
+    const frac = units % USDC_UNITS;
+    const out = Number(whole) + Number(frac) / 1e6;
+    return Number.isFinite(out) ? out : 0;
+  } catch {
+    const num = Number(value);
+    return Number.isFinite(num) ? num / 1e6 : 0;
+  }
+};
+
+const getAvailableLiquidityUsd = async () => {
+  try {
+    const poolContract = new ethers.Contract(
+      lendingPoolDeployment.address,
+      ['function totalDeposits() view returns (uint256)', 'function totalBorrowed() view returns (uint256)'],
+      provider
+    );
+    const [totalDeposits, totalBorrowed] = await Promise.all([
+      poolContract.totalDeposits(),
+      poolContract.totalBorrowed()
+    ]);
+    const deposits = BigInt(totalDeposits || 0n);
+    const borrowed = BigInt(totalBorrowed || 0n);
+    const available = deposits > borrowed ? deposits - borrowed : 0n;
+    return toUsdFromUsdcUnits(available);
+  } catch {
+    return null;
+  }
+};
+
+const getProtocolBorrowerStats = (walletAddress) => {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) return null;
+  let oldestTs = null;
+  let totalBorrowedUsdcUnits = 0n;
+  for (const event of activityEvents) {
+    const borrower = normalizeWalletAddress(event?.borrower || '');
+    if (borrower !== normalized) continue;
+    const ts = Number(event?.timestamp || 0);
+    if (Number.isFinite(ts) && ts > 0) {
+      if (oldestTs === null || ts < oldestTs) oldestTs = ts;
+    }
+    if (event?.type === 'LoanCreated' && event?.amount) {
+      try {
+        totalBorrowedUsdcUnits += BigInt(event.amount);
+      } catch {
+        // ignore malformed amounts
+      }
+    }
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const walletAgeDays =
+    oldestTs && Number.isFinite(oldestTs) && oldestTs > 0
+      ? Math.max(0, Math.floor((nowSec - oldestTs) / ONE_DAY))
+      : 0;
+  return {
+    walletAgeDays,
+    volumeUsd: toUsdFromUsdcUnits(totalBorrowedUsdcUnits)
+  };
 };
 
 const computeEvmDpv = async ({ quantity, token, unlockTime }) => {
@@ -1534,7 +2085,13 @@ const buildPoolOffers = async ({
   chain,
   unlockTime,
   baseRateBps,
-  borrowerWallet
+  borrowerWallet,
+  collateralToken,
+  tokenType,
+  tokenCategory,
+  liquidityUsd,
+  borrowerStats,
+  maxOffers
 }) => {
   const daysToUnlock = getDaysToUnlock(unlockTime);
   const results = [];
@@ -1543,15 +2100,64 @@ const buildPoolOffers = async ({
     if (prefs.chains.length && !prefs.chains.includes(chain)) continue;
     const maxLtv = prefs.maxLtvBps || ltvBps;
     const effectiveLtv = Math.min(maxLtv, ltvBps || maxLtv || 0);
-    const maxBorrowUsd = pvUsd > 0 && effectiveLtv > 0 ? (pvUsd * effectiveLtv) / 10000 : 0;
-    if (prefs.minLoanUsd && desiredAmountUsd < prefs.minLoanUsd) continue;
-    if (prefs.maxLoanUsd && desiredAmountUsd > prefs.maxLoanUsd) continue;
-    if (desiredAmountUsd > maxBorrowUsd) continue;
+    const valuationMaxBorrowUsd = pvUsd > 0 && effectiveLtv > 0 ? (pvUsd * effectiveLtv) / 10000 : 0;
+    const policyMaxBorrowUsd =
+      prefs.maxLoanUsd && Number.isFinite(prefs.maxLoanUsd) && prefs.maxLoanUsd > 0
+        ? Math.min(valuationMaxBorrowUsd, prefs.maxLoanUsd)
+        : valuationMaxBorrowUsd;
+    // If the pool has a minimum, but even the max borrow can't meet it, skip entirely.
+    if (prefs.minLoanUsd && policyMaxBorrowUsd > 0 && policyMaxBorrowUsd < prefs.minLoanUsd) continue;
+    // Return offers even when they can't fill the requested amount; UI can downsize.
+    if (policyMaxBorrowUsd <= 0) continue;
     if (prefs.unlockWindowDays?.min && daysToUnlock !== null && daysToUnlock < prefs.unlockWindowDays.min) {
       continue;
     }
     if (prefs.unlockWindowDays?.max && daysToUnlock !== null && daysToUnlock > prefs.unlockWindowDays.max) {
       continue;
+    }
+
+    // Collateral allowlists (offchain preference enforcement).
+    if (prefs.allowedTokens?.length) {
+      if (!collateralToken) {
+        // Can't validate allowlist without a resolved token/mint.
+        continue;
+      }
+      const allowed = prefs.allowedTokens
+        .map((t) => String(t || '').trim().toLowerCase())
+        .filter(Boolean);
+      const tokenLower = String(collateralToken).trim().toLowerCase();
+      if (allowed.length && !allowed.includes(tokenLower)) continue;
+    }
+    if (prefs.allowedTokenTypes?.length && tokenType) {
+      const allowedTypes = prefs.allowedTokenTypes
+        .map((t) => String(t || '').trim().toLowerCase())
+        .filter(Boolean);
+      const typeLower = String(tokenType).trim().toLowerCase();
+      if (allowedTypes.length && !allowedTypes.includes(typeLower)) continue;
+    }
+    if (prefs.tokenCategories?.length && tokenCategory) {
+      const allowedCategories = prefs.tokenCategories
+        .map((t) => String(t || '').trim().toLowerCase())
+        .filter(Boolean);
+      const categoryLower = String(tokenCategory).trim().toLowerCase();
+      if (allowedCategories.length && !allowedCategories.includes(categoryLower)) continue;
+    }
+
+    // Liquidity / identity preferences (best-effort enforcement).
+    if (prefs.minLiquidityUsd != null && prefs.minLiquidityUsd > 0) {
+      if (liquidityUsd != null && Number.isFinite(Number(liquidityUsd))) {
+        if (Number(liquidityUsd) < Number(prefs.minLiquidityUsd)) continue;
+      }
+    }
+    if (prefs.minWalletAgeDays != null && prefs.minWalletAgeDays > 0) {
+      if (borrowerStats && Number(borrowerStats.walletAgeDays || 0) < Number(prefs.minWalletAgeDays)) {
+        continue;
+      }
+    }
+    if (prefs.minVolumeUsd != null && prefs.minVolumeUsd > 0) {
+      if (borrowerStats && Number(borrowerStats.volumeUsd || 0) < Number(prefs.minVolumeUsd)) {
+        continue;
+      }
     }
     let canAccess = true;
     let lockReason = null;
@@ -1565,15 +2171,28 @@ const buildPoolOffers = async ({
       canAccess = bal > 0n;
       if (!canAccess) lockReason = 'Requires community token to borrow from this pool';
     }
-    const interestBps = prefs.interestBps ?? baseRateBps;
+    let interestBps = prefs.interestBps ?? baseRateBps;
+    if (MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 && (interestBps == null || interestBps < MIN_INTEREST_BPS)) {
+      interestBps = MIN_INTEREST_BPS;
+    }
     const scoreBase = prefs.riskTier === 'aggressive' ? 85 : prefs.riskTier === 'conservative' ? 70 : 80;
     const ltvScore = ltvBps ? Math.min(15, Math.round((effectiveLtv / ltvBps) * 15)) : 0;
     const score = scoreBase + ltvScore;
     const warnings = [];
-    if (prefs.minLiquidityUsd) warnings.push('minLiquidityUsd not verified in MVP');
-    if (prefs.minWalletAgeDays) warnings.push('wallet age not verified in MVP');
-    if (prefs.minVolumeUsd) warnings.push('volume not verified in MVP');
-    if (prefs.allowedTokens?.length) warnings.push('allowedTokens not enforced onchain');
+    if (prefs.minLiquidityUsd && (liquidityUsd === null || liquidityUsd === undefined)) {
+      warnings.push('minLiquidityUsd could not be verified (RPC unavailable)');
+    }
+    if (prefs.minWalletAgeDays && !borrowerStats) warnings.push('wallet age could not be verified (no borrower wallet)');
+    if (prefs.minVolumeUsd && !borrowerStats) warnings.push('volume could not be verified (no borrower wallet)');
+    if (prefs.allowedTokenTypes?.length && !tokenType) warnings.push('allowedTokenTypes not evaluated (tokenType missing)');
+    if (prefs.tokenCategories?.length && !tokenCategory) warnings.push('tokenCategories not evaluated (tokenCategory missing)');
+    if (prefs.allowedTokens?.length) warnings.push('allowedTokens enforced offchain only (MVP)');
+    if (prefs.minLoanUsd && desiredAmountUsd < prefs.minLoanUsd) {
+      warnings.push(`Requested amount below pool minimum (${prefs.minLoanUsd} USD)`);
+    }
+    if (prefs.maxLoanUsd && desiredAmountUsd > prefs.maxLoanUsd) {
+      warnings.push(`Requested amount above pool maximum (${prefs.maxLoanUsd} USD)`);
+    }
     results.push({
       offerId: `${pool.id}:${chain}:${Date.now()}`,
       poolId: pool.id,
@@ -1581,7 +2200,12 @@ const buildPoolOffers = async ({
       chain,
       riskTier: prefs.riskTier,
       interestBps,
-      maxBorrowUsd,
+      requestedAmountUsd: desiredAmountUsd,
+      maxBorrowUsd: policyMaxBorrowUsd,
+      canFillRequested:
+        desiredAmountUsd > 0 &&
+        desiredAmountUsd <= policyMaxBorrowUsd &&
+        (!prefs.minLoanUsd || desiredAmountUsd >= prefs.minLoanUsd),
       score,
       warnings,
       accessType,
@@ -1590,9 +2214,8 @@ const buildPoolOffers = async ({
       poolName: pool.name
     });
   }
-  return results
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+  const safeMax = Math.max(1, Math.min(Number(maxOffers) || 5, 10));
+  return results.sort((a, b) => b.score - a.score).slice(0, safeMax);
 };
 
 app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) => {
@@ -1692,6 +2315,12 @@ app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) 
 app.post('/api/auth/link-wallet', requireSession, validateBody(linkWalletSchema), async (req, res) => {
   try {
     const chainType = req.body.chainType === 'solana' ? 'solana' : 'evm';
+    if (chainType === 'solana') {
+      return res.status(409).json({
+        ok: false,
+        error: 'Solana linking now requires a signed proof. Use /api/auth/solana/nonce + /api/auth/solana/link-wallet.'
+      });
+    }
     const walletAddress =
       chainType === 'solana'
         ? normalizeSolanaAddress(req.body.walletAddress)
@@ -1699,6 +2328,48 @@ app.post('/api/auth/link-wallet', requireSession, validateBody(linkWalletSchema)
     if (!walletAddress) {
       return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
     }
+
+    if (chainType === 'solana') {
+      const signatureB64 = String(req.body.signature || '').trim();
+      const issuedAtRaw = String(req.body.issuedAt || '').trim();
+      const issuedAtMs = Date.parse(issuedAtRaw);
+      if (!signatureB64 || !issuedAtRaw || !Number.isFinite(issuedAtMs)) {
+        return res.status(400).json({ ok: false, error: 'Solana link requires signature + issuedAt' });
+      }
+      if (Math.abs(Date.now() - issuedAtMs) > 5 * 60 * 1000) {
+        return res.status(400).json({ ok: false, error: 'Solana link signature expired' });
+      }
+
+      const token = getSessionToken(req);
+      const tokenHash = crypto.createHash('sha256').update(String(token || '')).digest('hex');
+      const message = [
+        'Vestra wallet link request',
+        `Wallet: ${walletAddress}`,
+        `Issued at: ${new Date(issuedAtMs).toISOString()}`,
+        `Session: ${tokenHash}`,
+        'Only sign if you trust this request.'
+      ].join('\n');
+      const msgBytes = Buffer.from(message, 'utf8');
+      let sigBytes;
+      try {
+        sigBytes = Buffer.from(signatureB64, 'base64');
+      } catch {
+        sigBytes = null;
+      }
+      if (!sigBytes || sigBytes.length < 64) {
+        return res.status(400).json({ ok: false, error: 'Invalid Solana signature format' });
+      }
+      const pubBytes = new PublicKey(walletAddress).toBytes();
+      const ok = nacl.sign.detached.verify(
+        new Uint8Array(msgBytes),
+        new Uint8Array(sigBytes),
+        new Uint8Array(pubBytes)
+      );
+      if (!ok) {
+        return res.status(403).json({ ok: false, error: 'Invalid Solana signature' });
+      }
+    }
+
     await persistence.linkWalletToUser({
       userId: req.user?.id,
       chainType,
@@ -1720,6 +2391,388 @@ app.post('/api/auth/link-wallet', requireSession, validateBody(linkWalletSchema)
     });
   }
 });
+
+app.post('/api/auth/solana/nonce', requireSession, validateBody(solanaNonceSchema), async (req, res) => {
+  try {
+    const walletAddress = normalizeSolanaAddress(req.body.walletAddress);
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid Solana wallet address' });
+    }
+    const issuedAtIso = new Date().toISOString();
+    const nonce = crypto.randomBytes(16).toString('hex');
+    await persistence.clearSessionsByProvider(req.user?.id, 'solana_wallet_nonce');
+    const ttlMs = NONCE_TTL_MINUTES * 60 * 1000;
+    await persistence.createSession({
+      userId: req.user?.id,
+      provider: 'solana_wallet_nonce',
+      nonce,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + ttlMs,
+      ipHash: hashIp(getClientIp(req))
+    });
+    const message = buildSolanaLinkMessage(req.user?.id, walletAddress, nonce, issuedAtIso);
+    return res.json({ ok: true, nonce, message, issuedAt: issuedAtIso });
+  } catch (error) {
+    console.error('[auth] solana nonce error', error?.message || error);
+    return res.status(500).json({ ok: false, error: 'Unable to issue Solana nonce' });
+  }
+});
+
+app.post('/api/auth/solana/link-wallet', requireSession, validateBody(solanaLinkWalletSchema), async (req, res) => {
+  try {
+    const walletAddress = normalizeSolanaAddress(req.body.walletAddress);
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid Solana wallet address' });
+    }
+
+    const nonceSession = await persistence.getNonceSessionByProvider(
+      req.user?.id,
+      'solana_wallet_nonce',
+      req.body.nonce
+    );
+    if (!nonceSession) {
+      return res.status(400).json({ ok: false, error: 'Invalid nonce' });
+    }
+    if (nonceSession.expiresAt && Date.now() > nonceSession.expiresAt) {
+      await persistence.deleteSession(nonceSession.id);
+      return res.status(400).json({ ok: false, error: 'Nonce expired' });
+    }
+    const nonceIssuedAtMs = Date.parse(String(nonceSession.issuedAt || ''));
+    if (!Number.isFinite(nonceIssuedAtMs)) {
+      await persistence.deleteSession(nonceSession.id);
+      return res.status(400).json({ ok: false, error: 'Invalid nonce session' });
+    }
+    if (Date.now() - nonceIssuedAtMs > NONCE_MAX_AGE_MS) {
+      await persistence.deleteSession(nonceSession.id);
+      return res.status(400).json({ ok: false, error: 'Nonce expired' });
+    }
+    const nonceIssuedAtIso = new Date(nonceIssuedAtMs).toISOString();
+    const message = buildSolanaLinkMessage(req.user?.id, walletAddress, req.body.nonce, nonceIssuedAtIso);
+    const ok = verifySolanaDetachedSignature({
+      walletAddress,
+      message,
+      signatureBase64: req.body.signature
+    });
+    if (!ok) {
+      return res.status(403).json({ ok: false, error: 'Invalid Solana signature' });
+    }
+    await persistence.deleteSession(nonceSession.id);
+
+    await persistence.linkWalletToUser({
+      userId: req.user?.id,
+      chainType: 'solana',
+      walletAddress
+    });
+    const linkedWallets = await persistence.listWalletLinksByUser(req.user?.id);
+    return res.json({ ok: true, linkedWallets });
+  } catch (error) {
+    const message = String(error?.message || 'Unable to link wallet');
+    if (/already linked/i.test(message)) {
+      return res.status(409).json({ ok: false, error: message });
+    }
+    return res.status(500).json({ ok: false, error: message });
+  }
+});
+
+// --- Vestra Premium Privacy (Private Mode) ---
+
+app.get('/api/privacy/solana/vault', requireSession, async (_req, res) => {
+  try {
+    const config = getRepayConfig();
+    const vaultPubkey =
+      String(process.env.SOLANA_PRIVACY_VAULT_PUBKEY || '').trim() ||
+      String(config?.authorityPubkey || '').trim();
+    return res.json({
+      ok: true,
+      vaultPubkey: vaultPubkey || null
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Vault unavailable' });
+  }
+});
+
+app.get('/api/privacy/evm/vault', requireSession, async (req, res) => {
+  try {
+    const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+    return res.json({
+      ok: true,
+      vaultAddress: existing?.vaultAddress || null
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Unable to read vault' });
+  }
+});
+
+app.post('/api/privacy/evm/register', strictLimiter, requireSession, async (req, res) => {
+  try {
+    const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+    if (existing?.vaultAddress) {
+      return res.json({ ok: true, vaultAddress: existing.vaultAddress, existing: true });
+    }
+    const deployed = await deployVestraVault();
+    await persistence.upsertPrivacyVault({
+      userId: req.user?.id,
+      chainType: 'evm',
+      vaultAddress: deployed.vaultAddress
+    });
+    return res.json({
+      ok: true,
+      vaultAddress: deployed.vaultAddress,
+      deployTxHash: deployed.deployTxHash,
+      relayerAddress: deployed.relayerAddress
+    });
+  } catch (error) {
+    console.error('[privacy] evm register failed', error?.message || error);
+    return res.status(500).json({ ok: false, error: error?.message || 'Unable to register vault' });
+  }
+});
+
+app.post(
+  '/api/relayer/evm/create-private-loan',
+  strictLimiter,
+  requireSession,
+  validateBody(privateLoanCreateSchema),
+  async (req, res) => {
+    try {
+      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+      if (!existing?.vaultAddress) {
+        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
+      }
+      await verifyRelayerAuth({
+        req,
+        action: 'create-private-loan',
+        payload: {
+          collateralId: String(req.body.collateralId),
+          vestingContract: String(req.body.vestingContract),
+          borrowAmount: String(req.body.borrowAmount),
+          collateralAmount: req.body.collateralAmount == null ? null : String(req.body.collateralAmount)
+        },
+        vaultAddress: existing.vaultAddress
+      });
+      if (!ethers.isAddress(req.body.vestingContract)) {
+        return res.status(400).json({ ok: false, error: 'Invalid vesting contract address' });
+      }
+      const vestingContract = ethers.getAddress(req.body.vestingContract);
+      const collateralId = BigInt(req.body.collateralId);
+      const borrowAmount = BigInt(req.body.borrowAmount);
+      const collateralAmountRaw = req.body.collateralAmount != null ? BigInt(req.body.collateralAmount) : null;
+
+      // Encode LoanManager call, then route it through the user's vault.
+      const fn =
+        collateralAmountRaw && collateralAmountRaw > 0n
+          ? 'createPrivateLoanWithCollateralAmount'
+          : 'createPrivateLoan';
+      const args =
+        fn === 'createPrivateLoanWithCollateralAmount'
+          ? [collateralId, vestingContract, borrowAmount, collateralAmountRaw]
+          : [collateralId, vestingContract, borrowAmount];
+      const data = loanManager.iface.encodeFunctionData(fn, args);
+
+      const { txHash } = await execViaVault({
+        vaultAddress: existing.vaultAddress,
+        target: loanManager.address,
+        value: 0n,
+        data
+      });
+
+      return res.json({
+        ok: true,
+        vaultAddress: existing.vaultAddress,
+        txHash
+      });
+    } catch (error) {
+      console.error('[relayer] create-private-loan failed', error?.message || error);
+      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
+    }
+  }
+);
+
+app.post(
+  '/api/relayer/evm/repay-private-loan',
+  strictLimiter,
+  requireSession,
+  validateBody(privateLoanRepaySchema),
+  async (req, res) => {
+    try {
+      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+      if (!existing?.vaultAddress) {
+        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
+      }
+      await verifyRelayerAuth({
+        req,
+        action: 'repay-private-loan',
+        payload: { loanId: String(req.body.loanId), amount: String(req.body.amount) },
+        vaultAddress: existing.vaultAddress
+      });
+
+      const loanId = BigInt(req.body.loanId);
+      const amount = BigInt(req.body.amount);
+      if (amount <= 0n) return res.status(400).json({ ok: false, error: 'Amount must be > 0' });
+
+      const relayer = getRelayerWallet();
+      const loanContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer);
+      const isPrivate = await loanContract.isPrivateLoan(loanId);
+      if (!isPrivate) {
+        return res.status(409).json({ ok: false, error: 'Loan is not a private-mode loan.' });
+      }
+
+      // Ensure vault has allowance to let LoanManager pull USDC from the vault.
+      let usdcAddress = '';
+      try {
+        usdcAddress = await loanContract.usdc();
+      } catch (_) {
+        usdcAddress = '';
+      }
+      if (!ethers.isAddress(usdcAddress)) {
+        return res.status(500).json({ ok: false, error: 'Unable to resolve USDC address' });
+      }
+
+      const erc20Iface = new ethers.Interface([
+        'function allowance(address owner,address spender) view returns (uint256)',
+        'function approve(address spender,uint256 amount) returns (bool)'
+      ]);
+      const usdc = new ethers.Contract(usdcAddress, erc20Iface, relayer);
+      const allowance = await usdc.allowance(existing.vaultAddress, loanManager.address);
+
+      let approveTxHash = null;
+      const MAX_UINT256 = (1n << 256n) - 1n;
+      if (BigInt(allowance) < amount) {
+        const approveData = erc20Iface.encodeFunctionData('approve', [loanManager.address, MAX_UINT256]);
+        const approval = await execViaVault({
+          vaultAddress: existing.vaultAddress,
+          target: usdcAddress,
+          value: 0n,
+          data: approveData
+        });
+        approveTxHash = approval?.txHash || null;
+      }
+
+      const repayData = loanManager.iface.encodeFunctionData('repayPrivateLoan', [loanId, amount]);
+      const { txHash } = await execViaVault({
+        vaultAddress: existing.vaultAddress,
+        target: loanManager.address,
+        value: 0n,
+        data: repayData
+      });
+
+      return res.json({
+        ok: true,
+        vaultAddress: existing.vaultAddress,
+        approveTxHash,
+        txHash
+      });
+    } catch (error) {
+      console.error('[relayer] repay-private-loan failed', error?.message || error);
+      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
+    }
+  }
+);
+
+app.post(
+  '/api/relayer/evm/settle-private-loan',
+  strictLimiter,
+  requireSession,
+  validateBody(privateLoanSettleSchema),
+  async (req, res) => {
+    try {
+      const loanId = BigInt(req.body.loanId);
+      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+      if (!existing?.vaultAddress) {
+        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
+      }
+      await verifyRelayerAuth({
+        req,
+        action: 'settle-private-loan',
+        payload: { loanId: String(req.body.loanId) },
+        vaultAddress: existing.vaultAddress
+      });
+      const relayer = getRelayerWallet();
+      const contract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer);
+      const isPrivate = await contract.isPrivateLoan(loanId);
+      if (!isPrivate) {
+        return res.status(409).json({ ok: false, error: 'Loan is not a private-mode loan.' });
+      }
+      const tx = await contract.settlePrivateAtUnlock(loanId);
+      return res.json({ ok: true, txHash: tx.hash });
+    } catch (error) {
+      console.error('[relayer] settle-private-loan failed', error?.message || error);
+      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
+    }
+  }
+);
+
+// Deploy a Sablier v2 operator wrapper whose beneficiary is the user's private vault.
+// This enables private-mode escrow even when the underlying stream recipient cannot be changed
+// (privacy is "partial" because the stream still points to the old recipient onchain).
+app.post(
+  '/api/privacy/evm/wrappers/sablier/deploy',
+  strictLimiter,
+  requireSession,
+  validateBody(sablierUpgradeSchema),
+  async (req, res) => {
+    try {
+      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+      if (!existing?.vaultAddress) {
+        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
+      }
+      const lockupAddress = normalizeWalletAddress(req.body.lockupAddress);
+      if (!lockupAddress) {
+        return res.status(400).json({ ok: false, error: 'Invalid lockup address' });
+      }
+      const streamId = BigInt(req.body.streamId);
+      if (streamId <= 0n) {
+        return res.status(400).json({ ok: false, error: 'streamId must be > 0' });
+      }
+
+      await verifyRelayerAuth({
+        req,
+        action: 'deploy-sablier-wrapper',
+        payload: { lockupAddress, streamId: streamId.toString() },
+        vaultAddress: existing.vaultAddress
+      });
+
+      const deployed = await deploySablierV2OperatorWrapper({
+        lockupAddress,
+        streamId,
+        beneficiary: existing.vaultAddress
+      });
+
+      // Set operator to VestingAdapter so the protocol can release collateral at unlock.
+      const relayer = getRelayerWallet();
+      const wrapperContract = new ethers.Contract(
+        deployed.wrapperAddress,
+        [
+          'function setOperator(address newOperator)',
+          'function operator() view returns (address)',
+          'function beneficiary() view returns (address)',
+          'function lockup() view returns (address)',
+          'function streamId() view returns (uint256)'
+        ],
+        relayer
+      );
+      try {
+        const current = await wrapperContract.operator();
+        if (!current || current === ethers.ZeroAddress) {
+          const tx = await wrapperContract.setOperator(vestingAdapter.address);
+          await tx.wait(1);
+        }
+      } catch (_) {}
+
+      return res.json({
+        ok: true,
+        vaultAddress: existing.vaultAddress,
+        wrapperAddress: deployed.wrapperAddress,
+        deployTxHash: deployed.deployTxHash,
+        operator: vestingAdapter.address,
+        notes:
+          'Next step: approve the wrapper as operator in your Sablier lockup so it can withdraw to the VestingAdapter.'
+      });
+    } catch (error) {
+      console.error('[privacy] sablier wrapper deploy failed', error?.message || error);
+      return res.status(500).json({ ok: false, error: error?.message || 'Unable to deploy wrapper' });
+    }
+  }
+);
 
 const sanitizePayload = (req, _res, next) => {
   const payload = req.body || {};
@@ -1758,11 +2811,18 @@ app.post(
       message: req.body?.message?.slice?.(0, 80) || '',
       historyCount: history.length
     });
+    let platformSnapshot = null;
+    try {
+      platformSnapshot = await getPlatformSnapshot();
+    } catch (e) {
+      // non-fatal
+    }
     const result = await answerAgent(agent, {
       message: req.body?.message,
       history,
       memory,
-      context: req.body?.context || null
+      context: req.body?.context || null,
+      platformSnapshot
     });
     try {
       await persistence.saveAgentConversation({
@@ -1806,7 +2866,7 @@ app.post(
   }
 );
 
-app.post('/api/pools', requireSession, validateBody(createPoolSchema), async (req, res) => {
+app.post('/api/pools', requireSession, strictLimiter, validateBody(createPoolSchema), async (req, res) => {
   try {
     const ownerWallet = req.user?.walletAddress;
     if (!ownerWallet) {
@@ -1828,6 +2888,7 @@ app.post('/api/pools', requireSession, validateBody(createPoolSchema), async (re
 app.post(
   '/api/pools/:id/preferences',
   requireSession,
+  strictLimiter,
   validateBody(updatePoolSchema),
   async (req, res) => {
     try {
@@ -1851,7 +2912,7 @@ app.post(
   }
 );
 
-app.get('/api/pools', async (req, res) => {
+app.get('/api/pools', strictLimiter, async (req, res) => {
   try {
     const pools = await persistence.listPools({
       chain: normalizeText(req.query?.chain, 40),
@@ -1864,7 +2925,7 @@ app.get('/api/pools', async (req, res) => {
   }
 });
 
-app.get('/api/pools/browse', async (req, res) => {
+app.get('/api/pools/browse', strictLimiter, async (req, res) => {
   try {
     let borrowerWallet = null;
     if (req.query?.borrowerWallet) {
@@ -1909,6 +2970,157 @@ app.get('/api/pools/browse', async (req, res) => {
     res.json({ ok: true, pools: enriched });
   } catch (error) {
     res.status(200).json({ ok: false, error: error?.message || 'Pool browse failed' });
+  }
+});
+
+// --- Lender (privacy-lite) endpoints ---
+//
+// These endpoints intentionally return *aggregate-only* stats suitable for a lender UX
+// that does not expose borrower/token identifiers. On-chain activity is still public,
+// but we avoid making correlation easier via the app API.
+
+const LENDER_METRICS_TTL_MS = 10_000;
+const lenderMetricsCache = { at: 0, data: null };
+
+const getLenderPoolMetrics = async () => {
+  const now = Date.now();
+  if (lenderMetricsCache.data && now - lenderMetricsCache.at < LENDER_METRICS_TTL_MS) {
+    return lenderMetricsCache.data;
+  }
+  const contract = new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, provider);
+  const [totalDeposits, totalBorrowed, utilizationBps, rateBps] = await Promise.all([
+    contract.totalDeposits(),
+    contract.totalBorrowed(),
+    contract.utilizationRateBps(),
+    contract.getInterestRateBps()
+  ]);
+  const data = {
+    totalDeposits: totalDeposits?.toString?.() ?? String(totalDeposits ?? '0'),
+    totalBorrowed: totalBorrowed?.toString?.() ?? String(totalBorrowed ?? '0'),
+    utilizationBps: Number(utilizationBps ?? 0n),
+    rateBps: Number(rateBps ?? 0n)
+  };
+  lenderMetricsCache.at = now;
+  lenderMetricsCache.data = data;
+  return data;
+};
+
+const buildEstimatedReturnProjections = ({ principalUsd, aprBps, horizonsYears, feeBps = 0 }) => {
+  const principal = Number(principalUsd);
+  const rate = Number(aprBps);
+  const fee = Number(feeBps);
+  const horizons = (horizonsYears || []).filter((x) => typeof x === 'number' && x > 0 && x <= 10);
+  const safePrincipal = Number.isFinite(principal) && principal > 0 ? principal : 0;
+  const safeRate = Number.isFinite(rate) && rate >= 0 ? rate : 0;
+  const safeFee = Number.isFinite(fee) && fee >= 0 ? fee : 0;
+  return horizons.map((years) => {
+    const grossInterest = safePrincipal * (safeRate / 10_000) * years;
+    const netInterest = grossInterest * (1 - safeFee / 10_000);
+    const total = safePrincipal + netInterest;
+    return {
+      years,
+      grossInterestUsd: Number(grossInterest.toFixed(2)),
+      estimatedNetInterestUsd: Number(netInterest.toFixed(2)),
+      estimatedTotalUsd: Number(total.toFixed(2))
+    };
+  });
+};
+
+app.get('/api/lender/projections', strictLimiter, async (req, res) => {
+  try {
+    const amountUsd = Number(req.query?.amountUsd ?? req.query?.amount ?? 0);
+    const principalUsd = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : 0;
+    const metrics = await getLenderPoolMetrics();
+
+    // Note: This is an *estimate* for UI display. Contract logic does not guarantee
+    // deposit yield; on-chain borrow interest is currently fixed at origination.
+    const horizonsYears = [1 / 12, 1, 4, 5];
+    const projections = buildEstimatedReturnProjections({
+      principalUsd,
+      aprBps: metrics.rateBps,
+      horizonsYears,
+      feeBps: 0
+    });
+
+    res.json({
+      ok: true,
+      network: DEPLOYMENTS_NETWORK,
+      principalUsd,
+      utilizationBps: metrics.utilizationBps,
+      estimatedAprBps: metrics.rateBps,
+      projections,
+      disclaimer: 'Estimates only. Not guaranteed. Actual returns depend on utilization, borrower demand, and realized repayments.'
+    });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Unable to compute projections' });
+  }
+});
+
+const bucketMaturity = (daysToUnlock) => {
+  const days = Number(daysToUnlock);
+  if (!Number.isFinite(days) || days < 0) return 'unknown';
+  if (days < 30) return 'lt30d';
+  if (days < 180) return '30to180d';
+  if (days < 365) return '180to365d';
+  return 'gt365d';
+};
+
+app.get('/api/lender/portfolio-light', strictLimiter, async (req, res) => {
+  try {
+    const metrics = await getLenderPoolMetrics();
+
+    const exposure = await persistence.getExposureTotals(null);
+    const flaggedShare =
+      exposure.totalExposureUsd > 0
+        ? exposure.flaggedExposureUsd / exposure.totalExposureUsd
+        : 0;
+
+    // Use the existing repay schedule cache. This is intentionally a small sample and
+    // aggregated to avoid leaking loan-level details.
+    const scheduleRows = await fetchRepayScheduleRows().catch(() => []);
+    const maturityBuckets = {
+      lt30d: 0,
+      '30to180d': 0,
+      '180to365d': 0,
+      gt365d: 0,
+      unknown: 0
+    };
+    let sampleCount = 0;
+    let activeCount = 0;
+    for (const row of scheduleRows || []) {
+      sampleCount += 1;
+      if (row?.status === 'Active') activeCount += 1;
+      const unlock = Number(row?.unlockTime || 0);
+      const daysToUnlock =
+        unlock > 0 ? Math.round((unlock * 1000 - Date.now()) / 86_400_000) : NaN;
+      maturityBuckets[bucketMaturity(daysToUnlock)] += 1;
+    }
+
+    res.json({
+      ok: true,
+      network: DEPLOYMENTS_NETWORK,
+      pool: {
+        totalDeposits: metrics.totalDeposits,
+        totalBorrowed: metrics.totalBorrowed,
+        utilizationBps: metrics.utilizationBps,
+        currentRateBps: metrics.rateBps
+      },
+      exposure: {
+        chain: exposure.chain,
+        totalExposureUsd: exposure.totalExposureUsd,
+        flaggedExposureUsd: exposure.flaggedExposureUsd,
+        flaggedExposureShare: Number(flaggedShare.toFixed(4)),
+        uniqueTokenCount: exposure.uniqueTokenCount,
+        uniqueFlaggedTokenCount: exposure.uniqueFlaggedTokenCount
+      },
+      maturity: {
+        sampleCount,
+        activeCount,
+        buckets: maturityBuckets
+      }
+    });
+  } catch (error) {
+    res.status(200).json({ ok: false, error: error?.message || 'Unable to build portfolio stats' });
   }
 });
 
@@ -1969,7 +3181,7 @@ app.get('/api/community-pools/:poolId', async (req, res) => {
   }
 });
 
-app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) => {
+app.post('/api/match/quote', expensiveLimiter, validateBody(matchQuoteSchema), async (req, res) => {
   try {
     const { chain, desiredAmountUsd } = req.body;
     const pools = await persistence.listPools({ chain, status: 'active' });
@@ -1979,6 +3191,7 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
     let pvUsd = 0;
     let ltvBps = 0;
     let unlockTime = req.body.unlockTime;
+    let collateralToken = null;
     if (chain === 'base') {
       if (req.body.collateralId) {
         try {
@@ -1994,6 +3207,7 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
           const token = details?.[1];
           const unlock = details?.[2];
           unlockTime = unlockTime || Number(unlock || 0);
+          if (token) collateralToken = ethers.getAddress(token);
           const valuation = await computeEvmDpv({
             quantity: quantity || 0n,
             token,
@@ -2006,6 +3220,7 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
           ltvBps = 0;
         }
       } else if (req.body.token && req.body.quantity && req.body.unlockTime) {
+        if (req.body.token) collateralToken = ethers.getAddress(req.body.token);
         const valuation = await computeEvmDpv({
           quantity: req.body.quantity,
           token: req.body.token,
@@ -2026,11 +3241,61 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
         pvUsd = toNumber(entry.pv, 0);
         ltvBps = toNumber(entry.ltvBps, 0);
         unlockTime = unlockTime || Number(entry.unlockTime || 0);
+        if (entry.token) collateralToken = entry.token;
+      }
+    }
+
+    if (!pvUsd || !ltvBps) {
+      const reason =
+        chain === 'solana'
+          ? 'Manual quote required (Solana valuation missing for this vesting stream).'
+          : 'Manual quote required (valuation unavailable for this collateral).';
+      await persistence
+        .createMatchEvent({
+          type: 'quote_missing_valuation',
+          payload: {
+            chain,
+            desiredAmountUsd,
+            collateralId: req.body.collateralId,
+            streamId: req.body.streamId,
+            pvUsd,
+            ltvBps
+          }
+        })
+        .catch(() => null);
+      return res.json({
+        ok: true,
+        offers: [],
+        valuation: { pvUsd, ltvBps, unlockTime },
+        reason,
+        note:
+          chain === 'solana'
+            ? 'Solana offers are advisory only for this MVP; settlement is Base-only.'
+            : 'Offers are advisory; final loan terms are enforced onchain.'
+      });
+    }
+
+    // Insider-aware LTV: cap LTV when wallet+token is flagged (see FOUNDER_INSIDER_RISK_AND_FLAGGING.md)
+    const borrowerWallet = req.body.borrowerWallet ? String(req.body.borrowerWallet).trim().toLowerCase() : null;
+    if (borrowerWallet) {
+      try {
+        const flags = await persistence.getRiskFlags({ walletAddress: borrowerWallet });
+        const tokenLower = collateralToken ? String(collateralToken).trim().toLowerCase() : null;
+        const applies = flags.filter(
+          (f) => !f.tokenAddress || (tokenLower && f.tokenAddress.toLowerCase() === tokenLower)
+        );
+        if (applies.length) ltvBps = Math.min(ltvBps, INSIDER_LTV_BPS);
+      } catch {
+        // non-fatal: continue with uncapped LTV
       }
     }
 
     const baseRateBps = await getPoolInterestBps();
-    const offers = await buildPoolOffers({
+    const liquidityUsd = chain === 'base' ? await getAvailableLiquidityUsd() : null;
+    const borrowerStats = req.body.borrowerWallet
+      ? getProtocolBorrowerStats(String(req.body.borrowerWallet))
+      : null;
+    let offers = await buildPoolOffers({
       pools,
       desiredAmountUsd,
       pvUsd,
@@ -2038,8 +3303,42 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
       chain,
       unlockTime,
       baseRateBps,
-      borrowerWallet: req.body.borrowerWallet || null
+      borrowerWallet: req.body.borrowerWallet || null,
+      collateralToken,
+      tokenType: req.body.tokenType || null,
+      tokenCategory: req.body.tokenCategory || null,
+      liquidityUsd,
+      borrowerStats,
+      maxOffers: req.body.maxOffers
     });
+
+    let concentrationWarning = null;
+    if (
+      CONCENTRATION_MAX_USD_PER_TOKEN != null &&
+      CONCENTRATION_MAX_USD_PER_TOKEN > 0 &&
+      collateralToken &&
+      (desiredAmountUsd > 0 || pvUsd > 0)
+    ) {
+      try {
+        const exposureUsd = await persistence.getLoanExposureByToken(collateralToken, chain === 'solana' ? 'solana' : 'base');
+        const requestedUsd = desiredAmountUsd || (pvUsd * (ltvBps || 0)) / 10000;
+        const headroom = Math.max(0, CONCENTRATION_MAX_USD_PER_TOKEN - exposureUsd);
+        if (headroom <= 0) {
+          offers = [];
+          concentrationWarning = 'Concentration limit reached for this token; no new borrows until exposure decreases.';
+        } else if (requestedUsd > headroom) {
+          const capUsd = Math.min(headroom, pvUsd > 0 ? (pvUsd * (ltvBps || 0)) / 10000 : headroom);
+          offers = offers.map((o) => ({
+            ...o,
+            maxBorrowUsd: Math.min(Number(o.maxBorrowUsd) || 0, capUsd),
+            concentrationCapped: true
+          })).filter((o) => (Number(o.maxBorrowUsd) || 0) > 0);
+          concentrationWarning = `Concentration cap applied: max borrow for this token is ${headroom.toFixed(0)} USD (${exposureUsd.toFixed(0)} already in use).`;
+        }
+      } catch (e) {
+        // non-fatal: continue with uncapped offers
+      }
+    }
 
     await persistence.createMatchEvent({
       type: 'quote',
@@ -2058,6 +3357,7 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
       ok: true,
       offers,
       valuation: { pvUsd, ltvBps, unlockTime },
+      concentrationWarning: concentrationWarning || undefined,
       note:
         chain === 'solana'
           ? 'Solana offers are advisory only for this MVP; settlement is Base-only.'
@@ -2068,7 +3368,7 @@ app.post('/api/match/quote', validateBody(matchQuoteSchema), async (req, res) =>
   }
 });
 
-app.post('/api/match/accept', validateBody(matchAcceptSchema), async (req, res) => {
+app.post('/api/match/accept', strictLimiter, validateBody(matchAcceptSchema), async (req, res) => {
   try {
     const event = await persistence.createMatchEvent({
       type: 'accept',
@@ -2112,6 +3412,48 @@ app.post(
     }
   }
 );
+
+app.post(
+  '/api/chains/request',
+  strictLimiter,
+  validateBody(chainRequestSchema),
+  sanitizePayload,
+  async (req, res) => {
+    try {
+      const payload = req.body || {};
+      await persistence.saveAnalyticsEvent({
+        event: 'chain_support_requested',
+        page: payload.page || 'unknown',
+        walletAddress: payload.walletAddress || req.user?.walletAddress || null,
+        properties: {
+          chainId: payload.chainId ?? null,
+          chainName: payload.chainName ?? null,
+          feature: payload.feature ?? null,
+          vestingStandard: payload.vestingStandard ?? null,
+          message: payload.message ?? null
+        },
+        userId: req.user?.id || null,
+        sessionFingerprint: buildSessionFingerprint(req),
+        ipHash: hashIp(getClientIp(req)),
+        source: 'frontend'
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(200).json({ ok: false, error: error?.message || 'Unable to record request' });
+    }
+  }
+);
+
+app.get('/api/admin/chain-requests', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
+    const items = await persistence.listAnalyticsEvents({ event: 'chain_support_requested', limit });
+    await recordAdminAudit(req, 'admin.chain_requests.read', { targetType: 'chain_requests', payload: { limit } });
+    res.json({ ok: true, items });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error?.message || 'Failed to list requests', items: [] });
+  }
+});
 
 app.get('/api/analytics/summary', expensiveLimiter, async (req, res) => {
   try {
@@ -2300,6 +3642,55 @@ const countDefaultsSince = (sinceEpochSec) => {
   return total;
 };
 
+/** Aggregate-only platform snapshot for CRDT AI and public dashboards. No addresses, no per-user data. */
+const getPlatformSnapshot = async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const window24h = now - 24 * 3600;
+  const window7d = now - 7 * 24 * 3600;
+  const counts24h = countActivitySince(window24h);
+  const counts7d = countActivitySince(window7d);
+  const defaults24h = countDefaultsSince(window24h);
+  const defaults7d = countDefaultsSince(window7d);
+  let poolStats = null;
+  try {
+    const poolContract = new ethers.Contract(
+      lendingPoolDeployment.address,
+      [
+        'function totalDeposits() view returns (uint256)',
+        'function totalBorrowed() view returns (uint256)',
+        'function getInterestRateBps() view returns (uint256)',
+        'function utilizationRateBps() view returns (uint256)',
+        'function communityPoolCount() view returns (uint256)'
+      ],
+      provider
+    );
+    const [totalDeposits, totalBorrowed, rateBps, utilBps, communityPoolCount] = await Promise.all([
+      poolContract.totalDeposits(),
+      poolContract.totalBorrowed(),
+      poolContract.getInterestRateBps(),
+      poolContract.utilizationRateBps(),
+      poolContract.communityPoolCount()
+    ]);
+    poolStats = {
+      totalDeposits: totalDeposits.toString(),
+      totalBorrowed: totalBorrowed.toString(),
+      interestRateBps: Number(rateBps),
+      utilizationBps: Number(utilBps),
+      communityPoolCount: Number(communityPoolCount)
+    };
+  } catch (err) {
+    // RPC or contract not available on this chain
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    activity24h: counts24h,
+    activity7d: counts7d,
+    defaults24h,
+    defaults7d,
+    pool: poolStats
+  };
+};
+
 const buildKpiDashboard = async (windowHours) => {
   const metrics = await persistence.getAnalyticsMetrics({ windowHours });
   const sinceEpochSec = Math.floor(Date.now() / 1000 - windowHours * 60 * 60);
@@ -2312,6 +3703,7 @@ const buildKpiDashboard = async (windowHours) => {
   const borrowStart = events.borrow_start || 0;
   const quoteRequested = events.quote_requested || 0;
   const quoteAccepted = events.quote_accepted || 0;
+  const chainSupportRequested = events.chain_support_requested || 0;
   const loanCreated = activityCounts.LoanCreated || events.loan_created || 0;
   const loanRepaid = activityCounts.LoanRepaid || events.loan_repaid || 0;
   const loanSettled = activityCounts.LoanSettled || events.loan_settled || 0;
@@ -2343,6 +3735,9 @@ const buildKpiDashboard = async (windowHours) => {
         quoteRequested,
         quoteAccepted,
         loanCreated
+      },
+      demandSignals: {
+        chainSupportRequested
       },
       conversionRatesPct: {
         walletToBorrowStart: safeRate(borrowStart, walletConnect),
@@ -2583,6 +3978,199 @@ app.get(
   }
 );
 
+app.get('/api/admin/risk/flags', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const wallet = typeof req.query?.wallet === 'string' ? req.query.wallet.trim().toLowerCase() : null;
+    const token = typeof req.query?.token === 'string' ? req.query.token.trim().toLowerCase() : null;
+    const items = await persistence.getRiskFlags({ walletAddress: wallet || undefined, tokenAddress: token || undefined });
+    await recordAdminAudit(req, 'admin.risk.flags.read', { targetType: 'risk_flags', payload: { wallet: !!wallet, token: !!token } });
+    return res.json({ ok: true, flags: items });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to fetch risk flags' });
+  }
+});
+
+const riskFlagCreateSchema = z.object({
+  walletAddress: z.string().min(1).max(42),
+  tokenAddress: z.string().max(42).optional().nullable(),
+  flagType: z.string().min(1).max(64),
+  source: z.string().max(64).optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
+app.post('/api/admin/risk/flags', adminLimiter, requireSession, requireAdmin, validateBody(riskFlagCreateSchema), async (req, res) => {
+  try {
+    const { walletAddress, tokenAddress, flagType, source, metadata } = req.body;
+    const created = await persistence.createRiskFlag({
+      walletAddress: walletAddress.trim().toLowerCase(),
+      tokenAddress: tokenAddress ? tokenAddress.trim().toLowerCase() : null,
+      flagType,
+      source: source || 'manual',
+      metadata: metadata || null
+    });
+    await recordAdminAudit(req, 'admin.risk.flags.create', {
+      targetType: 'risk_flags',
+      targetId: created.id,
+      payload: { flagType, wallet: walletAddress.slice(0, 10) + '...' }
+    });
+    return res.json({ ok: true, flag: created });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to create risk flag' });
+  }
+});
+
+app.delete('/api/admin/risk/flags/:id', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    await persistence.deleteRiskFlag(id);
+    await recordAdminAudit(req, 'admin.risk.flags.delete', { targetType: 'risk_flags', targetId: id });
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to delete risk flag' });
+  }
+});
+
+app.get('/api/admin/risk/cohort', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
+    const byParam = String(req.query?.by || 'borrower').toLowerCase();
+    const events = await persistence.loadEvents(limit * 3);
+    const loanCreated = (events || []).filter((e) => e.type === 'LoanCreated');
+    if (byParam === 'token') {
+      const byToken = {};
+      loanCreated.forEach((e) => {
+        const token = (e.tokenAddress || '').toLowerCase();
+        const b = (e.borrower || '').toLowerCase();
+        if (!token || !b) return;
+        if (!byToken[token]) byToken[token] = {};
+        byToken[token][b] = (byToken[token][b] || 0) + 1;
+      });
+      const byTokenList = Object.entries(byToken).map(([token, wallets]) => ({
+        token,
+        borrowers: Object.entries(wallets)
+          .map(([wallet, loanCount]) => ({ wallet, loanCount }))
+          .sort((a, b) => b.loanCount - a.loanCount)
+          .slice(0, 50)
+      })).sort((a, b) => {
+        const totalA = a.borrowers.reduce((s, x) => s + x.loanCount, 0);
+        const totalB = b.borrowers.reduce((s, x) => s + x.loanCount, 0);
+        return totalB - totalA;
+      }).slice(0, limit);
+      await recordAdminAudit(req, 'admin.risk.cohort.read', { targetType: 'risk_cohort', by: 'token' });
+      return res.json({ ok: true, byToken: byTokenList });
+    }
+    const byBorrower = {};
+    loanCreated.forEach((e) => {
+      const b = (e.borrower || '').toLowerCase();
+      if (!b) return;
+      byBorrower[b] = (byBorrower[b] || 0) + 1;
+    });
+    const borrowers = Object.entries(byBorrower)
+      .map(([wallet, loanCount]) => ({ wallet, loanCount }))
+      .sort((a, b) => b.loanCount - a.loanCount)
+      .slice(0, limit);
+    await recordAdminAudit(req, 'admin.risk.cohort.read', { targetType: 'risk_cohort', by: 'borrower' });
+    return res.json({ ok: true, borrowers });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to build cohort' });
+  }
+});
+
+app.get('/api/admin/risk/concentration', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const token = (req.query?.token || '').trim();
+    if (!token) return res.status(400).json({ ok: false, error: 'Query token required' });
+    const chain = (req.query?.chain || 'base').toLowerCase();
+    const exposureUsd = await persistence.getLoanExposureByToken(token, chain);
+    const limitUsd = CONCENTRATION_MAX_USD_PER_TOKEN;
+    await recordAdminAudit(req, 'admin.risk.concentration.read', { targetType: 'concentration', targetId: token });
+    return res.json({
+      ok: true,
+      token,
+      chain,
+      exposureUsd,
+      limitUsd: limitUsd ?? null,
+      withinLimit: limitUsd == null || exposureUsd <= limitUsd
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to get concentration' });
+  }
+});
+
+app.get('/api/admin/risk/concentration-alerts', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const chain = (req.query?.chain || '').toLowerCase() || null;
+    const exposureList = await persistence.getExposureByTokenList(chain);
+    const limitUsd = CONCENTRATION_MAX_USD_PER_TOKEN;
+    const threshold = limitUsd != null ? limitUsd * 0.8 : null;
+    const alerts = exposureList
+      .filter(({ exposureUsd }) => threshold != null && exposureUsd >= threshold)
+      .map(({ token, exposureUsd }) => ({ token, exposureUsd, limitUsd }));
+    await recordAdminAudit(req, 'admin.risk.concentration_alerts.read', { targetType: 'concentration_alerts' });
+    return res.json({ ok: true, alerts });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Failed to build concentration alerts', alerts: [] });
+  }
+});
+
+app.post('/api/admin/risk/backfill-concentration', adminLimiter, requireSession, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.body?.limit ?? req.query?.limit ?? 500), 1), 2000);
+    const chain = (req.body?.chain ?? req.query?.chain ?? 'base').toLowerCase();
+
+    const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
+    const adapterContract = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
+
+    const getTokenAddressForLoan = async (loanId) => {
+      const isPrivate = await loanManagerContract.isPrivateLoan(loanId);
+      const loan = isPrivate
+        ? await loanManagerContract.privateLoans(loanId)
+        : await loanManagerContract.loans(loanId);
+      const collateralId = loan?.collateralId ?? loan?.[3];
+      if (collateralId == null) return null;
+      const details = await adapterContract.getDetails(collateralId);
+      const token = details?.[1];
+      return token ? ethers.getAddress(token) : null;
+    };
+
+    const loadEventsForBackfill = async (lim) => {
+      const list = await persistence.loadEvents(lim);
+      return list.map((e) => ({
+        type: e.type,
+        loanId: e.loanId,
+        amount: e.amount,
+        tokenAddress: e.tokenAddress,
+        blockNumber: e.blockNumber,
+        logIndex: e.logIndex
+      }));
+    };
+
+    const result = await runBackfillConcentration({
+      persistence,
+      loadEvents: loadEventsForBackfill,
+      getTokenAddressForLoan,
+      chain,
+      limit
+    });
+
+    await recordAdminAudit(req, 'admin.risk.backfill_concentration', {
+      targetType: 'backfill_concentration',
+      payload: { limit, chain, ...result }
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || 'Backfill failed',
+      processed: 0,
+      created: 0,
+      removed: 0,
+      skipped: 0,
+      errors: []
+    });
+  }
+});
+
 app.get('/api/admin/audit-logs', adminLimiter, requireSession, requireAdmin, async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
@@ -2702,9 +4290,14 @@ app.post(
 );
 
 app.get('/api/activity', (_req, res) => {
+  const items = activityEvents.map((e) => {
+    // Do not expose correlatable identifiers in a public feed.
+    const { borrower, loanId, txHash, logIndex, blockNumber, tokenAddress, ...rest } = e;
+    return rest;
+  });
   res.json({
     ok: true,
-    items: activityEvents,
+    items,
     meta: {
       lookbackBlocks: INDEXER_LOOKBACK_BLOCKS,
       lastIndexedBlock,
@@ -2733,18 +4326,38 @@ app.get('/api/geo-pings', async (_req, res) => {
   }
 });
 
-app.get('/api/exports/activity', (_req, res) => {
+app.get('/api/exports/activity', requireSession, (_req, res) => {
+  const exportsAdminOnly = process.env.EXPORTS_ADMIN_ONLY === 'true';
+  const ipAllowlist = String(process.env.EXPORTS_IP_ALLOWLIST || '')
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean);
+  if (ipAllowlist.length) {
+    const ip = getClientIp(_req) || '';
+    if (!ipAllowlist.includes(ip)) {
+      return res.status(403).json({ ok: false, error: 'Export blocked by IP allowlist' });
+    }
+  }
+  if (exportsAdminOnly) {
+    const isAdmin =
+      String(_req.user?.role || '').toLowerCase() === 'admin' ||
+      isAdminWallet(_req.user?.walletAddress);
+    if (!isAdmin) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+  }
+  const watermark = `exported_at=${new Date().toISOString()} user=${String(_req.user?.id || '').slice(0, 8)}`;
   const rows = [
-    ['Event', 'Loan ID', 'Borrower', 'Amount', 'Timestamp', 'TxHash'],
+    // Mirrors `/api/activity` privacy posture. The watermark preserves traceability
+    // for ops without exposing per-loan linkage.
+    ['Event', 'Amount', 'Timestamp', 'Watermark'],
     ...activityEvents.map((event) => [
       event.type,
-      event.loanId || '',
-      event.borrower || '',
       event.amount || '',
       event.timestamp
         ? new Date(event.timestamp * 1000).toISOString()
         : '',
-      event.txHash || ''
+      watermark
     ])
   ];
   const csv = rows.map((row) => row.join(',')).join('\n');
@@ -2778,13 +4391,16 @@ const fetchRepayScheduleRows = async () => {
     const rows = await mapWithConcurrency(
       ids,
       async (loanId) => {
-        const loan = await contract.loans(loanId);
+        const isPrivate = await contract.isPrivateLoan(loanId);
+        const loan = isPrivate ? await contract.privateLoans(loanId) : await contract.loans(loanId);
         return {
           loanId,
-          principal: loan[1].toString(),
-          interest: loan[2].toString(),
-          unlockTime: Number(loan[4]),
-          status: loan[5] ? 'Active' : 'Settled'
+          mode: isPrivate ? 'private' : 'public',
+          principal: (loan?.[1] ?? 0n).toString(),
+          interest: (loan?.[2] ?? 0n).toString(),
+          // Loan struct: unlockTime is index 5 (index 4 is collateralAmount).
+          unlockTime: Number(loan?.[5] ?? 0n),
+          status: loan?.[6] ? 'Active' : 'Settled'
         };
       },
       RPC_CONCURRENCY_LIMIT
@@ -2912,8 +4528,9 @@ const getEvmVestedContracts = async () => {
   const rows = await mapWithConcurrency(
     ids,
     async (loanId) => {
-      const loan = await loanContract.loans(loanId);
-      const collateralId = loan[3];
+      const isPrivate = await loanContract.isPrivateLoan(loanId);
+      const loan = isPrivate ? await loanContract.privateLoans(loanId) : await loanContract.loans(loanId);
+      const collateralId = loan?.[3];
       const vestingContract = await adapterContract.vestingContracts(collateralId);
       const [quantity, token, unlockTime] = await adapterContract.getDetails(collateralId);
 
@@ -2938,10 +4555,12 @@ const getEvmVestedContracts = async () => {
         ltvBps = 0n;
       }
 
-      const createdEvent = activityEvents.find(
-        (event) => event.type === 'LoanCreated' && event.loanId === loanId.toString()
-      );
-      const unlockTimestamp = Number(unlockTime || loan[4] || 0);
+      const createdEvent = activityEvents.find((event) => {
+        const matchType = isPrivate ? 'PrivateLoanCreated' : 'LoanCreated';
+        return event.type === matchType && event.loanId === loanId.toString();
+      });
+      // Loan struct: unlockTime is index 5 (index 4 is collateralAmount).
+      const unlockTimestamp = Number(unlockTime || loan?.[5] || 0);
       const daysToUnlock =
         unlockTimestamp > 0
           ? Math.max(0, Math.round((unlockTimestamp * 1000 - Date.now()) / 86400000))
@@ -2949,13 +4568,15 @@ const getEvmVestedContracts = async () => {
 
       return {
         loanId,
-        borrower: loan[0],
-        principal: loan[1].toString(),
-        interest: loan[2].toString(),
+        mode: isPrivate ? 'private' : 'public',
+        borrower: isPrivate ? '' : loan?.[0],
+        vault: isPrivate ? loan?.[0] : '',
+        principal: (loan?.[1] ?? 0n).toString(),
+        interest: (loan?.[2] ?? 0n).toString(),
         collateralId: collateralId.toString(),
         vestingContract: vestingContract || '',
         unlockTime: unlockTimestamp,
-        active: Boolean(loan[5]),
+        active: Boolean(loan?.[6]),
         token,
         tokenSymbol,
         tokenDecimals,
@@ -2963,11 +4584,13 @@ const getEvmVestedContracts = async () => {
         pv: pv.toString(),
         ltvBps: ltvBps.toString(),
         daysToUnlock,
+        chain: 'evm',
         evidence: {
           escrowTx: createdEvent?.txHash
             ? buildExplorerLink('tx', createdEvent.txHash)
             : '',
-          wallet: loan[0] ? buildExplorerLink('address', loan[0]) : '',
+          // Avoid linking private-mode loans to any address in user-facing APIs.
+          wallet: !isPrivate && loan?.[0] ? buildExplorerLink('address', loan[0]) : '',
           token: token ? buildExplorerLink('address', token) : ''
         }
       };
@@ -2987,42 +4610,147 @@ const getVestedContracts = async () => {
 };
 
 const takeVestedSnapshot = async () => {
+  if (snapshotInFlight) return;
+  snapshotInFlight = true;
   try {
     const items = await getVestedContracts();
     await storeSnapshot(items);
   } catch (error) {
     console.error('[indexer] snapshot error', error?.message || error);
+  } finally {
+    snapshotInFlight = false;
   }
 };
 
 app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
   const normalizeChain = (value) => String(value || '').trim().toLowerCase();
   const normalizeWallet = (value) => String(value || '').trim();
-  const filterItems = (items) => {
-    const chainFilter = normalizeChain(req.query?.chain);
-    const walletFilter = normalizeWallet(req.query?.wallet);
-    if (!chainFilter && !walletFilter) return items;
-    return (items || []).filter((item) => {
+  const privacyRequested = String(req.query?.privacy || '') === '1';
+
+  const chainFilter = normalizeChain(req.query?.chain);
+  const walletFilterRaw = normalizeWallet(req.query?.wallet);
+
+  const sessionWallets = {
+    evm: new Set(),
+    solana: new Set()
+  };
+  if (req.user) {
+    const primaryEvm = normalizeWalletAddress(req.user?.walletAddress || '');
+    const primarySol = normalizeSolanaAddress(req.user?.walletAddress || '');
+    if (primaryEvm) sessionWallets.evm.add(primaryEvm.toLowerCase());
+    if (primarySol) sessionWallets.solana.add(primarySol.toLowerCase());
+
+    const linkedWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
+    for (const link of linkedWallets) {
+      const chainType = String(link?.chainType || '').toLowerCase();
+      const addressRaw = String(link?.walletAddress || '').trim();
+      if (chainType === 'solana') {
+        const sol = normalizeSolanaAddress(addressRaw);
+        if (sol) sessionWallets.solana.add(sol.toLowerCase());
+      } else {
+        const evm = normalizeWalletAddress(addressRaw);
+        if (evm) sessionWallets.evm.add(evm.toLowerCase());
+      }
+    }
+  }
+
+  const filterItems = async (items) => {
+    const list = Array.isArray(items) ? items : [];
+    if (!privacyRequested && !chainFilter && !walletFilterRaw) return list;
+
+    if (privacyRequested && !req.user) {
+      // `attachSession` is optional; we require it when privacy=1.
+      throw Object.assign(new Error('Session required'), { statusCode: 401 });
+    }
+
+    // If a wallet filter is provided in privacy mode, only allow filtering for wallets
+    // actually linked to the requesting session (prevents easy enumeration).
+    if (privacyRequested && walletFilterRaw) {
+      const asEvm = normalizeWalletAddress(walletFilterRaw);
+      const asSol = normalizeSolanaAddress(walletFilterRaw);
+      const evmOk = asEvm ? sessionWallets.evm.has(asEvm.toLowerCase()) : false;
+      const solOk = asSol ? sessionWallets.solana.has(asSol.toLowerCase()) : false;
+      if (!evmOk && !solOk) {
+        throw Object.assign(new Error('Wallet mismatch'), { statusCode: 403 });
+      }
+    }
+
+    let privacyVaultAddress = '';
+    if (privacyRequested) {
+      try {
+        const vault = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
+        privacyVaultAddress = (vault?.vaultAddress || '').toLowerCase();
+      } catch (_) {
+        privacyVaultAddress = '';
+      }
+    }
+
+    return list.filter((item) => {
       if (chainFilter && normalizeChain(item?.chain) !== chainFilter) {
         return false;
       }
-      if (!walletFilter) return true;
-      const borrower = normalizeWallet(item?.borrower);
+
+      if (!privacyRequested) {
+        // Public filtering behavior.
+        if (!walletFilterRaw) return true;
+        const borrower = normalizeWallet(item?.borrower);
+        if (!borrower) return false;
+        if (borrower === walletFilterRaw) return true;
+        return borrower.toLowerCase() === walletFilterRaw.toLowerCase();
+      }
+
+      // Privacy mode: only return positions linked to this session (EVM wallets + vault).
+      const chain = normalizeChain(item?.chain) || 'evm';
+      if (chain === 'solana') {
+        const borrower = normalizeWallet(item?.borrower).toLowerCase();
+        if (!borrower) return false;
+        if (!sessionWallets.solana.has(borrower)) return false;
+        if (!walletFilterRaw) return true;
+        return borrower === walletFilterRaw.toLowerCase();
+      }
+
+      const mode = String(item?.mode || '').toLowerCase();
+      if (mode === 'private') {
+        const vault = String(item?.vault || '').toLowerCase();
+        if (!privacyVaultAddress || !vault) return false;
+        if (vault !== privacyVaultAddress) return false;
+        if (!walletFilterRaw) return true;
+        // If wallet filter exists, accept either the vault address or any linked EVM wallet.
+        const wf = walletFilterRaw.toLowerCase();
+        return wf === privacyVaultAddress || sessionWallets.evm.has(wf);
+      }
+
+      const borrower = normalizeWallet(item?.borrower).toLowerCase();
       if (!borrower) return false;
-      if (borrower === walletFilter) return true;
-      return borrower.toLowerCase() === walletFilter.toLowerCase();
+      if (!sessionWallets.evm.has(borrower)) return false;
+      if (!walletFilterRaw) return true;
+      return borrower === walletFilterRaw.toLowerCase();
     });
   };
   const now = Date.now();
   if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
-    const filteredItems = filterItems(cachedVestedContracts);
+    try {
+      const filteredItems = await filterItems(cachedVestedContracts);
+      const redacted = privacyRequested
+        ? filteredItems.map((item) => {
+            const { borrower, vault, ...rest } = item || {};
+            return {
+              ...rest,
+              // Also remove wallet evidence link which can deanonymize in UI copies.
+              evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+            };
+          })
+        : filteredItems;
     res.json({
       ok: true,
-      items: sanitizeForJson(filteredItems),
+      items: sanitizeForJson(redacted),
       cached: true,
       cachedAt: cachedVestedContractsAt
     });
     return;
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ ok: false, error: error?.message || 'error', items: [] });
+    }
   }
   try {
     if (!vestedContractsInFlight) {
@@ -3039,24 +4767,46 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const items = await vestedContractsInFlight;
     cachedVestedContracts = items;
     cachedVestedContractsAt = Date.now();
-    const filteredItems = filterItems(items);
+    const filteredItems = await filterItems(items);
+    const redacted = privacyRequested
+      ? filteredItems.map((item) => {
+          const { borrower, vault, ...rest } = item || {};
+          return {
+            ...rest,
+            evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+          };
+        })
+      : filteredItems;
     res.json({
       ok: true,
-      items: sanitizeForJson(filteredItems),
+      items: sanitizeForJson(redacted),
       cached: false,
       cachedAt: cachedVestedContractsAt
     });
   } catch (error) {
     if (cachedVestedContracts.length) {
-      const filteredItems = filterItems(cachedVestedContracts);
+      try {
+        const filteredItems = await filterItems(cachedVestedContracts);
+        const redacted = privacyRequested
+          ? filteredItems.map((item) => {
+              const { borrower, vault, ...rest } = item || {};
+              return {
+                ...rest,
+                evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+              };
+            })
+          : filteredItems;
       res.json({
         ok: true,
-        items: sanitizeForJson(filteredItems),
+        items: sanitizeForJson(redacted),
         cached: true,
         cachedAt: cachedVestedContractsAt,
         error: error?.message || 'error'
       });
       return;
+      } catch (inner) {
+        return res.status(inner.statusCode || 500).json({ ok: false, error: inner?.message || 'error', items: [] });
+      }
     }
     res.status(200).json({
       ok: false,
@@ -3134,17 +4884,70 @@ app.post('/api/solana/repay-sweep', requireSession, requireAdmin, validateBody(s
   }
 });
 
-app.get('/api/exports/repay-schedule', expensiveLimiter, async (_req, res) => {
+const solanaRepayJobSchema = z.object({
+  owner: z.string().trim().min(3),
+  maxUsdc: z.string().trim().optional().nullable()
+});
+
+app.post(
+  '/api/solana/repay-jobs/enqueue',
+  requireSession,
+  requireAdmin,
+  validateBody(solanaRepayJobSchema),
+  async (req, res) => {
+    try {
+      const ownerRaw = String(req.body.owner || '').trim();
+      // Validate early so the worker doesn't repeatedly fail.
+      const owner = new PublicKey(ownerRaw).toString();
+      const maxUsdc = req.body.maxUsdc ? String(req.body.maxUsdc).trim() : null;
+      const job = await persistence.createRepayJob({
+        chainType: 'solana',
+        ownerWallet: owner,
+        maxUsdc
+      });
+      res.json({ ok: true, job });
+    } catch (error) {
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'enqueue repay job error'
+      });
+    }
+  }
+);
+
+app.get('/api/exports/repay-schedule', expensiveLimiter, requireSession, async (_req, res) => {
+  const exportsAdminOnly = process.env.EXPORTS_ADMIN_ONLY === 'true';
+  const ipAllowlist = String(process.env.EXPORTS_IP_ALLOWLIST || '')
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean);
+  if (ipAllowlist.length) {
+    const ip = getClientIp(_req) || '';
+    if (!ipAllowlist.includes(ip)) {
+      return res.status(403).json({ ok: false, error: 'Export blocked by IP allowlist' });
+    }
+  }
+  if (exportsAdminOnly) {
+    const isAdmin =
+      String(_req.user?.role || '').toLowerCase() === 'admin' ||
+      isAdminWallet(_req.user?.walletAddress);
+    if (!isAdmin) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+  }
   try {
     const rowsData = await fetchRepayScheduleRows();
-    const rows = [['Loan ID', 'Principal', 'Interest', 'Unlock', 'Status']];
+    const watermark = `exported_at=${new Date().toISOString()} user=${String(_req.user?.id || '').slice(0, 8)}`;
+    const rows = [['Loan ID', 'Mode', 'Principal', 'Interest', 'Unlock', 'Status', 'Watermark']];
     for (const loan of rowsData) {
       rows.push([
         loan.loanId,
+        loan.mode || '',
         loan.principal,
         loan.interest,
         loan.unlockTime ? new Date(Number(loan.unlockTime) * 1000).toISOString() : '',
-        loan.status
+        loan.status,
+        watermark
       ]);
     }
     const csv = rows.map((row) => row.join(',')).join('\n');
@@ -3155,16 +4958,17 @@ app.get('/api/exports/repay-schedule', expensiveLimiter, async (_req, res) => {
     );
     res.send(csv);
   } catch (error) {
+    const watermark = `exported_at=${new Date().toISOString()} user=${String(_req.user?.id || '').slice(0, 8)}`;
     const rows = [
-      ['Loan ID', 'Principal', 'Interest', 'Unlock', 'Status'],
+      ['Loan ID', 'Mode', 'Principal', 'Interest', 'Unlock', 'Status', 'Watermark'],
       ...cachedRepaySchedule.map((loan) => [
         loan.loanId,
+        loan.mode || '',
         loan.principal,
         loan.interest,
-        loan.unlockTime
-          ? new Date(loan.unlockTime * 1000).toISOString()
-          : '',
-        loan.status
+        loan.unlockTime ? new Date(loan.unlockTime * 1000).toISOString() : '',
+        loan.status,
+        watermark
       ])
     ];
     const csv = rows.map((row) => row.join(',')).join('\n');
@@ -3176,6 +4980,286 @@ app.get('/api/exports/repay-schedule', expensiveLimiter, async (_req, res) => {
     res.send(csv);
   }
 });
+
+const runSolanaRepayJobsTick = async () => {
+  if (solanaRepayJobsInFlight) return;
+  if (!SOLANA_REPAY_JOBS_ENABLED) return;
+  if (process.env.SOLANA_REPAY_ENABLED !== 'true') return;
+  solanaRepayJobsInFlight = true;
+  try {
+    const pending = await persistence.listPendingRepayJobs({
+      chainType: 'solana',
+      limit: SOLANA_REPAY_JOBS_MAX_PER_TICK
+    });
+    for (const job of pending) {
+      try {
+        await persistence.updateRepayJob({ id: job.id, status: 'running', lastError: null });
+        const result = await executeRepaySweep({
+          owner: job.ownerWallet,
+          maxUsdc: job.maxUsdc || null
+        });
+        if (!result?.ok) {
+          await persistence.updateRepayJob({
+            id: job.id,
+            status: 'failed',
+            lastError: result?.error || 'sweep failed'
+          });
+          continue;
+        }
+        await persistence.updateRepayJob({ id: job.id, status: 'completed', lastError: null });
+      } catch (error) {
+        await persistence.updateRepayJob({
+          id: job.id,
+          status: 'failed',
+          lastError: error?.message || String(error)
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[solana-repay-jobs] tick failed', error?.message || error);
+  } finally {
+    solanaRepayJobsInFlight = false;
+  }
+};
+
+const getKeeperCandidates = async ({ loanCount }) => {
+  const total = Number(loanCount || 0);
+  if (!Number.isFinite(total) || total <= 0) return [];
+  const candidates = new Set();
+
+  // 1) Always scan the most recent N loans.
+  if (EVM_KEEPER_RECENT_SCAN > 0) {
+    const start = Math.max(0, total - EVM_KEEPER_RECENT_SCAN);
+    for (let i = start; i < total; i++) candidates.add(i);
+  }
+
+  // 2) Also scan a rotating window so older loans don't get starved.
+  if (EVM_KEEPER_ROTATING_SCAN > 0) {
+    const cursorRaw = await persistence.getMeta('evmKeeperCursor');
+    let cursor = cursorRaw === null ? 0 : Number(cursorRaw);
+    if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
+    if (cursor >= total) cursor = 0;
+    const end = Math.min(total, cursor + EVM_KEEPER_ROTATING_SCAN);
+    for (let i = cursor; i < end; i++) candidates.add(i);
+    const nextCursor = end >= total ? 0 : end;
+    await persistence.setMeta('evmKeeperCursor', String(nextCursor));
+  }
+
+  return Array.from(candidates.values()).sort((a, b) => a - b);
+};
+
+const runEvmSettlementKeeperTick = async () => {
+  if (evmKeeperInFlight) return;
+  if (!EVM_KEEPER_ENABLED) return;
+  if (!EVM_KEEPER_PRIVATE_KEY) {
+    // Don't spam logs; this is a configuration error.
+    if (!runEvmSettlementKeeperTick._warned) {
+      runEvmSettlementKeeperTick._warned = true;
+      console.warn('[evm-keeper] enabled but missing EVM_KEEPER_PRIVATE_KEY');
+    }
+    return;
+  }
+  evmKeeperInFlight = true;
+  try {
+    const signer = new ethers.Wallet(EVM_KEEPER_PRIVATE_KEY, provider);
+    const loanManagerWrite = new ethers.Contract(
+      loanManager.address,
+      loanManagerDeployment.abi,
+      signer
+    );
+
+    const loanCount = await loanManagerWrite.loanCount();
+    const candidates = await getKeeperCandidates({ loanCount });
+    if (!candidates.length) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    let txSent = 0;
+
+    for (const id of candidates) {
+      if (txSent >= EVM_KEEPER_MAX_TX_PER_TICK) break;
+
+      let loan;
+      try {
+        loan = await loanManagerWrite.loans(id);
+      } catch {
+        continue;
+      }
+      const active = Boolean(loan?.active);
+      const unlockTime = Number(loan?.unlockTime || 0);
+      if (!active) continue;
+      if (!unlockTime || unlockTime > now) continue;
+
+      try {
+        // `settleAtUnlock` is permissionless; keeper makes it automatic.
+        const tx = await loanManagerWrite.settleAtUnlock(id);
+        txSent += 1;
+        await tx.wait(1);
+        console.log(`[evm-keeper] settled loan ${id} tx=${tx.hash}`);
+      } catch (error) {
+        const msg = error?.shortMessage || error?.reason || error?.message || String(error);
+        // Common revert reasons are fine (race conditions with another settler).
+        if (msg.includes('inactive') || msg.includes('not unlocked') || msg.includes('paused')) {
+          continue;
+        }
+        console.warn(`[evm-keeper] settle failed loan ${id}:`, msg);
+      }
+    }
+  } catch (error) {
+    console.error('[evm-keeper] tick failed', error?.message || error);
+  } finally {
+    evmKeeperInFlight = false;
+  }
+};
+
+const erc20ReadAbi = [
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function decimals() view returns (uint8)'
+];
+
+const runEvmRepayKeeperTick = async () => {
+  if (evmRepayKeeperInFlight) return;
+  if (!EVM_REPAY_KEEPER_ENABLED) return;
+  if (!EVM_KEEPER_PRIVATE_KEY) {
+    if (!runEvmRepayKeeperTick._warned) {
+      runEvmRepayKeeperTick._warned = true;
+      console.warn('[evm-repay-keeper] enabled but missing EVM_KEEPER_PRIVATE_KEY');
+    }
+    return;
+  }
+  evmRepayKeeperInFlight = true;
+  try {
+    const signer = new ethers.Wallet(EVM_KEEPER_PRIVATE_KEY, provider);
+    const loanManagerWrite = new ethers.Contract(
+      loanManager.address,
+      loanManagerDeployment.abi,
+      signer
+    );
+    const usdcAddress = String(await loanManagerWrite.usdc()).toLowerCase();
+
+    const loanCount = await loanManagerWrite.loanCount();
+    const candidates = await getKeeperCandidates({ loanCount });
+    if (!candidates.length) return;
+
+    const repayTokens = await loanManagerWrite.getRepayTokenPriority();
+    const tokenList = Array.isArray(repayTokens) ? repayTokens : [];
+    if (!tokenList.length) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    let txSent = 0;
+
+    for (const id of candidates) {
+      if (txSent >= EVM_REPAY_KEEPER_MAX_TX_PER_TICK) break;
+
+      let loan;
+      try {
+        loan = await loanManagerWrite.loans(id);
+      } catch {
+        continue;
+      }
+
+      const active = Boolean(loan?.active);
+      const borrower = loan?.borrower;
+      const unlockTime = Number(loan?.unlockTime || 0);
+      if (!active || !borrower) continue;
+      if (!unlockTime) continue;
+      if (unlockTime > now + EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS) continue;
+
+      let optedIn = false;
+      try {
+        optedIn = await loanManagerWrite.autoRepayOptIn(borrower);
+      } catch {
+        optedIn = false;
+      }
+      if (!optedIn) continue;
+
+      let remainingDebt = 0n;
+      try {
+        remainingDebt = await loanManagerWrite.getRemainingDebt(id);
+      } catch {
+        remainingDebt = 0n;
+      }
+      if (remainingDebt <= 0n) continue;
+
+      const tokens = [];
+      const amounts = [];
+      const minOuts = [];
+
+      for (const token of tokenList.slice(0, EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN)) {
+        if (remainingDebt <= 0n) break;
+        if (!token || token === ethers.ZeroAddress) continue;
+
+        const tokenContract = new ethers.Contract(token, erc20ReadAbi, provider);
+        let balance = 0n;
+        let allowance = 0n;
+        try {
+          balance = await tokenContract.balanceOf(borrower);
+          allowance = await tokenContract.allowance(borrower, loanManager.address);
+        } catch {
+          continue;
+        }
+        const spendable = balance < allowance ? balance : allowance;
+        if (spendable <= 0n) continue;
+
+        let amountIn = spendable;
+        if (String(token).toLowerCase() === usdcAddress) {
+          amountIn = spendable > remainingDebt ? remainingDebt : spendable;
+        } else {
+          // Use an oracle-based estimate to avoid seizing more value than needed.
+          // This is best-effort; contract-side refund prevents USDC over-application,
+          // but we still prefer not to swap excess token value.
+          try {
+            const minOut = await loanManagerWrite.quoteMinUsdcOut(token, spendable);
+            // If swapping entire balance would exceed remaining debt, scale down proportionally.
+            if (minOut > remainingDebt && minOut > 0n) {
+              amountIn = (spendable * remainingDebt) / minOut;
+              // Add small buffer for rounding.
+              amountIn = (amountIn * 10200n) / 10000n;
+              if (amountIn > spendable) amountIn = spendable;
+              if (amountIn <= 0n) continue;
+            }
+          } catch {
+            // If we can't quote, skip token (safer than swapping blind).
+            continue;
+          }
+        }
+
+        let minOut;
+        try {
+          minOut = await loanManagerWrite.quoteMinUsdcOut(token, amountIn);
+        } catch {
+          continue;
+        }
+
+        tokens.push(token);
+        amounts.push(amountIn);
+        minOuts.push(minOut);
+
+        // We don't update remainingDebt precisely here (swap output varies). This is a
+        // single-shot best-effort; subsequent ticks will continue if needed.
+      }
+
+      if (!tokens.length) continue;
+
+      try {
+        const tx = await loanManagerWrite.repayWithSwapBatchFor(id, tokens, amounts, minOuts);
+        txSent += 1;
+        await tx.wait(1);
+        console.log(`[evm-repay-keeper] repay tx loan ${id} tx=${tx.hash}`);
+      } catch (error) {
+        const msg = error?.shortMessage || error?.reason || error?.message || String(error);
+        if (msg.includes('inactive') || msg.includes('paused') || msg.includes('auto repay disabled')) {
+          continue;
+        }
+        console.warn(`[evm-repay-keeper] repay failed loan ${id}:`, msg);
+      }
+    }
+  } catch (error) {
+    console.error('[evm-repay-keeper] tick failed', error?.message || error);
+  } finally {
+    evmRepayKeeperInFlight = false;
+  }
+};
 
 const start = async () => {
   try {
@@ -3190,6 +5274,19 @@ const start = async () => {
 
   app.listen(port, () => {
     console.log(`Vestra backend running on http://localhost:${port}`);
+    // Privacy hardening: periodically purge sensitive data (SQLite mode).
+    try {
+      persistence.purgeSensitiveData?.().catch?.(() => {});
+      const intervalMs = Math.max(
+        60_000,
+        Number(process.env.PRIVACY_PURGE_INTERVAL_MS || 60 * 60 * 1000)
+      );
+      setInterval(() => {
+        persistence.purgeSensitiveData?.().catch?.((error) => {
+          console.warn('[privacy] purge failed', error?.message || error);
+        });
+      }, intervalMs);
+    } catch (_) {}
     if (INDEXER_ENABLED) {
       pollEvents().catch((error) =>
         console.error('[indexer] initial poll error', error?.message || error)
@@ -3209,6 +5306,42 @@ const start = async () => {
       }, INDEXER_SNAPSHOT_INTERVAL_MS);
     } else {
       console.log('[indexer] disabled via INDEXER_ENABLED=false');
+    }
+
+    if (EVM_KEEPER_ENABLED) {
+      runEvmSettlementKeeperTick().catch((error) =>
+        console.error('[evm-keeper] initial tick error', error?.message || error)
+      );
+      setInterval(() => {
+        runEvmSettlementKeeperTick().catch((error) =>
+          console.error('[evm-keeper] tick error (interval)', error?.message || error)
+        );
+      }, Math.max(5000, EVM_KEEPER_INTERVAL_MS));
+      console.log('[evm-keeper] enabled');
+    }
+
+    if (SOLANA_REPAY_JOBS_ENABLED) {
+      runSolanaRepayJobsTick().catch((error) =>
+        console.error('[solana-repay-jobs] initial tick error', error?.message || error)
+      );
+      setInterval(() => {
+        runSolanaRepayJobsTick().catch((error) =>
+          console.error('[solana-repay-jobs] tick error (interval)', error?.message || error)
+        );
+      }, Math.max(5000, SOLANA_REPAY_JOBS_INTERVAL_MS));
+      console.log('[solana-repay-jobs] enabled');
+    }
+
+    if (EVM_REPAY_KEEPER_ENABLED) {
+      runEvmRepayKeeperTick().catch((error) =>
+        console.error('[evm-repay-keeper] initial tick error', error?.message || error)
+      );
+      setInterval(() => {
+        runEvmRepayKeeperTick().catch((error) =>
+          console.error('[evm-repay-keeper] tick error (interval)', error?.message || error)
+        );
+      }, Math.max(5000, EVM_REPAY_KEEPER_INTERVAL_MS));
+      console.log('[evm-repay-keeper] enabled');
     }
   });
 };

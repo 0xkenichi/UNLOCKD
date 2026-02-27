@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   useAccount,
   useChainId,
+  usePublicClient,
   useReadContract,
   useReadContracts,
   useSimulateContract,
+  useSignTypedData,
   useWaitForTransactionReceipt,
   useWriteContract
 } from 'wagmi';
 import {
   erc20Abi,
   getContractAddress,
+  lendingPoolAbi,
   loanManagerAbi,
   sablierV2LockupAbi,
   vestingAdapterAbi,
@@ -18,10 +21,12 @@ import {
 } from '../../utils/contracts.js';
 import { getEvmChainById } from '../../utils/chains.js';
 import { toUnits } from '../../utils/format.js';
-import { fetchVestedContracts } from '../../utils/api.js';
+import { acceptMatchOffer, apiGet, apiPost, fetchVestedContracts } from '../../utils/api.js';
+import { makeRelayerAuth } from '../../utils/privacy.js';
 import TxStatusBanner from '../common/TxStatusBanner.jsx';
 import { trackEvent } from '../../utils/analytics.js';
 import { FEATURE_SABLIER_IMPORT } from '../../utils/featureFlags.js';
+import loanTermsDoc from '../../../../docs/LOAN_TERMS_AND_RISK_DISCLOSURE_OUTLINE.md?raw';
 
 const USDC_DECIMALS = 6;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -46,28 +51,58 @@ const clampPercent = (value) => {
 };
 
 export default function BorrowActions({
+  privacyMode = false,
+  prefill,
   onDetails,
   maxBorrowUsd,
   fundingStatus,
-  offerBorrowUsd
+  offerBorrowUsd,
+  ltvBps,
+  selectedOffer,
+  matchOffers = [],
+  matchLoading = false,
+  matchError = '',
+  onSelectOffer,
+  onBorrowAmountUsdChange,
+  matchContext
 }) {
   const { address } = useAccount();
   const chainId = useChainId();
+  const publicClient = usePublicClient();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const vestingAdapter = getContractAddress(chainId, 'vestingAdapter');
+  const lendingPool = getContractAddress(chainId, 'lendingPool');
   const nativeSymbol = getEvmChainById(chainId)?.nativeCurrency?.symbol;
 
-  const [collateralId, setCollateralId] = useState(makeCollateralId);
-  const [vestingContract, setVestingContract] = useState('');
+  const [collateralId, setCollateralId] = useState(() => {
+    const raw = prefill?.collateralId;
+    const normalized = raw != null ? String(raw).trim() : '';
+    return normalized || makeCollateralId();
+  });
+  const [vestingContract, setVestingContract] = useState(() => {
+    const raw = prefill?.vestingContract;
+    return raw != null ? String(raw).trim() : '';
+  });
   const [importProtocol, setImportProtocol] = useState('manual');
   const [sablierLockup, setSablierLockup] = useState('');
   const [sablierStreamId, setSablierStreamId] = useState('');
   const [sablierWrapperAddress, setSablierWrapperAddress] = useState('');
-  const [borrowAmount, setBorrowAmount] = useState('200');
+  const [borrowAmount, setBorrowAmount] = useState(() => {
+    const raw = Number(prefill?.desiredAmountUsd ?? prefill?.borrowAmountUsd ?? 0);
+    if (Number.isFinite(raw) && raw > 0) return String(raw);
+    return '200';
+  });
   const [borrowAgainstPct, setBorrowAgainstPct] = useState(100);
   const [autoBorrow, setAutoBorrow] = useState(true);
   const [autoRepay, setAutoRepay] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
+  const [matchAcceptWarning, setMatchAcceptWarning] = useState('');
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsViewed, setTermsViewed] = useState(false);
+  const [termsScrolledToEnd, setTermsScrolledToEnd] = useState(false);
+  const [autoFlowStatus, setAutoFlowStatus] = useState('');
+  const termsScrollRef = useRef(null);
   const [detectedPositions, setDetectedPositions] = useState([]);
   const [selectedDetected, setSelectedDetected] = useState('');
 
@@ -77,10 +112,25 @@ export default function BorrowActions({
       : vestingContract;
   const vestingContractValid = isAddress(effectiveVestingContract);
 
+  const syncDesiredBorrowUsd = (nextBorrowAmount) => {
+    if (!onBorrowAmountUsdChange) return;
+    const next = Number(nextBorrowAmount);
+    if (Number.isFinite(next) && next > 0) {
+      onBorrowAmountUsdChange(next);
+    } else {
+      onBorrowAmountUsdChange(null);
+    }
+  };
+
   const borrowUnits = useMemo(
     () => toUnits(borrowAmount, USDC_DECIMALS),
     [borrowAmount]
   );
+
+  useEffect(() => {
+    syncDesiredBorrowUsd(borrowAmount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [borrowAmount]);
 
   const {
     data: vestingDetails,
@@ -194,7 +244,11 @@ export default function BorrowActions({
     let active = true;
     const loadDetectedPositions = async () => {
       try {
-        const items = await fetchVestedContracts();
+        const items = await fetchVestedContracts({
+          // In private mode, rely on session-scoped filtering to avoid leaking wallet filters.
+          walletAddress: privacyMode ? undefined : address || undefined,
+          privacyMode
+        });
         if (!active) return;
         const normalizedAddress = (address || '').toLowerCase();
         const filtered = (items || []).filter((item) => {
@@ -202,7 +256,10 @@ export default function BorrowActions({
           if (!item.collateralId || !item.vestingContract) return false;
           if (item.active === false) return false;
           if (!normalizedAddress) return true;
-          return String(item.borrower || '').toLowerCase() === normalizedAddress;
+          // When privacyMode is enabled, backend may omit borrower/recipient fields.
+          const borrower = String(item.borrower || '').toLowerCase();
+          if (!borrower && privacyMode) return true;
+          return borrower === normalizedAddress;
         });
         setDetectedPositions(filtered);
       } catch {
@@ -214,7 +271,7 @@ export default function BorrowActions({
     return () => {
       active = false;
     };
-  }, [address]);
+  }, [address, privacyMode]);
 
   useEffect(() => {
     if (!onDetails) return;
@@ -279,9 +336,12 @@ export default function BorrowActions({
   const {
     data: borrowHash,
     writeContract: writeBorrow,
+    writeContractAsync: writeBorrowAsync,
     isPending: isBorrowPending,
     error: borrowError
   } = useWriteContract();
+
+  const { signTypedDataAsync } = useSignTypedData();
 
   const {
     isLoading: isBorrowMining,
@@ -294,6 +354,9 @@ export default function BorrowActions({
   const fundingReady = fundingStatus?.ready ?? true;
   const collateralIdValid = Boolean(collateralId) && Number(collateralId) > 0;
   const borrowValid = Boolean(borrowUnits) && borrowUnits > 0n;
+  const termsGateReady = termsViewed && termsScrolledToEnd && agreeTerms;
+  const offerGateOk =
+    !matchOffers?.length || (selectedOffer && selectedOffer.canAccess !== false);
   const canBorrow =
     Boolean(loanManager) &&
     hasWallet &&
@@ -303,7 +366,146 @@ export default function BorrowActions({
     pledgedCollateralUnits > 0n &&
     hasPreview &&
     fundingReady &&
-    agreeTerms;
+    termsGateReady &&
+    offerGateOk;
+
+  const MAX_UINT256 = (1n << 256n) - 1n;
+  const erc20ApprovalAbi = useMemo(
+    () => [
+      {
+        name: 'approve',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' }
+        ],
+        outputs: [{ name: '', type: 'bool' }]
+      },
+      {
+        name: 'allowance',
+        type: 'function',
+        stateMutability: 'view',
+        inputs: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' }
+        ],
+        outputs: [{ name: '', type: 'uint256' }]
+      }
+    ],
+    []
+  );
+
+  const { data: poolRateBps } = useReadContract({
+    address: lendingPool || undefined,
+    abi: lendingPoolAbi,
+    functionName: 'getInterestRateBps',
+    query: { enabled: Boolean(lendingPool) }
+  });
+  const { data: originationFeeBps } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'originationFeeBps',
+    query: { enabled: Boolean(loanManager) }
+  });
+  const { data: autoRepayBoostBps } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'autoRepayLtvBoostBps',
+    query: { enabled: Boolean(loanManager) }
+  });
+  const { data: autoRepayDiscountBps } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'autoRepayInterestDiscountBps',
+    query: { enabled: Boolean(loanManager) }
+  });
+  const { data: autoRepayRequiredTokens } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'getAutoRepayRequiredTokens',
+    query: { enabled: Boolean(loanManager) }
+  });
+  const { data: autoRepayOptInOnchain } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'autoRepayOptIn',
+    args: address ? [address] : undefined,
+    query: { enabled: Boolean(loanManager && address) }
+  });
+  const { data: hasAutoRepayPermissions } = useReadContract({
+    address: loanManager || undefined,
+    abi: loanManagerAbi,
+    functionName: 'hasAutoRepayPermissions',
+    args: address ? [address] : undefined,
+    query: { enabled: Boolean(loanManager && address) }
+  });
+
+  const requiredTokens = Array.isArray(autoRepayRequiredTokens)
+    ? autoRepayRequiredTokens.filter(Boolean)
+    : [];
+
+  const requiredAllowances = useReadContracts({
+    contracts:
+      address && loanManager && requiredTokens.length
+        ? requiredTokens.map((token) => ({
+            address: token,
+            abi: erc20ApprovalAbi,
+            functionName: 'allowance',
+            args: [address, loanManager]
+          }))
+        : [],
+    query: { enabled: Boolean(address && loanManager && requiredTokens.length) }
+  });
+
+  const requiredSymbols = useReadContracts({
+    contracts:
+      requiredTokens.length
+        ? requiredTokens.map((token) => ({
+            address: token,
+            abi: erc20Abi,
+            functionName: 'symbol'
+          }))
+        : [],
+    query: { enabled: Boolean(requiredTokens.length) }
+  });
+
+  const tokenApprovalRows = useMemo(() => {
+    return requiredTokens.map((token, idx) => {
+      const allowanceRow = requiredAllowances.data?.[idx];
+      const allowance =
+        allowanceRow?.status === 'success' ? allowanceRow.result : 0n;
+      const symbolRow = requiredSymbols.data?.[idx];
+      const symbol =
+        symbolRow?.status === 'success' ? symbolRow.result : token?.slice(0, 6);
+      return {
+        token,
+        symbol,
+        allowance,
+        ok: allowance > 0n
+      };
+    });
+  }, [requiredTokens, requiredAllowances.data, requiredSymbols.data]);
+
+  const permissionsComplete =
+    requiredTokens.length === 0 ? true : tokenApprovalRows.every((row) => row.ok);
+
+  const ltvBase = typeof ltvBps === 'bigint' ? ltvBps : BigInt(ltvBps || 0);
+  const boost = typeof autoRepayBoostBps === 'bigint' ? autoRepayBoostBps : BigInt(autoRepayBoostBps || 0);
+  const discount = typeof autoRepayDiscountBps === 'bigint' ? autoRepayDiscountBps : BigInt(autoRepayDiscountBps || 0);
+  const baseRate = typeof poolRateBps === 'bigint' ? poolRateBps : BigInt(poolRateBps || 0);
+  const origFee = typeof originationFeeBps === 'bigint' ? originationFeeBps : BigInt(originationFeeBps || 0);
+
+  const ltvWithPerm = ltvBase > 0n ? (ltvBase + boost > 10000n ? 10000n : ltvBase + boost) : 0n;
+  const maxBorrowWithPerm =
+    ltvBase > 0n && Number(maxBorrowUsd || 0) > 0
+      ? Number(maxBorrowUsd) * Number(ltvWithPerm) / Number(ltvBase)
+      : Number(maxBorrowUsd || 0);
+
+  const discountedRate = baseRate > discount ? baseRate - discount : 0n;
+  const borrowUsdNum = Number(borrowAmount || 0);
+  const feeStandard = borrowUsdNum * Number(baseRate + origFee) / 10000;
+  const feeWithPerm = borrowUsdNum * Number(discountedRate + origFee) / 10000;
 
   const borrowDisabledReason = (() => {
     if (!hasWallet) return 'Connect a wallet to create a loan.';
@@ -320,7 +522,13 @@ export default function BorrowActions({
     if (!borrowValid) return 'Enter a borrow amount.';
     if (pledgedCollateralUnits <= 0n) return 'Choose collateral amount to pledge.';
     if (!fundingReady) return fundingStatus?.reason || 'Fund your wallet first.';
+    if (!termsViewed) return 'Open the full loan agreement to continue.';
+    if (!termsScrolledToEnd) return 'Scroll to the end of the loan agreement to continue.';
     if (!agreeTerms) return 'Accept the loan agreement to continue.';
+    if (matchOffers?.length && !selectedOffer) return 'Select a pool offer to continue.';
+    if (selectedOffer && selectedOffer.canAccess === false) {
+      return 'Selected offer is peek-only for your wallet. Choose an accessible pool.';
+    }
     return '';
   })();
 
@@ -346,14 +554,155 @@ export default function BorrowActions({
     }
   }, [borrowConfirmed, chainId]);
 
-  const handleBorrow = () => {
+  const {
+    data: approvalHash,
+    writeContract: writeApproval,
+    writeContractAsync: writeApprovalAsync,
+    isPending: isApprovalPending,
+    error: approvalError
+  } = useWriteContract();
+  const {
+    data: optInHash,
+    writeContract: writeOptIn,
+    writeContractAsync: writeOptInAsync,
+    isPending: isOptInPending,
+    error: optInError
+  } = useWriteContract();
+
+  const approveToken = (token) => {
+    if (!token || !loanManager) return;
+    setPermissionError('');
+    writeApproval({
+      address: token,
+      abi: erc20ApprovalAbi,
+      functionName: 'approve',
+      args: [loanManager, MAX_UINT256]
+    });
+  };
+
+  const setOptIn = (enabled) => {
+    if (!loanManager) return;
+    setPermissionError('');
+    writeOptIn({
+      address: loanManager,
+      abi: loanManagerAbi,
+      functionName: 'setAutoRepayOptIn',
+      args: [Boolean(enabled)]
+    });
+  };
+
+  const openTermsModal = () => {
+    setShowTerms(true);
+    setTermsViewed(true);
+    setTermsScrolledToEnd(false);
+    setTimeout(() => {
+      if (termsScrollRef.current) {
+        termsScrollRef.current.scrollTop = 0;
+      }
+    }, 0);
+  };
+
+  const handleTermsScroll = () => {
+    const el = termsScrollRef.current;
+    if (!el) return;
+    const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    if (atEnd) setTermsScrolledToEnd(true);
+  };
+
+  const waitForTxReceipt = async (hash) => {
+    if (!hash || !publicClient) return null;
+    return publicClient.waitForTransactionReceipt({ hash });
+  };
+
+  const handleCreateLoanStandard = async () => {
     if (!canBorrow) return;
+    setPermissionError('');
+    setMatchAcceptWarning('');
+    setAutoFlowStatus('');
     trackEvent('borrow_start', {
       collateralId,
       vestingContract: effectiveVestingContract,
       borrowAmountUsdc: borrowAmount,
-      utilizationPct: borrowAgainstPct
+      utilizationPct: borrowAgainstPct,
+      mode: 'standard'
     });
+    // Best-effort: persist offchain match metadata before onchain tx.
+    if (
+      selectedOffer?.offerId &&
+      selectedOffer?.poolId &&
+      matchContext?.chain &&
+      selectedOffer?.canAccess !== false
+    ) {
+      acceptMatchOffer({
+        offerId: String(selectedOffer.offerId),
+        poolId: String(selectedOffer.poolId),
+        chain: matchContext.chain,
+        borrower: privacyMode ? undefined : address || undefined,
+        collateralId: matchContext.collateralId || collateralId || undefined,
+        desiredAmountUsd: Number(borrowAmount || 0),
+        terms: {
+          interestBps: selectedOffer.interestBps,
+          maxBorrowUsd: selectedOffer.maxBorrowUsd,
+          riskTier: selectedOffer.riskTier,
+          accessType: selectedOffer.accessType,
+          score: selectedOffer.score
+        }
+      }).catch((error) => {
+        // Non-fatal: onchain tx should still proceed.
+        setMatchAcceptWarning(
+          error?.message
+            ? `Could not persist offer selection (continuing onchain): ${error.message}`
+            : 'Could not persist offer selection (continuing onchain).'
+        );
+      });
+    }
+
+    if (privacyMode) {
+      try {
+        setAutoFlowStatus('Submitting private loan via relayer...');
+        if (!signTypedDataAsync || !address) {
+          throw new Error('Wallet signature unavailable for private-mode relayer auth.');
+        }
+        const vaultResp = await apiGet('/api/privacy/evm/vault');
+        const vaultAddress = vaultResp?.vaultAddress || '';
+        if (!vaultAddress) {
+          throw new Error('No private vault registered. Run Privacy Upgrade first.');
+        }
+        const payload = {
+          collateralId: String(collateralId || 0),
+          vestingContract: effectiveVestingContract,
+          borrowAmount: borrowUnits.toString(),
+          collateralAmount: pledgedCollateralUnits.toString()
+        };
+        const auth = makeRelayerAuth({
+          chainId,
+          verifyingContract: loanManager,
+          user: address,
+          vault: vaultAddress,
+          action: 'create-private-loan',
+          payload
+        });
+        const signature = await signTypedDataAsync(auth.typedData);
+        const result = await apiPost('/api/relayer/evm/create-private-loan', {
+          ...payload,
+          signature,
+          nonce: auth.nonce,
+          issuedAt: auth.issuedAt,
+          expiresAt: auth.expiresAt,
+          payloadHash: auth.payloadHash
+        });
+        setAutoFlowStatus(
+          result?.txHash
+            ? `Relayer tx submitted: ${String(result.txHash).slice(0, 10)}…`
+            : 'Relayer tx submitted.'
+        );
+      } catch (error) {
+        setAutoFlowStatus('');
+        setPermissionError(error?.message || 'Private-mode relayer submission failed.');
+      }
+      return;
+    }
+
     writeBorrow({
       address: loanManager,
       abi: loanManagerAbi,
@@ -366,6 +715,110 @@ export default function BorrowActions({
       ],
       gas: 1_000_000n
     });
+  };
+
+  const handleCreateLoanBestTerms = async () => {
+    if (!canBorrow) return;
+    setPermissionError('');
+    setMatchAcceptWarning('');
+    setAutoFlowStatus('Preparing best-terms flow...');
+
+    if (privacyMode) {
+      setPermissionError('Best-terms automation is not yet supported in private mode.');
+      setAutoFlowStatus('');
+      return;
+    }
+
+    if (!autoRepay) {
+      setPermissionError('Enable auto-repay to use best-terms automation.');
+      setAutoFlowStatus('');
+      return;
+    }
+
+    if (!requiredTokens.length) {
+      setPermissionError('No required tokens configured for auto-repay on this network yet.');
+      setAutoFlowStatus('');
+      return;
+    }
+
+    try {
+      // Best-effort: persist offchain match metadata before onchain tx.
+      if (
+        selectedOffer?.offerId &&
+        selectedOffer?.poolId &&
+        matchContext?.chain &&
+        selectedOffer?.canAccess !== false
+      ) {
+        setAutoFlowStatus('Recording selected offer...');
+        await acceptMatchOffer({
+          offerId: String(selectedOffer.offerId),
+          poolId: String(selectedOffer.poolId),
+          chain: matchContext.chain,
+          borrower: privacyMode ? undefined : address || undefined,
+          collateralId: matchContext.collateralId || collateralId || undefined,
+          desiredAmountUsd: Number(borrowAmount || 0),
+          terms: {
+            interestBps: selectedOffer.interestBps,
+            maxBorrowUsd: selectedOffer.maxBorrowUsd,
+            riskTier: selectedOffer.riskTier,
+            accessType: selectedOffer.accessType,
+            score: selectedOffer.score
+          }
+        });
+      }
+
+      // 1) Approve required tokens (only those missing allowance).
+      for (const row of tokenApprovalRows) {
+        if (row.ok) continue;
+        setAutoFlowStatus(`Approving ${row.symbol}...`);
+        const hash = await writeApprovalAsync({
+          address: row.token,
+          abi: erc20ApprovalAbi,
+          functionName: 'approve',
+          args: [loanManager, MAX_UINT256]
+        });
+        await waitForTxReceipt(hash);
+      }
+
+      // 2) Opt-in.
+      if (!autoRepayOptInOnchain) {
+        setAutoFlowStatus('Enabling auto-repay...');
+        const hash = await writeOptInAsync({
+          address: loanManager,
+          abi: loanManagerAbi,
+          functionName: 'setAutoRepayOptIn',
+          args: [true]
+        });
+        await waitForTxReceipt(hash);
+      }
+
+      // 3) Create the loan.
+      setAutoFlowStatus('Creating loan...');
+      trackEvent('borrow_start', {
+        collateralId,
+        vestingContract: effectiveVestingContract,
+        borrowAmountUsdc: borrowAmount,
+        utilizationPct: borrowAgainstPct,
+        mode: 'best_terms'
+      });
+      const hash = await writeBorrowAsync({
+        address: loanManager,
+        abi: loanManagerAbi,
+        functionName: 'createLoanWithCollateralAmount',
+        args: [
+          BigInt(collateralId || 0),
+          effectiveVestingContract,
+          borrowUnits,
+          pledgedCollateralUnits
+        ],
+        gas: 1_000_000n
+      });
+      await waitForTxReceipt(hash);
+      setAutoFlowStatus('Submitted. Waiting for confirmation...');
+    } catch (error) {
+      setAutoFlowStatus('');
+      setPermissionError(error?.shortMessage || error?.message || 'Best-terms flow failed.');
+    }
   };
 
   return (
@@ -409,11 +862,86 @@ export default function BorrowActions({
           <div>{tokenAddressValid ? tokenAddress : '--'}</div>
         </div>
       </div>
+      <div className="section-head" style={{ marginTop: 14 }}>
+        <div>
+          <h3 className="section-title">Pool Offer</h3>
+          <div className="section-subtitle">
+            Choose a lender pool match. Offers are advisory in this MVP; settlement is Base-only.
+          </div>
+        </div>
+        <span className="tag">Matcher</span>
+      </div>
+      {matchError && <div className="error-banner">{matchError}</div>}
+      {matchLoading && <div className="muted">Fetching pool offers…</div>}
+      {!matchLoading && (!matchOffers || matchOffers.length === 0) && (
+        <div className="muted">
+          No offers yet. Lenders create pools on the Lender page.
+        </div>
+      )}
+      {Boolean(matchOffers?.length) && (
+        <div className="form-grid" style={{ marginTop: 10 }}>
+          <label className="form-field">
+            Select offer
+            <select
+              className="form-select"
+              value={selectedOffer?.offerId ? String(selectedOffer.offerId) : ''}
+              onChange={(event) => {
+                const picked = matchOffers.find(
+                  (offer) => String(offer.offerId) === String(event.target.value)
+                );
+                if (picked && onSelectOffer) onSelectOffer(picked);
+              }}
+            >
+              <option value="">Choose a pool offer</option>
+              {matchOffers.map((offer) => {
+                const name = offer.poolName || `${offer.poolId?.slice?.(0, 8) || 'pool'}...`;
+                const accessLabel = offer.canAccess ? (offer.accessType || 'open') : 'peek-only';
+                const maxLabel = Number(offer.maxBorrowUsd || 0).toFixed(0);
+                return (
+                  <option key={offer.offerId} value={String(offer.offerId)}>
+                    {name} · {accessLabel} · max ${maxLabel}
+                  </option>
+                );
+              })}
+            </select>
+            <div className="muted" style={{ marginTop: 6 }}>
+              {selectedOffer
+                ? `Selected: ${selectedOffer.poolName || selectedOffer.poolId?.slice(0, 8)}...`
+                : 'Pick an offer to proceed.'}
+            </div>
+          </label>
+          <div className="form-field">
+            Selected max borrow
+            <div className="form-value">
+              {selectedOffer ? `$${Number(selectedOffer.maxBorrowUsd || 0).toFixed(2)}` : '--'}
+            </div>
+          </div>
+          <div className="form-field">
+            Interest (bps)
+            <div className="form-value">
+              {selectedOffer ? Number(selectedOffer.interestBps || 0) : '--'}
+            </div>
+          </div>
+          <div className="form-field">
+            Risk tier
+            <div className="form-value">
+              {selectedOffer?.riskTier || '--'}
+            </div>
+          </div>
+        </div>
+      )}
       {(borrowError || borrowReceiptError) && (
         <div className="error-banner">
           {borrowReceiptError?.message || borrowError?.message}
         </div>
       )}
+      {(approvalError || optInError) && (
+        <div className="error-banner">
+          {optInError?.message || approvalError?.message}
+        </div>
+      )}
+      {permissionError && <div className="error-banner">{permissionError}</div>}
+      {matchAcceptWarning && <div className="muted">{matchAcceptWarning}</div>}
       {borrowSimError && (
         <div className="muted">
           Simulation: {borrowSimError.shortMessage || borrowSimError.message}
@@ -624,22 +1152,166 @@ export default function BorrowActions({
         </div>
         <span className="tag">Required</span>
       </div>
+      {showTerms && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Loan agreement">
+          <div className="modal holo-card" style={{ maxWidth: 920 }}>
+            <div className="section-head">
+              <div>
+                <h3 className="section-title">Loan Terms and Risk Disclosure</h3>
+                <div className="section-subtitle">Scroll to the end to enable loan creation.</div>
+              </div>
+              <button className="button ghost" type="button" onClick={() => setShowTerms(false)}>
+                Close
+              </button>
+            </div>
+            <div
+              ref={termsScrollRef}
+              onScroll={handleTermsScroll}
+              style={{
+                maxHeight: 360,
+                overflow: 'auto',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 12,
+                padding: 12,
+                background: 'rgba(10,14,20,0.44)'
+              }}
+            >
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{loanTermsDoc}</pre>
+            </div>
+            <div className="inline-actions" style={{ marginTop: 12 }}>
+              <span className={`tag ${termsScrolledToEnd ? 'success' : ''}`}>
+                {termsScrolledToEnd ? 'Scrolled to end' : 'Scroll required'}
+              </span>
+              <button
+                className="button"
+                type="button"
+                onClick={() => setShowTerms(false)}
+                disabled={!termsScrolledToEnd}
+              >
+                I have read this
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="card-list borrow-agreement-list">
         <div className="pill">Debt due at unlock: principal + interest + origination fee.</div>
         <div className="pill">
-          If auto-repay is enabled, wallet balances can be used to repay after maturity.
+          Auto-repay is voluntary. With permissions granted, loan size can be higher and fees can be lower.
         </div>
         <div className="pill">
-          Repayment policy applies across all supported chains; native token varies by chain.
+          MVP support: loans settle on Base. Solana vesting streams can be discovered/scored, but settlement remains Base-only.
         </div>
         <div className="pill">
-          Auto-repay uses on-chain token priority; tokens must be pre-approved.
+          Auto-repay uses a whitelisted token list; required tokens must be approved to enable.
         </div>
         <div className="pill">
           If wallet balance is insufficient, unlocked collateral can be seized and liquidated.
         </div>
       </div>
+
+      <div className="holo-card" style={{ marginTop: 12 }}>
+        <div className="section-head">
+          <div>
+            <h4 className="section-title">Repayment Permissions</h4>
+            <div className="section-subtitle">Optional. Better terms when enabled.</div>
+          </div>
+          <span className={`tag ${permissionsComplete && autoRepayOptInOnchain ? 'success' : ''}`}>
+            {autoRepayOptInOnchain ? (permissionsComplete ? 'Enabled' : 'Enabled (missing approvals)') : 'Not enabled'}
+          </span>
+        </div>
+        <div className="data-table">
+          <div className="table-row header">
+            <div>Mode</div>
+            <div>Max Borrow</div>
+            <div>Estimated Fee</div>
+            <div>Status</div>
+          </div>
+          <div className="table-row">
+            <div>Standard</div>
+            <div>${Number(maxBorrowUsd || 0).toFixed(2)}</div>
+            <div>${Number.isFinite(feeStandard) ? feeStandard.toFixed(2) : '--'}</div>
+            <div><span className="tag">Always</span></div>
+          </div>
+          <div className="table-row">
+            <div>With permissions</div>
+            <div>${Number(maxBorrowWithPerm || 0).toFixed(2)}</div>
+            <div>${Number.isFinite(feeWithPerm) ? feeWithPerm.toFixed(2) : '--'}</div>
+            <div>
+              <span className={`tag ${permissionsComplete && hasAutoRepayPermissions ? 'success' : ''}`}>
+                {permissionsComplete && hasAutoRepayPermissions ? 'Eligible' : 'Optional'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="muted" style={{ marginTop: 10 }}>
+          Required approvals are limited to whitelisted tokens and only used up to what is owed.
+        </div>
+
+        {!requiredTokens.length ? (
+          <div className="muted" style={{ marginTop: 8 }}>
+            No required tokens configured by the pool yet.
+          </div>
+        ) : (
+          <div className="card-list" style={{ marginTop: 10 }}>
+            {tokenApprovalRows.map((row) => (
+              <div key={row.token} className="pill" style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span>
+                  {row.symbol} {row.ok ? 'approved' : 'not approved'}
+                </span>
+                <button
+                  className="button ghost"
+                  type="button"
+                  onClick={() => approveToken(row.token)}
+                  disabled={row.ok || isApprovalPending || !hasWallet}
+                >
+                  {row.ok ? 'Approved' : 'Approve'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="inline-actions" style={{ marginTop: 12 }}>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => setOptIn(true)}
+            disabled={!hasWallet || isOptInPending || !permissionsComplete || Boolean(autoRepayOptInOnchain)}
+          >
+            Enable Auto-Repay
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => setOptIn(false)}
+            disabled={!hasWallet || isOptInPending || !Boolean(autoRepayOptInOnchain)}
+          >
+            Disable Auto-Repay
+          </button>
+        </div>
+        <TxStatusBanner
+          label="Permissions Tx"
+          hash={approvalHash || optInHash}
+          status={isApprovalPending || isOptInPending ? 'Pending' : ''}
+        />
+      </div>
       <div className="form-grid">
+        <div className="form-field">
+          <span className="section-subtitle">Full agreement</span>
+          <div className="inline-actions" style={{ marginTop: 8 }}>
+            <button className="button ghost" type="button" onClick={openTermsModal}>
+              Open loan agreement (required)
+            </button>
+            <span className={`tag ${termsViewed ? 'success' : ''}`}>
+              {termsViewed ? 'Opened' : 'Not opened'}
+            </span>
+            <span className={`tag ${termsScrolledToEnd ? 'success' : ''}`}>
+              {termsScrolledToEnd ? 'Scrolled' : 'Not scrolled'}
+            </span>
+          </div>
+        </div>
         <label className="form-field">
           Auto-repay at unlock (wallet sweep)
           <input
@@ -665,13 +1337,23 @@ export default function BorrowActions({
       <div className="inline-actions borrow-actions-cta">
         <button
           className="button"
-          onClick={handleBorrow}
+          type="button"
+          onClick={handleCreateLoanBestTerms}
           data-guide-id="borrow-create-loan"
           disabled={isBorrowPending || !canBorrow}
         >
-          Create Loan
+          Create Loan (Best Terms)
+        </button>
+        <button
+          className="button ghost"
+          type="button"
+          onClick={handleCreateLoanStandard}
+          disabled={isBorrowPending || !canBorrow}
+        >
+          Create Loan (Standard)
         </button>
       </div>
+      {autoFlowStatus && <div className="muted">{autoFlowStatus}</div>}
     </div>
   );
 }

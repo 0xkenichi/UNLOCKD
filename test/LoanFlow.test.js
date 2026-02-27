@@ -44,11 +44,11 @@ async function deployFixture() {
   return { deployer, lender, borrower, usdc, valuation, pool, loanManager };
 }
 
-async function deployVestingWallet({ borrower, usdc, allocation, duration }) {
+async function deployVestingWallet({ beneficiary, borrower, usdc, allocation, duration }) {
   const now = (await ethers.provider.getBlock("latest")).timestamp;
   const MockVestingWallet = await ethers.getContractFactory("MockVestingWallet");
   const vesting = await MockVestingWallet.deploy(
-    borrower.address,
+    (beneficiary || borrower.address),
     now,
     duration,
     await usdc.getAddress(),
@@ -109,6 +109,82 @@ describe("Full MVP Flow", () => {
 
     const settled = await loanManager.loans(0);
     expect(settled.active).to.equal(false);
+  });
+
+  it("Creates, repays, and settles private-mode loan (vault is onchain actor)", async () => {
+    const { deployer, lender, borrower, usdc, valuation, pool, loanManager } = await deployFixture();
+    const poolAddress = await pool.getAddress();
+    const loanManagerAddress = await loanManager.getAddress();
+
+    // Lender deposits USDC
+    await usdc.connect(lender).mint(lender.address, 1_000_000e6);
+    await usdc.connect(lender).approve(poolAddress, 500_000e6);
+    await pool.connect(lender).deposit(500_000e6);
+
+    // Deploy a private vault controlled by the relayer/controller (deployer in tests).
+    const VestraVault = await ethers.getContractFactory("VestraVault");
+    const vault = await VestraVault.connect(deployer).deploy(deployer.address);
+    await vault.waitForDeployment();
+    const vaultAddress = await vault.getAddress();
+
+    // Vesting beneficiary is the vault (privacy upgrade prerequisite).
+    const vesting = await deployVestingWallet({
+      beneficiary: vaultAddress,
+      borrower,
+      usdc,
+      allocation: 200_000e6,
+      duration: 30 * ONE_DAY,
+    });
+    const vestingAddress = await vesting.getAddress();
+
+    // Vault creates private loan (so borrower wallet is not stored in `loans` nor emitted in LoanCreated).
+    const borrowAmount = 50_000e6;
+    const callData = loanManager.interface.encodeFunctionData("createPrivateLoan", [
+      1,
+      vestingAddress,
+      borrowAmount,
+    ]);
+    await expect(vault.connect(deployer).exec(loanManagerAddress, 0, callData))
+      .to.emit(loanManager, "PrivateLoanCreated")
+      .withArgs(0, vaultAddress, borrowAmount);
+
+    const publicLoan = await loanManager.loans(0);
+    expect(publicLoan.borrower).to.equal(ethers.ZeroAddress);
+
+    const privateLoan = await loanManager.privateLoans(0);
+    expect(privateLoan.vault).to.equal(vaultAddress);
+    expect(privateLoan.principal).to.equal(borrowAmount);
+    expect(privateLoan.active).to.equal(true);
+
+    // Third-party repay is allowed for private loans (no borrower-only restriction).
+    const totalDue = privateLoan.principal + privateLoan.interest;
+    await usdc.connect(lender).approve(loanManagerAddress, totalDue);
+    await loanManager.connect(lender).repayPrivateLoan(0, totalDue);
+
+    // Advance time to unlock and settle.
+    await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
+    await ethers.provider.send("evm_mine", []);
+    const freshPriceFeed = await ethers.getContractAt(
+      "MockPriceFeed",
+      await valuation.priceFeed()
+    );
+    await freshPriceFeed.setPrice(1e8);
+
+    await expect(loanManager.connect(borrower).settlePrivateAtUnlock(0))
+      .to.emit(loanManager, "PrivateLoanSettled")
+      .withArgs(0, false);
+
+    const settled = await loanManager.privateLoans(0);
+    expect(settled.active).to.equal(false);
+    expect(settled.principal).to.equal(0);
+    expect(settled.interest).to.equal(0);
+
+    // Collateral releases to the vault for private-mode loans.
+    const released = await vesting.released(await usdc.getAddress());
+    expect(released).to.equal(await vesting.totalAllocation());
+    expect(await usdc.balanceOf(vaultAddress)).to.equal(
+      (await vesting.totalAllocation()) + BigInt(borrowAmount)
+    );
   });
 
   it("Defaults when no repay at unlock (liquidation path)", async () => {

@@ -7,13 +7,17 @@ import FundWallet from '../components/common/FundWallet.jsx';
 import DemoAccessCard from '../components/common/DemoAccessCard.jsx';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
+import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
+import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
 import { apiDownload, fetchRepaySchedule } from '../utils/api.js';
+import { usePrivacyMode } from '../utils/privacyMode.js';
 
 const DebtClock = lazy(() => import('../components/repay/DebtClock.jsx'));
 
 export default function Repay() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { enabled: privacyMode } = usePrivacyMode();
   const [schedule, setSchedule] = useState([]);
   const [scheduleError, setScheduleError] = useState('');
   const [fundingStatus, setFundingStatus] = useState(null);
@@ -74,7 +78,10 @@ export default function Repay() {
         <p className="page-subtitle">Reduce debt or settle at unlock.</p>
         <div className="inline-actions" style={{ marginTop: 8 }}>
           <span className="chip">Testnet execution</span>
-          <span className="chip">Use borrower wallet only</span>
+          <span className="chip">{privacyMode ? 'Private mode: relayed actions' : 'Use borrower wallet only'}</span>
+        </div>
+        <div className="inline-actions" style={{ marginTop: 10 }}>
+          <PrivacyModeToggle />
         </div>
         <div className="inline-actions">
           <button className="button" type="button" onClick={() => navigate('/borrow')}>
@@ -89,6 +96,7 @@ export default function Repay() {
         </div>
       </div>
       <EssentialsPanel />
+      <PrivacyUpgradeWizard enabled={privacyMode} />
       <div className="holo-card">
         <div className="section-head">
           <div>
@@ -113,7 +121,11 @@ export default function Repay() {
         </Suspense>
         <RepaySlider />
       </div>
-      <RepayActions fundingStatus={fundingStatus} initialLoanId={loanIdPrefill} />
+      <RepayActions
+        fundingStatus={fundingStatus}
+        initialLoanId={loanIdPrefill}
+        privacyMode={privacyMode}
+      />
 
       <AdvancedSection title="Schedule">
         <div className="section-head">

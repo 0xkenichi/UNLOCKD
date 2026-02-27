@@ -4,6 +4,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const { deploy } = deployments;
   const { deployer } = await getNamedAccounts();
 
+  if (!deployer) {
+    throw new Error(
+      "No deployer account configured. Set PRIVATE_KEY in your environment (see hardhat.config.js)."
+    );
+  }
+
   const mockUSDC = await deploy("MockUSDC", { from: deployer, log: true });
   const testnetPriceFeed = await deploy("MockPriceFeed", { from: deployer, log: true });
 
@@ -16,6 +22,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   await deploy("LendingPool", {
     from: deployer,
     args: [mockUSDC.address],
+    log: true,
+  });
+
+  const termVault = await deploy("TermVault", {
+    from: deployer,
+    args: [mockUSDC.address, deployer],
     log: true,
   });
 
@@ -84,6 +96,21 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     await ethers.getSigner(deployer)
   );
   await poolInstance.setLoanManager(loanManager.address);
+
+  const termVaultInstance = await ethers.getContractAt(
+    "TermVault",
+    termVault.address,
+    await ethers.getSigner(deployer)
+  );
+  const trancheApyBps = Number(process.env.TERM_VAULT_MIN_APY_BPS || 800);
+  await termVaultInstance.setFeeConfig(
+    Number(process.env.TERM_VAULT_EARLY_EXIT_FEE_BPS || 100),
+    deployer
+  );
+  await termVaultInstance.setTranche(0, 30 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(1, 365 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(2, 4 * 365 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(3, 5 * 365 * 24 * 60 * 60, trancheApyBps, true);
 };
 
 module.exports.tags = ["local"];

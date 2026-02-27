@@ -1,10 +1,11 @@
 import '@rainbow-me/rainbowkit/styles.css';
 import { ConnectButton, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { trackEvent } from '../../utils/analytics.js';
+import { ALL_EVM_CHAINS } from '../../utils/chains.js';
 
 export default function EvmConnectButtons() {
   return (
-    <RainbowKitProvider>
+    <RainbowKitProvider chains={ALL_EVM_CHAINS}>
       <div className="wallet-grid">
         <ConnectButton.Custom>
           {({ openConnectModal }) => (

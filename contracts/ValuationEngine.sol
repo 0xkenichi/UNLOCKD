@@ -31,10 +31,28 @@ contract ValuationEngine is Ownable {
     PendingDefaultFeed public pendingDefaultFeed;
     mapping(address => PendingTokenFeed) public pendingTokenFeeds;
 
+    /// Price history: all-time high and all-time low per token (same decimals as token's price feed)
+    struct TokenPriceBounds {
+        uint256 ath;
+        uint256 atl;
+        uint8 decimals;
+        bool set;
+    }
+    mapping(address => TokenPriceBounds) public tokenPriceBounds;
+    /// Extra discount per 1% drawdown from ATH (bps of discount per 100 bps drawdown); e.g. 50 = 0.5% extra per 1%
+    uint256 public drawdownPenaltyPerBps = 50;
+    /// Cap on total drawdown-based extra discount (bps); e.g. 2000 = 20%
+    uint256 public maxDrawdownPenaltyBps = 2000;
+    /// How much range (ATH-ATL)/mid adds to volatility (bps of vol per 100 bps range ratio); e.g. 10
+    uint256 public rangeVolWeightBps = 10;
+
     uint256 public constant BASE_LTV_BPS = 3000; // 30%
     uint256 public constant BPS_DENOMINATOR = 10000;
 
     event AdminTimelockConfigUpdated(bool enabled, uint256 delaySeconds);
+    event TokenPriceBoundsUpdated(address indexed token, uint256 ath, uint256 atl, uint8 decimals);
+    event DrawdownParamsUpdated(uint256 penaltyPerBps, uint256 maxPenaltyBps);
+    event RangeVolWeightUpdated(uint256 rangeVolWeightBps);
     event DefaultPriceFeedQueued(address indexed feed, uint256 executeAfter);
     event DefaultPriceFeedCancelled();
     event TokenPriceFeedQueued(address indexed token, address indexed feed, uint256 executeAfter);
@@ -146,6 +164,44 @@ contract ValuationEngine is Ownable {
         maxPriceAge = newMaxPriceAge;
     }
 
+    /// Set all-time high and all-time low for a token (same decimals as the token's price feed).
+    function setTokenPriceBounds(
+        address token,
+        uint256 ath,
+        uint256 atl,
+        uint8 boundsDecimals
+    ) external onlyOwner {
+        require(token != address(0), "token=0");
+        require(atl > 0 && ath >= atl, "invalid bounds");
+        tokenPriceBounds[token] = TokenPriceBounds({
+            ath: ath,
+            atl: atl,
+            decimals: boundsDecimals,
+            set: true
+        });
+        emit TokenPriceBoundsUpdated(token, ath, atl, boundsDecimals);
+    }
+
+    function clearTokenPriceBounds(address token) external onlyOwner {
+        require(token != address(0), "token=0");
+        delete tokenPriceBounds[token];
+        emit TokenPriceBoundsUpdated(token, 0, 0, 0);
+    }
+
+    function setDrawdownParams(uint256 penaltyPerBps, uint256 maxPenaltyBps) external onlyOwner {
+        require(penaltyPerBps <= 1000, "penalty too high");
+        require(maxPenaltyBps <= 5000, "max penalty too high");
+        drawdownPenaltyPerBps = penaltyPerBps;
+        maxDrawdownPenaltyBps = maxPenaltyBps;
+        emit DrawdownParamsUpdated(penaltyPerBps, maxPenaltyBps);
+    }
+
+    function setRangeVolWeight(uint256 weightBps) external onlyOwner {
+        require(weightBps <= 1000, "weight too high");
+        rangeVolWeightBps = weightBps;
+        emit RangeVolWeightUpdated(weightBps);
+    }
+
     function _readValidatedPrice(
         address token
     ) internal view returns (uint256 price, uint8 decimals) {
@@ -185,10 +241,36 @@ contract ValuationEngine is Ownable {
         int128 rate = ABDKMath64x64.divu(riskFreeRate, 100);
         int128 discount = ABDKMath64x64.exp(ABDKMath64x64.neg(rate.mul(yearsToUnlock)));
 
-        // Monte Carlo-inspired conservatism
+        uint256 effectiveVol = volatility;
+        uint256 extraDiscountBps = 0;
+
+        TokenPriceBounds memory bounds = tokenPriceBounds[token];
+        if (bounds.set && bounds.ath >= bounds.atl && bounds.atl > 0) {
+            uint256 priceScaled = price;
+            if (decimals > bounds.decimals) {
+                priceScaled = price / (10 ** (decimals - bounds.decimals));
+            } else if (decimals < bounds.decimals) {
+                priceScaled = price * (10 ** (bounds.decimals - decimals));
+            }
+            if (bounds.ath > 0 && priceScaled <= bounds.ath) {
+                uint256 drawdownBps = ((bounds.ath - priceScaled) * BPS_DENOMINATOR) / bounds.ath;
+                uint256 penalty = (drawdownBps * drawdownPenaltyPerBps) / BPS_DENOMINATOR;
+                if (penalty > maxDrawdownPenaltyBps) penalty = maxDrawdownPenaltyBps;
+                extraDiscountBps = penalty;
+            }
+            uint256 mid = bounds.ath + bounds.atl;
+            if (mid > 0) {
+                uint256 rangeRatioBps = ((bounds.ath - bounds.atl) * BPS_DENOMINATOR) / mid;
+                uint256 volAdd = (rangeRatioBps * rangeVolWeightBps) / BPS_DENOMINATOR;
+                effectiveVol = volatility + volAdd;
+                if (effectiveVol > 100) effectiveVol = 100;
+            }
+        }
+
+        // Monte Carlo-inspired conservatism (use effectiveVol when ATH/ATL set)
         int128 liquidity = ABDKMath64x64.divu(9, 10); // 0.9
         int128 shock = ABDKMath64x64.divu(95, 100); // 0.95
-        int128 volPenalty = ABDKMath64x64.divu(volatility, 200); // 0.5 * vol
+        int128 volPenalty = ABDKMath64x64.divu(effectiveVol, 200); // 0.5 * vol
         int128 volAdj = ABDKMath64x64.sub(ABDKMath64x64.fromInt(1), volPenalty);
         if (volAdj < 0) {
             volAdj = ABDKMath64x64.fromInt(0);
@@ -196,12 +278,18 @@ contract ValuationEngine is Ownable {
 
         int128 value64 = ABDKMath64x64.fromUInt(baseValue);
         int128 pv64 = value64.mul(discount).mul(liquidity).mul(shock).mul(volAdj);
+        if (extraDiscountBps > 0) {
+            pv64 = pv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
+        }
         pv = ABDKMath64x64.toUInt(pv64);
 
         int128 ltv64 = ABDKMath64x64.fromUInt(BASE_LTV_BPS)
             .mul(liquidity)
             .mul(shock)
             .mul(volAdj);
+        if (extraDiscountBps > 0) {
+            ltv64 = ltv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
+        }
         ltvBps = ABDKMath64x64.toUInt(ltv64);
         if (ltvBps > BPS_DENOMINATOR) {
             ltvBps = BPS_DENOMINATOR;

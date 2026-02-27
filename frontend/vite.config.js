@@ -35,53 +35,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('/node_modules/')) return;
-
-          // Keep framework/runtime code in a small, stable base chunk.
-          if (
-            id.includes('/react/') ||
-            id.includes('/react-dom/') ||
-            id.includes('/scheduler/') ||
-            id.includes('/@tanstack/react-query/')
-          ) {
-            return 'react-vendor';
-          }
-
-          // Keep wagmi + viem together to avoid circular chunks.
-          if (
-            id.includes('/wagmi/') ||
-            id.includes('/viem/')
-          ) {
-            return 'evm-core';
-          }
-
-          if (id.includes('/@rainbow-me/')) return 'rainbowkit-vendor';
-          if (id.includes('/@walletconnect/')) return 'walletconnect-vendor';
-          if (id.includes('/@coinbase/')) return 'coinbase-vendor';
-          if (id.includes('/@metamask/')) return 'metamask-vendor';
-          if (id.includes('/@safe-global/')) return 'safe-vendor';
-
-          if (
-            id.includes('/three/') ||
-            id.includes('/@react-three/fiber/') ||
-            id.includes('/@react-three/drei/')
-          ) {
-            return 'three-vendor';
-          }
-
-          if (
-            id.includes('/@solana/') ||
-            id.includes('/@streamflow/')
-          ) {
-            return 'solana-vendor';
-          }
-
-          if (id.includes('/framer-motion/')) {
-            return 'motion-vendor';
-          }
-
-        }
+        // Keep Rollup defaults for chunking. The previous manual chunk map
+        // introduced circular chunk graphs in Vite 7+ when wallet adapters
+        // pulled shared dependencies across EVM/Solana bundles.
       }
     }
   }

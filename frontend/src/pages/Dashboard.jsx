@@ -453,6 +453,11 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
               {benchmark.funnel?.conversionRatesPct?.quoteRequestedToLoanCreated || 0}% quote-to-loan conversion.
             </div>
           )}
+          {kpi?.engagement?.demandSignals?.chainSupportRequested ? (
+            <div className="muted">
+              Chain support requests (24h): {kpi.engagement.demandSignals.chainSupportRequested}
+            </div>
+          ) : null}
           {agentReplay && (
             <div className="agent-replay-mini">
               <div className="agent-replay-head">

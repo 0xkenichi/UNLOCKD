@@ -16,6 +16,8 @@ This is a high-level reference for MVP contracts and their roles.
 - Accepts deposits and tracks utilization.
 - Transfers loan funds to borrowers.
 - Accepts repayments from `LoanManager`.
+- **Interest rates**: Utilization-based tiers (low/mid/high); configurable bps and timelock. See [INTEREST_RATES_AND_POOL_LIFECYCLE.md](../risk/INTEREST_RATES_AND_POOL_LIFECYCLE.md).
+- **Community pools**: Lifecycle (FUNDRAISING → ACTIVE / REFUNDING → CLOSED) with deadline-driven refunding. See [INTEREST_RATES_AND_POOL_LIFECYCLE.md](../risk/INTEREST_RATES_AND_POOL_LIFECYCLE.md).
 
 ## `LoanManager`
 - Core loan issuance and enforcement.

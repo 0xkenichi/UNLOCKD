@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
+import { useWallet as useSolanaWallet } from '@solana/wallet-adapter-react';
+import { Buffer } from 'buffer';
 import LazySolanaWalletCard from '../solana/LazySolanaWalletCard.jsx';
 import LazyEvmConnectButtons from './LazyEvmConnectButtons.jsx';
 import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from '../../utils/chains.js';
@@ -10,6 +12,7 @@ export default function UnifiedWalletModal({ isOpen, onClose }) {
   const { address, isConnected: evmConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
+  const solana = useSolanaWallet();
   const { session, setSession } = useOnchainSession();
   const { auth } = useWalletSession();
   const [linking, setLinking] = useState(false);
@@ -39,12 +42,30 @@ export default function UnifiedWalletModal({ isOpen, onClose }) {
       });
       return;
     }
+    if (!solana?.signMessage) {
+      setLinkState({
+        type: 'error',
+        message: 'Solana wallet signature unavailable. Ensure Phantom is connected and supports message signing.'
+      });
+      return;
+    }
     setLinking(true);
     setLinkState({ type: '', message: '' });
     try {
-      await apiPost('/api/auth/link-wallet', {
-        chainType: 'solana',
+      const nonceResp = await apiPost('/api/auth/solana/nonce', {
         walletAddress: session.solanaWalletAddress
+      });
+      const message = nonceResp?.message || '';
+      const nonce = nonceResp?.nonce || '';
+      if (!message || !nonce) {
+        throw new Error('Unable to request Solana nonce');
+      }
+      const signatureBytes = await solana.signMessage(new TextEncoder().encode(message));
+      const signature = Buffer.from(signatureBytes).toString('base64');
+      await apiPost('/api/auth/solana/link-wallet', {
+        walletAddress: session.solanaWalletAddress,
+        nonce,
+        signature
       });
       setLinkState({
         type: 'success',

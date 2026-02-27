@@ -5,9 +5,12 @@ import PassportSummary from '../components/common/PassportSummary.jsx';
 import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import VerifiedCard from '../components/identity/VerifiedCard.jsx';
 import TierBadge from '../components/common/TierBadge.jsx';
+import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
+import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
 import { fetchIdentity, fetchPassportScore } from '../utils/api.js';
 import { getPassportSnapshotFromAttestations } from '../utils/passport.js';
 import { getActiveIdentity, useOnchainSession } from '../utils/onchainSession.js';
+import { usePrivacyMode } from '../utils/privacyMode.js';
 
 function formatProviderLabel(provider = '') {
   if (!provider) return 'Unknown provider';
@@ -28,6 +31,7 @@ function formatDateLabel(value) {
 export default function Identity() {
   const { address } = useAccount();
   const { session } = useOnchainSession();
+  const { enabled: privacyMode } = usePrivacyMode();
   const activeIdentity = getActiveIdentity(session, address);
   const activeWalletAddress = activeIdentity.walletAddress || '';
   const { signMessageAsync } = useSignMessage();
@@ -130,7 +134,11 @@ export default function Identity() {
             </span>
           )}
         </div>
+        <div className="inline-actions" style={{ marginTop: 10 }}>
+          <PrivacyModeToggle />
+        </div>
       </div>
+      <PrivacyUpgradeWizard enabled={privacyMode} />
       <div className="grid-2 essentials-row">
         <EssentialsPanel />
         <PageIllustration

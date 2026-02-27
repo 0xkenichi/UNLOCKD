@@ -25,6 +25,24 @@ This document defines the privacy goals, threat assumptions, and mitigations for
 - **Shielded (relayed)**: interactions routed through privacy relayers to reduce linkability.
 - **Verified-private**: optional identity proofs provide eligibility without identity disclosure.
 
+## Lender Disclosure Policy (Portfolio-light)
+
+The lender experience is designed to be **portfolio-light** by default:
+
+- Lenders should not be asked to reason about individual borrowers or tokens.
+- Lenders should not be able to trivially correlate user activity with on-chain positions via the app UI/API.
+
+### Allowed on lender surfaces
+- Aggregate totals (e.g. total deposits, total borrowed, utilization, current rate input).
+- Coarse exposure buckets (e.g. by chain, maturity window counts, flagged-vs-unflagged exposure totals).
+
+### Forbidden on lender surfaces
+- Borrower addresses, vault addresses, or vesting contract addresses.
+- Underlying token identifiers for specific loans (token address / symbol per loan).
+- Loan IDs or transaction hashes in public activity feeds.
+
+Implementation note: this does not change the fact that on-chain state is public; it prevents the app from becoming a correlation oracle.
+
 ## Core Mechanisms
 - **Selective disclosure proofs**: attest to vesting schedule, unlock time, and claim validity without revealing identity.
 - **Relayed execution**: relayers submit escrow, borrow, or settlement transactions.
@@ -57,6 +75,7 @@ This document defines the privacy goals, threat assumptions, and mitigations for
 - Privacy features are modular and opt-in per pool.
 - Proof systems can be swapped without altering settlement logic.
 - All privacy modes retain the same enforcement at unlock.
+- **Backend and CRDT AI**: For “no one should know when or which token holders use the platform,” APIs and the AI must not expose addresses or per-user activity. See **`docs/CRDT_AI_KNOWLEDGE_AND_PRIVACY.md`** for aggregate-only platform stats, AI context rules, and activity-feed privacy.
 
 ## Concrete Stack (Recommended)
 This stack balances feasibility with strong privacy for early exits while preserving auditability.

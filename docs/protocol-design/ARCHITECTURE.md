@@ -4,7 +4,7 @@ This doc describes modules, responsibilities, and the core data flows.
 
 ## System Architecture Diagram
 
-![UNLOCKD Protocol Architecture](assets/diagrams/unlockd-architecture.png)
+![UNLOCKD Protocol Architecture](../assets/diagrams/unlockd-architecture.png)
 
 ## Core Modules
 - **VestingAdapter**: verifies vesting schedules, escrows claim rights, and releases on settlement.
@@ -16,7 +16,7 @@ This doc describes modules, responsibilities, and the core data flows.
 
 ## Data Flow (Borrow)
 
-![Borrow Flow (Escrow to Loan Issuance)](assets/diagrams/unlockd-borrow-flow.png)
+![Borrow Flow (Escrow to Loan Issuance)](../assets/diagrams/unlockd-borrow-flow.png)
 
 1. Borrower escrows a vesting position.
 2. Adapter exposes quantity and unlock time.
@@ -27,7 +27,7 @@ This doc describes modules, responsibilities, and the core data flows.
 
 ## Data Flow (Repay/Settle)
 
-![Repay and Settle Flow](assets/diagrams/unlockd-settle-flow.png)
+![Repay and Settle Flow](../assets/diagrams/unlockd-settle-flow.png)
 
 1. Borrower repays principal + interest over time.
 2. At unlock:

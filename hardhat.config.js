@@ -52,6 +52,22 @@ module.exports = {
       chainId: 84532,
     },
 
+    // Flow EVM
+    flowEvm: {
+      url:
+        process.env.FLOW_EVM_MAINNET_RPC ||
+        "https://mainnet.evm.nodes.onflow.org",
+      accounts,
+      chainId: 747,
+    },
+    flowEvmTestnet: {
+      url:
+        process.env.FLOW_EVM_TESTNET_RPC ||
+        "https://testnet.evm.nodes.onflow.org",
+      accounts,
+      chainId: 545,
+    },
+
     // Avalanche C-Chain
     avalanche: {
       url:
@@ -76,7 +92,18 @@ module.exports = {
     },
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY || "",
+    // Hardhat verify supports per-network keys; Flow's Blockscout-style API works without a key.
+    apiKey: {
+      mainnet: process.env.ETHERSCAN_API_KEY || "",
+      sepolia: process.env.ETHERSCAN_API_KEY || "",
+      base: process.env.BASESCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "",
+      baseSepolia: process.env.BASESCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "",
+      avalanche: process.env.SNOWTRACE_API_KEY || process.env.ETHERSCAN_API_KEY || "",
+      fuji: process.env.SNOWTRACE_API_KEY || process.env.ETHERSCAN_API_KEY || "",
+      abstract: process.env.ABSCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "",
+      flowEvm: process.env.FLOWSCAN_API_KEY || "",
+      flowEvmTestnet: process.env.FLOWSCAN_API_KEY || "",
+    },
     customChains: [
       {
         network: "base",
@@ -116,6 +143,22 @@ module.exports = {
         urls: {
           apiURL: "https://abscan.org/api",
           browserURL: "https://abscan.org",
+        },
+      },
+      {
+        network: "flowEvm",
+        chainId: 747,
+        urls: {
+          apiURL: "https://evm.flowscan.io/api",
+          browserURL: "https://evm.flowscan.io",
+        },
+      },
+      {
+        network: "flowEvmTestnet",
+        chainId: 545,
+        urls: {
+          apiURL: "https://evm-testnet.flowscan.io/api",
+          browserURL: "https://evm-testnet.flowscan.io",
         },
       },
     ],

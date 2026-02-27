@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   fetchAdminAirdropLeaderboard,
   downloadAdminAirdropLeaderboard
@@ -210,6 +211,8 @@ export default function AdminAirdrop() {
         <h1 className="page-title holo-glow">Admin Airdrop Leaderboard</h1>
         <div className="page-subtitle">
           Private team dashboard. Scores are computed from testnet activity and feedback signals.
+          {' '}
+          <Link to="/admin/risk">Risk &amp; flagging</Link>
         </div>
       </div>
 

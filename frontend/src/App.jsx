@@ -33,6 +33,7 @@ const Features = lazy(routeImports.features);
 const Docs = lazy(routeImports.docs);
 const About = lazy(routeImports.about);
 const AdminAirdrop = lazy(routeImports.adminAirdrop);
+const AdminRisk = lazy(routeImports.adminRisk);
 const Airdrop = lazy(routeImports.airdrop);
 const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
@@ -247,7 +248,7 @@ function AppShell() {
       )}
       {showChainWarning && (
         <div className="chain-warning">
-          Please switch to Base, Arbitrum, or Avalanche to continue.
+          Please switch to Flow EVM, Base, Arbitrum, or Avalanche to continue.
         </div>
       )}
       {!showChainWarning &&
@@ -277,6 +278,7 @@ function AppShell() {
             <Route path="/docs" element={<Docs />} />
             <Route path="/about" element={<About />} />
             <Route path="/admin/airdrop" element={<AdminAirdrop />} />
+            <Route path="/admin/risk" element={<AdminRisk />} />
             <Route path="/airdrop" element={<Airdrop />} />
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/community-pools" element={<CommunityPools />} />

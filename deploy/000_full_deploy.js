@@ -4,6 +4,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const { deploy, log } = deployments;
   const { deployer } = await getNamedAccounts();
 
+  if (!deployer) {
+    throw new Error(
+      "No deployer account configured. Set PRIVATE_KEY in your environment (see hardhat.config.js)."
+    );
+  }
+
   log(`Deploying to ${network.name} (chainId: ${network.config.chainId})`);
 
   let usdcAddress = process.env.USDC_ADDRESS || "";
@@ -13,7 +19,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const chainId = network.config.chainId;
   const isLocal =
     network.name === "hardhat" || network.name === "localhost";
-  const isTestnet = [11155111, 84532, 43113].includes(chainId);
+  const isTestnet = [11155111, 84532, 43113, 545].includes(chainId);
 
   if (isLocal || (!usdcAddress && !priceFeedAddress && isTestnet)) {
     const mockUSDC = await deploy("MockUSDC", { from: deployer, log: true });
@@ -51,9 +57,18 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const adapter = await deploy("VestingAdapter", { from: deployer, log: true });
 
+  const issuanceTreasury = process.env.ISSUANCE_TREASURY || deployer;
+  const returnsTreasury = process.env.RETURNS_TREASURY || deployer;
+
   const pool = await deploy("LendingPool", {
     from: deployer,
     args: [usdcAddress],
+    log: true,
+  });
+
+  const termVault = await deploy("TermVault", {
+    from: deployer,
+    args: [usdcAddress, returnsTreasury],
     log: true,
   });
 
@@ -65,8 +80,6 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const identityBoostBps = Number(process.env.IDENTITY_BOOST_BPS || 500);
   const poolFee = Number(process.env.UNISWAP_POOL_FEE || 3000);
   const slippageBps = Number(process.env.LIQUIDATION_SLIPPAGE_BPS || 9000);
-  const issuanceTreasury = process.env.ISSUANCE_TREASURY || deployer;
-  const returnsTreasury = process.env.RETURNS_TREASURY || deployer;
 
   const loanManager = await deploy("LoanManager", {
     from: deployer,
@@ -119,6 +132,21 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   );
   await poolInstance.setLoanManager(loanManager.address);
   await poolInstance.setTreasuries(issuanceTreasury, returnsTreasury);
+
+  const termVaultInstance = await ethers.getContractAt(
+    "TermVault",
+    termVault.address,
+    await ethers.getSigner(deployer)
+  );
+  const trancheApyBps = Number(process.env.TERM_VAULT_MIN_APY_BPS || 800);
+  await termVaultInstance.setFeeConfig(
+    Number(process.env.TERM_VAULT_EARLY_EXIT_FEE_BPS || 100),
+    returnsTreasury
+  );
+  await termVaultInstance.setTranche(0, 30 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(1, 365 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(2, 4 * 365 * 24 * 60 * 60, trancheApyBps, true);
+  await termVaultInstance.setTranche(3, 5 * 365 * 24 * 60 * 60, trancheApyBps, true);
 
   const loanManagerInstance = await ethers.getContractAt(
     "LoanManager",

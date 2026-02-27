@@ -12,6 +12,9 @@ import {
 } from '../utils/api.js';
 import { useOnchainSession } from '../utils/onchainSession.js';
 import AdvancedSection from '../components/common/AdvancedSection.jsx';
+import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
+import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
+import { usePrivacyMode } from '../utils/privacyMode.js';
 
 const MAX_POSITIONS = 12;
 const MAX_ACTIVITY = 8;
@@ -23,6 +26,7 @@ export default function Portfolio() {
   const { address } = useAccount();
   const chainId = useChainId();
   const { session } = useOnchainSession();
+  const { enabled: privacyMode } = usePrivacyMode();
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
   const [activity, setActivity] = useState([]);
@@ -84,7 +88,8 @@ export default function Portfolio() {
       try {
         const items = await fetchVestedContracts({
           chain: 'solana',
-          walletAddress: solanaWallet
+          walletAddress: solanaWallet,
+          privacyMode
         });
         if (!active) return;
         const mapped = (items || []).map((item, idx) => {
@@ -123,7 +128,7 @@ export default function Portfolio() {
     return () => {
       active = false;
     };
-  }, [isSolanaSession, solanaWallet]);
+  }, [isSolanaSession, solanaWallet, privacyMode]);
 
   useEffect(() => {
     let active = true;
@@ -177,6 +182,16 @@ export default function Portfolio() {
     return Array.from({ length: count - start }, (_, idx) => BigInt(start + idx));
   }, [loanCount]);
 
+  const { data: privateFlags } = useReadContracts({
+    contracts: recentIds.map((id) => ({
+      address: loanManager,
+      abi: loanManagerAbi,
+      functionName: 'isPrivateLoan',
+      args: [id]
+    })),
+    query: { enabled: Boolean(loanManager && recentIds.length) }
+  });
+
   const { data: loanReads } = useReadContracts({
     contracts: recentIds.map((id) => ({
       address: loanManager,
@@ -187,25 +202,53 @@ export default function Portfolio() {
     query: { enabled: Boolean(loanManager && recentIds.length) }
   });
 
+  const { data: privateLoanReads } = useReadContracts({
+    contracts: recentIds.map((id) => ({
+      address: loanManager,
+      abi: loanManagerAbi,
+      functionName: 'privateLoans',
+      args: [id]
+    })),
+    query: { enabled: Boolean(loanManager && recentIds.length) }
+  });
+
   const evmPositions = useMemo(() => {
-    if (!loanReads) return [];
-    return loanReads
-      .filter((r) => r.status === 'success')
-      .map((read, i) => {
-        const loan = read.result;
-        const unlockTs = loan ? Number(loan[4]) : 0;
-        const loanId = recentIds[i]?.toString() || String(i);
-        return {
-          loanId,
-          id: `Loan-${recentIds[i]?.toString() || i}`,
-          principal: loan ? loan[1].toString() : '0',
-          interest: loan ? loan[2].toString() : '0',
-          unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
-          unlockTimestamp: unlockTs,
-          active: Boolean(loan?.[5])
-        };
-      });
-  }, [loanReads, recentIds]);
+    if (!loanReads || !privateFlags || !privateLoanReads) return [];
+    return recentIds.map((id, i) => {
+      const privateFlagRow = privateFlags[i];
+      const isPrivate =
+        privateFlagRow?.status === 'success' ? Boolean(privateFlagRow.result) : false;
+      const loanRow = loanReads[i];
+      const privateLoanRow = privateLoanReads[i];
+
+      const loan = loanRow?.status === 'success' ? loanRow.result : null;
+      const priv = privateLoanRow?.status === 'success' ? privateLoanRow.result : null;
+
+      // Loan struct:
+      // 0 borrower, 1 principal, 2 interest, 3 collateralId, 4 collateralAmount, 5 unlockTime, 6 active
+      const unlockTs = isPrivate
+        ? priv
+          ? Number(priv[5])
+          : 0
+        : loan
+          ? Number(loan[5])
+          : 0;
+      const active = isPrivate ? Boolean(priv?.[6]) : Boolean(loan?.[6]);
+      const principal = isPrivate ? (priv?.[1] ?? 0n) : (loan?.[1] ?? 0n);
+      const interest = isPrivate ? (priv?.[2] ?? 0n) : (loan?.[2] ?? 0n);
+      const loanId = id?.toString?.() || String(i);
+
+      return {
+        loanId,
+        id: `${isPrivate ? 'PrivateLoan' : 'Loan'}-${loanId}`,
+        principal: principal.toString(),
+        interest: interest.toString(),
+        unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
+        unlockTimestamp: unlockTs,
+        active
+      };
+    });
+  }, [loanReads, privateFlags, privateLoanReads, recentIds]);
 
   const positions = useMemo(
     () => (isSolanaSession ? solanaPositions : evmPositions),
@@ -270,7 +313,12 @@ export default function Portfolio() {
           <span className="chip">Testnet portfolio mode</span>
           <span className="chip">For demo verification</span>
         </div>
+        <div className="inline-actions" style={{ marginTop: 10 }}>
+          <PrivacyModeToggle />
+        </div>
       </div>
+
+      <PrivacyUpgradeWizard enabled={privacyMode} />
 
       <div className="stat-row portfolio-stats">
         <div className="stat-card stat-card-minimal">

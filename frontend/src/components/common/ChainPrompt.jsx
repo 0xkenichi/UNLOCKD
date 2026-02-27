@@ -97,7 +97,7 @@ export default function ChainPrompt() {
       {session.chainType === 'solana' && (
         <>
           <div className="muted" style={{ marginTop: '12px' }}>
-            Solana supports vesting discovery and risk scoring; loans settle on Base in this MVP.
+            Solana supports vesting discovery and risk scoring; loans settle on EVM chains in this MVP.
           </div>
           <LazySolanaWalletCard />
         </>

@@ -11,6 +11,68 @@ const useSupabase = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 let supabase = null;
 let sqlite = null;
 
+// Optional: encrypt high-sensitivity columns at rest (SQLite mode).
+// Format: "enc:v1:<ivB64>:<tagB64>:<cipherB64>"
+const ENCRYPTION_PREFIX = 'enc:v1:';
+let encryptionKey = null;
+const loadEncryptionKey = () => {
+  if (encryptionKey) return encryptionKey;
+  const raw = String(process.env.SENSITIVE_DATA_ENCRYPTION_KEY || '').trim();
+  if (!raw) return null;
+  try {
+    // Accept 64-char hex (32 bytes) or base64.
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+      encryptionKey = Buffer.from(raw, 'hex');
+      return encryptionKey;
+    }
+    const asB64 = Buffer.from(raw, 'base64');
+    if (asB64.length === 32) {
+      encryptionKey = asB64;
+      return encryptionKey;
+    }
+  } catch (_) {}
+  console.warn('[privacy] invalid SENSITIVE_DATA_ENCRYPTION_KEY; encryption disabled');
+  return null;
+};
+
+const encryptText = (value) => {
+  const key = loadEncryptionKey();
+  if (!key) return value;
+  const plaintext = String(value ?? '');
+  if (!plaintext) return plaintext;
+  // Don't double-encrypt.
+  if (plaintext.startsWith(ENCRYPTION_PREFIX)) return plaintext;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${ENCRYPTION_PREFIX}${iv.toString('base64')}:${tag.toString('base64')}:${enc.toString('base64')}`;
+};
+
+const decryptText = (value) => {
+  const key = loadEncryptionKey();
+  const raw = String(value ?? '');
+  if (!raw) return raw;
+  if (!raw.startsWith(ENCRYPTION_PREFIX)) return raw;
+  if (!key) {
+    // Key missing but ciphertext present: return redacted placeholder.
+    return '[ENCRYPTED]';
+  }
+  try {
+    const parts = raw.slice(ENCRYPTION_PREFIX.length).split(':');
+    if (parts.length !== 3) return '[ENCRYPTED]';
+    const [ivB64, tagB64, cipherB64] = parts;
+    const iv = Buffer.from(ivB64, 'base64');
+    const tag = Buffer.from(tagB64, 'base64');
+    const data = Buffer.from(cipherB64, 'base64');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch {
+    return '[ENCRYPTED]';
+  }
+};
+
 const createId = () =>
   typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -81,7 +143,8 @@ const toEvent = (row) => ({
   loanId: row.loan_id || row.loanId || '',
   borrower: row.borrower || '',
   amount: row.amount || '',
-  defaulted: Boolean(row.defaulted)
+  defaulted: Boolean(row.defaulted),
+  tokenAddress: row.token_address ?? row.tokenAddress ?? null
 });
 
 const toPool = (row) => {
@@ -147,6 +210,16 @@ const initSqlite = () => {
       created_at TEXT,
       UNIQUE(chain_type, wallet_address)
     );
+    CREATE TABLE IF NOT EXISTS privacy_vaults (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      chain_type TEXT NOT NULL,
+      vault_address TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT,
+      UNIQUE(user_id, chain_type),
+      UNIQUE(chain_type, vault_address)
+    );
     CREATE TABLE IF NOT EXISTS user_geo_presence (
       user_id TEXT PRIMARY KEY,
       lat REAL NOT NULL,
@@ -166,6 +239,7 @@ const initSqlite = () => {
       borrower TEXT,
       amount TEXT,
       defaulted INTEGER,
+      token_address TEXT,
       PRIMARY KEY (txHash, logIndex)
     );
     CREATE TABLE IF NOT EXISTS snapshots (
@@ -274,7 +348,64 @@ const initSqlite = () => {
       payload TEXT,
       created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS risk_flags (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      token_address TEXT,
+      flag_type TEXT NOT NULL,
+      source TEXT DEFAULT 'manual',
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_risk_flags_wallet ON risk_flags (wallet_address);
+    CREATE INDEX IF NOT EXISTS idx_risk_flags_token ON risk_flags (token_address);
+    CREATE INDEX IF NOT EXISTS idx_risk_flags_wallet_token ON risk_flags (wallet_address, token_address);
+    CREATE TABLE IF NOT EXISTS loan_token_exposure (
+      loan_id TEXT NOT NULL,
+      chain TEXT NOT NULL DEFAULT 'base',
+      token_address TEXT NOT NULL,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (loan_id, chain)
+    );
+    CREATE INDEX IF NOT EXISTS idx_loan_token_exposure_token ON loan_token_exposure (token_address);
+    CREATE INDEX IF NOT EXISTS idx_loan_token_exposure_created_at ON loan_token_exposure (created_at DESC);
+
+    -- Optional job queue for always-on repayment sweeps (Solana/EVM, etc.)
+    CREATE TABLE IF NOT EXISTS repay_jobs (
+      id TEXT PRIMARY KEY,
+      chain_type TEXT NOT NULL,
+      owner_wallet TEXT NOT NULL,
+      max_usdc TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      last_error TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_repay_jobs_status ON repay_jobs (status, created_at DESC);
+
+    -- Relayer request nonces (prevents replay for private-mode relayed actions).
+    CREATE TABLE IF NOT EXISTS relayer_nonces (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      nonce TEXT NOT NULL,
+      expires_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, nonce)
+    );
+    CREATE INDEX IF NOT EXISTS idx_relayer_nonces_user ON relayer_nonces (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_relayer_nonces_expires ON relayer_nonces (expires_at) WHERE expires_at IS NOT NULL;
   `);
+  try {
+    const cols = sqlite.prepare('PRAGMA table_info(events)').all();
+    if (cols.every((c) => c.name !== 'token_address')) {
+      sqlite.exec('ALTER TABLE events ADD COLUMN token_address TEXT');
+    }
+    sqlite.exec(
+      'CREATE INDEX IF NOT EXISTS idx_events_token ON events (token_address) WHERE token_address IS NOT NULL'
+    );
+  } catch (_) {}
 };
 
 const init = async () => {
@@ -290,7 +421,7 @@ const loadEvents = async (limit) => {
     const { data, error } = await supabaseClient()
       .from('indexer_events')
       .select(
-        'tx_hash, log_index, block_number, timestamp, type, loan_id, borrower, amount, defaulted'
+        'tx_hash, log_index, block_number, timestamp, type, loan_id, borrower, amount, defaulted, token_address'
       )
       .order('block_number', { ascending: false })
       .order('log_index', { ascending: false })
@@ -300,7 +431,7 @@ const loadEvents = async (limit) => {
   }
   const rows = sqlite
     .prepare(
-      'SELECT txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted FROM events ORDER BY blockNumber DESC, logIndex DESC LIMIT ?'
+      'SELECT txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted, token_address FROM events ORDER BY blockNumber DESC, logIndex DESC LIMIT ?'
     )
     .all(limit);
   return rows.map((row) => ({
@@ -312,7 +443,8 @@ const loadEvents = async (limit) => {
     loanId: row.loanId || '',
     borrower: row.borrower || '',
     amount: row.amount || '',
-    defaulted: row.defaulted ? Boolean(row.defaulted) : false
+    defaulted: row.defaulted ? Boolean(row.defaulted) : false,
+    tokenAddress: row.token_address ?? null
   }));
 };
 
@@ -331,7 +463,8 @@ const saveEvents = async (events) => {
           loan_id: event.loanId || '',
           borrower: event.borrower || '',
           amount: event.amount || '',
-          defaulted: event.defaulted ?? null
+          defaulted: event.defaulted ?? null,
+          token_address: event.tokenAddress ?? null
         })),
         { onConflict: 'tx_hash,log_index' }
       );
@@ -340,8 +473,8 @@ const saveEvents = async (events) => {
   }
   const insert = sqlite.prepare(
     `INSERT OR IGNORE INTO events
-      (txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted, token_address)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const tx = sqlite.transaction((rows) => {
     rows.forEach((event) =>
@@ -354,7 +487,8 @@ const saveEvents = async (events) => {
         event.loanId || '',
         event.borrower || '',
         event.amount || '',
-        event.defaulted ? 1 : 0
+        event.defaulted ? 1 : 0,
+        event.tokenAddress ?? null
       )
     );
   });
@@ -490,6 +624,35 @@ const setMeta = async (key, value) => {
       'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
     )
     .run(key, String(value));
+};
+
+const deleteMeta = async (key) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('meta').delete().eq('key', key);
+    if (error) throw new Error(`[supabase] deleteMeta failed: ${error.message}`);
+    return;
+  }
+  sqlite.prepare('DELETE FROM meta WHERE key = ?').run(key);
+};
+
+// Clear indexer caches when switching chains/networks. This avoids mixing cached
+// localhost rows with Sepolia (or vice versa) and prevents massive backfills.
+const clearIndexerCache = async () => {
+  if (useSupabase) {
+    const client = supabaseClient();
+    // Best-effort deletes; failures should not crash the server.
+    await client.from('indexer_events').delete().neq('tx_hash', '').catch(() => null);
+    await client.from('snapshots').delete().neq('timestamp', 0).catch(() => null);
+    await client.from('snapshot_items').delete().neq('timestamp', 0).catch(() => null);
+    await deleteMeta('lastIndexedBlock').catch(() => null);
+    return;
+  }
+  try {
+    sqlite.prepare('DELETE FROM events').run();
+    sqlite.prepare('DELETE FROM snapshots').run();
+    sqlite.prepare('DELETE FROM snapshot_items').run();
+    sqlite.prepare('DELETE FROM meta WHERE key = ?').run('lastIndexedBlock');
+  } catch (_) {}
 };
 
 const insertSubmission = async ({ channel, payload, userId }) => {
@@ -811,13 +974,15 @@ const createSession = async ({ userId, provider, nonce, issuedAt, expiresAt, ipH
   return { id, user_id: userId, provider, nonce, issued_at: issuedValue, expires_at: expiresValue };
 };
 
-const getNonceSession = async (userId, nonce) => {
+const getNonceSessionByProvider = async (userId, provider, nonce) => {
+  if (!userId || !nonce) return null;
+  const safeProvider = String(provider || '').trim() || 'wallet_nonce';
   if (useSupabase) {
     const { data, error } = await supabaseClient()
       .from('app_sessions')
       .select('id, user_id, provider, nonce, issued_at, expires_at, ip_hash')
       .eq('user_id', userId)
-      .eq('provider', 'wallet_nonce')
+      .eq('provider', safeProvider)
       .eq('nonce', nonce)
       .maybeSingle();
     if (error && error.code !== 'PGRST116') {
@@ -838,7 +1003,7 @@ const getNonceSession = async (userId, nonce) => {
     .prepare(
       'SELECT id, user_id, provider, nonce, issued_at, expires_at, ip_hash FROM app_sessions WHERE user_id = ? AND provider = ? AND nonce = ?'
     )
-    .get(userId, 'wallet_nonce', nonce);
+    .get(userId, safeProvider, nonce);
   if (!row) return null;
   return {
     id: row.id,
@@ -850,6 +1015,9 @@ const getNonceSession = async (userId, nonce) => {
     ipHash: row.ip_hash || ''
   };
 };
+
+const getNonceSession = async (userId, nonce) =>
+  getNonceSessionByProvider(userId, 'wallet_nonce', nonce);
 
 const getSessionByToken = async (token) => {
   if (!token) return null;
@@ -1263,13 +1431,14 @@ const listRecentAgentConversations = async ({
     id: row.id,
     userId: row.user_id || null,
     sessionFingerprint: row.session_fingerprint || '',
-    message: row.message || '',
-    answer: row.answer || '',
+    message: decryptText(row.message || ''),
+    answer: decryptText(row.answer || ''),
     mode: row.mode || '',
     provider: row.provider || '',
     metadata: (() => {
       try {
-        return row.metadata ? JSON.parse(row.metadata) : {};
+        const decoded = decryptText(row.metadata || '');
+        return decoded ? JSON.parse(decoded) : {};
       } catch {
         return {};
       }
@@ -1318,11 +1487,11 @@ const saveAgentConversation = async ({
       id,
       userId || null,
       sessionFingerprint || null,
-      String(message).slice(0, 3000),
-      String(answer).slice(0, 8000),
+      encryptText(String(message).slice(0, 3000)),
+      encryptText(String(answer).slice(0, 8000)),
       String(mode || '').slice(0, 80),
       String(provider || '').slice(0, 80),
-      JSON.stringify(normalizedMetadata),
+      encryptText(JSON.stringify(normalizedMetadata)),
       createdAt
     );
   return { id, createdAt };
@@ -1371,7 +1540,7 @@ const saveAnalyticsEvent = async ({
       String(event).slice(0, 120),
       page ? String(page).slice(0, 200) : null,
       walletAddress || null,
-      JSON.stringify(normalizedProps),
+      encryptText(JSON.stringify(normalizedProps)),
       userId || null,
       sessionFingerprint || null,
       ipHash || null,
@@ -1631,6 +1800,50 @@ const getAnalyticsBenchmark = async ({ windowDays = 30 } = {}) => {
     since: sinceIso,
     ...summary
   };
+};
+
+const listAnalyticsEvents = async ({ event = null, limit = 100 } = {}) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
+  const ev = event ? String(event).slice(0, 120) : null;
+  if (useSupabase) {
+    let query = supabaseClient()
+      .from('analytics_events')
+      .select('id, event, page, wallet_address, properties, created_at, source');
+    if (ev) query = query.eq('event', ev);
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(safeLimit);
+    if (error) throw new Error(`[supabase] listAnalyticsEvents failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      event: row.event,
+      page: row.page || null,
+      walletAddress: row.wallet_address || null,
+      properties: row.properties || {},
+      source: row.source || null,
+      createdAt: row.created_at || null
+    }));
+  }
+  if (!sqlite) return [];
+  let sql =
+    'SELECT id, event, page, wallet_address, properties, source, created_at FROM analytics_events';
+  const args = [];
+  if (ev) {
+    sql += ' WHERE event = ?';
+    args.push(ev);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  args.push(safeLimit);
+  const rows = sqlite.prepare(sql).all(...args);
+  return rows.map((row) => ({
+    id: row.id,
+    event: row.event,
+    page: row.page || null,
+    walletAddress: row.wallet_address || null,
+    properties: row.properties ? JSON.parse(decryptText(row.properties)) : {},
+    source: row.source || null,
+    createdAt: row.created_at || null
+  }));
 };
 
 const getAirdropLeaderboard = async ({
@@ -2381,6 +2594,626 @@ const updateFundraisingSource = async (id, { token = null, treasury = null, vest
   return sqlite.prepare('SELECT * FROM fundraising_sources WHERE id = ?').get(id);
 };
 
+// --- Risk flags (founder/insider wallet-token flagging; internal only) ---
+
+const createRiskFlag = async ({ walletAddress, tokenAddress = null, flagType, source = 'manual', metadata = null }) => {
+  const id = createId();
+  const wallet = String(walletAddress || '').trim().toLowerCase();
+  const token = tokenAddress ? String(tokenAddress).trim().toLowerCase() : null;
+  if (!wallet || !flagType) throw new Error('walletAddress and flagType required');
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('risk_flags').insert({
+      id,
+      wallet_address: wallet,
+      token_address: token,
+      flag_type: String(flagType),
+      source: String(source || 'manual'),
+      metadata: metadata ? normalizeJson(metadata) : null
+    });
+    if (error) throw new Error(`risk_flags insert: ${error.message}`);
+    return { id, walletAddress: wallet, tokenAddress: token, flagType: String(flagType), source: String(source || 'manual'), metadata, createdAt: new Date().toISOString() };
+  }
+  sqlite.prepare(
+    `INSERT INTO risk_flags (id, wallet_address, token_address, flag_type, source, metadata) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, wallet, token, String(flagType), String(source || 'manual'), metadata ? JSON.stringify(metadata) : null);
+  return { id, walletAddress: wallet, tokenAddress: token, flagType: String(flagType), source: String(source || 'manual'), metadata, createdAt: new Date().toISOString() };
+};
+
+const getRiskFlags = async ({ walletAddress = null, tokenAddress = null } = {}) => {
+  if (useSupabase) {
+    let q = supabaseClient().from('risk_flags').select('id, wallet_address, token_address, flag_type, source, metadata, created_at').order('created_at', { ascending: false });
+    if (walletAddress) q = q.eq('wallet_address', String(walletAddress).trim().toLowerCase());
+    if (tokenAddress) q = q.eq('token_address', String(tokenAddress).trim().toLowerCase());
+    const { data, error } = await q.limit(500);
+    if (error) throw new Error(`risk_flags get: ${error.message}`);
+    return (data || []).map((r) => ({
+      id: r.id,
+      walletAddress: r.wallet_address,
+      tokenAddress: r.token_address,
+      flagType: r.flag_type,
+      source: r.source,
+      metadata: r.metadata,
+      createdAt: r.created_at
+    }));
+  }
+  let sql = 'SELECT id, wallet_address, token_address, flag_type, source, metadata, created_at FROM risk_flags WHERE 1=1';
+  const params = [];
+  if (walletAddress) { sql += ' AND wallet_address = ?'; params.push(String(walletAddress).trim().toLowerCase()); }
+  if (tokenAddress) { sql += ' AND token_address = ?'; params.push(String(tokenAddress).trim().toLowerCase()); }
+  sql += ' ORDER BY created_at DESC LIMIT 500';
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map((r) => ({
+    id: r.id,
+    walletAddress: r.wallet_address,
+    tokenAddress: r.token_address,
+    flagType: r.flag_type,
+    source: r.source,
+    metadata: r.metadata ? JSON.parse(r.metadata) : null,
+    createdAt: r.created_at
+  }));
+};
+
+const deleteRiskFlag = async (id) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('risk_flags').delete().eq('id', id);
+    if (error) throw new Error(`risk_flags delete: ${error.message}`);
+    return true;
+  }
+  const r = sqlite.prepare('DELETE FROM risk_flags WHERE id = ?').run(id);
+  return r.changes > 0;
+};
+
+const listFlaggedWallets = async (limit = 200) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('risk_flags')
+      .select('wallet_address')
+      .order('created_at', { ascending: false })
+      .limit(limit * 2);
+    if (error) throw new Error(`risk_flags list: ${error.message}`);
+    const seen = new Set();
+    const out = [];
+    for (const r of data || []) {
+      if (r.wallet_address && !seen.has(r.wallet_address)) { seen.add(r.wallet_address); out.push(r.wallet_address); if (out.length >= limit) break; }
+    }
+    return out;
+  }
+  const rows = sqlite.prepare('SELECT DISTINCT wallet_address FROM risk_flags ORDER BY created_at DESC LIMIT ?').all(limit);
+  return rows.map((r) => r.wallet_address);
+};
+
+const listFlaggedTokens = async (limit = 200) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('risk_flags')
+      .select('token_address')
+      .not('token_address', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(limit * 2);
+    if (error) throw new Error(`risk_flags list: ${error.message}`);
+    const seen = new Set();
+    const out = [];
+    for (const r of data || []) {
+      if (r.token_address && !seen.has(r.token_address)) { seen.add(r.token_address); out.push(r.token_address); if (out.length >= limit) break; }
+    }
+    return out;
+  }
+  const rows = sqlite.prepare('SELECT DISTINCT token_address FROM risk_flags WHERE token_address IS NOT NULL ORDER BY created_at DESC LIMIT ?').all(limit);
+  return rows.map((r) => r.token_address);
+};
+
+const getLoanExposureByToken = async (tokenAddress, chain = null) => {
+  const token = String(tokenAddress || '').trim().toLowerCase();
+  if (!token) return 0;
+  if (useSupabase) {
+    let q = supabaseClient().from('loan_token_exposure').select('amount_usd').eq('token_address', token);
+    if (chain) q = q.eq('chain', String(chain));
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] getLoanExposureByToken failed: ${error.message}`);
+    return (data || []).reduce((sum, r) => sum + Number(r.amount_usd || 0), 0);
+  }
+  let sql = 'SELECT COALESCE(SUM(amount_usd), 0) AS total FROM loan_token_exposure WHERE token_address = ?';
+  const params = [token];
+  if (chain) { sql += ' AND chain = ?'; params.push(String(chain)); }
+  const row = sqlite.prepare(sql).get(...params);
+  return Number(row?.total ?? 0);
+};
+
+const upsertLoanTokenExposure = async ({ loanId, chain = 'base', tokenAddress, amountUsd }) => {
+  const loan = String(loanId || '');
+  const ch = String(chain || 'base');
+  const token = String(tokenAddress || '').trim().toLowerCase();
+  const amount = Number(amountUsd);
+  if (!loan || !token) return;
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('loan_token_exposure').upsert(
+      { loan_id: loan, chain: ch, token_address: token, amount_usd: amount, created_at: new Date().toISOString() },
+      { onConflict: 'loan_id,chain' }
+    );
+    if (error) throw new Error(`[supabase] upsertLoanTokenExposure failed: ${error.message}`);
+    return;
+  }
+  sqlite.prepare(
+    'INSERT INTO loan_token_exposure (loan_id, chain, token_address, amount_usd) VALUES (?, ?, ?, ?) ON CONFLICT(loan_id, chain) DO UPDATE SET token_address = excluded.token_address, amount_usd = excluded.amount_usd'
+  ).run(loan, ch, token, amount);
+};
+
+const deleteLoanTokenExposure = async (loanId, chain = 'base') => {
+  const loan = String(loanId || '');
+  const ch = String(chain || 'base');
+  if (!loan) return;
+  if (useSupabase) {
+    const { error } = await supabaseClient()
+      .from('loan_token_exposure')
+      .delete()
+      .eq('loan_id', loan)
+      .eq('chain', ch);
+    if (error) throw new Error(`[supabase] deleteLoanTokenExposure failed: ${error.message}`);
+    return;
+  }
+  sqlite.prepare('DELETE FROM loan_token_exposure WHERE loan_id = ? AND chain = ?').run(loan, ch);
+};
+
+const getExposureByTokenList = async (chain = null) => {
+  if (useSupabase) {
+    let q = supabaseClient().from('loan_token_exposure').select('token_address, amount_usd');
+    if (chain) q = q.eq('chain', String(chain));
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] getExposureByTokenList failed: ${error.message}`);
+    const byToken = {};
+    (data || []).forEach((r) => {
+      const t = (r.token_address || '').toLowerCase();
+      if (!t) return;
+      byToken[t] = (byToken[t] || 0) + Number(r.amount_usd || 0);
+    });
+    return Object.entries(byToken).map(([token, exposureUsd]) => ({ token, exposureUsd }));
+  }
+  let sql = 'SELECT token_address, SUM(amount_usd) AS total FROM loan_token_exposure WHERE 1=1';
+  const params = [];
+  if (chain) { sql += ' AND chain = ?'; params.push(String(chain)); }
+  sql += ' GROUP BY token_address';
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map((r) => ({ token: (r.token_address || '').toLowerCase(), exposureUsd: Number(r.total || 0) }));
+};
+
+// --- Lender privacy-lite aggregates ---
+//
+// Returns exposure totals without revealing which tokens are involved.
+// This is safe for "portfolio-light" lender dashboards and public metrics pages.
+const getExposureTotals = async (chain = null) => {
+  const ch = chain ? String(chain) : null;
+  if (useSupabase) {
+    let exposureQuery = supabaseClient().from('loan_token_exposure').select('token_address, amount_usd');
+    if (ch) exposureQuery = exposureQuery.eq('chain', ch);
+    const { data: exposureRows, error: exposureErr } = await exposureQuery;
+    if (exposureErr) throw new Error(`[supabase] getExposureTotals exposure failed: ${exposureErr.message}`);
+
+    const { data: flaggedRows, error: flaggedErr } = await supabaseClient()
+      .from('risk_flags')
+      .select('token_address')
+      .not('token_address', 'is', null);
+    if (flaggedErr) throw new Error(`[supabase] getExposureTotals flags failed: ${flaggedErr.message}`);
+
+    const flagged = new Set((flaggedRows || []).map((r) => String(r.token_address || '').toLowerCase()).filter(Boolean));
+    let totalExposureUsd = 0;
+    let flaggedExposureUsd = 0;
+    let uniqueTokenCount = 0;
+    let uniqueFlaggedTokenCount = 0;
+    const seenTokens = new Set();
+    const seenFlaggedTokens = new Set();
+
+    (exposureRows || []).forEach((r) => {
+      const token = String(r.token_address || '').toLowerCase();
+      const amount = Number(r.amount_usd || 0);
+      totalExposureUsd += amount;
+      if (token && !seenTokens.has(token)) {
+        seenTokens.add(token);
+        uniqueTokenCount += 1;
+      }
+      if (token && flagged.has(token)) {
+        flaggedExposureUsd += amount;
+        if (!seenFlaggedTokens.has(token)) {
+          seenFlaggedTokens.add(token);
+          uniqueFlaggedTokenCount += 1;
+        }
+      }
+    });
+    return {
+      chain: ch,
+      totalExposureUsd,
+      flaggedExposureUsd,
+      uniqueTokenCount,
+      uniqueFlaggedTokenCount
+    };
+  }
+
+  // SQLite
+  let sqlTotal = 'SELECT COALESCE(SUM(amount_usd), 0) AS total FROM loan_token_exposure WHERE 1=1';
+  const paramsTotal = [];
+  if (ch) { sqlTotal += ' AND chain = ?'; paramsTotal.push(ch); }
+  const rowTotal = sqlite.prepare(sqlTotal).get(...paramsTotal);
+
+  let sqlFlagged = `
+    SELECT COALESCE(SUM(lte.amount_usd), 0) AS total
+    FROM loan_token_exposure lte
+    WHERE 1=1
+      AND EXISTS (
+        SELECT 1
+        FROM risk_flags rf
+        WHERE rf.token_address IS NOT NULL
+          AND LOWER(rf.token_address) = LOWER(lte.token_address)
+      )
+  `;
+  const paramsFlagged = [];
+  if (ch) { sqlFlagged += ' AND lte.chain = ?'; paramsFlagged.push(ch); }
+  const rowFlagged = sqlite.prepare(sqlFlagged).get(...paramsFlagged);
+
+  let sqlUnique = 'SELECT COUNT(DISTINCT token_address) AS total FROM loan_token_exposure WHERE 1=1';
+  const paramsUnique = [];
+  if (ch) { sqlUnique += ' AND chain = ?'; paramsUnique.push(ch); }
+  const rowUnique = sqlite.prepare(sqlUnique).get(...paramsUnique);
+
+  let sqlUniqueFlagged = `
+    SELECT COUNT(DISTINCT lte.token_address) AS total
+    FROM loan_token_exposure lte
+    WHERE 1=1
+      AND EXISTS (
+        SELECT 1
+        FROM risk_flags rf
+        WHERE rf.token_address IS NOT NULL
+          AND LOWER(rf.token_address) = LOWER(lte.token_address)
+      )
+  `;
+  const paramsUniqueFlagged = [];
+  if (ch) { sqlUniqueFlagged += ' AND lte.chain = ?'; paramsUniqueFlagged.push(ch); }
+  const rowUniqueFlagged = sqlite.prepare(sqlUniqueFlagged).get(...paramsUniqueFlagged);
+
+  return {
+    chain: ch,
+    totalExposureUsd: Number(rowTotal?.total ?? 0),
+    flaggedExposureUsd: Number(rowFlagged?.total ?? 0),
+    uniqueTokenCount: Number(rowUnique?.total ?? 0),
+    uniqueFlaggedTokenCount: Number(rowUniqueFlagged?.total ?? 0)
+  };
+};
+
+// --- Repayment job queue (always-on sweeps) ---
+
+const createRepayJob = async ({ chainType = 'solana', ownerWallet, maxUsdc = null } = {}) => {
+  const chain = normalizeChainType(chainType);
+  const owner = String(ownerWallet || '').trim();
+  if (!owner) throw new Error('ownerWallet required');
+  const id = createId();
+  const now = new Date().toISOString();
+  const payload = {
+    id,
+    chain_type: chain,
+    owner_wallet: owner,
+    max_usdc: maxUsdc === null || maxUsdc === undefined ? null : String(maxUsdc),
+    status: 'pending',
+    last_error: null,
+    created_at: now,
+    updated_at: now
+  };
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('repay_jobs').insert(payload);
+    if (error) throw new Error(`[supabase] createRepayJob failed: ${error.message}`);
+    return { id, chainType: chain, ownerWallet: owner, maxUsdc: payload.max_usdc, status: 'pending' };
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO repay_jobs (id, chain_type, owner_wallet, max_usdc, status, last_error, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      payload.id,
+      payload.chain_type,
+      payload.owner_wallet,
+      payload.max_usdc,
+      payload.status,
+      payload.last_error,
+      payload.created_at,
+      payload.updated_at
+    );
+  return { id, chainType: chain, ownerWallet: owner, maxUsdc: payload.max_usdc, status: 'pending' };
+};
+
+const listPendingRepayJobs = async ({ chainType = null, limit = 20 } = {}) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 200));
+  const chain = chainType ? normalizeChainType(chainType) : null;
+  if (useSupabase) {
+    let q = supabaseClient()
+      .from('repay_jobs')
+      .select('id, chain_type, owner_wallet, max_usdc, status, last_error, created_at, updated_at')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(safeLimit);
+    if (chain) q = q.eq('chain_type', chain);
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] listPendingRepayJobs failed: ${error.message}`);
+    return (data || []).map((row) => ({
+      id: row.id,
+      chainType: row.chain_type,
+      ownerWallet: row.owner_wallet,
+      maxUsdc: row.max_usdc,
+      status: row.status,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+  let sql =
+    'SELECT id, chain_type, owner_wallet, max_usdc, status, last_error, created_at, updated_at FROM repay_jobs WHERE status = ?';
+  const params = ['pending'];
+  if (chain) {
+    sql += ' AND chain_type = ?';
+    params.push(chain);
+  }
+  sql += ' ORDER BY created_at ASC LIMIT ?';
+  params.push(safeLimit);
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map((row) => ({
+    id: row.id,
+    chainType: row.chain_type,
+    ownerWallet: row.owner_wallet,
+    maxUsdc: row.max_usdc,
+    status: row.status,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+};
+
+const updateRepayJob = async ({ id, status, lastError = null } = {}) => {
+  if (!id || !status) throw new Error('id and status required');
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const { error } = await supabaseClient()
+      .from('repay_jobs')
+      .update({
+        status: String(status),
+        last_error: lastError ? String(lastError).slice(0, 800) : null,
+        updated_at: now
+      })
+      .eq('id', String(id));
+    if (error) throw new Error(`[supabase] updateRepayJob failed: ${error.message}`);
+    return true;
+  }
+  sqlite
+    .prepare(
+      `UPDATE repay_jobs
+       SET status = ?, last_error = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(String(status), lastError ? String(lastError).slice(0, 800) : null, now, String(id));
+  return true;
+};
+
+const listVestingSources = async ({ chainId, protocol, limit = 100 } = {}) => {
+  if (useSupabase) {
+    let q = supabaseClient()
+      .from('vesting_sources')
+      .select('id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (chainId) q = q.eq('chain_id', String(chainId));
+    if (protocol) q = q.eq('protocol', String(protocol));
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] listVestingSources failed: ${error.message}`);
+    return (data || []).map((r) => ({
+      id: r.id,
+      chainId: r.chain_id,
+      vestingContract: r.vesting_contract,
+      protocol: r.protocol,
+      lockupAddress: r.lockup_address,
+      streamId: r.stream_id,
+      createdAt: r.created_at
+    }));
+  }
+  let sql = 'SELECT id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at FROM vesting_sources WHERE 1=1';
+  const params = [];
+  if (chainId) { sql += ' AND chain_id = ?'; params.push(String(chainId)); }
+  if (protocol) { sql += ' AND protocol = ?'; params.push(String(protocol)); }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(limit);
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map((r) => ({
+    id: r.id,
+    chainId: r.chain_id,
+    vestingContract: r.vesting_contract,
+    protocol: r.protocol,
+    lockupAddress: r.lockup_address,
+    streamId: r.stream_id,
+    createdAt: r.created_at
+  }));
+};
+
+const getPrivacyVaultByUser = async (userId, chainType = 'evm') => {
+  if (!userId) return null;
+  const chain = normalizeChainType(chainType);
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('privacy_vaults')
+      .select('id, user_id, chain_type, vault_address, created_at, updated_at')
+      .eq('user_id', String(userId))
+      .eq('chain_type', chain)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`[supabase] getPrivacyVaultByUser failed: ${error.message}`);
+    }
+    if (!data) return null;
+    return {
+      id: data.id,
+      userId: data.user_id,
+      chainType: data.chain_type,
+      vaultAddress: data.vault_address,
+      createdAt: data.created_at || null,
+      updatedAt: data.updated_at || null
+    };
+  }
+  const row = sqlite
+    .prepare(
+      'SELECT id, user_id, chain_type, vault_address, created_at, updated_at FROM privacy_vaults WHERE user_id = ? AND chain_type = ?'
+    )
+    .get(String(userId), chain);
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    chainType: row.chain_type,
+    vaultAddress: row.vault_address,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+};
+
+const upsertPrivacyVault = async ({ userId, chainType = 'evm', vaultAddress } = {}) => {
+  if (!userId || !vaultAddress) throw new Error('userId and vaultAddress required');
+  const chain = normalizeChainType(chainType);
+  const now = new Date().toISOString();
+  if (useSupabase) {
+    const payload = {
+      id: createId(),
+      user_id: String(userId),
+      chain_type: chain,
+      vault_address: String(vaultAddress),
+      created_at: now,
+      updated_at: now
+    };
+    const { data, error } = await supabaseClient()
+      .from('privacy_vaults')
+      .upsert(payload, { onConflict: 'user_id,chain_type' })
+      .select('id, user_id, chain_type, vault_address, created_at, updated_at')
+      .single();
+    if (error) throw new Error(`[supabase] upsertPrivacyVault failed: ${error.message}`);
+    return {
+      id: data.id,
+      userId: data.user_id,
+      chainType: data.chain_type,
+      vaultAddress: data.vault_address,
+      createdAt: data.created_at || null,
+      updatedAt: data.updated_at || null
+    };
+  }
+  const existing = sqlite
+    .prepare('SELECT id FROM privacy_vaults WHERE user_id = ? AND chain_type = ?')
+    .get(String(userId), chain);
+  const id = existing?.id || createId();
+  sqlite
+    .prepare(
+      `INSERT INTO privacy_vaults (id, user_id, chain_type, vault_address, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, chain_type) DO UPDATE SET
+         vault_address = excluded.vault_address,
+         updated_at = excluded.updated_at`
+    )
+    .run(id, String(userId), chain, String(vaultAddress), now, now);
+  return getPrivacyVaultByUser(userId, chainType);
+};
+
+// --- Vestra Premium Privacy: data minimization (SQLite mode) ---
+//
+// This is intentionally simple: we enforce retention by deleting old rows. For local
+// demos + MVP environments, this is safer than indefinitely storing sensitive chat,
+// analytics, and geo presence data.
+const purgeSensitiveData = async () => {
+  if (useSupabase) return { ok: true, skipped: 'supabase' };
+  if (!sqlite) return { ok: false, error: 'sqlite not initialized' };
+
+  const daysAgent = Math.max(1, Math.min(Number(process.env.RETENTION_DAYS_AGENT_CONVERSATIONS || 14), 365));
+  const daysAnalytics = Math.max(1, Math.min(Number(process.env.RETENTION_DAYS_ANALYTICS_EVENTS || 30), 365));
+  const daysGeo = Math.max(1, Math.min(Number(process.env.RETENTION_DAYS_USER_GEO_PRESENCE || 7), 365));
+
+  // ISO timestamps sort lexicographically, so we can compare text.
+  const cutoffAgent = new Date(Date.now() - daysAgent * 24 * 60 * 60 * 1000).toISOString();
+  const cutoffAnalytics = new Date(Date.now() - daysAnalytics * 24 * 60 * 60 * 1000).toISOString();
+  const cutoffGeo = new Date(Date.now() - daysGeo * 24 * 60 * 60 * 1000).toISOString();
+
+  const deleted = { agentConversations: 0, analyticsEvents: 0, geoPresence: 0, expiredSessions: 0 };
+  try {
+    deleted.agentConversations = sqlite
+      .prepare('DELETE FROM agent_conversations WHERE created_at IS NOT NULL AND created_at < ?')
+      .run(cutoffAgent).changes;
+  } catch (_) {}
+  try {
+    deleted.analyticsEvents = sqlite
+      .prepare('DELETE FROM analytics_events WHERE created_at IS NOT NULL AND created_at < ?')
+      .run(cutoffAnalytics).changes;
+  } catch (_) {}
+  try {
+    deleted.geoPresence = sqlite
+      .prepare('DELETE FROM user_geo_presence WHERE updated_at IS NOT NULL AND updated_at < ?')
+      .run(cutoffGeo).changes;
+  } catch (_) {}
+  try {
+    const nowIso = new Date().toISOString();
+    deleted.expiredSessions = sqlite
+      .prepare('DELETE FROM app_sessions WHERE expires_at IS NOT NULL AND expires_at < ?')
+      .run(nowIso).changes;
+  } catch (_) {}
+
+  return { ok: true, deleted };
+};
+
+const consumeRelayerNonce = async ({ userId, action = 'unknown', nonce, expiresAt = null } = {}) => {
+  if (!userId || !nonce) throw new Error('userId and nonce required');
+  const now = new Date().toISOString();
+  const expiresIso =
+    expiresAt && Number.isFinite(Number(expiresAt))
+      ? new Date(Number(expiresAt) * 1000).toISOString()
+      : null;
+
+  if (useSupabase) {
+    const client = supabaseClient();
+    // Best-effort cleanup of expired rows.
+    try {
+      await client.from('relayer_nonces').delete().lt('expires_at', now);
+    } catch (_) {}
+    const { data, error } = await client
+      .from('relayer_nonces')
+      .insert({
+        id: createId(),
+        user_id: String(userId),
+        action: String(action || 'unknown').slice(0, 80),
+        nonce: String(nonce).slice(0, 200),
+        expires_at: expiresIso,
+        created_at: now
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (String(error.message || '').toLowerCase().includes('duplicate')) {
+        throw new Error('Nonce already used');
+      }
+      throw new Error(`[supabase] consumeRelayerNonce failed: ${error.message}`);
+    }
+    return { id: data?.id || null };
+  }
+
+  // SQLite
+  try {
+    sqlite
+      .prepare('DELETE FROM relayer_nonces WHERE expires_at IS NOT NULL AND expires_at < ?')
+      .run(now);
+  } catch (_) {}
+  const id = createId();
+  try {
+    sqlite
+      .prepare(
+        `INSERT INTO relayer_nonces (id, user_id, action, nonce, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, String(userId), String(action || 'unknown').slice(0, 80), String(nonce).slice(0, 200), expiresIso, now);
+  } catch (error) {
+    const msg = String(error?.message || '');
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('constraint')) {
+      throw new Error('Nonce already used');
+    }
+    throw error;
+  }
+  return { id };
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -2390,6 +3223,8 @@ module.exports = {
   saveSnapshot,
   getMeta,
   setMeta,
+  deleteMeta,
+  clearIndexerCache,
   insertSubmission,
   insertNotification,
   getOrCreateUserByWallet,
@@ -2398,6 +3233,7 @@ module.exports = {
   getLinkedEvmWallet,
   createSession,
   getNonceSession,
+  getNonceSessionByProvider,
   getSessionByToken,
   deleteSession,
   clearSessionsByProvider,
@@ -2414,6 +3250,7 @@ module.exports = {
   getAnalyticsSummary,
   getAnalyticsMetrics,
   getAnalyticsBenchmark,
+  listAnalyticsEvents,
   getAirdropLeaderboard,
   saveAdminAuditLog,
   listAdminAuditLogs,
@@ -2425,5 +3262,23 @@ module.exports = {
   createFundraisingSource,
   getFundraisingSource,
   listFundraisingSources,
-  updateFundraisingSource
+  updateFundraisingSource,
+  createRiskFlag,
+  getRiskFlags,
+  deleteRiskFlag,
+  listFlaggedWallets,
+  listFlaggedTokens,
+  getLoanExposureByToken,
+  upsertLoanTokenExposure,
+  deleteLoanTokenExposure,
+  getExposureByTokenList,
+  getExposureTotals,
+  listVestingSources,
+  getPrivacyVaultByUser,
+  upsertPrivacyVault,
+  purgeSensitiveData,
+  consumeRelayerNonce,
+  createRepayJob,
+  listPendingRepayJobs,
+  updateRepayJob
 };

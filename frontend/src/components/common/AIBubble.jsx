@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { askAgent, requestMatchQuote } from '../../utils/api.js';
@@ -356,7 +356,7 @@ export default function AIBubble() {
     await handleQuery(text);
   };
 
-  const handlePoolMatch = async (key, data) => {
+  const handlePoolMatch = useCallback(async (key, data) => {
     if (!data?.collateralId || !data?.desiredAmountUsd) {
       setPoolMatches((prev) => ({
         ...prev,
@@ -372,7 +372,8 @@ export default function AIBubble() {
       const result = await requestMatchQuote({
         chain: data.chain || 'base',
         collateralId: data.collateralId,
-        desiredAmountUsd: Number(data.desiredAmountUsd)
+        desiredAmountUsd: Number(data.desiredAmountUsd),
+        borrowerWallet: address || undefined
       });
       setPoolMatches((prev) => ({
         ...prev,
@@ -384,7 +385,22 @@ export default function AIBubble() {
         [key]: { status: 'error', error: err?.message || 'Unable to match pools.' }
       }));
     }
-  };
+  }, [address]);
+
+  useEffect(() => {
+    const poolActions = (actions || []).filter((action) => action.type === 'pool_match');
+    if (!poolActions.length) return;
+    poolActions.forEach((action, index) => {
+      const key = `pool-${index}`;
+      const state = poolMatches[key];
+      if (state?.status) return;
+      const collateralId = action.data?.collateralId;
+      const desiredAmountUsd = action.data?.desiredAmountUsd;
+      if (collateralId && desiredAmountUsd) {
+        handlePoolMatch(key, action.data);
+      }
+    });
+  }, [actions, poolMatches, handlePoolMatch]);
 
   const clearGuideHighlight = () => {
     if (highlightedRef.current) {
@@ -800,13 +816,19 @@ export default function AIBubble() {
                 .map((action, index) => {
                   const key = `pool-${index}`;
                   const state = poolMatches[key] || {};
+                  const chainLabel = action.data?.chain || 'base';
                   return (
                     <div key={key} className="ai-panel">
                       <div className="section-subtitle">Pool Match</div>
                       <div className="muted">
                         Match collateral ID {action.data?.collateralId || '--'} for $
                         {action.data?.desiredAmountUsd || '--'} on{' '}
-                        {action.data?.chain || 'base'}.
+                        {chainLabel}.
+                      </div>
+                      <div className="muted small" style={{ marginTop: 6 }}>
+                        {chainLabel === 'solana'
+                          ? 'Solana quotes are advisory-only in this MVP; settlement is Base-only.'
+                          : 'Offers are advisory; settlement is Base-only in this MVP.'}
                       </div>
                       {state.error && <div className="error-text">{state.error}</div>}
                       {state.status === 'ready' && !state.offers?.length && (
@@ -822,11 +844,41 @@ export default function AIBubble() {
                           </div>
                           {state.offers.map((offer) => (
                             <div key={offer.offerId} className="table-row">
-                              <div>{offer.poolId.slice(0, 8)}...</div>
+                              <div>{offer.poolName || `${offer.poolId?.slice?.(0, 8) || 'pool'}...`}</div>
                               <div>{offer.riskTier}</div>
                               <div>{offer.interestBps} bps</div>
                               <div>${Number(offer.maxBorrowUsd || 0).toFixed(2)}</div>
                             </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {state.offers?.length ? (
+                        <div className="inline-actions wrap" style={{ marginTop: 10 }}>
+                          {state.offers.slice(0, 3).map((offer) => (
+                            <button
+                              key={`use-${offer.offerId}`}
+                              className="chip"
+                              type="button"
+                              onClick={() => {
+                                const collateralId = action.data?.collateralId || '';
+                                const desiredAmountUsd = action.data?.desiredAmountUsd || null;
+                                navigate('/borrow', {
+                                  state: {
+                                    prefill: {
+                                      fromAgent: true,
+                                      chain: chainLabel,
+                                      collateralId,
+                                      desiredAmountUsd,
+                                      preferredOfferId: offer.offerId
+                                    }
+                                  }
+                                });
+                              }}
+                              disabled={!action.data?.collateralId || !action.data?.desiredAmountUsd}
+                              title="Open Borrow with this offer selected"
+                            >
+                              Use {offer.poolName || offer.poolId?.slice?.(0, 6) || 'offer'}
+                            </button>
                           ))}
                         </div>
                       ) : null}

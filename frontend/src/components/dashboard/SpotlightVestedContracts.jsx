@@ -4,7 +4,6 @@ import { useChainId } from 'wagmi';
 import { spotlightContracts } from '../../data/spotlightContracts.js';
 import {
   fetchSolanaUnmappedMints,
-  fetchVestedContracts,
   fetchVestedSnapshots
 } from '../../utils/api.js';
 
@@ -56,6 +55,8 @@ function riskTag(risk) {
 const TRUSTED_EVIDENCE_HOSTS = [
   'etherscan.io',
   'basescan.org',
+  'evm.flowscan.io',
+  'evm-testnet.flowscan.io',
   'solscan.io',
   'explorer.solana.com',
   'github.com',
@@ -153,8 +154,6 @@ export default function SpotlightVestedContracts() {
   const [activeNiche, setActiveNiche] = useState('All');
   const [query, setQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
-  const [onChainContracts, setOnChainContracts] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [liquidityByToken, setLiquidityByToken] = useState({});
   const [snapshotHistory, setSnapshotHistory] = useState([]);
   const [unmappedMints, setUnmappedMints] = useState([]);
@@ -168,30 +167,6 @@ export default function SpotlightVestedContracts() {
     whileHover: shouldReduceMotion ? undefined : { y: -4, scale: 1.01 },
     whileTap: shouldReduceMotion ? undefined : { scale: 0.995 }
   };
-
-  useEffect(() => {
-    let isMounted = true;
-    setIsLoading(true);
-    fetchVestedContracts()
-      .then((data) => {
-        if (isMounted) {
-          setOnChainContracts(data);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setOnChainContracts([]);
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -265,95 +240,25 @@ export default function SpotlightVestedContracts() {
   }, []);
 
   const enrichedContracts = useMemo(() => {
-    if (!onChainContracts.length) {
+    // Privacy-lite guardrail: do not query the backend for per-loan/per-token live data
+    // on public pages. Spotlight is curated (static) unless an explicit admin tool is used.
+    if (!spotlightContracts.length) {
       return [];
     }
-    const baseItems = spotlightContracts.length
-      ? spotlightContracts
-      : onChainContracts.map((contract) => ({
-          id: `onchain-${contract.loanId}`,
-          niche: contract.chain === 'solana' ? 'Solana' : 'EVM',
-          project: contract.tokenSymbol || `Loan ${contract.loanId}`,
-          token: contract.tokenSymbol || (contract.token ? `${contract.token.slice(0, 6)}…` : '--'),
-          tokenAddress: contract.token || '',
-          stage: contract.active ? 'Live vesting' : 'Inactive',
-          vestingDate: contract.unlockTime
-            ? new Date(contract.unlockTime * 1000).toISOString()
-            : null,
-          riskRating: '--',
-          rationale: 'On-chain vested contract.',
-          metrics: {
-            vestingSizeUsd: Number(contract.pv || 0),
-            liquidityUsd: 0,
-            daysToUnlock: contract.daysToUnlock ?? 0,
-            historicalUnlocks: 0
-          },
-          tokenomics: { supply: '--', float: '--', fdv: '--' },
-          evidence: contract.evidence || {
-            escrowTx: '',
-            wallet: '',
-            tokenomics: '',
-            token: ''
-          }
-        }));
-
-    if (!spotlightContracts.length) {
-      return baseItems.map((item) => {
-        const liquidityData = item.tokenAddress ? liquidityByToken[item.tokenAddress] : null;
-        return {
-          ...item,
-          metrics: {
-            ...item.metrics,
-            liquidityUsd: liquidityData?.liquidityUsd ?? item.metrics?.liquidityUsd ?? 0,
-            volumeUsd: liquidityData?.volumeUsd ?? 0
-          }
-        };
-      });
-    }
+    const baseItems = spotlightContracts;
 
     return baseItems.map((item) => {
-      const tokenMatch = onChainContracts.find((contract) => {
-        if (item.tokenAddress && contract.token) {
-          return contract.token.toLowerCase() === item.tokenAddress.toLowerCase();
-        }
-        if (contract.tokenSymbol) {
-          return contract.tokenSymbol.toLowerCase() === item.token.toLowerCase();
-        }
-        return false;
-      });
-
-      if (!tokenMatch) return item;
-
-      const resolvedToken = item.tokenAddress || tokenMatch.token;
-      const liquidityData = resolvedToken ? liquidityByToken[resolvedToken] : null;
-      const metrics = {
-        ...item.metrics,
-        vestingSizeUsd: Number(tokenMatch.pv || 0),
-        liquidityUsd:
-          liquidityData?.liquidityUsd ?? item.metrics?.liquidityUsd ?? Number(tokenMatch.pv || 0),
-        volumeUsd: liquidityData?.volumeUsd ?? item.metrics?.volumeUsd ?? 0,
-        daysToUnlock: tokenMatch.daysToUnlock ?? item.metrics?.daysToUnlock ?? 0,
-        pv: tokenMatch.pv,
-        ltvBps: tokenMatch.ltvBps
-      };
-
+      const liquidityData = item.tokenAddress ? liquidityByToken[item.tokenAddress] : null;
       return {
         ...item,
-        tokenAddress: resolvedToken,
-        stage: tokenMatch.active ? 'Live vesting' : 'Inactive',
-        vestingDate: tokenMatch.unlockTime
-          ? new Date(tokenMatch.unlockTime * 1000).toISOString()
-          : item.vestingDate,
-        metrics,
-        evidence: {
-          escrowTx: tokenMatch.evidence?.escrowTx || item.evidence?.escrowTx,
-          wallet: tokenMatch.evidence?.wallet || item.evidence?.wallet,
-          tokenomics: item.evidence?.tokenomics,
-          token: tokenMatch.evidence?.token || item.evidence?.token
+        metrics: {
+          ...item.metrics,
+          liquidityUsd: liquidityData?.liquidityUsd ?? item.metrics?.liquidityUsd ?? 0,
+          volumeUsd: liquidityData?.volumeUsd ?? 0
         }
       };
     });
-  }, [onChainContracts, liquidityByToken]);
+  }, [liquidityByToken]);
 
   useEffect(() => {
     const network = GECKO_NETWORKS[chainId];
@@ -401,20 +306,8 @@ export default function SpotlightVestedContracts() {
   }, [activeNiche, query, enrichedContracts]);
 
   const upcomingOnChain = useMemo(() => {
-    if (!onChainContracts.length) return [];
-    return onChainContracts
-      .filter((contract) => contract.unlockTime && contract.active)
-      .sort((a, b) => Number(a.unlockTime) - Number(b.unlockTime))
-      .slice(0, 6)
-      .map((contract) => ({
-        id: `onchain-${contract.loanId}`,
-        project: contract.tokenSymbol || `Loan ${contract.loanId}`,
-        token: contract.tokenSymbol || contract.token?.slice(0, 6),
-        type: 'Vesting unlock',
-        expectedDate: new Date(contract.unlockTime * 1000).toISOString(),
-        notes: `Loan ${contract.loanId} • ${contract.quantity} tokens`
-      }));
-  }, [onChainContracts]);
+    return [];
+  }, []);
 
   const upcomingCombined = useMemo(() => upcomingOnChain, [upcomingOnChain]);
 
@@ -437,7 +330,7 @@ export default function SpotlightVestedContracts() {
             <span className="tag brand-tag subtle">Data-backed</span>
           </div>
         </div>
-        {isLoading && <div className="muted">Loading on-chain data…</div>}
+        {!spotlightContracts.length && <div className="muted">No curated spotlight items yet.</div>}
         <div className="stack-row">
           <label className="form-field">
             <input

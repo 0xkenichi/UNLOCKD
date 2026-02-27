@@ -7,7 +7,7 @@ import './polyfills.js';
 import { WagmiProvider, createConfig as createWagmiConfig, http, injected } from 'wagmi';
 import { walletConnect } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ALL_EVM_CHAINS } from './utils/chains.js';
+import { ALL_EVM_CHAINS, DEFAULT_EVM_CHAIN } from './utils/chains.js';
 import { getContractAddress } from './utils/contracts.js';
 import { AlchemyAccountProvider, createConfig as createAlchemyConfig } from '@account-kit/react';
 import { alchemy, baseSepolia, sepolia } from '@account-kit/infra';
@@ -28,7 +28,9 @@ if (hasWalletConnectProjectId) {
 }
 
 const transports = ALL_EVM_CHAINS.reduce((map, chain) => {
-  map[chain.id] = http();
+  const envKey = `VITE_EVM_RPC_${chain.id}`;
+  const overrideUrl = import.meta.env?.[envKey];
+  map[chain.id] = overrideUrl ? http(overrideUrl) : http();
   return map;
 }, {});
 
@@ -62,13 +64,16 @@ const alchemyConfig = hasAlchemyAccountKit
   : null;
 
 const runtimeAddresses = {
-  loanManager: getContractAddress(ALL_EVM_CHAINS[0]?.id, 'loanManager'),
-  valuationEngine: getContractAddress(ALL_EVM_CHAINS[0]?.id, 'valuationEngine'),
-  vestingAdapter: getContractAddress(ALL_EVM_CHAINS[0]?.id, 'vestingAdapter'),
-  usdc: getContractAddress(ALL_EVM_CHAINS[0]?.id, 'usdc')
+  loanManager: getContractAddress(DEFAULT_EVM_CHAIN.id, 'loanManager'),
+  valuationEngine: getContractAddress(DEFAULT_EVM_CHAIN.id, 'valuationEngine'),
+  vestingAdapter: getContractAddress(DEFAULT_EVM_CHAIN.id, 'vestingAdapter'),
+  usdc: getContractAddress(DEFAULT_EVM_CHAIN.id, 'usdc')
 };
 
-console.info('[contracts] sepolia addresses', runtimeAddresses);
+console.info(
+  `[contracts] default chain ${DEFAULT_EVM_CHAIN.name} (${DEFAULT_EVM_CHAIN.id})`,
+  runtimeAddresses
+);
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

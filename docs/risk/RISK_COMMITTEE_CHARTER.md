@@ -82,3 +82,10 @@ Emergency action options:
 - Liquidation recovery above target threshold
 - Zero unresolved critical oracle incidents
 - Mean time to mitigation under 60 minutes for emergency events
+
+## Related Documents
+
+- **Risks and gamification:** `docs/RISKS_GAPS_AND_GAMIFICATION.md` — catalog of protocol risks and cheating vectors.
+- **Remediation and staying ahead:** `docs/REMEDIATION_AND_STAYING_AHEAD.md` — resolution matrix, remediation sprints, and recurring process (quarterly risk review, stay-ahead checklist, monitoring). The committee should review both docs quarterly and keep the resolution matrix updated.
+- **Security oracles and parameters:** `docs/SECURITY_ORACLES_AND_PARAMETERS.md` — oracle security layer and risk parameters to mitigate expert attackers (staleness, deviation, circuit breaker, LTV/max-borrow caps, red-team checklist).
+- **Vested lending session (2026-02-14):** `docs/risk/VESTED_TOKEN_LENDING_SESSION_2026-02-14.md` — session summary (DPV manipulation, privacy vs concentration, adverse selection, claim-rights auction, rate floor, concentration limits) and build/adapt plan.
