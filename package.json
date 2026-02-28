@@ -28,7 +28,9 @@
     "dev:local": "DEPLOYMENTS_NETWORK=localhost RPC_URL=http://127.0.0.1:8545 INDEXER_ENABLED=false npm run dev",
     "seed:local": "npx hardhat run scripts/seed-sample-vest.js --network localhost",
     "test:e2e": "npx hardhat run scripts/e2e-local.js --network hardhat",
-    "test:e2e:default": "npx hardhat run scripts/e2e-default-local.js --network hardhat"
+    "test:e2e:default": "npx hardhat run scripts/e2e-default-local.js --network hardhat",
+    "test:e2e:sepolia": "npx hardhat run scripts/e2e-sepolia.js --network sepolia",
+    "e2e:sepolia:full": "./scripts/full-sepolia-e2e.sh"
   },
   "keywords": [],
   "author": "",
