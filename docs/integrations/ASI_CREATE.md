@@ -1,6 +1,6 @@
 # ASI:Create / ASI:One Integration
 
-This doc describes how to add **ASI:Create** (and the developer-facing **ASI:One**) to the UNLOCKD project.
+This doc describes how to add **ASI:Create** (and the developer-facing **ASI:One**) to the Vestra project.
 
 ## What are ASI:Create and ASI:One?
 
@@ -34,9 +34,9 @@ The backend chat agent (`/api/agent/chat`) already supports ASI:One as an LLM ba
 
 ---
 
-## Option 2: Publish UNLOCKD as an ASI:One-compatible agent
+## Option 2: Publish Vestra as an ASI:One-compatible agent
 
-To make the UNLOCKD agent **discoverable in ASI:One Chat** and the broader ASI:Create ecosystem (and eventually monetizable), you can expose it as an agent that speaks the **chat protocol** and is registered on **Agentverse**.
+To make the Vestra agent **discoverable in ASI:One Chat** and the broader ASI:Create ecosystem (and eventually monetizable), you can expose it as an agent that speaks the **chat protocol** and is registered on **Agentverse**.
 
 ### High-level steps
 
@@ -51,8 +51,8 @@ To make the UNLOCKD agent **discoverable in ASI:One Chat** and the broader ASI:C
      - Keep the existing Node backend and RAG.  
      - Add a small **Python uAgents** service that:
        - Listens for chat protocol messages via the mailbox.
-       - For each user message, calls your UNLOCKD backend (e.g. `POST /api/agent/chat` or an internal function), then sends the reply back over the chat protocol.
-     - Register this Python agent on Agentverse with the mailbox; it becomes the “UNLOCKD expert” in ASI:One.
+       - For each user message, calls your Vestra backend (e.g. `POST /api/agent/chat` or an internal function), then sends the reply back over the chat protocol.
+     - Register this Python agent on Agentverse with the mailbox; it becomes the “Vestra expert” in ASI:One.
    - **B. Full uAgents agent**  
      - Reimplement or mirror the RAG + tools logic in Python inside a uAgents agent, and optionally call ASI:One’s API for the final answer (as in the [ASI:One chat example](https://uagents.fetch.ai/docs/examples/asi-1)).
 
@@ -62,7 +62,7 @@ To make the UNLOCKD agent **discoverable in ASI:One Chat** and the broader ASI:C
 5. **Run and register**
    - Run your agent with `mailbox=True` and `publish_agent_details=True`.
    - Use the [Agent inspector](https://uagents.fetch.ai/docs/agentverse/inspector) to connect the mailbox and verify registration.
-   - In Agentverse, set name/handle and profile so the agent is discoverable (e.g. “UNLOCKD” / “@unlockd” for vesting-backed borrowing and protocol Q&A).
+   - In Agentverse, set name/handle and profile so the agent is discoverable (e.g. “Vestra” / “@vestra” for vesting-backed borrowing and protocol Q&A).
 
 6. **Discoverability**
    - See [Agents README Guidelines](https://docs.agentverse.ai/documentation/agent-discovery/readme-guidelines) and [Agent setup / ranking](https://docs.agentverse.ai/documentation/agent-discovery/agent-setup-guide) to improve visibility in the ASI:One / ASI:Create ecosystem.
@@ -81,4 +81,4 @@ To make the UNLOCKD agent **discoverable in ASI:One Chat** and the broader ASI:C
 | Goal | What to do |
 |------|------------|
 | Use ASI’s LLM for the in-app agent | Set `ASI_ONE_API_KEY` in `backend/.env` (Option 1). |
-| Expose UNLOCKD as an agent in ASI:One / ASI:Create | Implement the chat protocol (adapter or full uAgents agent), register on Agentverse with a mailbox (Option 2). |
+| Expose Vestra as an agent in ASI:One / ASI:Create | Implement the chat protocol (adapter or full uAgents agent), register on Agentverse with a mailbox (Option 2). |

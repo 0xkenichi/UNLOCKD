@@ -2,7 +2,7 @@
 Date: January 28, 2030  
 Audience: Product, Design, Frontend, and Protocol Governance
 
-This document captures a futuristic, institutional-grade frontend concept for CRDT (or UNLOCKD) aligned with the protocol’s conservative risk posture. The tone is regulator-friendly and data-rich, emphasizing time‑locked asset primitives, credit continuity, and transparent risk modeling.
+This document captures a futuristic, institutional-grade frontend concept for CRDT (or Vestra) aligned with the protocol’s conservative risk posture. The tone is regulator-friendly and data-rich, emphasizing time‑locked asset primitives, credit continuity, and transparent risk modeling.
 
 ## Naming Direction
 Primary working name: **CRDT**  

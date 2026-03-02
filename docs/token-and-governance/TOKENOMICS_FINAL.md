@@ -123,7 +123,7 @@ This section anchors growth assumptions to external market data so expansion tar
 - Stablecoin circulating value: `$305.54B` (liquidity base for settlement and lending).
 - Token unlock flow proxy: Tokenomist reports `$97.43B` of total token releases in 2025, and `$1.38B` release activity in the current week.
 
-### What This Means For CRDT/UNLOCKD
+### What This Means For CRDT/Vestra
 
 - Infrastructure has a large structural funding deficit; we target a narrow financing wedge, not the full infrastructure asset base.
 - Crypto has enough liquidity depth to support a large collateralized credit layer if risk filters are strict.

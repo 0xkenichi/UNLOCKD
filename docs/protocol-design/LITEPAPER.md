@@ -1,11 +1,11 @@
-# UNLOCKD (Vestra Protocol): Credit Markets for Time-Locked Digital Assets
+# Vestra (Vestra): Credit Markets for Time-Locked Digital Assets
 ## Litepaper (v2.1)
 
 Date: February 7, 2026  
 Authors: Protocol Genesis Team
 
 ### Summary
-Vesting and lockups protect long-term alignment, but they trap real economic value. UNLOCKD (Vestra Protocol) enables borrowing or selling claim rights against time-locked tokens without taking custody or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and are priced with conservative risk controls. Optional identity signals and privacy modes improve terms while keeping settlement enforceable on-chain.
+Vesting and lockups protect long-term alignment, but they trap real economic value. Vestra (Vestra) enables borrowing or selling claim rights against time-locked tokens without taking custody or breaking vesting rules. Loans are issued non-custodially, settle automatically at unlock, and are priced with conservative risk controls. Optional identity signals and privacy modes improve terms while keeping settlement enforceable on-chain.
 
 ### The Problem
 - Locked tokens have market value but zero immediate utility.
@@ -19,7 +19,7 @@ PV = Q * P * D
 
 Where Q is quantity, P is oracle price, and D is a composite discount factor (time, volatility, liquidity, unlock impact, protocol risk). Borrowing is capped by time-aware LTV limits.
 
-### What Makes VESTRA Different
+### What Makes Vestra Different
 - Escrow of claim rights, not tokens.
 - Deterministic, on-chain settlement at unlock.
 - Conservative, risk-first valuation and LTV caps.
@@ -35,7 +35,7 @@ Where Q is quantity, P is oracle price, and D is a composite discount factor (ti
 5. At unlock, settlement enforces repayment first.
 
 ### Claim-Rights Escrow and Enforcement
-VESTRA does not custody tokens. Instead, adapters wrap vesting schedules and expose a callable release function:
+Vestra does not custody tokens. Instead, adapters wrap vesting schedules and expose a callable release function:
 - Tokens remain in the original vesting contract until unlock.
 - At unlock, the loan contract settles debt before any release.
 - Settlement is permissionless once `block.timestamp >= unlockTime`.
@@ -46,7 +46,7 @@ Outcomes at unlock:
 - Default: protocol seizes unlocked tokens for repayment.
 
 ### Risk Model (Conservative by Design)
-VESTRA cannot liquidate early. Risk controls are front-loaded:
+Vestra cannot liquidate early. Risk controls are front-loaded:
 - DPV discount incorporates time, volatility, liquidity, and unlock impact.
 - LTV caps are conservative (target 20-40%) and time-aware.
 - Pool governance can reprice or pause volatile assets.
@@ -77,7 +77,7 @@ Users can sell claim rights instead of borrowing:
 4. Winner receives tokens at unlock.
 
 ### Privacy and Identity (Opt-In)
-Some communities discourage early exits. VESTRA supports:
+Some communities discourage early exits. Vestra supports:
 - Optional identity proofs for better terms.
 - Selective disclosure of eligibility without identity leakage.
 - Relayed transactions to reduce linkability.
@@ -98,7 +98,7 @@ Privacy is opt-in and policy-driven. Settlement remains public and enforceable.
 - Institutional pools and composable extensions.
 
 ### Why Now
-Locked token value is large, persistent, and cyclically painful in low-liquidity markets. VESTRA turns locked value into productive capital while preserving vesting integrity and long-term alignment.
+Locked token value is large, persistent, and cyclically painful in low-liquidity markets. Vestra turns locked value into productive capital while preserving vesting integrity and long-term alignment.
 
 Note: This document is informational and not legal or financial advice.
 

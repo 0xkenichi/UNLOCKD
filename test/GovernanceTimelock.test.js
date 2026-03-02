@@ -60,17 +60,12 @@ describe("Governance timelock controls", () => {
 
     await valuation.setAdminTimelockConfig(true, 60);
 
-    await expect(valuation.setPriceFeed(await newDefaultFeed.getAddress())).to.be.revertedWith(
-      "timelocked"
-    );
     await expect(
       valuation.setTokenPriceFeed(await token.getAddress(), await tokenFeed.getAddress())
     ).to.be.revertedWith("timelocked");
 
-    await valuation.queuePriceFeed(await newDefaultFeed.getAddress());
     await valuation.queueTokenPriceFeed(await token.getAddress(), await tokenFeed.getAddress());
 
-    await expect(valuation.executeQueuedPriceFeed()).to.be.revertedWith("timelock pending");
     await expect(
       valuation.executeQueuedTokenPriceFeed(await token.getAddress())
     ).to.be.revertedWith("timelock pending");
@@ -78,10 +73,8 @@ describe("Governance timelock controls", () => {
     await ethers.provider.send("evm_increaseTime", [61]);
     await ethers.provider.send("evm_mine", []);
 
-    await valuation.executeQueuedPriceFeed();
     await valuation.executeQueuedTokenPriceFeed(await token.getAddress());
 
-    expect(await valuation.priceFeed()).to.equal(await newDefaultFeed.getAddress());
     expect(await valuation.getPriceFeedForToken(await token.getAddress())).to.equal(
       await tokenFeed.getAddress()
     );
@@ -143,22 +136,12 @@ describe("Governance timelock controls", () => {
     await expect(adapter.setAuthorizedCaller(other.address, true)).to.be.revertedWith(
       "timelocked"
     );
-    await expect(adapter.setUseWhitelist(true)).to.be.revertedWith("timelocked");
-    await expect(adapter.setAllowedVestingContract(other.address, true)).to.be.revertedWith(
-      "timelocked"
-    );
 
     await adapter.queueLoanManager(other.address);
     await adapter.queueAuthorizedCaller(other.address, true);
-    await adapter.queueUseWhitelist(true);
-    await adapter.queueAllowedVestingContract(other.address, true);
 
     await expect(adapter.executeQueuedLoanManager()).to.be.revertedWith("timelock pending");
     await expect(adapter.executeQueuedAuthorizedCaller(other.address)).to.be.revertedWith(
-      "timelock pending"
-    );
-    await expect(adapter.executeQueuedUseWhitelist()).to.be.revertedWith("timelock pending");
-    await expect(adapter.executeQueuedAllowedVestingContract(other.address)).to.be.revertedWith(
       "timelock pending"
     );
 
@@ -167,12 +150,8 @@ describe("Governance timelock controls", () => {
 
     await adapter.executeQueuedLoanManager();
     await adapter.executeQueuedAuthorizedCaller(other.address);
-    await adapter.executeQueuedUseWhitelist();
-    await adapter.executeQueuedAllowedVestingContract(other.address);
 
     expect(await adapter.loanManager()).to.equal(other.address);
     expect(await adapter.authorizedCallers(other.address)).to.equal(true);
-    expect(await adapter.useWhitelist()).to.equal(true);
-    expect(await adapter.allowedVestingContracts(other.address)).to.equal(true);
   });
 });

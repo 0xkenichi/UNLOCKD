@@ -10,8 +10,12 @@ async function deployAuctionFixture() {
   const usdc = await MockUSDC.deploy();
   await usdc.waitForDeployment();
 
+  const VestingRegistry = await ethers.getContractFactory("VestingRegistry");
+  const registry = await VestingRegistry.deploy();
+  await registry.waitForDeployment();
+
   const VestingAdapter = await ethers.getContractFactory("VestingAdapter");
-  const adapter = await VestingAdapter.deploy();
+  const adapter = await VestingAdapter.deploy(await registry.getAddress());
   await adapter.waitForDeployment();
 
   const MockVestingWallet = await ethers.getContractFactory("MockVestingWallet");
@@ -27,6 +31,8 @@ async function deployAuctionFixture() {
   );
   await vesting.waitForDeployment();
   await usdc.transfer(await vesting.getAddress(), allocation);
+
+  await registry.vetContract(await vesting.getAddress(), 1);
 
   const AuctionFactory = await ethers.getContractFactory("AuctionFactory");
   const factory = await AuctionFactory.deploy(await adapter.getAddress(), await usdc.getAddress());

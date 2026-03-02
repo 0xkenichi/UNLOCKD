@@ -24,6 +24,8 @@
     "check:deploy:base": "node scripts/check-deploy-env.js --network base",
     "sync:contracts:flowEvmTestnet": "node scripts/sync-frontend-contracts.js --network flowEvmTestnet",
     "sync:contracts:flowEvm": "node scripts/sync-frontend-contracts.js --network flowEvm",
+    "sync:contracts:sepolia": "node scripts/sync-frontend-contracts.js --network sepolia",
+    "deploy:sepolia:sync": "npm run deploy:sepolia && npm run sync:contracts:sepolia",
     "demo:local": "./scripts/demo-local.sh",
     "dev:local": "DEPLOYMENTS_NETWORK=localhost RPC_URL=http://127.0.0.1:8545 INDEXER_ENABLED=false npm run dev",
     "seed:local": "npx hardhat run scripts/seed-sample-vest.js --network localhost",

@@ -1,4 +1,4 @@
-# Legal Advisory Memo — Vestra Protocol (UNLOCKD)
+# Legal Advisory Memo — Vestra (Vestra)
 
 **To:** Founder / Protocol  
 **From:** Legal arm (advisory)  
@@ -59,10 +59,10 @@ Why it’s #1:
 
 ### 3.1 What the Pilot LOI is
 
-- **LOI = Letter of Intent.** Your template (`docs/pilot-and-gtm/PILOT_LOI_TEMPLATE.md`) is a **non-binding** letter between UNLOCKD and a **partner** (e.g. a DAO or protocol) that says:
+- **LOI = Letter of Intent.** Your template (`docs/pilot-and-gtm/PILOT_LOI_TEMPLATE.md`) is a **non-binding** letter between Vestra and a **partner** (e.g. a DAO or protocol) that says:
   - We intend to run a **pilot** (scope: network, collateral set, duration, participants).
   - Success criteria (e.g. completion rate, repayment target, no critical incidents).
-  - Each side’s responsibilities (partner: cohort, vesting inputs, reviews; UNLOCKD: deployment, KPI snapshots, incident/risk updates).
+  - Each side’s responsibilities (partner: cohort, vesting inputs, reviews; Vestra: deployment, KPI snapshots, incident/risk updates).
   - Data/confidentiality: aggregate data unless otherwise agreed; confidential info per bilateral agreement.
   - **Legal notes:** This is **not binding** except as replaced by definitive agreements; **no transfer of ownership or IP**.
 
@@ -74,7 +74,7 @@ You asked: *can our contracts be brought out so we can see what people will be s
 
 - **For pilots (partners):** Yes. **Publish the LOI template** (you already have it in the repo). Before a partner signs, send them the **exact** LOI you will use (filled in with their name, scope, dates). So they see the full text. Optionally host a **public** “Pilot LOI template” page (e.g. on the docs site or a dedicated “Legal” or “Pilots” page) so any partner can read it in advance. That way there’s no surprise and you can say “everyone signs the same template.”
 - **For users (borrowers/lenders):** The “contracts” they need to see are the **Loan Terms** (and Lender Terms if you add them). So:
-  - **Publish** the Loan Terms at a stable URL (e.g. `app.unlockd.fi/terms` or `docs.unlockd.fi/loan-terms`).
+  - **Publish** the Loan Terms at a stable URL (e.g. `app.vestra.fi/terms` or `docs.vestra.fi/loan-terms`).
   - In the UI, **link** that URL next to the “I agree” trigger and, ideally, show a short summary or “Key terms and risks” so users and you can both point to one place. That way users, you, and counsel can all see exactly what is being accepted.
 
 **Summary:**  
@@ -168,8 +168,8 @@ So: you’re in better shape where you’ve **documented** and **limited** scope
 
 ### 8.1 What you want to “own”
 
-- **Product name:** UNLOCKD  
-- **Protocol descriptor:** Vestra Protocol  
+- **Product name:** Vestra  
+- **Protocol descriptor:** Vestra  
 - **The idea:** Credit / loans against **vested** (and in future **futures**) contracts — i.e. the **primitive** of borrowing against time-locked or claim-based collateral with DPV and settlement at unlock.
 
 ### 8.2 How you don’t “own” it (and why that’s normal)
@@ -181,20 +181,20 @@ So: you’re in better shape where you’ve **documented** and **limited** scope
 
 | Tool | What it does | Recommendation |
 |------|----------------|----------------|
-| **Trademark** | Protects UNLOCKD, Vestra (and logos) so others don’t use the same name in a way that confuses users. | Register in key jurisdictions (e.g. US, EU) for “financial services; software; protocol.” Use ® or ™ consistently. |
+| **Trademark** | Protects Vestra, Vestra (and logos) so others don’t use the same name in a way that confuses users. | Register in key jurisdictions (e.g. US, EU) for “financial services; software; protocol.” Use ® or ™ consistently. |
 | **Patent** | Protects specific **inventions** (e.g. DPV curve for vesting, settlement flow, wrapper patterns). | Consider a **patent strategy** with counsel: file on core methods (valuation, settlement, claim-right escrow). That gives you “Vestra owns patents in this space” and leverage for licensing or defence. |
 | **Trade secret** | Protects non-public know-how (e.g. risk curves, calibration). | Keep sensitive calibration and internal models confidential; document access and NDAs where relevant. |
-| **Copyright** | Protects docs, front-end code (if not all open-source), and other written/visual material. | Use “© [Year] Vestra / UNLOCKD. All rights reserved” (or your entity name) on docs and app. |
+| **Copyright** | Protects docs, front-end code (if not all open-source), and other written/visual material. | Use “© [Year] Vestra / Vestra. All rights reserved” (or your entity name) on docs and app. |
 | **Licence** | Defines what others may do with your code or brand. | If code is MIT, say so. If you have a **proprietary** front-end or API, use a clear licence (e.g. “use for pilot only” or “no commercial use without licence”). LOI already says no IP transfer. |
 
 ### 8.4 “Nobody else builds it” / “We own the idea”
 
 - You **cannot** legally stop someone from building “loans against vesting” as a concept. You **can**:
-  - **Brand:** So that “Vestra” and “UNLOCKD” mean you.
+  - **Brand:** So that “Vestra” and “Vestra” mean you.
   - **Patents:** So that specific technical implementations (your DPV model, your settlement flow, your wrapper design) can’t be copied without licence or risk of infringement.
   - **Speed and execution:** First-mover and community/docs so that “credit against vested tokens” is associated with Vestra.
 
-**Practical next step:** Engage an IP lawyer to (1) file trademarks for UNLOCKD and Vestra in priority jurisdictions, and (2) evaluate patentability of your core valuation/settlement/wrapper innovations and, if appropriate, file. That gives you an “IP licence” in the sense of **having** IP to license (and to enforce against copycats where they infringe).
+**Practical next step:** Engage an IP lawyer to (1) file trademarks for Vestra and Vestra in priority jurisdictions, and (2) evaluate patentability of your core valuation/settlement/wrapper innovations and, if appropriate, file. That gives you an “IP licence” in the sense of **having** IP to license (and to enforce against copycats where they infringe).
 
 ---
 
@@ -237,7 +237,7 @@ Use this as a quick map: **green = proceed with normal care; amber = proceed wit
 - **User “contracts”:** Publish Loan Terms (and Lender Terms if you add them) at a stable URL; wire the UI so the single trigger is “I have read and accept [link].”
 - **Mainnet:** Best next steps = Loan Terms + trigger, ToS, jurisdiction/eligibility for any token event, harden identity/sanctions, define governing law.
 - **Protection:** Disclaimers, no warranty, use at own risk, limitation of liability in ToS and Loan Terms; audit trail and governance; no custody narrative.
-- **IP:** Own the **brand** (trademarks) and **inventions** (patents) with counsel; you can’t own the abstract “idea” of loans against vesting, but you can own Vestra/UNLOCKD and specific technical implementations.
+- **IP:** Own the **brand** (trademarks) and **inventions** (patents) with counsel; you can’t own the abstract “idea” of loans against vesting, but you can own Vestra/Vestra and specific technical implementations.
 - **Traffic lights:** Green = non-custodial, LOI, governance, testnet, roadmap with disclosure. Amber = mainnet (after terms + audit), token events (after checklist + counsel), definitive agreements (with law + liability). Red = no mainnet without real terms; no investment narrative for CRDT; no single-point admin on sanctions; no “fully compliant” or “no risk.”
 
 This memo is intended to give you and the protocol a clear legal map: what to do first, what to avoid, and how to keep Vestra and users as safe as the structure allows. Have a qualified lawyer in your operating and target jurisdictions review before you rely on it for mainnet or offerings.

@@ -1,14 +1,14 @@
-# UNLOCKD / Vestra Investor Memo (One Pager)
+# Vestra / Vestra Investor Memo (One Pager)
 
 ## Thesis
 
-UNLOCKD introduces a new DeFi credit primitive: borrowing against non-transferable locked/vesting token claims using deterministic valuation (DPV), conservative LTV policy, and settlement-at-unlock enforcement.
+Vestra introduces a new DeFi credit primitive: borrowing against non-transferable locked/vesting token claims using deterministic valuation (DPV), conservative LTV policy, and settlement-at-unlock enforcement.
 
 ## Why This Matters
 
 - Large pools of locked token value remain idle and discounted in OTC pathways.
 - Existing DeFi lending markets primarily accept liquid collateral.
-- UNLOCKD targets this inefficiency with non-custodial, vesting-preserving credit.
+- Vestra targets this inefficiency with non-custodial, vesting-preserving credit.
 
 ## Product Snapshot
 

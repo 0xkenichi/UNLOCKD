@@ -1,6 +1,6 @@
-# UNLOCKD Feature Catalog and How It Works
+# Vestra Feature Catalog and How It Works
 
-This document is a full inventory of the protocol and product features currently described across the UNLOCKD docs set, with practical implementation detail and feature status.
+This document is a full inventory of the protocol and product features currently described across the Vestra docs set, with practical implementation detail and feature status.
 
 Status labels used below:
 - **Live/Implemented**: Present in contracts/backend/frontend docs and/or update logs as currently available.
@@ -11,10 +11,10 @@ Status labels used below:
 
 ## 0) Best Features (Deep Dive)
 
-This section goes deeper on the strongest UNLOCKD differentiators, with concrete flow detail.
+This section goes deeper on the strongest Vestra differentiators, with concrete flow detail.
 
 ### 0.1 Vesting-backed credit with deterministic unlock settlement
-- **Why this is a top feature:** Most credit systems require liquid collateral and continuous liquidation management. UNLOCKD prices time-lock risk directly and enforces outcomes at unlock.
+- **Why this is a top feature:** Most credit systems require liquid collateral and continuous liquidation management. Vestra prices time-lock risk directly and enforces outcomes at unlock.
 - **Detailed flow:**
   1. User escrows claim rights via `VestingAdapter` (or wrapper-backed vesting source).
   2. Adapter exposes deterministic quantity + unlock time.
@@ -26,7 +26,7 @@ This section goes deeper on the strongest UNLOCKD differentiators, with concrete
 - **Status:** **Live/Implemented**.
 
 ### 0.2 Privacy architecture that separates enforcement from identity
-- **Why this is a top feature:** UNLOCKD tries to preserve user privacy without sacrificing lender safety and protocol enforceability.
+- **Why this is a top feature:** Vestra tries to preserve user privacy without sacrificing lender safety and protocol enforceability.
 - **Detailed flow (conceptual):**
   1. User can choose public/pseudonymous/relayed mode.
   2. In relayed mode, execution intent is signed and passed to relayer infrastructure.
@@ -445,7 +445,7 @@ This section goes deeper on the strongest UNLOCKD differentiators, with concrete
 - **Status:** **Live/Implemented**.
 
 ### 11.4 ASI ecosystem discoverability
-- **What it is:** Publish UNLOCKD as an ASI/Agentverse-compatible agent.
+- **What it is:** Publish Vestra as an ASI/Agentverse-compatible agent.
 - **How it works:** Adapter/full uAgents path with chat protocol + mailbox + agent registration.
 - **Status:** **Planned**.
 

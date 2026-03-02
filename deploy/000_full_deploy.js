@@ -49,13 +49,22 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     throw new Error("Missing UNISWAP_ROUTER_ADDRESS for this network");
   }
 
-  const valuation = await deploy("ValuationEngine", {
+  const registry = await deploy("VestingRegistry", {
     from: deployer,
-    args: [priceFeedAddress],
     log: true,
   });
 
-  const adapter = await deploy("VestingAdapter", { from: deployer, log: true });
+  const valuation = await deploy("ValuationEngine", {
+    from: deployer,
+    args: [registry.address],
+    log: true,
+  });
+
+  const adapter = await deploy("VestingAdapter", {
+    from: deployer,
+    args: [registry.address],
+    log: true,
+  });
 
   const issuanceTreasury = process.env.ISSUANCE_TREASURY || deployer;
   const returnsTreasury = process.env.RETURNS_TREASURY || deployer;
@@ -81,6 +90,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const poolFee = Number(process.env.UNISWAP_POOL_FEE || 3000);
   const slippageBps = Number(process.env.LIQUIDATION_SLIPPAGE_BPS || 9000);
 
+  const auctionFactory = await deploy("AuctionFactory", {
+    from: deployer,
+    args: [adapter.address, usdcAddress],
+    log: true,
+  });
+
   const loanManager = await deploy("LoanManager", {
     from: deployer,
     args: [
@@ -89,6 +104,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
       pool.address,
       identityVerifier.address,
       identityBoostBps,
+      auctionFactory.address,
       uniswapRouterAddress,
       poolFee,
       slippageBps,
@@ -96,13 +112,13 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     log: true,
   });
 
-  const auctionFactory = await deploy("AuctionFactory", {
+  const dutchAuction = await deploy("DutchAuction", {
     from: deployer,
     args: [adapter.address, usdcAddress],
     log: true,
   });
 
-  const dutchAuction = await deploy("DutchAuction", {
+  const englishAuction = await deploy("EnglishAuction", {
     from: deployer,
     args: [adapter.address, usdcAddress],
     log: true,
@@ -120,9 +136,10 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     adapterDeployment.address,
     await ethers.getSigner(deployer)
   );
-  await adapterInstance.setLoanManager(loanManager.address);
-  await adapterInstance.setAuthorizedCaller(dutchAuction.address, true);
-  await adapterInstance.setAuthorizedCaller(sealedBidAuction.address, true);
+  await (await adapterInstance.setLoanManager(loanManager.address)).wait();
+  await (await adapterInstance.setAuthorizedCaller(dutchAuction.address, true)).wait();
+  await (await adapterInstance.setAuthorizedCaller(englishAuction.address, true)).wait();
+  await (await adapterInstance.setAuthorizedCaller(sealedBidAuction.address, true)).wait();
 
   const poolDeployment = await deployments.get("LendingPool");
   const poolInstance = await ethers.getContractAt(
@@ -130,8 +147,8 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     poolDeployment.address,
     await ethers.getSigner(deployer)
   );
-  await poolInstance.setLoanManager(loanManager.address);
-  await poolInstance.setTreasuries(issuanceTreasury, returnsTreasury);
+  await (await poolInstance.setLoanManager(loanManager.address)).wait();
+  await (await poolInstance.setTreasuries(issuanceTreasury, returnsTreasury)).wait();
 
   const termVaultInstance = await ethers.getContractAt(
     "TermVault",
@@ -139,21 +156,21 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     await ethers.getSigner(deployer)
   );
   const trancheApyBps = Number(process.env.TERM_VAULT_MIN_APY_BPS || 800);
-  await termVaultInstance.setFeeConfig(
+  await (await termVaultInstance.setFeeConfig(
     Number(process.env.TERM_VAULT_EARLY_EXIT_FEE_BPS || 100),
     returnsTreasury
-  );
-  await termVaultInstance.setTranche(0, 30 * 24 * 60 * 60, trancheApyBps, true);
-  await termVaultInstance.setTranche(1, 365 * 24 * 60 * 60, trancheApyBps, true);
-  await termVaultInstance.setTranche(2, 4 * 365 * 24 * 60 * 60, trancheApyBps, true);
-  await termVaultInstance.setTranche(3, 5 * 365 * 24 * 60 * 60, trancheApyBps, true);
+  )).wait();
+  await (await termVaultInstance.setTranche(0, 30 * 24 * 60 * 60, trancheApyBps, true)).wait();
+  await (await termVaultInstance.setTranche(1, 365 * 24 * 60 * 60, trancheApyBps, true)).wait();
+  await (await termVaultInstance.setTranche(2, 4 * 365 * 24 * 60 * 60, trancheApyBps, true)).wait();
+  await (await termVaultInstance.setTranche(3, 5 * 365 * 24 * 60 * 60, trancheApyBps, true)).wait();
 
   const loanManagerInstance = await ethers.getContractAt(
     "LoanManager",
     loanManager.address,
     await ethers.getSigner(deployer)
   );
-  await loanManagerInstance.setTreasuries(issuanceTreasury, returnsTreasury);
+  await (await loanManagerInstance.setTreasuries(issuanceTreasury, returnsTreasury)).wait();
 
   log("Deployment complete!");
 };

@@ -1,11 +1,11 @@
 # CRDT Token and DAO Documentation
 
-This document specifies how the CRDT token and the UNLOCKD DAO work. It is
+This document specifies how the CRDT token and the Vestra DAO work. It is
 intended to be comprehensive and beginner friendly.
 
 ## Overview
 
-UNLOCKD is a protocol for borrowing against locked or vesting tokens. CRDT is
+Vestra is a protocol for borrowing against locked or vesting tokens. CRDT is
 the protocol token and the governance token for the DAO. CRDT aligns protocol
 participants, secures governance, and funds long term development.
 
@@ -49,7 +49,7 @@ CRDT provides protocol utility in four primary ways:
 
 ### Total Supply
 
-UNLOCKD uses a fixed-cap model for predictability and governance clarity:
+Vestra uses a fixed-cap model for predictability and governance clarity:
 
 - **Total supply**: 1,000,000,000 CRDT
 - **Supply model**: no inflation in Phase 1

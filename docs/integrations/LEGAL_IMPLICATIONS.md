@@ -1,4 +1,4 @@
-# Full Legal Implications of Vestra Protocol (UNLOCKD)
+# Full Legal Implications of Vestra (Vestra)
 
 **Status:** Informational only. This document is not legal or financial advice. Jurisdiction-specific counsel should be engaged before any offering, mainnet launch, or material commercial activity.
 
@@ -9,7 +9,7 @@
 
 ## 1. Purpose and Scope
 
-This document outlines the main legal implications of building, deploying, and operating UNLOCKD (Vestra Protocol): a **non-custodial credit protocol** for borrowing against time-locked and vesting token claims. It is intended to support internal risk awareness, investor diligence, and alignment with the technical legal advisor role described in project materials. It does not create attorney–client privilege or replace qualified legal advice in any jurisdiction.
+This document outlines the main legal implications of building, deploying, and operating Vestra (Vestra): a **non-custodial credit protocol** for borrowing against time-locked and vesting token claims. It is intended to support internal risk awareness, investor diligence, and alignment with the technical legal advisor role described in project materials. It does not create attorney–client privilege or replace qualified legal advice in any jurisdiction.
 
 ---
 
@@ -121,7 +121,7 @@ This document outlines the main legal implications of building, deploying, and o
 ## 7. Intellectual Property and Data
 
 - **Pilot LOI** states no transfer of **ownership/IP** is implied.  
-- No public repo document asserts patent or trademark strategy; the **product name UNLOCKD** and **protocol descriptor Vestra Protocol** are canonical ([CANONICAL_POSITIONING.md](../protocol-design/CANONICAL_POSITIONING.md)).
+- No public repo document asserts patent or trademark strategy; the **product name Vestra** and **protocol descriptor Vestra** are canonical ([CANONICAL_POSITIONING.md](../protocol-design/CANONICAL_POSITIONING.md)).
 - **Recommendation:**  
   - Clarify in definitive agreements whether any **IP license** is granted (e.g. to use front-end, APIs, or branding).  
   - Align **privacy and data** handling with **PRIVACY_MODEL.md** and any **GDPR or local data protection** obligations for identity or off-chain data (e.g. backend identity profiles, allowlists).

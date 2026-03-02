@@ -1,10 +1,10 @@
-# Adding Futures Contracts to the UNLOCKD Stack
+# Adding Futures Contracts to the Vestra Stack
 
-This doc outlines how **futures** (perpetual or expiry) can be added to UNLOCKD for hedging, better liquidation, and optional product extensions. It assumes the current stack: Solidity core (VestingAdapter, ValuationEngine, LendingPool, LoanManager), Uniswap v3 for liquidation, oracles (Chainlink, Pyth), and React/Vite frontend.
+This doc outlines how **futures** (perpetual or expiry) can be added to Vestra for hedging, better liquidation, and optional product extensions. It assumes the current stack: Solidity core (VestingAdapter, ValuationEngine, LendingPool, LoanManager), Uniswap v3 for liquidation, oracles (Chainlink, Pyth), and React/Vite frontend.
 
 ---
 
-## 1. Why Futures Fit UNLOCKD
+## 1. Why Futures Fit Vestra
 
 | Use case | Benefit |
 |----------|---------|
@@ -17,7 +17,7 @@ This doc outlines how **futures** (perpetual or expiry) can be added to UNLOCKD 
 
 ## 2. Integration vs. Native Contracts
 
-- **Integration (recommended first)**: Use **existing** perp/futures protocols (e.g. dYdX v4, GMX, Hyperliquid, Vertex, or CEX APIs for analytics). No new core “futures contract” in UNLOCKD; add oracles, backend, and frontend that talk to these venues.
+- **Integration (recommended first)**: Use **existing** perp/futures protocols (e.g. dYdX v4, GMX, Hyperliquid, Vertex, or CEX APIs for analytics). No new core “futures contract” in Vestra; add oracles, backend, and frontend that talk to these venues.
 - **Native**: Run or clear your own perp/futures markets. Much heavier (margins, liquidations, risk engine). Only consider later if you need a custom “unlock-date” product that no one else offers.
 
 Below we assume **integration** only.

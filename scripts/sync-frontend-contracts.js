@@ -90,23 +90,25 @@ function updateContractsBlock(source, blockKey, updates) {
 async function main() {
   const network = readArg('--network');
   if (!network) {
-    console.error('Missing --network (expected: baseSepolia | base | flowEvmTestnet | flowEvm)');
+    console.error('Missing --network (expected: sepolia | baseSepolia | base | flowEvmTestnet | flowEvm)');
     process.exit(1);
   }
 
   const blockKey =
-    network === 'baseSepolia'
-      ? 'baseSepolia'
-      : network === 'base'
-        ? 'base'
-        : network === 'flowEvmTestnet'
-          ? 'flowEvmTestnet'
-          : network === 'flowEvm'
-            ? 'flowEvm'
-            : null;
+    network === 'sepolia'
+      ? 'sepolia'
+      : network === 'baseSepolia'
+        ? 'baseSepolia'
+        : network === 'base'
+          ? 'base'
+          : network === 'flowEvmTestnet'
+            ? 'flowEvmTestnet'
+            : network === 'flowEvm'
+              ? 'flowEvm'
+              : null;
   if (!blockKey) {
     console.error(
-      `Unsupported network: ${network}. Supported: baseSepolia, base, flowEvmTestnet, flowEvm.`
+      `Unsupported network: ${network}. Supported: sepolia, baseSepolia, base, flowEvmTestnet, flowEvm.`
     );
     process.exit(1);
   }

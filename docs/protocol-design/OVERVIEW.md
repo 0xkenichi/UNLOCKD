@@ -1,8 +1,8 @@
-# UNLOCKD (Vestra Protocol) Overview
+# Vestra (Vestra) Overview
 
-UNLOCKD (Vestra Protocol) enables borrowing against time-locked or vested tokens without breaking vesting rules. Borrowers escrow claim rights (not tokens), get a conservative loan based on discounted present value (DPV), and settle on-chain at unlock. Lenders are protected by risk models, LTV caps, and automatic settlement.
+Vestra (Vestra) enables borrowing against time-locked or vested tokens without breaking vesting rules. Borrowers escrow claim rights (not tokens), get a conservative loan based on discounted present value (DPV), and settle on-chain at unlock. Lenders are protected by risk models, LTV caps, and automatic settlement.
 
-![UNLOCKD Protocol Architecture](../assets/diagrams/unlockd-architecture.png)
+![Vestra Protocol Architecture](../assets/diagrams/vestra-architecture.png)
 
 ## Who This Is For
 - Contributors with vesting schedules who need liquidity.

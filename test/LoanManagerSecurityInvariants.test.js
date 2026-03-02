@@ -19,6 +19,9 @@ async function deployFixture() {
     valuationDeployment.address,
     deployer
   );
+
+  const registryDeployment = await deployments.get("VestingRegistry");
+  const registry = await ethers.getContractAt("VestingRegistry", registryDeployment.address, deployer);
   const pool = await ethers.getContractAt("LendingPool", poolDeployment.address, deployer);
   const loanManager = await ethers.getContractAt(
     "LoanManager",
@@ -27,14 +30,22 @@ async function deployFixture() {
   );
 
   await valuation.setMaxPriceAge(7 * ONE_DAY);
-  const priceFeed = await ethers.getContractAt("MockPriceFeed", await valuation.priceFeed(), deployer);
+  const priceFeedDeployment = await deployments.get("MockPriceFeed");
+  const priceFeed = await ethers.getContractAt("MockPriceFeed", priceFeedDeployment.address, deployer);
+
+  const usdcAddress = await usdc.getAddress();
+  await valuation.setTokenPriceFeed(usdcAddress, priceFeedDeployment.address);
+
+  const blockTimeSetup = (await ethers.provider.getBlock("latest")).timestamp;
+  await priceFeed.addHistoricalRound(1e8, blockTimeSetup - 1800);
+  await priceFeed.addHistoricalRound(1e8, blockTimeSetup - 3600);
   await priceFeed.setPrice(1e8);
 
   const issuanceTreasury = await pool.issuanceTreasury();
   const issuanceSigner = await ethers.getSigner(issuanceTreasury);
   await usdc.connect(issuanceSigner).approve(await pool.getAddress(), ethers.MaxUint256);
 
-  return { deployer, lender, keeper, borrowers, usdc, valuation, pool, loanManager, priceFeed };
+  return { deployer, lender, keeper, borrowers, usdc, registry, valuation, pool, loanManager, priceFeed };
 }
 
 async function deployVestingWallet({ borrower, usdc, allocation, durationDays }) {
@@ -54,7 +65,7 @@ async function deployVestingWallet({ borrower, usdc, allocation, durationDays })
 
 describe("LoanManager security invariants", () => {
   it("allows permissionless keeper settlement across many loans", async () => {
-    const { lender, keeper, borrowers, usdc, pool, loanManager, valuation, priceFeed } =
+    const { lender, keeper, borrowers, usdc, pool, registry, loanManager, valuation, priceFeed } =
       await deployFixture();
 
     const poolAddress = await pool.getAddress();
@@ -73,18 +84,22 @@ describe("LoanManager security invariants", () => {
         durationDays: 7 + i
       });
 
+      const vestingAddress = await vesting.getAddress();
+      await registry.vetContract(vestingAddress, 1);
+
       const unlockTime = (await vesting.start()) + (await vesting.duration());
       const [pv, ltvBps] = await valuation.computeDPV(
         allocation,
         await usdc.getAddress(),
-        unlockTime
+        unlockTime,
+        vestingAddress
       );
       const borrowAmount = (pv * ltvBps) / 10_000n / 2n;
       const collateralId = 1_000 + i;
 
       await loanManager
         .connect(borrower)
-        .createLoan(collateralId, await vesting.getAddress(), borrowAmount);
+        .createLoan(collateralId, vestingAddress, borrowAmount, 5);
       createdLoanIds.push(i);
 
       if (i % 3 === 0) {
@@ -97,6 +112,9 @@ describe("LoanManager security invariants", () => {
 
     await ethers.provider.send("evm_increaseTime", [20 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
+    const newBlockTime = (await ethers.provider.getBlock("latest")).timestamp;
+    await priceFeed.addHistoricalRound(1e8, newBlockTime - 1800);
+    await priceFeed.addHistoricalRound(1e8, newBlockTime - 3600);
     await priceFeed.setPrice(1e8);
 
     for (const loanId of createdLoanIds) {

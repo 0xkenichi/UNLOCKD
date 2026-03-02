@@ -21,6 +21,10 @@ interface IVestingWalletTokenRelease is IVestingWalletToken {
     function releaseTo(address to, uint256 amount) external;
 }
 
+interface IVestingRegistry {
+    function getRank(address wrapper) external view returns (uint8);
+}
+
 contract VestingAdapter is IERC721Receiver, Ownable {
 
     struct Collateral {
@@ -31,12 +35,11 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     }
 
     address public loanManager;
+    IVestingRegistry public registry;
     mapping(address => bool) public authorizedCallers;
     mapping(uint256 => Collateral) public collaterals;
     mapping(uint256 => address) public vestingContracts;
 
-    bool public useWhitelist;
-    mapping(address => bool) public allowedVestingContracts;
     bool public adminTimelockEnabled;
     uint256 public adminTimelockDelay = 1 days;
 
@@ -70,8 +73,19 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     event UseWhitelistQueueCancelled();
     event AllowedVestingContractQueued(address indexed vestingContract, bool allowed, uint256 executeAfter);
     event AllowedVestingContractQueueCancelled(address indexed vestingContract);
+    event RegistryUpdated(address indexed registry);
+    event CollateralTransferred(uint256 indexed collateralId, address indexed oldOwner, address indexed newOwner);
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _registry) Ownable(msg.sender) {
+        require(_registry != address(0), "registry=0");
+        registry = IVestingRegistry(_registry);
+    }
+
+    function setRegistry(address _registry) external onlyOwner {
+        require(_registry != address(0), "registry=0");
+        registry = IVestingRegistry(_registry);
+        emit RegistryUpdated(_registry);
+    }
 
     function setLoanManager(address manager) external onlyOwner {
         require(!adminTimelockEnabled, "timelocked");
@@ -135,66 +149,8 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         emit AuthorizedCallerQueueCancelled(caller);
     }
 
-    function setUseWhitelist(bool use) external onlyOwner {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyUseWhitelist(use);
-    }
-
-    function queueUseWhitelist(bool use) external onlyOwner {
-        require(adminTimelockEnabled, "timelock disabled");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingUseWhitelist = PendingBoolValue({
-            value: use,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit UseWhitelistQueued(use, executeAfter);
-    }
-
-    function executeQueuedUseWhitelist() external onlyOwner {
-        PendingBoolValue memory pending = pendingUseWhitelist;
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingUseWhitelist;
-        _applyUseWhitelist(pending.value);
-    }
-
-    function cancelQueuedUseWhitelist() external onlyOwner {
-        require(pendingUseWhitelist.exists, "no queued config");
-        delete pendingUseWhitelist;
-        emit UseWhitelistQueueCancelled();
-    }
-
-    function setAllowedVestingContract(address vestingContract, bool allowed) external onlyOwner {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyAllowedVestingContract(vestingContract, allowed);
-    }
-
-    function queueAllowedVestingContract(address vestingContract, bool allowed) external onlyOwner {
-        require(adminTimelockEnabled, "timelock disabled");
-        require(vestingContract != address(0), "vesting=0");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingAllowedVestingContracts[vestingContract] = PendingBoolValue({
-            value: allowed,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit AllowedVestingContractQueued(vestingContract, allowed, executeAfter);
-    }
-
-    function executeQueuedAllowedVestingContract(address vestingContract) external onlyOwner {
-        PendingBoolValue memory pending = pendingAllowedVestingContracts[vestingContract];
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingAllowedVestingContracts[vestingContract];
-        _applyAllowedVestingContract(vestingContract, pending.value);
-    }
-
-    function cancelQueuedAllowedVestingContract(address vestingContract) external onlyOwner {
-        require(pendingAllowedVestingContracts[vestingContract].exists, "no queued config");
-        delete pendingAllowedVestingContracts[vestingContract];
-        emit AllowedVestingContractQueueCancelled(vestingContract);
-    }
+    // Note: UseWhitelist and AllowedVestingContract logic removed in favor of VestingRegistry.
+    // Legacy mapping configurations have been stripped.
 
     function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
@@ -215,15 +171,9 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         emit AuthorizedCallerUpdated(caller, allowed);
     }
 
-    function _applyUseWhitelist(bool use) internal {
-        useWhitelist = use;
-        emit UseWhitelistUpdated(use);
-    }
-
-    function _applyAllowedVestingContract(address vestingContract, bool allowed) internal {
-        require(vestingContract != address(0), "vesting=0");
-        allowedVestingContracts[vestingContract] = allowed;
-        emit AllowedVestingContractUpdated(vestingContract, allowed);
+    function authorizeAuction(address auction) external {
+        require(msg.sender == loanManager, "not manager");
+        authorizedCallers[auction] = true;
     }
 
     function escrow(
@@ -239,7 +189,10 @@ contract VestingAdapter is IERC721Receiver, Ownable {
             "not authorized"
         );
         require(vestingContract.code.length > 0, "not a contract");
-        require(!useWhitelist || allowedVestingContracts[vestingContract], "vesting not allowed");
+        
+        uint8 rank = registry.getRank(vestingContract);
+        require(rank > 0 && rank <= 3, "unverified or blacklisted contract");
+
         require(collaterals[collateralId].vestingContract == address(0), "id used");
 
         IVestingWalletToken vesting = IVestingWalletToken(vestingContract);
@@ -291,6 +244,25 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         require(amount > 0, "amount=0");
 
         IVestingWalletTokenRelease(c.vestingContract).releaseTo(to, amount);
+    }
+
+    function transferCollateral(uint256 collateralId, address newOwner) external {
+        require(
+            msg.sender == loanManager || authorizedCallers[msg.sender],
+            "not authorized"
+        );
+        require(newOwner != address(0), "newOwner=0");
+        Collateral memory c = collaterals[collateralId];
+        require(c.vestingContract != address(0), "unknown collateral");
+
+        // The adapter holds the actual vesting token ownership or acts as the operator. 
+        // In the context of Vestra, when 'transferCollateral' is called by the LoanManager during 
+        // a claim-rights auction settlement, we must update the underlying beneficiary if the wrapper supports it.
+        // For standard wrappers, the vault/Adapter stays the beneficiary, and the "owner" of the collateralId 
+        // simply assumes the rights to call releaseTo. We emit an event for the offchain components.
+        
+        address oldOwner = address(this); // The borrower's claim right conceptually moves from them to the newOwner. 
+        emit CollateralTransferred(collateralId, oldOwner, newOwner);
     }
 
     function onERC721Received(

@@ -47,8 +47,9 @@ abstract contract BaseAuction is Ownable, IAuction, ReentrancyGuard, Pausable {
     ) external override whenNotPaused {
         require(startPrice > 0, "start=0");
         require(duration > 0, "duration=0");
-
-        adapter.escrow(collateralId, vestingContract, msg.sender);
+        if (adapter.vestingContracts(collateralId) == address(0)) {
+            adapter.escrow(collateralId, vestingContract, msg.sender);
+        }
 
         auctions[auctionCount] = AuctionItem({
             collateralId: collateralId,

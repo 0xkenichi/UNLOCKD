@@ -1,8 +1,13 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useState, useRef } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import {
+  motion, useScroll, useTransform, useSpring, useVelocity, useMotionValue, useAnimationFrame,
+  AnimatePresence
+} from 'framer-motion';
 import { Sparkles, Shield, Zap, Lock, TrendingUp, Clock, Award, ChevronDown, Rocket, Briefcase, Landmark } from 'lucide-react';
 import ChainStatus from '../components/common/ChainStatus.jsx';
+import MarketTicker from '../components/landing/MarketTicker.jsx';
 import useIdleMount from '../utils/useIdleMount.js';
 
 const LandingScene = lazy(() => import('../components/landing/LandingScene.jsx'));
@@ -19,6 +24,156 @@ const stagger = {
       staggerChildren: 0.08
     }
   }
+};
+
+const TypewriterText = ({ text, delay = 0, showCursor = true }) => {
+  return (
+    <motion.span
+      initial="hidden"
+      animate="visible"
+      style={{ display: 'inline-block', whiteSpace: 'nowrap' }}
+    >
+      {text.split('').map((char, index) => (
+        <motion.span
+          key={`${char}-${index}`}
+          style={{ display: 'inline-block', whiteSpace: 'pre' }}
+          variants={{
+            hidden: { opacity: 0, display: 'none' },
+            visible: { opacity: 1, display: 'inline-block' }
+          }}
+          transition={{
+            duration: 0.05,
+            delay: delay + index * 0.1,
+            ease: "linear"
+          }}
+        >
+          {char}
+        </motion.span>
+      ))}
+      {showCursor && (
+        <motion.span
+          animate={{ opacity: [1, 0, 1] }}
+          transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+          style={{ display: 'inline-block', color: 'var(--primary-400)', fontWeight: 300, marginLeft: '4px' }}
+        >
+          |
+        </motion.span>
+      )}
+    </motion.span>
+  );
+};
+
+function AbstractShape() {
+  const meshRef = useRef();
+
+  useFrame((state, delta) => {
+    meshRef.current.rotation.x += delta * 0.05;
+    meshRef.current.rotation.y += delta * 0.08;
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <octahedronGeometry args={[2.5, 2]} />
+      <meshBasicMaterial
+        color="#3b82f6"
+        wireframe={true}
+        transparent={true}
+        opacity={0.15}
+      />
+    </mesh>
+  );
+}
+
+function ThreeBackground() {
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: -1, overflow: 'hidden' }}>
+      <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
+        <AbstractShape />
+      </Canvas>
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, transparent, rgba(3, 4, 7, 1) 70%)' }} />
+    </div>
+  );
+}
+
+const HoverTiltCard = ({ feature }) => {
+  const x = useMotionValue(0.5);
+  const y = useMotionValue(0.5);
+
+  const rotateX = useTransform(y, [0, 1], [8, -8]);
+  const rotateY = useTransform(x, [0, 1], [-8, 8]);
+
+  function handleMouseMove(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    x.set((event.clientX - rect.left) / rect.width);
+    y.set((event.clientY - rect.top) / rect.height);
+  }
+
+  function handleMouseLeave() {
+    x.set(0.5);
+    y.set(0.5);
+  }
+
+  return (
+    <motion.div
+      variants={fadeInUp}
+      style={{
+        perspective: 1200,
+        transformStyle: 'preserve-3d',
+        height: '100%'
+      }}
+    >
+      <motion.div
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          rotateX,
+          rotateY,
+          cursor: 'default',
+          padding: 'var(--space-6)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          position: 'relative'
+        }}
+        className="glass-card"
+        whileHover={{ scale: 1.02, z: 20, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderColor: 'rgba(59, 130, 246, 0.4)' }}
+        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      >
+        <div style={{
+          width: '56px',
+          height: '56px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--gradient-icon)',
+          border: '1px solid rgba(139, 92, 246, 0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 'var(--space-5)',
+          transform: 'translateZ(30px)'
+        }}>
+          <feature.icon size={28} strokeWidth={1.5} color="var(--primary-400)" />
+        </div>
+        <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: 'var(--space-2)', color: 'var(--text-primary)', fontFamily: 'var(--font-display)', transform: 'translateZ(20px)' }}>
+          {feature.title}
+        </h3>
+        <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0, transform: 'translateZ(10px)' }}>
+          {feature.description}
+        </p>
+
+        <motion.div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.03) 25%, transparent 30%)',
+            pointerEvents: 'none',
+            borderRadius: 'inherit'
+          }}
+          animate={{ backgroundPosition: ['200% auto', '-200% auto'] }}
+          transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+        />
+      </motion.div>
+    </motion.div>
+  );
 };
 
 export default function Landing() {
@@ -126,8 +281,8 @@ export default function Landing() {
   return (
     <div className="landing-page">
       {/* Hero Section */}
-      <section className="landing-hero-simple" aria-labelledby="hero-title">
-        <div className="landing-hero-canvas" aria-hidden="true">
+      <section className="landing-hero-simple" aria-labelledby="hero-title" style={{ justifyContent: 'flex-start' }}>
+        <div className="landing-hero-canvas" aria-hidden="true" style={{ width: '100vw', right: 0, left: 'auto' }}>
           {showScene ? (
             <Suspense
               fallback={
@@ -142,123 +297,135 @@ export default function Landing() {
             <div className="landing-scene-placeholder" />
           )}
         </div>
-        
-        <motion.div
-          className="landing-hero-content"
-          {...fadeInUp}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <h1 id="hero-title" className="landing-hero-title landing-glow">
-              <span className="typewriter">VESTRA PROTOCOL</span>
-            </h1>
-          </motion.div>
-          
-          <p className="landing-hero-subtitle">
-            Credit against vested tokens.<br />
-            <strong>Non-custodial. Auto-settled. Institutional-grade.</strong>
-          </p>
 
-          <div className="landing-pills">
-            <span className="pill">
-              <Sparkles size={14} />
-              $300B+ Locked Value
-            </span>
-            <span className="pill">
-              <TrendingUp size={14} />
-              Monte Carlo Validated
-            </span>
-          </div>
-          
-          <div className="landing-hero-actions">
-            <motion.button
-              onClick={() => navigate('/dashboard')}
-              className="landing-primary-button"
-              type="button"
-              data-testid="landing-cta"
-              aria-label="Launch and register"
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+        {/* Hero Content Overlay */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+
+          {/* Top Row: Title (Left) + Network Status (Right) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+
+            {/* Top Left: Main Title */}
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
             >
-              Launch & Register
-            </motion.button>
-            <motion.button
-              onClick={() => navigate('/docs')}
-              className="landing-secondary-button"
-              type="button"
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-            >
-              Read Docs
-            </motion.button>
+              <h1 id="hero-title" className="landing-hero-title landing-glow" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6vw, 64px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', margin: 0 }}>
+                <span style={{ color: '#ffffff', display: 'inline-block' }}>
+                  <TypewriterText text="VESTRA PROTOCOL" delay={0.4} />
+                </span>
+              </h1>
+            </motion.div>
+
+            {/* Top Right: Network Status */}
+            <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+              <ChainStatus />
+              <p className="landing-hero-disclaimer" style={{ margin: 0, textAlign: 'right', fontSize: '11px', opacity: 0.6 }}>
+                Testnet • Base Sepolia • No real funds
+              </p>
+            </div>
+
           </div>
 
-          <ChainStatus />
-          
-          <p className="landing-hero-disclaimer">
-            Testnet • Base Sepolia • No real funds
-          </p>
-        </motion.div>
+          {/* Bottom Row: Info/Pills (Left) + Actions (Right) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', width: '100%', paddingBottom: 'calc(var(--space-10) + 40px)' }}>
+
+            {/* Bottom Left: Subtitle & Pills */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
+            >
+              <p className="landing-hero-subtitle" style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '400px', margin: 0, lineHeight: 1.5, pointerEvents: 'auto' }}>
+                Credit against vested tokens.<br />
+                <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Non-custodial. Auto-settled. Institutional-grade.</strong>
+              </p>
+
+              <div className="landing-pills" style={{ display: 'flex', gap: 'var(--space-3)', pointerEvents: 'auto' }}>
+                <span className="pill" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--primary-300)' }}>
+                  <Sparkles size={14} />
+                  $300B+ Locked Value
+                </span>
+                <span className="pill">
+                  <TrendingUp size={14} />
+                  Monte Carlo Validated
+                </span>
+              </div>
+            </motion.div>
+
+            {/* Bottom Right: Buttons */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.7, ease: [0.22, 1, 0.36, 1] }}
+              className="landing-hero-actions"
+              style={{ display: 'flex', gap: 'var(--space-4)', pointerEvents: 'auto', margin: 0 }}
+            >
+              <motion.button
+                onClick={() => navigate('/dashboard')}
+                className="landing-primary-button"
+                type="button"
+                data-testid="landing-cta"
+                aria-label="Launch and register"
+                style={{ background: 'var(--gradient-button)', border: 'none', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)' }}
+                whileHover={{ scale: 1.05, boxShadow: '0 8px 32px rgba(59, 130, 246, 0.6)' }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+              >
+                Launch & Register
+              </motion.button>
+              <motion.button
+                onClick={() => navigate('/docs')}
+                className="landing-secondary-button"
+                type="button"
+                style={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
+                whileHover={{ scale: 1.05, background: 'rgba(255,255,255,0.1)' }}
+                whileTap={{ scale: 0.95 }}
+              >
+                Read Docs
+              </motion.button>
+            </motion.div>
+
+          </div>
+        </div>
       </section>
 
-      {/* Features Section */}
       <motion.section
         className="landing-section"
+        style={{ position: 'relative' }}
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         viewport={{ once: true, margin: '-100px' }}
         transition={{ duration: 0.6 }}
       >
-        <div className="landing-section-content">
+        <ThreeBackground />
+
+        <div className="landing-section-content" style={{ position: 'relative', zIndex: 1 }}>
           <h2 className="landing-section-title">Why Vestra Protocol?</h2>
           <p className="landing-section-subtitle">
             The first protocol to provide credit against non-transferable vesting claims with DPV valuation and auto-settlement.
           </p>
-          
-          <motion.div 
+
+          <motion.div
             className="grid-3"
             variants={stagger}
             initial="initial"
             whileInView="animate"
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
+            style={{ marginTop: 'var(--space-10)' }}
           >
             {features.map((feature, index) => (
-              <motion.div
-                key={feature.title}
-                className="holo-card"
-                variants={fadeInUp}
-                whileHover={{ y: -6, scale: 1.02 }}
-                transition={{ type: 'spring', stiffness: 300 }}
-                style={{ cursor: 'default' }}
-              >
-                <div style={{ 
-                  width: '56px', 
-                  height: '56px', 
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--surface-soft)',
-                  border: '1px solid var(--border-primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 'var(--space-4)'
-                }}>
-                  <feature.icon size={28} strokeWidth={1.5} color="var(--primary-500)" />
-                </div>
-                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: 'var(--space-2)', color: 'var(--text-primary)' }}>
-                  {feature.title}
-                </h3>
-                <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-muted)', margin: 0 }}>
-                  {feature.description}
-                </p>
-              </motion.div>
+              <HoverTiltCard key={feature.title} feature={feature} index={index} />
             ))}
           </motion.div>
         </div>
       </motion.section>
+
+      {/* Market Ticker Section */}
+      <section style={{ position: 'relative', zIndex: 10, marginTop: '-40px', marginBottom: 'var(--space-10)' }}>
+        <MarketTicker />
+      </section>
 
       {/* How It Works */}
       <motion.section
@@ -273,14 +440,14 @@ export default function Landing() {
           <p className="landing-section-subtitle">
             Four simple steps to unlock liquidity from your vested tokens.
           </p>
-          
-          <div style={{ 
-            display: 'grid', 
-            gap: 'var(--space-6)', 
-            marginTop: 'var(--space-12)', 
-            maxWidth: '900px', 
-            marginLeft: 'auto', 
-            marginRight: 'auto' 
+
+          <div style={{
+            display: 'grid',
+            gap: 'var(--space-6)',
+            marginTop: 'var(--space-12)',
+            maxWidth: '900px',
+            marginLeft: 'auto',
+            marginRight: 'auto'
           }}>
             {steps.map((step, index) => (
               <motion.div
@@ -296,14 +463,19 @@ export default function Landing() {
                   alignItems: 'start',
                   padding: 'var(--space-6)',
                   borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--surface-soft)',
-                  boxShadow: 'var(--shadow-sm)',
+                  border: '1px solid var(--glass-border)',
+                  background: 'var(--glass-bg)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.2)',
+                  backdropFilter: 'blur(16px)',
                   transition: 'border-color var(--motion-fast)',
-                  cursor: 'default'
+                  cursor: 'default',
+                  position: 'relative'
                 }}
-                whileHover={{ borderColor: 'var(--border-strong)' }}
+                whileHover={{ borderColor: 'var(--primary-500)' }}
               >
+                {index < steps.length - 1 && (
+                  <div style={{ position: 'absolute', left: '55px', top: '90px', bottom: '-40px', width: '2px', background: 'linear-gradient(to bottom, rgba(59, 130, 246, 0.4), rgba(59, 130, 246, 0))', zIndex: -1 }} />
+                )}
                 <div style={{
                   width: '64px',
                   height: '64px',
@@ -313,24 +485,25 @@ export default function Landing() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontFamily: 'var(--font-mono)',
+                  fontFamily: 'var(--font-display)',
                   fontSize: '24px',
-                  fontWeight: '600',
+                  fontWeight: '700',
                   color: 'var(--primary-400)',
-                  flexShrink: 0
+                  flexShrink: 0,
+                  boxShadow: '0 0 20px rgba(59, 130, 246, 0.15)'
                 }}>
                   {step.number}
                 </div>
                 <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
-                  <h3 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: 'var(--text-primary)' }}>
+                  <h3 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
                     {step.title}
                   </h3>
-                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-muted)', margin: 0 }}>
+                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0 }}>
                     {step.description}
                   </p>
-                  <div style={{ 
-                    fontSize: '13px', 
-                    color: 'var(--primary-400)', 
+                  <div style={{
+                    fontSize: '13px',
+                    color: 'var(--primary-400)',
                     fontWeight: '600',
                     marginTop: 'var(--space-1)',
                     display: 'flex',
@@ -365,27 +538,27 @@ export default function Landing() {
               return (
                 <motion.div
                   key={useCase.title}
-                  className="holo-card"
+                  className="glass-card"
                   initial={{ opacity: 0, y: 24 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: index * 0.1, duration: 0.5 }}
-                  whileHover={{ y: -4 }}
-                  style={{ cursor: 'default' }}
+                  whileHover={{ y: -4, borderColor: 'var(--primary-500)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15)' }}
+                  style={{ cursor: 'default', padding: 'var(--space-6)', transition: 'all var(--motion-fast)' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                     <div style={{
                       width: '48px', height: '48px', borderRadius: 'var(--radius-md)',
-                      background: 'var(--surface-soft)', border: '1px solid var(--border-primary)',
+                      background: 'var(--gradient-icon)', border: '1px solid rgba(59, 130, 246, 0.2)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                     }}>
-                      <Icon size={24} strokeWidth={1.5} color="var(--primary-500)" />
+                      <Icon size={24} strokeWidth={1.5} color="var(--primary-400)" />
                     </div>
-                    <h3 style={{ fontSize: '20px', fontWeight: '700', margin: 0, color: 'var(--text-primary)' }}>
+                    <h3 style={{ fontSize: '20px', fontWeight: '700', margin: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
                       {useCase.title}
                     </h3>
                   </div>
-                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-muted)', margin: 0 }}>
+                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0 }}>
                     {useCase.description}
                   </p>
                 </motion.div>
@@ -405,14 +578,14 @@ export default function Landing() {
       >
         <div className="landing-section-content">
           <h2 className="landing-section-title">Frequently Asked Questions</h2>
-          
-          <div style={{ 
-            display: 'grid', 
-            gap: 'var(--space-3)', 
-            marginTop: 'var(--space-12)', 
-            maxWidth: '800px', 
-            marginLeft: 'auto', 
-            marginRight: 'auto' 
+
+          <div style={{
+            display: 'grid',
+            gap: 'var(--space-3)',
+            marginTop: 'var(--space-12)',
+            maxWidth: '800px',
+            marginLeft: 'auto',
+            marginRight: 'auto'
           }}>
             {faqs.map((faq, index) => (
               <motion.div
@@ -423,12 +596,13 @@ export default function Landing() {
                 transition={{ delay: index * 0.05 }}
                 style={{
                   borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--surface-soft)',
+                  border: '1px solid var(--glass-border)',
+                  background: 'var(--glass-bg)',
                   overflow: 'hidden',
-                  transition: 'border-color var(--motion-fast)'
+                  backdropFilter: 'blur(16px)',
+                  transition: 'border-color var(--motion-fast), box-shadow var(--motion-fast)'
                 }}
-                whileHover={{ borderColor: 'var(--border-strong)' }}
+                whileHover={{ borderColor: 'rgba(59, 130, 246, 0.4)', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.1)' }}
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === index ? null : index)}
@@ -440,6 +614,7 @@ export default function Landing() {
                     color: 'var(--text-primary)',
                     fontSize: '16px',
                     fontWeight: '700',
+                    fontFamily: 'var(--font-display)',
                     textAlign: 'left',
                     cursor: 'pointer',
                     display: 'flex',
@@ -469,7 +644,7 @@ export default function Landing() {
                       padding: '0 var(--space-5) var(--space-5) calc(var(--space-5) + 18px + var(--space-3))',
                       fontSize: '15px',
                       lineHeight: '1.6',
-                      color: 'var(--text-muted)'
+                      color: 'var(--text-secondary)'
                     }}
                   >
                     {faq.answer}
@@ -484,8 +659,9 @@ export default function Landing() {
       {/* CTA Section */}
       <motion.section
         className="landing-section"
-        style={{ 
-          background: 'var(--bg-secondary)',
+        style={{
+          background: 'radial-gradient(ellipse at bottom, rgba(59, 130, 246, 0.15), rgba(10, 14, 26, 1) 70%)',
+          borderTop: '1px solid rgba(59, 130, 246, 0.1)',
           textAlign: 'center',
           padding: 'var(--space-24) var(--space-6)'
         }}
@@ -506,15 +682,15 @@ export default function Landing() {
             <p className="landing-section-subtitle" style={{ fontSize: 'clamp(18px, 2.5vw, 22px)', marginBottom: 'var(--space-10)' }}>
               Join the future of vesting credit. Non-custodial, auto-settled, fair.
             </p>
-            
+
             <div style={{ display: 'flex', gap: 'var(--space-5)', justifyContent: 'center', flexWrap: 'wrap' }}>
               <motion.button
                 onClick={() => navigate('/dashboard')}
                 className="landing-primary-button"
                 type="button"
-                whileHover={{ scale: 1.05, y: -3 }}
+                style={{ background: 'var(--gradient-button)', border: 'none', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)', fontSize: '18px', padding: '16px 32px' }}
+                whileHover={{ scale: 1.05, y: -3, boxShadow: '0 8px 32px rgba(59, 130, 246, 0.6)' }}
                 whileTap={{ scale: 0.95 }}
-                style={{ fontSize: '18px', padding: '16px 32px' }}
               >
                 Launch & Register
               </motion.button>

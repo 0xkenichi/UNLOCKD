@@ -1,20 +1,20 @@
-# UNLOCKD Canonical Positioning and Chain Narrative
+# Vestra Canonical Positioning and Chain Narrative
 
 Last updated: 2026-02-13
 Owner: Founder office
 
-This document is the single source of truth for how UNLOCKD is described to partners, pilots, and investors.
+This document is the single source of truth for how Vestra is described to partners, pilots, and investors.
 
 ## Canonical Product Name
 
-- External product name: UNLOCKD
-- Protocol descriptor: Vestra Protocol
+- External product name: Vestra
+- Protocol descriptor: Vestra
 - Canonical reference format in formal docs:
-  - UNLOCKD (Vestra Protocol)
+  - Vestra (Vestra)
 
 ## Canonical One-Liner
 
-UNLOCKD (Vestra Protocol) is a non-custodial credit protocol that lets users borrow against locked or vesting token claims using conservative DPV/LTV underwriting and deterministic settlement at unlock.
+Vestra (Vestra) is a non-custodial credit protocol that lets users borrow against locked or vesting token claims using conservative DPV/LTV underwriting and deterministic settlement at unlock.
 
 ## What We Do
 
@@ -73,7 +73,7 @@ Core value points:
 
 ## Positioning QA Checklist (Before Sending Any Deck or Memo)
 
-- [ ] Uses "UNLOCKD (Vestra Protocol)" consistently.
+- [ ] Uses "Vestra (Vestra)" consistently.
 - [ ] Chain stage is consistent with canonical narrative.
 - [ ] Includes risk controls and no-overclaim language.
 - [ ] Includes current KPI snapshot and pilot status.

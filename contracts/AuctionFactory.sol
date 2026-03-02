@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "./DutchAuction.sol";
 import "./EnglishAuction.sol";
 import "./SealedBidAuction.sol";
+import "./StagedTrancheAuction.sol";
 
 contract AuctionFactory {
     address public immutable adapter;
@@ -33,6 +34,12 @@ contract AuctionFactory {
     function createSealedBidAuction() external returns (address) {
         address auction = address(new SealedBidAuction(adapter, usdc));
         emit AuctionDeployed(auction, "SEALED_BID");
+        return auction;
+    }
+
+    function createStagedTrancheAuction() external returns (address) {
+        address auction = address(new StagedTrancheAuction(adapter, usdc));
+        emit AuctionDeployed(auction, "STAGED_TRANCHE");
         return auction;
     }
 }

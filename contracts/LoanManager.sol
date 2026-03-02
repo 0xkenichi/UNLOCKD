@@ -13,6 +13,8 @@ import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "./ValuationEngine.sol";
 import "./VestingAdapter.sol";
 import "./LendingPool.sol";
+import "./AuctionFactory.sol";
+import "./IAuction.sol";
 
 interface IIdentityVerifier {
     function verifyProof(address user, bytes calldata proof) external returns (bool);
@@ -26,6 +28,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     LendingPool public pool;
     address public identityVerifier;
     uint256 public identityBoostBps;
+    AuctionFactory public auctionFactory;
     ISwapRouter public uniswapRouter;
     IERC20 public usdc;
     uint24 public poolFee;
@@ -37,6 +40,10 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     uint256 public adminTimelockDelay = 1 days;
     uint256 public autoRepayLtvBoostBps;
     uint256 public autoRepayInterestDiscountBps;
+
+    // V4.0 Auto-Hedge Vault configurations
+    address public autoHedgeVault;
+    uint256 public autoHedgeBps = 500; // 5%
 
     struct PendingTreasuryConfig {
         address issuanceTreasury;
@@ -64,7 +71,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 interest;
         uint256 collateralId;
         uint256 collateralAmount;
+        uint256 loanDuration;
         uint256 unlockTime;
+        uint256 hedgeAmount; // V4.0 Risk Insurance
         bool active;
     }
 
@@ -76,7 +85,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 interest;
         uint256 collateralId;
         uint256 collateralAmount;
+        uint256 loanDuration;
         uint256 unlockTime;
+        uint256 hedgeAmount; // V4.0 Risk Insurance
         bool active;
     }
 
@@ -121,6 +132,10 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     event AutoRepayOptInUpdated(address indexed borrower, bool enabled);
     event AutoRepayConfigUpdated(uint256 ltvBoostBps, uint256 interestDiscountBps);
     event AutoRepayRequiredTokensUpdated(address[] tokens);
+    
+    // V4.0 Events
+    event AutoHedgeConfigured(address indexed vault, uint256 bps);
+    event AutoHedgeDiverted(uint256 indexed loanId, uint256 amount);
 
     constructor(
         address _valuation,
@@ -128,6 +143,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         address _pool,
         address _identityVerifier,
         uint256 _identityBoostBps,
+        address _auctionFactory,
         address _uniswapRouter,
         uint24 _poolFee,
         uint256 _slippageBps
@@ -137,6 +153,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         pool = LendingPool(_pool);
         identityVerifier = _identityVerifier;
         identityBoostBps = _identityBoostBps;
+        auctionFactory = AuctionFactory(_auctionFactory);
         uniswapRouter = ISwapRouter(_uniswapRouter);
         poolFee = _poolFee;
         liquidationSlippageBps = _slippageBps;
@@ -165,6 +182,13 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         autoRepayLtvBoostBps = ltvBoostBps;
         autoRepayInterestDiscountBps = interestDiscountBps;
         emit AutoRepayConfigUpdated(ltvBoostBps, interestDiscountBps);
+    }
+    
+    function setAutoHedgeConfig(address vault, uint256 bps) external onlyOwner {
+        require(bps <= 2000, "hedge too high");
+        autoHedgeVault = vault;
+        autoHedgeBps = bps;
+        emit AutoHedgeConfigured(vault, bps);
     }
 
     function setAutoRepayRequiredTokens(address[] calldata tokens) external onlyOwner {
@@ -306,6 +330,14 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         emit AdminTimelockConfigUpdated(enabled, delaySeconds);
     }
 
+    function _applyTreasuries(address issuance, address returnsAddr) internal {
+        require(issuance != address(0), "issuance=0");
+        require(returnsAddr != address(0), "returns=0");
+        issuanceTreasury = issuance;
+        returnsTreasury = returnsAddr;
+        emit TreasuryConfigUpdated(issuance, returnsAddr);
+    }
+
     function _applyLiquidationConfig(
         address router,
         uint24 newPoolFee,
@@ -317,14 +349,6 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         poolFee = newPoolFee;
         liquidationSlippageBps = slippageBps;
         emit LiquidationConfigUpdated(router, newPoolFee, slippageBps);
-    }
-
-    function _applyTreasuries(address issuance, address returnsAddr) internal {
-        require(issuance != address(0), "issuance=0");
-        require(returnsAddr != address(0), "returns=0");
-        issuanceTreasury = issuance;
-        returnsTreasury = returnsAddr;
-        emit TreasuryConfigUpdated(issuance, returnsAddr);
     }
 
     function setOriginationFeeBps(uint256 feeBps) external onlyOwner {
@@ -345,35 +369,39 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     function createLoan(
         uint256 collateralId,
         address vestingContract,
-        uint256 borrowAmount
+        uint256 borrowAmount,
+        uint256 durationDays
     ) external whenNotPaused nonReentrant {
-        _createLoan(collateralId, vestingContract, borrowAmount, 0);
+        _createLoan(collateralId, vestingContract, borrowAmount, 0, durationDays);
     }
 
     function createLoanWithCollateralAmount(
         uint256 collateralId,
         address vestingContract,
         uint256 borrowAmount,
-        uint256 collateralAmount
+        uint256 collateralAmount,
+        uint256 durationDays
     ) external whenNotPaused nonReentrant {
-        _createLoan(collateralId, vestingContract, borrowAmount, collateralAmount);
+        _createLoan(collateralId, vestingContract, borrowAmount, collateralAmount, durationDays);
     }
 
     function createPrivateLoan(
         uint256 collateralId,
         address vestingContract,
-        uint256 borrowAmount
+        uint256 borrowAmount,
+        uint256 durationDays
     ) external whenNotPaused nonReentrant {
-        _createPrivateLoan(collateralId, vestingContract, borrowAmount, 0);
+        _createPrivateLoan(collateralId, vestingContract, borrowAmount, 0, durationDays);
     }
 
     function createPrivateLoanWithCollateralAmount(
         uint256 collateralId,
         address vestingContract,
         uint256 borrowAmount,
-        uint256 collateralAmount
+        uint256 collateralAmount,
+        uint256 durationDays
     ) external whenNotPaused nonReentrant {
-        _createPrivateLoan(collateralId, vestingContract, borrowAmount, collateralAmount);
+        _createPrivateLoan(collateralId, vestingContract, borrowAmount, collateralAmount, durationDays);
     }
 
     function isPrivateLoan(uint256 loanId) external view returns (bool) {
@@ -384,17 +412,20 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 collateralId,
         address vestingContract,
         uint256 borrowAmount,
-        uint256 collateralAmount
+        uint256 collateralAmount,
+        uint256 durationDays
     ) internal {
         require(borrowAmount > 0, "amount=0");
+        require(durationDays > 0, "duration=0");
 
         adapter.escrow(collateralId, vestingContract, msg.sender);
         (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(collateralId);
         require(quantity > 0, "quantity=0");
+        require(block.timestamp + (durationDays * 1 days) <= unlockTime, "loan outlasts vesting");
         uint256 pledgedQuantity = collateralAmount == 0 ? quantity : collateralAmount;
         require(pledgedQuantity <= quantity, "collateral>available");
 
-        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime);
+        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime, vestingContract);
         if (identityLinked[msg.sender] && identityBoostBps > 0) {
             ltvBps = ltvBps + identityBoostBps;
             if (ltvBps > BPS_DENOMINATOR) {
@@ -411,7 +442,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 maxBorrow = (pv * ltvBps) / BPS_DENOMINATOR;
         require(borrowAmount <= maxBorrow, "exceeds LTV");
 
-        uint256 interestRateBps = pool.getInterestRateBps();
+        uint256 interestRateBps = pool.getInterestRateBps(durationDays);
         if (autoRepayEligible && autoRepayInterestDiscountBps > 0) {
             if (interestRateBps > autoRepayInterestDiscountBps) {
                 interestRateBps = interestRateBps - autoRepayInterestDiscountBps;
@@ -422,6 +453,13 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 interest = (borrowAmount * interestRateBps) / BPS_DENOMINATOR;
         uint256 originationFee = (borrowAmount * originationFeeBps) / BPS_DENOMINATOR;
         interest += originationFee;
+        
+        // V4.0 Auto-Hedge Logic for Rank 3 Collateral
+        uint256 hedgeAmount = 0;
+        uint8 rank = adapter.registry().getRank(vestingContract);
+        if (rank == 3 && autoHedgeVault != address(0) && autoHedgeBps > 0) {
+            hedgeAmount = (borrowAmount * autoHedgeBps) / BPS_DENOMINATOR;
+        }
 
         uint256 loanId = loanCount;
         loans[loanId] = Loan({
@@ -430,32 +468,41 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             interest: interest,
             collateralId: collateralId,
             collateralAmount: pledgedQuantity,
+            loanDuration: durationDays * 1 days,
             unlockTime: unlockTime,
+            hedgeAmount: hedgeAmount,
             active: true
         });
         loanCount += 1;
 
         pool.lend(msg.sender, borrowAmount);
         emit LoanCreated(loanId, msg.sender, borrowAmount);
+        
+        if (hedgeAmount > 0) {
+            emit AutoHedgeDiverted(loanId, hedgeAmount);
+        }
     }
 
     function _createPrivateLoan(
         uint256 collateralId,
         address vestingContract,
         uint256 borrowAmount,
-        uint256 collateralAmount
+        uint256 collateralAmount,
+        uint256 durationDays
     ) internal {
         require(borrowAmount > 0, "amount=0");
+        require(durationDays > 0, "duration=0");
 
         // Private-mode assumes the *vault* is the beneficiary/recipient (or wrapper) of the vesting.
         // That way, the user's primary wallet is not required to appear in loan state or events.
         adapter.escrow(collateralId, vestingContract, msg.sender);
         (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(collateralId);
         require(quantity > 0, "quantity=0");
+        require(block.timestamp + (durationDays * 1 days) <= unlockTime, "loan outlasts vesting");
         uint256 pledgedQuantity = collateralAmount == 0 ? quantity : collateralAmount;
         require(pledgedQuantity <= quantity, "collateral>available");
 
-        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime);
+        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime, vestingContract);
         // Optional boosts are applied to the vault address (not to a user wallet).
         if (identityLinked[msg.sender] && identityBoostBps > 0) {
             ltvBps = ltvBps + identityBoostBps;
@@ -473,7 +520,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 maxBorrow = (pv * ltvBps) / BPS_DENOMINATOR;
         require(borrowAmount <= maxBorrow, "exceeds LTV");
 
-        uint256 interestRateBps = pool.getInterestRateBps();
+        uint256 interestRateBps = pool.getInterestRateBps(durationDays);
         if (autoRepayEligible && autoRepayInterestDiscountBps > 0) {
             if (interestRateBps > autoRepayInterestDiscountBps) {
                 interestRateBps = interestRateBps - autoRepayInterestDiscountBps;
@@ -484,6 +531,13 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         uint256 interest = (borrowAmount * interestRateBps) / BPS_DENOMINATOR;
         uint256 originationFee = (borrowAmount * originationFeeBps) / BPS_DENOMINATOR;
         interest += originationFee;
+        
+        // V4.0 Auto-Hedge Logic for Rank 3 Collateral
+        uint256 hedgeAmount = 0;
+        uint8 rank = adapter.registry().getRank(vestingContract);
+        if (rank == 3 && autoHedgeVault != address(0) && autoHedgeBps > 0) {
+            hedgeAmount = (borrowAmount * autoHedgeBps) / BPS_DENOMINATOR;
+        }
 
         uint256 loanId = loanCount;
         privateLoans[loanId] = PrivateLoan({
@@ -492,13 +546,19 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             interest: interest,
             collateralId: collateralId,
             collateralAmount: pledgedQuantity,
+            loanDuration: durationDays * 1 days,
             unlockTime: unlockTime,
+            hedgeAmount: hedgeAmount,
             active: true
         });
         loanCount += 1;
 
         pool.lend(msg.sender, borrowAmount);
         emit PrivateLoanCreated(loanId, msg.sender, borrowAmount);
+        
+        if (hedgeAmount > 0) {
+            emit AutoHedgeDiverted(loanId, hedgeAmount);
+        }
     }
 
     function repayLoan(uint256 loanId, uint256 amount) external whenNotPaused nonReentrant {
@@ -782,101 +842,100 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         }
 
         Loan storage loan = loans[loanId];
-        require(loan.active, "inactive");
+        uint256 repayInterest = 0;
 
-        uint256 remainingDebt = loan.principal + loan.interest;
-        uint256 applied = usdcAmount > remainingDebt ? remainingDebt : usdcAmount;
-        uint256 refund = usdcAmount > applied ? usdcAmount - applied : 0;
+        if (usdcAmount <= loan.interest) {
+            loan.interest -= usdcAmount;
+            repayInterest = usdcAmount;
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            usdc.safeTransfer(paymentTreasury, usdcAmount);
+        } else {
+            uint256 remaining = usdcAmount - loan.interest;
+            repayInterest = loan.interest;
+            loan.interest = 0;
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            usdc.safeTransfer(paymentTreasury, repayInterest);
 
-        address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-        if (applied > 0) {
-            usdc.safeTransfer(paymentTreasury, applied);
-            _applyRepayment(loanId, applied);
+            uint256 principalRepayment = remaining > loan.principal ? loan.principal : remaining;
+            loan.principal -= principalRepayment;
+
+            uint256 poolDebt = pool.totalBorrowed();
+            uint256 repayAmountToPool = principalRepayment + repayInterest;
+            if (repayAmountToPool > poolDebt) {
+                repayAmountToPool = poolDebt;
+            }
+            if (repayAmountToPool > 0) {
+                usdc.forceApprove(address(pool), repayAmountToPool);
+                pool.repay(principalRepayment, repayInterest);
+            }
+
+            uint256 overpaid = remaining - principalRepayment;
+            if (overpaid > 0) {
+                usdc.safeTransfer(payer, overpaid);
+            }
         }
-        if (refund > 0) {
-            usdc.safeTransfer(payer, refund);
+
+        emit LoanRepaid(loanId, usdcAmount);
+
+        if (loan.principal == 0 && loan.interest == 0) {
+            loan.active = false;
+            adapter.transferCollateral(loan.collateralId, loan.borrower);
+            emit LoanSettled(loanId, false);
         }
     }
 
     function _applyRepayment(uint256 loanId, uint256 amount) internal {
-        if (amount == 0) {
-            return;
-        }
-        uint256 poolDebt = pool.totalBorrowed();
-        uint256 repayAmount = amount > poolDebt ? poolDebt : amount;
-        if (repayAmount > 0) {
-            pool.repay(repayAmount);
-        }
-
-        Loan storage loan = loans[loanId];
-        uint256 remainingInterest = loan.interest;
-        uint256 remainingPrincipal = loan.principal;
-
-        if (amount >= remainingInterest) {
-            loan.interest = 0;
-            uint256 principalPaid = amount - remainingInterest;
-            if (principalPaid >= remainingPrincipal) {
-                loan.principal = 0;
-            } else {
-                loan.principal = remainingPrincipal - principalPaid;
-            }
-        } else {
-            loan.interest = remainingInterest - amount;
-        }
-
-        emit LoanRepaid(loanId, amount);
+        // This function is now obsolete as its logic has been merged into _applyUsdcToLoan
+        // and _applyUsdcToPrivateLoan.
+        // Keeping it as a placeholder or for historical context if needed.
     }
 
     function _applyUsdcToPrivateLoan(uint256 loanId, address payer, uint256 usdcAmount) internal {
-        if (usdcAmount == 0) {
-            return;
-        }
+        if (usdcAmount == 0) return;
 
         PrivateLoan storage loan = privateLoans[loanId];
-        require(loan.active, "inactive");
+        uint256 repayInterest = 0;
 
-        uint256 remainingDebt = loan.principal + loan.interest;
-        uint256 applied = usdcAmount > remainingDebt ? remainingDebt : usdcAmount;
-        uint256 refund = usdcAmount > applied ? usdcAmount - applied : 0;
-
-        address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-        if (applied > 0) {
-            usdc.safeTransfer(paymentTreasury, applied);
-            _applyPrivateRepayment(loanId, applied);
-        }
-        if (refund > 0) {
-            usdc.safeTransfer(payer, refund);
-        }
-    }
-
-    function _applyPrivateRepayment(uint256 loanId, uint256 amount) internal {
-        if (amount == 0) {
-            return;
-        }
-        uint256 poolDebt = pool.totalBorrowed();
-        uint256 repayAmount = amount > poolDebt ? poolDebt : amount;
-        if (repayAmount > 0) {
-            pool.repay(repayAmount);
-        }
-
-        PrivateLoan storage loan = privateLoans[loanId];
-        uint256 remainingInterest = loan.interest;
-        uint256 remainingPrincipal = loan.principal;
-
-        if (amount >= remainingInterest) {
-            loan.interest = 0;
-            uint256 principalPaid = amount - remainingInterest;
-            if (principalPaid >= remainingPrincipal) {
-                loan.principal = 0;
-            } else {
-                loan.principal = remainingPrincipal - principalPaid;
-            }
+        if (usdcAmount <= loan.interest) {
+            loan.interest -= usdcAmount;
+            repayInterest = usdcAmount;
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            usdc.safeTransfer(paymentTreasury, usdcAmount);
         } else {
-            loan.interest = remainingInterest - amount;
+            uint256 remaining = usdcAmount - loan.interest;
+            repayInterest = loan.interest;
+            loan.interest = 0;
+            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+            usdc.safeTransfer(paymentTreasury, repayInterest);
+
+            uint256 principalRepayment = remaining > loan.principal ? loan.principal : remaining;
+            loan.principal -= principalRepayment;
+
+            uint256 poolDebt = pool.totalBorrowed();
+            uint256 repayAmountToPool = principalRepayment + repayInterest;
+            if (repayAmountToPool > poolDebt) {
+                repayAmountToPool = poolDebt;
+            }
+            if (repayAmountToPool > 0) {
+                usdc.forceApprove(address(pool), repayAmountToPool);
+                pool.repay(principalRepayment, repayInterest);
+            }
+
+            uint256 overpaid = remaining - principalRepayment;
+            if (overpaid > 0) {
+                usdc.safeTransfer(payer, overpaid);
+            }
         }
 
-        emit PrivateLoanRepaid(loanId, amount);
+        emit PrivateLoanRepaid(loanId, usdcAmount);
+
+        if (loan.principal == 0 && loan.interest == 0) {
+            loan.active = false;
+            adapter.transferCollateral(loan.collateralId, loan.vault);
+            emit PrivateLoanSettled(loanId, false);
+        }
     }
+
 
     function settleAtUnlock(uint256 loanId) external whenNotPaused nonReentrant {
         Loan storage loan = loans[loanId];
@@ -891,7 +950,8 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             collateralAvailable = loan.collateralAmount;
         }
 
-        address unlockTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
+        // Release collateral back to the borrower who successfully paid off their debt.
+        address unlockTreasury = loan.borrower;
         if (!defaulted) {
             if (collateralAvailable > 0) {
                 adapter.releaseTo(loan.collateralId, unlockTreasury, collateralAvailable);
@@ -903,33 +963,21 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             }
 
             if (seizeAmount > 0) {
-                adapter.releaseTo(loan.collateralId, address(this), seizeAmount);
-                uint256 usdcReceived = _liquidate(
-                    loanId,
-                    token,
-                    seizeAmount
-                );
-                if (usdcReceived > 0) {
-                    uint256 repayAmount = usdcReceived;
-                    uint256 poolDebt = pool.totalBorrowed();
-                    if (repayAmount > poolDebt) {
-                        repayAmount = poolDebt;
-                    }
-                    address payout = returnsTreasury == address(0)
-                        ? address(pool)
-                        : returnsTreasury;
-                    usdc.safeTransfer(payout, usdcReceived);
-                    if (repayAmount > 0) {
-                        pool.repay(repayAmount);
-                    }
-                }
-            }
+                uint256 startingPrice = remainingDebt * 2; // Start Dutch Auction high to capture speculative premium.
+                uint256 reservePrice = remainingDebt;
 
-            if (collateralAvailable > seizeAmount) {
-                adapter.releaseTo(
+                // Create a Dutch Auction for the claim right.
+                address auctionContract = auctionFactory.createDutchAuction();
+                
+                adapter.transferCollateral(loan.collateralId, auctionContract);
+                adapter.authorizeAuction(auctionContract);
+
+                IAuction(auctionContract).createAuction(
                     loan.collateralId,
-                    unlockTreasury,
-                    collateralAvailable - seizeAmount
+                    adapter.vestingContracts(loan.collateralId),
+                    startingPrice,
+                    reservePrice,
+                    7 days // 7 days auction duration
                 );
             }
         }
@@ -968,27 +1016,21 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             }
 
             if (seizeAmount > 0) {
-                adapter.releaseTo(loan.collateralId, address(this), seizeAmount);
-                uint256 usdcReceived = _liquidate(loanId, token, seizeAmount);
-                if (usdcReceived > 0) {
-                    uint256 repayAmount = usdcReceived;
-                    uint256 poolDebt = pool.totalBorrowed();
-                    if (repayAmount > poolDebt) {
-                        repayAmount = poolDebt;
-                    }
-                    address payout = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-                    usdc.safeTransfer(payout, usdcReceived);
-                    if (repayAmount > 0) {
-                        pool.repay(repayAmount);
-                    }
-                }
-            }
+                uint256 startingPrice = remainingDebt * 2; // Start Dutch Auction high to capture speculative premium.
+                uint256 reservePrice = remainingDebt;
 
-            if (collateralAvailable > seizeAmount) {
-                adapter.releaseTo(
+                // Create a Dutch Auction for the claim right.
+                address auctionContract = auctionFactory.createDutchAuction();
+                
+                adapter.transferCollateral(loan.collateralId, auctionContract);
+                adapter.authorizeAuction(auctionContract);
+
+                IAuction(auctionContract).createAuction(
                     loan.collateralId,
-                    unlockTreasury,
-                    collateralAvailable - seizeAmount
+                    adapter.vestingContracts(loan.collateralId),
+                    startingPrice,
+                    reservePrice,
+                    7 days // 7 days auction duration
                 );
             }
         }
@@ -1005,27 +1047,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         address token,
         uint256 seizeAmount
     ) internal returns (uint256 usdcReceived) {
-        if (address(uniswapRouter) == address(0)) {
-            return 0;
-        }
-
-        IERC20(token).forceApprove(address(uniswapRouter), seizeAmount);
-        uint256 minOut = _minUsdcOut(token, seizeAmount);
-
-        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
-            .ExactInputSingleParams({
-                tokenIn: token,
-                tokenOut: address(usdc),
-                fee: poolFee,
-                recipient: address(this),
-                deadline: block.timestamp + 300,
-                amountIn: seizeAmount,
-                amountOutMinimum: minOut,
-                sqrtPriceLimitX96: 0
-            });
-
-        usdcReceived = uniswapRouter.exactInputSingle(params);
-        emit CollateralLiquidated(loanId, token, seizeAmount, usdcReceived);
+        // Obsolete legacy direct AMM liquidation mechanism
+        // All liquidations now create open market auctions for Claim Rights.
+        return 0;
     }
 
     function _minUsdcOut(

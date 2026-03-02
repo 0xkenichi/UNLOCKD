@@ -809,10 +809,10 @@ const buildSystemPrompt = (
 ) => {
   const languageHint = latestUserMessage
     ? `Detect the user's language from their latest message (${latestUserMessage.slice(
-        0,
-        120
-      )}…) and respond in that language. If unclear, default to concise English.`
-    : 'Respond in the user\'s language when possible; default to concise English.';
+      0,
+      120
+    )}…) and respond in that language. If unclear, default to natural, engaging English.`
+    : 'Respond in the user\'s language when possible; default to natural, engaging English.';
   const contextText = snippets
     .map(
       (snippet, index) =>
@@ -820,29 +820,27 @@ const buildSystemPrompt = (
     )
     .join('\n\n');
   const memoryContext = memorySummary
-    ? `\nPrior conversation memory summary (compressed): ${memorySummary}`
+    ? `\nPrior conversation memory summary (learn from this recent discussion context): ${memorySummary}`
     : '';
   const snapshotContext = platformSnapshot
-    ? `\n\nPlatform snapshot (aggregate only; use to inform users what is happening on the platform—no individual user or wallet data): ${JSON.stringify(platformSnapshot)}`
+    ? `\n\nPlatform Live Snapshot (use this continuous context to intelligently understand what is happening on the website right now—no individual user or wallet data): ${JSON.stringify(platformSnapshot)}`
     : '';
   const privacyRule =
-    'You have protocol knowledge and aggregate platform stats only. Never infer or expose individual user or wallet activity; never ask for or store wallet addresses.';
+    'CRITICAL PRIVACY RULE: You have protocol knowledge and aggregate live stats only. Never infer or expose individual user or wallet activity; never ask for or store wallet addresses. Maintain maximum privacy.';
   return [
-    'You are CRDT AI, a protocol assistant for the UNLOCKD / VESTRA vesting-credit system.',
-    'Answer with concise, actionable steps. When you reference facts, cite the source file name.',
-    'If something is unspecified or TODO in docs, say it clearly and suggest what data is needed.',
+    'You are CRDT AI, a hyper-intelligent, dynamic protocol assistant for the UNLOCKD / VESTRA vesting-credit system.',
+    'Formulate your own organic, highly coherent answers. Learn dynamically from the provided documentation, Live Platform Snapshot, and Prior Memory.',
+    'Do not repeat robotic templates. Synthesize facts naturally to guide the user deeply.',
+    'If something is unspecified or TODO in docs, theorize elegantly or ask for what data is needed.',
     'Prefer risk-first guidance: DPV, LTV, unlock timelines, governance/process integrity.',
-    'Never invent parameters. Do not give financial advice; keep it product/support oriented.',
     privacyRule,
-    'If the user asks something unrelated to the protocol, reply anyway in a Deadpool/Ryan Reynolds tone: witty, dark, sarcastic, with jokes, but stay brief and safe.',
     languageHint,
-    'Use the provided context and say if the answer is not in docs.',
-    `Detected intent: ${intent}. Keep the response structured with sections: "Answer", "Checks", "Next steps", "Sources".`,
+    `Detected conversational intent: ${intent}.`,
     runtimeContext
-      ? `Runtime context: ${JSON.stringify({ ...runtimeContext, walletAddress: undefined }).slice(0, 800)}`
+      ? `Runtime environmental context: ${JSON.stringify({ ...runtimeContext, walletAddress: undefined }).slice(0, 800)}`
       : '',
     snapshotContext,
-    '\nContext:\n',
+    '\nDocumentation Context:\n',
     contextText,
     memoryContext
   ].join('\n');
@@ -850,6 +848,12 @@ const buildSystemPrompt = (
 
 const callLLM = async (messages) => {
   const candidates = [
+    {
+      name: 'gemini',
+      apiKey: process.env.GEMINI_API_KEY,
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+    },
     {
       name: 'asi-one',
       apiKey: process.env.ASI_ONE_API_KEY,
@@ -979,23 +983,23 @@ const answerAgent = async (agent, input) => {
   const llm = await callLLM(messages);
   const retrievalConfidence = snippets.length
     ? Math.max(
-        0.2,
-        Math.min(
-          0.98,
-          snippets
-            .slice(0, 3)
-            .reduce(
-              (sum, snippet) =>
-                sum +
-                scoreSnippet({
-                  snippet,
-                  queryTokens: tokenize(trimmed),
-                  intent: intentResult.intent
-                }),
-              0
-            ) / 3
-        )
+      0.2,
+      Math.min(
+        0.98,
+        snippets
+          .slice(0, 3)
+          .reduce(
+            (sum, snippet) =>
+              sum +
+              scoreSnippet({
+                snippet,
+                queryTokens: tokenize(trimmed),
+                intent: intentResult.intent
+              }),
+            0
+          ) / 3
       )
+    )
     : 0.2;
   const overallConfidence =
     Math.round(

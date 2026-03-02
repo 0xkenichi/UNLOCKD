@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
 import whitepaperDoc from '../../../docs/WHITEPAPER.md?raw';
 import litepaperDoc from '../../../docs/protocol-design/LITEPAPER.md?raw';
@@ -161,7 +160,6 @@ export default function Docs() {
           preview and inline readers.
         </div>
       </div>
-      <PageIllustration variant="docs" />
       <div className="holo-card feature-visual-card">
         <div className="section-head">
           <div>

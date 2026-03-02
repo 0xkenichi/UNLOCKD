@@ -6,6 +6,11 @@
 
 set -e
 
+# Source .env if it exists
+if [ -f .env ]; then
+  source .env
+fi
+
 echo "========================================="
 echo "  UNLOCKD - Full Sepolia E2E Flow"
 echo "========================================="
@@ -30,11 +35,8 @@ echo "🚀 Deploying contracts to Sepolia..."
 npm run deploy:sepolia
 
 # 3. Synchronize Frontend Contracts (if applicable)
-# Note: Add the sync script if a Sepolia-specific frontend syncer is created. 
-# Currently matching the provided package.json structure.
-# Uncomment the following line if a sync:contracts:sepolia script is added later:
-# echo "🔄 Synchronizing ABIs with Frontend..."
-# npm run sync:contracts:sepolia
+echo "🔄 Synchronizing ABIs with Frontend..."
+npm run sync:contracts:sepolia
 
 # 4. Run E2E Flow
 echo "⚙️  Running Sepolia E2E Script (e2e-sepolia.js)..."

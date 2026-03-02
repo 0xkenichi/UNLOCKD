@@ -1,6 +1,6 @@
-# UNLOCKD Documentation
+# Vestra Documentation
 
-This docs hub is the complete entry point for CRDT/UNLOCKD: concept → design → build → test → pilot.
+This docs hub is the complete entry point for CRDT/Vestra: concept → design → build → test → pilot.
 
 Docs are grouped by topic. Start with **protocol-design** and **reference**; use other folders as needed.
 
@@ -28,8 +28,8 @@ Core protocol narrative, system design, and contracts.
 
 ## risk/
 Risk models, LTV/DPV, interest rates, committee charter, and risk remediation.
-- **RISK_MODELS.md** — Deterministic + Monte Carlo valuation and LTV guidance.
-- **INTEREST_RATES_AND_POOL_LIFECYCLE.md** — Interest rate model and pool lifecycle.
+- **RISK_MODELS.md** — Deterministic + Monte Carlo valuation and TWAP LTV constraints.
+- **INTEREST_RATES_AND_POOL_LIFECYCLE.md** — Inverted interest rate curve and pool lifecycle.
 - **MONTE_CARLO_LTV_TABLE.md** — Monte Carlo LTV table reference.
 - **RISK_COMMITTEE_CHARTER.md** — Risk governance scope, voting, emergency controls.
 - **RISKS_GAPS_AND_GAMIFICATION.md** — Protocol risks, gaps, and gamification vectors.
@@ -54,8 +54,8 @@ CRDT token and DAO governance.
 
 ## integrations/
 Claim-rights wrappers, protocol integrations, futures, and legal.
-- **CLAIM_RIGHTS_WRAPPERS.md** — Real vesting standards and wrapper patterns.
-- **PROTOCOL_INTEGRATIONS.md** — External protocol integration points.
+- **CLAIM_RIGHTS_WRAPPERS.md** — Real vesting standards, wrapper patterns, and admin-access audit requirements.
+- **PROTOCOL_INTEGRATIONS.md** — External protocol integration points and DAO OTC Treasury plays.
 - **FUTURES_AND_STACK_INTEGRATION.md** — Futures/perps integration for hedging and liquidation.
 - **LEGAL_IMPLICATIONS.md** — Legal implications (informational; not legal advice).
 

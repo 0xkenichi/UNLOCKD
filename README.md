@@ -1,6 +1,7 @@
-# UNLOCKD (Vestra Protocol)
+# Vestra Protocol
+*(Historically known as UNLOCKD)*
 
-UNLOCKD is a DeFi credit primitive for borrowing against locked or vesting token claims.
+Vestra is a DeFi credit primitive for borrowing against locked or vesting token claims.
 It enables non-custodial loans on assets that are valuable but not yet transferable.
 
 ## Why It Matters
@@ -42,6 +43,7 @@ It enables non-custodial loans on assets that are valuable but not yet transfera
 Start with `docs/README.md` for the full documentation index, then:
 
 - `docs/CANONICAL_POSITIONING.md`
+- `docs/VISION_AND_STRATEGY.md`
 - `docs/OVERVIEW.md`
 - `docs/LITEPAPER.md`
 - `docs/WHITEPAPER.md`

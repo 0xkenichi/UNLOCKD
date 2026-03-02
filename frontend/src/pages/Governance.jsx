@@ -5,6 +5,7 @@ import PassportSummary from '../components/common/PassportSummary.jsx';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 
 const CrdtOrb = lazy(() => import('../components/governance/CrdtOrb.jsx'));
+const GovernanceSimulator = lazy(() => import('../components/governance/GovernanceSimulator.jsx'));
 
 export default function Governance() {
   const navigate = useNavigate();
@@ -107,25 +108,13 @@ export default function Governance() {
         <Suspense fallback={holoFallback}>
           <CrdtOrb />
         </Suspense>
-        <div className="holo-card">
-          <h3 className="holo-title">Active Proposals</h3>
-          <p className="muted">
-            No on-chain proposals are enabled on testnet.
-          </p>
-          <button
-            className="button"
-            type="button"
-            onClick={() => {
-              const target = document.getElementById('governance-feed');
-              if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
-            }}
-          >
-            View Feed
-          </button>
+        <div className="grid-1 md:grid-2">
+          <Suspense fallback={holoFallback}>
+            <GovernanceSimulator />
+          </Suspense>
         </div>
       </div>
+
       <div className="holo-card" id="governance-feed">
         <div className="section-head">
           <div>

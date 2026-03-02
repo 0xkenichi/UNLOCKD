@@ -1,4 +1,4 @@
-# Vestra Protocol — DeFi Moonshots Deck
+# Vestra — DeFi Moonshots Deck
 
 11-slide presentation for the Sui DeFi Moonshots application.
 

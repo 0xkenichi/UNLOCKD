@@ -1,4 +1,4 @@
-# UNLOCKD Protocol: Risks, Gaps, and Gamification / Cheating Vectors
+# Vestra Protocol: Risks, Gaps, and Gamification / Cheating Vectors
 
 **Purpose:** Catalog of protocol and operational risks, documentation/design gaps, and ways actors can gamify or cheat the system. Use for risk committee review, audit scoping, and mitigation planning.
 

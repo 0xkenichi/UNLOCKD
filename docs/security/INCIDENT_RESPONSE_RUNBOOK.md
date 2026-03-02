@@ -1,6 +1,6 @@
 # Incident Response Runbook
 
-This runbook defines how UNLOCKD responds to production incidents and security events.
+This runbook defines how Vestra responds to production incidents and security events.
 
 ## Severity Levels
 

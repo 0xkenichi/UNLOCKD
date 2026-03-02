@@ -1,6 +1,6 @@
 # Risk Committee Charter
 
-This charter defines the risk governance process for UNLOCKD protocol parameters and emergency actions.
+This charter defines the risk governance process for Vestra protocol parameters and emergency actions.
 
 ## Scope
 

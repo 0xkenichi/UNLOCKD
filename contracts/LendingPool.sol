@@ -18,6 +18,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
     mapping(address => uint256) public deposits;
     uint256 public totalDeposits;
     uint256 public totalBorrowed;
+    uint256 public insuranceReserve;
 
     uint256 public constant BPS_DENOMINATOR = 10000;
     uint256 public constant REWARD_PRECISION = 1e18;
@@ -386,10 +387,24 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         usdc.safeTransferFrom(issuanceTreasury, to, amount);
     }
 
-    function repay(uint256 amount) external nonReentrant onlyLoanManager whenNotPaused {
+    function repay(uint256 amount, uint256 interestAmount) external nonReentrant onlyLoanManager whenNotPaused {
         require(amount > 0, "amount=0");
         require(totalBorrowed >= amount, "repay>debt");
         totalBorrowed -= amount;
+        
+        // 20% of all interest goes to the Insurance Reserve to protect against illiquid defaults
+        if (interestAmount > 0) {
+            uint256 insuranceCut = (interestAmount * 2000) / BPS_DENOMINATOR;
+            insuranceReserve += insuranceCut;
+            totalDeposits += (interestAmount - insuranceCut); // 80% yields back to LPs
+        }
+    }
+    
+    function claimInsurance(address to, uint256 amount) external nonReentrant onlyLoanManager whenNotPaused {
+        require(amount > 0, "amount=0");
+        require(insuranceReserve >= amount, "insufficient reserve");
+        insuranceReserve -= amount;
+        usdc.safeTransfer(to, amount);
     }
 
     function pause() external onlyOwner {
@@ -407,15 +422,57 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         return (totalBorrowed * BPS_DENOMINATOR) / totalDeposits;
     }
 
-    function getInterestRateBps() public view returns (uint256) {
-        uint256 utilization = utilizationRateBps();
+    function getInterestRateBps(uint256 durationDays) public view returns (uint256) {
+        uint256 utilization = utilizationRateBps(); // [0, 10000]
+        uint256 baseRate;
+
+        // Dynamic Interest Rate Game Theory Kink Model
         if (utilization <= lowUtilizationThresholdBps) {
-            return lowUtilizationRateBps;
+            baseRate = 500 + ((utilization * 1000) / lowUtilizationThresholdBps); // Up to 1500 (15%)
+        } else if (utilization <= highUtilizationThresholdBps) {
+            uint256 range = highUtilizationThresholdBps - lowUtilizationThresholdBps;
+            uint256 progress = utilization - lowUtilizationThresholdBps;
+            baseRate = 1500 + ((progress * 1500) / range); // Up to 3000 (30%)
+        } else {
+            uint256 range = BPS_DENOMINATOR - highUtilizationThresholdBps;
+            uint256 progress = utilization - highUtilizationThresholdBps;
+            baseRate = 3000 + ((progress * progress * 12000) / (range * range));
         }
-        if (utilization <= highUtilizationThresholdBps) {
-            return midUtilizationRateBps;
+
+        // True "Inverted Duration-Rate Curve"
+        // In Web3 Vested Lending, shorter loans against illiquid tokens are much safer than long-term holds.
+        // The core strategy: incentivize users to borrow and pay back iteratively on small timeframes (30-90 days),
+        // completely disincentivizing tying up capital and exposing lenders to 1yr+ token fluctuations.
+        
+        // The computed baseRate serves as the absolute Ceiling (Max Risk / Longest Supported Duration approx 1yr+)
+        uint256 finalRate = baseRate;
+        
+        if (durationDays < 180) {
+            // Maximum discount of 50% for 0 day loans.
+            // As loan extends from 0 to 180 days, the discount linearly decays to 0%.
+            // E.g., at 30 days: (180 - 30) = 150. (150 * 5000) / 180 = 4166 (41.6% discount)
+            uint256 discountBps = ((180 - durationDays) * 5000) / 180;
+            
+            finalRate = (baseRate * (BPS_DENOMINATOR - discountBps)) / BPS_DENOMINATOR;
+            
+            // Hard floor of 5% to protect basic lender ROI
+            if (finalRate < 500) {
+                finalRate = 500;
+            }
         }
-        return highUtilizationRateBps;
+        
+        // Exceedingly long-term loans (e.g. 2+ years) apply a massive hazard premium
+        if (durationDays > 365) {
+            uint256 hazardPremiumBps = ((durationDays - 365) * BPS_DENOMINATOR) / 365;
+            uint256 maxMultiplierBps = 30000; // Cap at 3x multiplier
+            
+            finalRate = (baseRate * (BPS_DENOMINATOR + hazardPremiumBps)) / BPS_DENOMINATOR;
+            if (finalRate > (baseRate * maxMultiplierBps) / BPS_DENOMINATOR) {
+                finalRate = (baseRate * maxMultiplierBps) / BPS_DENOMINATOR;
+            }
+        }
+
+        return finalRate;
     }
 
     function availableLiquidity() public view returns (uint256) {

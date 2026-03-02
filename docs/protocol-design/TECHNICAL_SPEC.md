@@ -1,6 +1,6 @@
 # Technical Specification
 
-This document defines the system architecture, module responsibilities, and core flows for VESTRA. It complements [ARCHITECTURE.md](ARCHITECTURE.md) and the litepaper and is intended to be implementable without ambiguity.
+This document defines the system architecture, module responsibilities, and core flows for Vestra. It complements [ARCHITECTURE.md](ARCHITECTURE.md) and the litepaper and is intended to be implementable without ambiguity.
 
 ## Scope
 - On-chain escrow and settlement of claim rights.
@@ -13,7 +13,7 @@ Out of scope: legal agreements, custody frameworks, or off-chain lending.
 ## System Overview
 The protocol enables borrowing or selling claim rights on time-locked tokens. Settlement is enforced at unlock, and credit risk is isolated through conservative DPV and LTV caps.
 
-![UNLOCKD Protocol Architecture](../assets/diagrams/unlockd-architecture.png)
+![Vestra Protocol Architecture](../assets/diagrams/vestra-architecture.png)
 
 ## Design Principles
 - **Safety first**: settlement is deterministic and non-bypassable.
@@ -66,7 +66,7 @@ Adapters must:
 - Prove the vesting schedule is valid and locked.
 - Provide deterministic `unlockTime` and `quantity`.
 - Support `release` to route unlocked tokens to the settlement recipient.
-- Prevent transfer of claim rights outside VESTRA while pledged.
+- Prevent transfer of claim rights outside Vestra while pledged.
 
 ## Valuation Model (DPV)
 PV = Q * P * D
@@ -119,7 +119,7 @@ Constraints:
 - `createAuction`: claim cannot be simultaneously pledged to a loan.
 
 ## Borrow Flow (Public or Private)
-![Borrow Flow (Escrow to Loan Issuance)](../assets/diagrams/unlockd-borrow-flow.png)
+![Borrow Flow (Escrow to Loan Issuance)](../assets/diagrams/vestra-borrow-flow.png)
 
 1. Borrower escrows claim rights via adapter.
 2. Adapter returns quantity and unlock time for valuation.
@@ -129,7 +129,7 @@ Constraints:
 6. Optional relayer proxies steps 1-5.
 
 ## Repay and Settle
-![Repay and Settle Flow](../assets/diagrams/unlockd-settle-flow.png)
+![Repay and Settle Flow](../assets/diagrams/vestra-settle-flow.png)
 
 1. Borrower repays principal + interest any time pre-unlock.
 2. At unlock, settlement enforces:

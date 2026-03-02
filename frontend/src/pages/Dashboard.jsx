@@ -9,6 +9,20 @@ import { formatValue } from '../utils/format.js';
 import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '../utils/api.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 import { useOnchainSession } from '../utils/onchainSession.js';
+import DashboardHolo from '../components/dashboard/DashboardHolo.jsx';
+import {
+  ShieldCheck,
+  TrendingUp,
+  LineChart,
+  Users,
+  Search,
+  Activity,
+  History,
+  LayoutDashboard,
+  Coins,
+  Library,
+  Info
+} from 'lucide-react';
 
 const PortfolioPage = lazy(routeImports.portfolio);
 const BorrowPage = lazy(routeImports.borrow);
@@ -23,17 +37,17 @@ const AboutPage = lazy(routeImports.about);
 const CommunityPoolsPage = lazy(routeImports.communityPools);
 
 const modules = [
-  { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', component: BorrowPage },
-  { id: 'repay', title: 'Repay', subtitle: 'Close and reclaim safely', component: RepayPage },
-  { id: 'portfolio', title: 'Portfolio', subtitle: 'Unified positions + performance', component: PortfolioPage },
-  { id: 'lender', title: 'Lender', subtitle: 'Deploy liquidity and earn', component: LenderPage },
-  { id: 'auction', title: 'Auction', subtitle: 'Liquidation and market clearing', component: AuctionPage },
-  { id: 'governance', title: 'Governance', subtitle: 'Vote, delegate, steer protocol', component: GovernancePage },
-  { id: 'identity', title: 'Identity', subtitle: 'Onchain trust surface', component: IdentityPage },
-  { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage },
-  { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage },
-  { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage },
-  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage }
+  { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', component: BorrowPage, icon: Coins },
+  { id: 'repay', title: 'Repay', subtitle: 'Close and reclaim safely', component: RepayPage, icon: History },
+  { id: 'portfolio', title: 'Portfolio', subtitle: 'Unified positions + performance', component: PortfolioPage, icon: LayoutDashboard },
+  { id: 'lender', title: 'Lender', subtitle: 'Deploy liquidity and earn', component: LenderPage, icon: LineChart },
+  { id: 'auction', title: 'Auction', subtitle: 'Liquidation and market clearing', component: AuctionPage, icon: Activity },
+  { id: 'governance', title: 'Governance', subtitle: 'Vote, delegate, steer protocol', component: GovernancePage, icon: Users },
+  { id: 'identity', title: 'Identity', subtitle: 'Onchain trust surface', component: IdentityPage, icon: ShieldCheck },
+  { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage, icon: Search },
+  { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage, icon: Library },
+  { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage, icon: Info },
+  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage, icon: TrendingUp }
 ];
 
 const moduleLoaders = {
@@ -53,33 +67,12 @@ const moduleLoaders = {
 const ZOOM_OPEN_DURATION_MS = 720;
 
 function ModuleMiniPreview({ moduleId }) {
-  const profile = {
-    borrow: { top: '62%', line: '72%' },
-    repay: { top: '48%', line: '68%' },
-    portfolio: { top: '70%', line: '86%' },
-    lender: { top: '56%', line: '64%' },
-    auction: { top: '44%', line: '58%' },
-    governance: { top: '52%', line: '74%' },
-    identity: { top: '38%', line: '52%' },
-    features: { top: '66%', line: '80%' },
-    docs: { top: '74%', line: '84%' },
-    about: { top: '42%', line: '60%' },
-    communityPools: { top: '58%', line: '78%' }
-  }[moduleId] || { top: '54%', line: '76%' };
-
+  const mod = modules.find(m => m.id === moduleId);
+  const Icon = mod?.icon || Activity;
+  // A sleek, subtle preview block representing the module's nature
   return (
-    <div className="immersive-preview-shell" aria-hidden="true">
-      <div className="immersive-preview-top" style={{ width: profile.top }} />
-      <div className="immersive-preview-grid">
-        <div className="immersive-preview-block immersive-preview-block--wide" />
-        <div className="immersive-preview-block" />
-        <div className="immersive-preview-block" />
-      </div>
-      <div className="immersive-preview-lines">
-        <span />
-        <span style={{ width: profile.line }} />
-      </div>
-      <div className="immersive-preview-tag">{moduleId}</div>
+    <div className="immersive-preview-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '64px', background: 'rgba(10, 14, 20, 0.4)' }}>
+      <Icon size={32} strokeWidth={1.5} color="var(--primary-400)" style={{ filter: 'drop-shadow(0 0 12px rgba(59, 130, 246, 0.6))' }} />
     </div>
   );
 }
@@ -93,7 +86,7 @@ function ModuleFallback({ moduleId }) {
   );
 }
 
-export default function Dashboard({ onOpenWallet = () => {} }) {
+export default function Dashboard({ onOpenWallet = () => { } }) {
   const prefersReducedMotion = useReducedMotion();
   const { address } = useAccount();
   const chainId = useChainId();
@@ -382,18 +375,19 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
         <div className="immersive-stage-grid" />
 
         <div className="immersive-core-card holo-card">
-          <div className="stat-row">
-            <div className="stat-card stat-card-minimal">
-              <div className="stat-value">{loanCountValue}</div>
-              <div className="stat-label">Loans</div>
+          <div className="stat-row" style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--border-primary)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
+            <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(59, 130, 246, 0.4)' }}>{loanCountValue}</div>
+              <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Loans</div>
             </div>
-            <div className="stat-card stat-card-minimal">
-              <div className="stat-value">{formattedBalance}</div>
-              <div className="stat-label">USDC</div>
+            <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(59, 130, 246, 0.4)' }}>{formattedBalance}</div>
+              <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>USDC</div>
             </div>
             <button
               className="stat-card stat-card-minimal immersive-network-card"
               type="button"
+              style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', transition: 'all 0.2s', textAlign: 'left' }}
               onClick={() => {
                 if (isSolanaSession) {
                   onOpenWallet();
@@ -402,27 +396,27 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
                 setNetworkPickerOpen((open) => !open);
               }}
             >
-              <div className="stat-value">
+              <div className="stat-value" style={{ fontSize: '20px', color: '#fff' }}>
                 {isSolanaSession ? activeSolanaNetwork?.name || 'Solana' : activeChain?.name || '—'}
               </div>
-              <div className="stat-label">Network</div>
+              <div className="stat-label" style={{ color: 'var(--primary-400)' }}>Network</div>
             </button>
           </div>
-          <div className="stat-row">
-            <div className="stat-card stat-card-minimal">
-              <div className="stat-value">
+          <div className="stat-row" style={{ padding: 'var(--space-4)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
+            <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+              <div className="stat-value" style={{ fontSize: '24px' }}>
                 {kpiLoading ? '...' : (kpi?.growth?.uniqueWallets ?? 0).toString()}
               </div>
               <div className="stat-label">Unique wallets (24h)</div>
             </div>
-            <div className="stat-card stat-card-minimal">
-              <div className="stat-value">
+            <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+              <div className="stat-value" style={{ fontSize: '24px' }}>
                 {kpiLoading ? '...' : (kpi?.credit?.loansCreated ?? 0).toString()}
               </div>
               <div className="stat-label">Loans created (24h)</div>
             </div>
-            <div className="stat-card stat-card-minimal">
-              <div className="stat-value">
+            <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+              <div className="stat-value" style={{ fontSize: '24px' }}>
                 {kpiLoading ? '...' : (kpi?.risk?.defaults ?? 0).toString()}
               </div>
               <div className="stat-label">Defaults (24h)</div>
@@ -473,8 +467,8 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
                 drift:{' '}
                 {Number.isFinite(agentReplay?.drift?.confidenceDelta)
                   ? `${agentReplay.drift.confidenceDelta > 0 ? '+' : ''}${(
-                      agentReplay.drift.confidenceDelta * 100
-                    ).toFixed(1)} pts`
+                    agentReplay.drift.confidenceDelta * 100
+                  ).toFixed(1)} pts`
                   : '--'}{' '}
                 · turns: {agentReplay.totalTurns || 0}
               </div>
@@ -490,13 +484,11 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
                           ? 0.35
                           : Math.min(1, Math.max(0.35, point.confidenceAvg + 0.15))
                     }}
-                    title={`${new Date(point.t).toLocaleString()} · turns: ${
-                      point.count
-                    } · confidence: ${
-                      point.confidenceAvg !== null
+                    title={`${new Date(point.t).toLocaleString()} · turns: ${point.count
+                      } · confidence: ${point.confidenceAvg !== null
                         ? `${Math.round(point.confidenceAvg * 100)}%`
                         : '--'
-                    }`}
+                      }`}
                   />
                 ))}
               </div>
@@ -514,20 +506,31 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
             {isSolanaSession ? ` (${activeSolanaNetwork?.name || 'Solana'})` : ''}
           </div>
         </div>
+
+        <div className="w-full mt-6 mb-8 max-w-6xl mx-auto">
+          <DashboardHolo positions={[
+            { title: "TGE Event", amount: "100,000 CRDT" },
+            { title: "Cliff End", amount: "25,000 CRDT" },
+            { title: "Quarter 3 Vest", amount: "12,500 CRDT" },
+            { title: "Quarter 4 Vest", amount: "12,500 CRDT" },
+            { title: "Final Unlock", amount: "50,000 CRDT" }
+          ]} />
+        </div>
+
         <div className="immersive-modules-grid">
           {modules.map((module) => {
             const hovered = hoveredId === module.id;
             const transitioning = transitioningId === module.id;
-            const hoverIntensity = hovered ? Math.min(1, hoverElapsed / 1.25) : 0;
+            const hoverIntensity = hovered ? Math.min(1, hoverElapsed / 1.0) : 0;
             const transitionIntensity = transitioning ? transitionProgress : 0;
             const intensity = Math.max(hoverIntensity, transitionIntensity);
-            const fastPenalty = 1 - pointerSpeed * 0.45;
-            const tiltX = (mouse.y - 0.5) * 4 * fastPenalty;
-            const tiltY = (mouse.x - 0.5) * -6 * fastPenalty;
-            const scale = 1 + 0.04 * hoverIntensity + 0.16 * transitionIntensity;
-            const lift = transitioning ? -24 * transitionIntensity : 0;
-            const depth = transitioning ? 120 * transitionIntensity : 0;
-            const fadeOthers = transitioningId && !transitioning ? Math.max(0.22, 1 - transitionProgress * 0.78) : 1;
+            const fastPenalty = 1 - pointerSpeed * 0.6; // less erratic when moving fast
+            const tiltX = (mouse.y - 0.5) * 6 * fastPenalty;
+            const tiltY = (mouse.x - 0.5) * -8 * fastPenalty;
+            const scale = 1 + 0.02 * hoverIntensity + 0.3 * transitionIntensity;
+            const lift = transitioning ? -45 * transitionIntensity : 0;
+            const depth = transitioning ? 250 * transitionIntensity : 0;
+            const fadeOthers = transitioningId && !transitioning ? Math.max(0.1, 1 - transitionProgress * 0.9) : 1;
 
             return (
               <motion.button
@@ -607,8 +610,8 @@ export default function Dashboard({ onOpenWallet = () => {} }) {
           <div
             className="immersive-focus-content"
             style={{
-              opacity: Math.max(0.12, revealProgress),
-              transform: `translateY(${(1 - revealProgress) * 18}px) scale(${0.98 + revealProgress * 0.02})`
+              opacity: Math.max(0.05, revealProgress),
+              transform: `translateY(${(1 - revealProgress) * 40}px) scale(${0.92 + revealProgress * 0.08})`
             }}
           >
             {activeId && FocusComponent ? (

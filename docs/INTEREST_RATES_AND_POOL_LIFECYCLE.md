@@ -1,6 +1,6 @@
 # Interest Rates and Lending Pool Time / Lifecycle
 
-This document specifies the **interest rate model** and **lending pool time and lifecycle** for the UNLOCKD protocol. It aligns the on-chain implementation (`LendingPool.sol`, `LoanManager.sol`) with product and risk expectations.
+This document specifies the **interest rate model** and **lending pool time and lifecycle** for the Vestra protocol. It aligns the on-chain implementation (`LendingPool.sol`, `LoanManager.sol`) with product and risk expectations.
 
 ---
 

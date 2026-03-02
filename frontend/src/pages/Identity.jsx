@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PassportSummary from '../components/common/PassportSummary.jsx';
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import VerifiedCard from '../components/identity/VerifiedCard.jsx';
 import TierBadge from '../components/common/TierBadge.jsx';
 import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
@@ -98,8 +97,8 @@ export default function Identity() {
     profile?.tierName ||
     (profile?.identityTier != null
       ? ['Anonymous', 'Basic', 'Standard', 'Verified', 'Trusted', 'Institutional'][
-          profile.identityTier
-        ]
+      profile.identityTier
+      ]
       : 'Anonymous');
   const attestations = Array.isArray(profile?.attestations) ? profile.attestations : [];
   const totalStamps = attestations.reduce((sum, item) => sum + Number(item?.stampsCount || 0), 0);
@@ -139,21 +138,8 @@ export default function Identity() {
         </div>
       </div>
       <PrivacyUpgradeWizard enabled={privacyMode} />
-      <div className="grid-2 essentials-row">
+      <div className="essentials-row">
         <EssentialsPanel />
-        <PageIllustration
-          variant="identity"
-          identityData={{
-            walletAddress: activeWalletAddress || null,
-            compositeScore: profile?.compositeScore ?? null,
-            ias: profile?.ias ?? null,
-            fbs: profile?.fbs ?? null,
-            identityTier: profile?.identityTier ?? 0,
-            tierName: tierLabel,
-            passportResult,
-            generateSignatureCallback
-          }}
-        />
       </div>
       <div className="stat-row">
         <div className="stat-card">
@@ -178,10 +164,10 @@ export default function Identity() {
             {profile?.policy?.small?.allowed
               ? 'Small loans'
               : profile?.policy?.medium?.allowed
-              ? 'Medium'
-              : profile?.policy?.large?.allowed
-              ? 'Large'
-              : 'Pending'}
+                ? 'Medium'
+                : profile?.policy?.large?.allowed
+                  ? 'Large'
+                  : 'Pending'}
           </div>
           <div className="stat-delta">Policy bands</div>
         </div>

@@ -14,6 +14,7 @@ import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import UnifiedWalletModal from './components/common/UnifiedWalletModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   trackEvent,
   flushAnalyticsQueue,
@@ -38,6 +39,7 @@ const Airdrop = lazy(routeImports.airdrop);
 const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
 const CommunityPools = lazy(routeImports.communityPools);
+const Demo = lazy(routeImports.demo);
 
 function RouteFallback() {
   return (
@@ -181,50 +183,47 @@ function AppShell() {
               <div className="brand-subtitle">Vesting Credit Protocol</div>
             </div>
           </div>
-          <div className="header-nav">
+          <div className="header-nav" style={{ position: 'relative' }}>
             <div className="header-actions">
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/dashboard')}
-              >
-                Dashboard
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/borrow')}
-              >
-                Borrow
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/portfolio')}
-              >
-                Portfolio
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/community-pools')}
-              >
-                Community
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/airdrop')}
-              >
-                Airdrop
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => navigate('/feedback')}
-              >
-                Feedback
-              </button>
+              {[
+                { path: '/dashboard', label: 'Dashboard' },
+                { path: '/borrow', label: 'Borrow' },
+                { path: '/portfolio', label: 'Portfolio' },
+                { path: '/community-pools', label: 'Community' },
+                // { path: '/demo', label: 'Demo' },
+                { path: '/airdrop', label: 'Airdrop' },
+                { path: '/feedback', label: 'Feedback' },
+              ].map((navItem) => {
+                const isActive = location.pathname.startsWith(navItem.path);
+                return (
+                  <button
+                    key={navItem.path}
+                    className={`button ghost ${isActive ? 'active-nav' : ''}`}
+                    type="button"
+                    onClick={() => navigate(navItem.path)}
+                    style={{ position: 'relative', background: 'transparent' }}
+                  >
+                    {navItem.label}
+                    {isActive && (
+                      <motion.div
+                        layoutId="nav-underline"
+                        style={{
+                          position: 'absolute',
+                          bottom: '-8px',
+                          left: '10%',
+                          right: '10%',
+                          height: '2px',
+                          background: 'var(--primary-400)',
+                          boxShadow: '0 0 10px rgba(59, 130, 246, 0.8)',
+                          borderRadius: '2px'
+                        }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+
               <button
                 className="button ghost"
                 type="button"
@@ -234,9 +233,10 @@ function AppShell() {
                 {theme === 'dark' ? 'Light mode' : 'Dark mode'}
               </button>
               <button
-                className={`button ${activeHeaderAddress ? 'wallet-connected' : ''}`}
+                className={`button ${activeHeaderAddress ? 'wallet-connected' : 'primary'}`}
                 type="button"
                 onClick={() => setWalletModalOpen(true)}
+                style={!activeHeaderAddress ? { background: 'var(--gradient-button)', border: 'none', boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)' } : {}}
               >
                 {activeHeaderAddress
                   ? `${activeIdentity.chainType === 'solana' ? 'Phantom' : 'Connected'} ${shortActiveHeaderAddress}`
@@ -255,38 +255,50 @@ function AppShell() {
         session.chainType === 'solana' &&
         hasSolanaSession &&
         solanaNetwork && (
-        <div className="chain-warning">
-          Phantom wallet: switch to {solanaNetwork.name} to continue.
-        </div>
-      )}
+          <div className="chain-warning">
+            Phantom wallet: switch to {solanaNetwork.name} to continue.
+          </div>
+        )}
       <main
         id="main-content"
         className={`app-main ${isLanding ? 'app-main--landing' : ''} ${isImmersiveDashboard ? 'app-main--immersive' : ''}`}
       >
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/dashboard" element={<Dashboard onOpenWallet={() => setWalletModalOpen(true)} />} />
-            <Route path="/portfolio" element={<Portfolio />} />
-            <Route path="/lender" element={<Lender />} />
-            <Route path="/borrow" element={<Borrow />} />
-            <Route path="/repay" element={<Repay />} />
-            <Route path="/auction" element={<Auction />} />
-            <Route path="/governance" element={<Governance />} />
-            <Route path="/identity" element={<Identity />} />
-            <Route path="/features" element={<Features />} />
-            <Route path="/docs" element={<Docs />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/admin/airdrop" element={<AdminAirdrop />} />
-            <Route path="/admin/risk" element={<AdminRisk />} />
-            <Route path="/airdrop" element={<Airdrop />} />
-            <Route path="/feedback" element={<Feedback />} />
-            <Route path="/community-pools" element={<CommunityPools />} />
-            {FEATURE_FUNDRAISE_ONBOARD && (
-              <Route path="/fundraise" element={<FundraiseOnboard />} />
-            )}
-          </Routes>
-        </Suspense>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            style={{ width: '100%', minHeight: '100%' }}
+          >
+            <Suspense fallback={<RouteFallback />}>
+              <Routes location={location}>
+                <Route path="/" element={<Landing />} />
+                <Route path="/dashboard" element={<Dashboard onOpenWallet={() => setWalletModalOpen(true)} />} />
+                <Route path="/portfolio" element={<Portfolio />} />
+                <Route path="/lender" element={<Lender />} />
+                <Route path="/borrow" element={<Borrow />} />
+                <Route path="/repay" element={<Repay />} />
+                <Route path="/auction" element={<Auction />} />
+                <Route path="/governance" element={<Governance />} />
+                <Route path="/identity" element={<Identity />} />
+                <Route path="/features" element={<Features />} />
+                <Route path="/docs" element={<Docs />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/admin/airdrop" element={<AdminAirdrop />} />
+                <Route path="/admin/risk" element={<AdminRisk />} />
+                <Route path="/airdrop" element={<Airdrop />} />
+                <Route path="/feedback" element={<Feedback />} />
+                <Route path="/community-pools" element={<CommunityPools />} />
+                {FEATURE_FUNDRAISE_ONBOARD && (
+                  <Route path="/fundraise" element={<FundraiseOnboard />} />
+                )}
+                <Route path="/demo" element={<Demo />} />
+              </Routes>
+            </Suspense>
+          </motion.div>
+        </AnimatePresence>
       </main>
       <OnboardingModal />
       <UnifiedWalletModal

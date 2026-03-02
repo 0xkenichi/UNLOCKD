@@ -7,7 +7,7 @@ Use this template when requesting smart contract audit proposals.
 
 ## Project Summary
 
-- Project: UNLOCKD (Vestra Protocol)
+- Project: Vestra (Vestra)
 - Objective: external review of core credit protocol contracts and critical assumptions
 - Current stage: pre-mainnet controlled rollout planning
 
@@ -46,7 +46,7 @@ Secondary scope (optional tranche):
 - Timeline fit with rollout milestones
 - Cost and re-test policy clarity
 
-## Submission Package Provided by UNLOCKD
+## Submission Package Provided by Vestra
 
 - Architecture and technical docs
 - Current test coverage and CI setup

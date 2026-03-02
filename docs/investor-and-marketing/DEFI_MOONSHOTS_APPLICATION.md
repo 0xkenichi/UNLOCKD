@@ -1,4 +1,4 @@
-# DeFi Moonshots Application — Vestra Protocol
+# DeFi Moonshots Application — Vestra
 
 **Apply here:** [Sui DeFi Moonshots](https://blog.sui.io/defi-moonshots-program-announcement/)  
 **Form type:** Tally
@@ -9,7 +9,7 @@
 
 | Field | Value |
 |-------|-------|
-| **What is your project name?** | Vestra Protocol |
+| **What is your project name?** | Vestra |
 | **Website** | https://vestraprotocol.io (launch in progress) |
 | **What is your name?** | Founder name to be finalized before submission |
 | **What is your email?** | 0xkenichi@gmail.com |

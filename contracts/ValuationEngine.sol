@@ -4,23 +4,30 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "abdk-libraries-solidity/ABDKMath64x64.sol";
+import "./VestingRegistry.sol";
+
+interface IPreTGEOracle {
+    function getLatestPrice(address token) external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
+}
 
 contract ValuationEngine is Ownable {
     using ABDKMath64x64 for int128;
 
-    AggregatorV3Interface public priceFeed; // default feed fallback
+    VestingRegistry public registry;
     mapping(address => address) public tokenPriceFeeds;
     uint256 public riskFreeRate = 5; // percent, 5 = 5%
     uint256 public volatility = 50; // percent, 50 = 50%
     uint256 public maxPriceAge = 1 hours;
+    uint256 public twapInterval = 1 hours; // Default TWAP window
     bool public adminTimelockEnabled;
     uint256 public adminTimelockDelay = 1 days;
-
-    struct PendingDefaultFeed {
-        address feed;
-        uint256 executeAfter;
-        bool exists;
-    }
+    
+    // V4.0 AI Watcher Engine Integration
+    address public coprocessor;
+    mapping(address => uint256) public tokenOmegaBps; // 10000 = 100%
+    
+    // V4.0 Pre-TGE Oracle
+    address public preTGEOracle;
 
     struct PendingTokenFeed {
         address feed;
@@ -28,7 +35,6 @@ contract ValuationEngine is Ownable {
         bool exists;
     }
 
-    PendingDefaultFeed public pendingDefaultFeed;
     mapping(address => PendingTokenFeed) public pendingTokenFeeds;
 
     /// Price history: all-time high and all-time low per token (same decimals as token's price feed)
@@ -53,44 +59,23 @@ contract ValuationEngine is Ownable {
     event TokenPriceBoundsUpdated(address indexed token, uint256 ath, uint256 atl, uint8 decimals);
     event DrawdownParamsUpdated(uint256 penaltyPerBps, uint256 maxPenaltyBps);
     event RangeVolWeightUpdated(uint256 rangeVolWeightBps);
-    event DefaultPriceFeedQueued(address indexed feed, uint256 executeAfter);
-    event DefaultPriceFeedCancelled();
     event TokenPriceFeedQueued(address indexed token, address indexed feed, uint256 executeAfter);
     event TokenPriceFeedCancelled(address indexed token);
+    event RegistryUpdated(address indexed registry);
+    
+    // V4.0 Events
+    event CoprocessorUpdated(address indexed coprocessor);
+    event OmegaUpdated(address indexed token, uint256 omegaBps);
 
-    constructor(address _priceFeed) Ownable(msg.sender) {
-        priceFeed = AggregatorV3Interface(_priceFeed);
+    constructor(address _registry) Ownable(msg.sender) {
+        require(_registry != address(0), "registry=0");
+        registry = VestingRegistry(_registry);
     }
 
-    function setPriceFeed(address newPriceFeed) external onlyOwner {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyDefaultPriceFeed(newPriceFeed);
-    }
-
-    function queuePriceFeed(address newPriceFeed) external onlyOwner {
-        require(adminTimelockEnabled, "timelock disabled");
-        require(newPriceFeed != address(0), "feed=0");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingDefaultFeed = PendingDefaultFeed({
-            feed: newPriceFeed,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit DefaultPriceFeedQueued(newPriceFeed, executeAfter);
-    }
-
-    function executeQueuedPriceFeed() external onlyOwner {
-        PendingDefaultFeed memory pending = pendingDefaultFeed;
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingDefaultFeed;
-        _applyDefaultPriceFeed(pending.feed);
-    }
-
-    function cancelQueuedPriceFeed() external onlyOwner {
-        require(pendingDefaultFeed.exists, "no queued config");
-        delete pendingDefaultFeed;
-        emit DefaultPriceFeedCancelled();
+    function setRegistry(address _registry) external onlyOwner {
+        require(_registry != address(0), "registry=0");
+        registry = VestingRegistry(_registry);
+        emit RegistryUpdated(_registry);
     }
 
     function setTokenPriceFeed(address token, address feed) external onlyOwner {
@@ -123,17 +108,30 @@ contract ValuationEngine is Ownable {
         delete pendingTokenFeeds[token];
         emit TokenPriceFeedCancelled(token);
     }
+    
+    // --- V4.0 AI Watcher Endpoints ---
+    function setCoprocessor(address _coprocessor) external onlyOwner {
+        coprocessor = _coprocessor;
+        emit CoprocessorUpdated(_coprocessor);
+    }
+    
+    function updateOmega(address token, uint256 omegaBps) external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized coprocessor");
+        require(omegaBps <= 10000, "invalid omega");
+        tokenOmegaBps[token] = omegaBps;
+        emit OmegaUpdated(token, omegaBps);
+    }
+    
+    function setPreTGEOracle(address _oracle) external onlyOwner {
+        preTGEOracle = _oracle;
+    }
+    // ---------------------------------
 
     function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
         adminTimelockEnabled = enabled;
         adminTimelockDelay = delaySeconds;
         emit AdminTimelockConfigUpdated(enabled, delaySeconds);
-    }
-
-    function _applyDefaultPriceFeed(address newPriceFeed) internal {
-        require(newPriceFeed != address(0), "feed=0");
-        priceFeed = AggregatorV3Interface(newPriceFeed);
     }
 
     function _applyTokenPriceFeed(address token, address feed) internal {
@@ -143,10 +141,8 @@ contract ValuationEngine is Ownable {
 
     function getPriceFeedForToken(address token) public view returns (address) {
         address tokenFeed = tokenPriceFeeds[token];
-        if (tokenFeed != address(0)) {
-            return tokenFeed;
-        }
-        return address(priceFeed);
+        require(tokenFeed != address(0), "no price feed");
+        return tokenFeed;
     }
 
     function setRiskFreeRate(uint256 newRate) external onlyOwner {
@@ -202,43 +198,127 @@ contract ValuationEngine is Ownable {
         emit RangeVolWeightUpdated(weightBps);
     }
 
+    function setTwapInterval(uint256 newInterval) external onlyOwner {
+        require(newInterval > 0 && newInterval <= 7 days, "bad interval");
+        twapInterval = newInterval;
+    }
+
     function _readValidatedPrice(
         address token
     ) internal view returns (uint256 price, uint8 decimals) {
-        address feedAddress = getPriceFeedForToken(token);
-        require(feedAddress != address(0), "feed=0");
+        address feedAddress = tokenPriceFeeds[token];
+        
+        // V4.0 Pre-TGE Fallback
+        if (feedAddress == address(0)) {
+            require(preTGEOracle != address(0), "no price feed and no preTGE oracle");
+            uint256 updatedAt;
+            (price, decimals, updatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
+            require(block.timestamp >= updatedAt, "future round");
+            // maxAge check is handled inside the PreTGEOracle itself
+            return (price, decimals);
+        }
+        
         AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
+        
         (
-            uint80 roundId,
-            int256 answer,
+            uint80 latestRoundId,
+            int256 latestAnswer,
             ,
-            uint256 updatedAt,
-            uint80 answeredInRound
+            uint256 latestUpdatedAt,
+
         ) = feed.latestRoundData();
-        require(answer > 0, "bad price");
-        require(answeredInRound >= roundId, "stale round");
-        require(updatedAt > 0, "bad timestamp");
-        require(block.timestamp >= updatedAt, "future round");
-        require(block.timestamp - updatedAt <= maxPriceAge, "stale price");
-        return (uint256(answer), feed.decimals());
+        
+        require(latestAnswer > 0, "bad price");
+        require(latestUpdatedAt > 0, "bad timestamp");
+        require(block.timestamp >= latestUpdatedAt, "future round");
+        require(block.timestamp - latestUpdatedAt <= maxPriceAge, "stale price");
+
+        decimals = feed.decimals();
+
+        // Perform a rudimentary TWAP (Time-Weighted Average Price) by walking back Chainlink rounds
+        // over the configured `twapInterval`. This smooths out short-term flash volatility (unlock dumps).
+        
+        uint256 cumulativePriceTime = 0;
+        uint256 totalWeightTime = 0;
+        
+        uint80 currentRoundId = latestRoundId;
+        uint256 currentUpdatedAt = latestUpdatedAt;
+        int256 currentAnswer = latestAnswer;
+        
+        uint256 targetTime = block.timestamp > twapInterval ? block.timestamp - twapInterval : 0;
+        
+        // Safety bound to avoid massive gas consumption if round spacing is extremely dense
+        uint256 maxLookback = 20; 
+        uint256 lookups = 0;
+
+        while (currentUpdatedAt > targetTime && currentRoundId > 0 && lookups < maxLookback) {
+            lookups++;
+            uint80 nextRoundId = currentRoundId - 1;
+            
+            try feed.getRoundData(nextRoundId) returns (
+                uint80 roundId,
+                int256 answer,
+                uint256 /* startedAt */,
+                uint256 updatedAt,
+                uint80 /* answeredInRound */
+            ) {
+                if (updatedAt < targetTime || updatedAt == 0 || answer <= 0) {
+                    // Reached past the TWAP window or bad data, weigh the current segment up to targetTime
+                    uint256 edgeSpan = currentUpdatedAt - targetTime;
+                    cumulativePriceTime += uint256(currentAnswer) * edgeSpan;
+                    totalWeightTime += edgeSpan;
+                    break;
+                }
+                
+                uint256 timeSpan = currentUpdatedAt - updatedAt;
+                cumulativePriceTime += uint256(currentAnswer) * timeSpan;
+                totalWeightTime += timeSpan;
+                
+                currentRoundId = roundId;
+                currentUpdatedAt = updatedAt;
+                currentAnswer = answer;
+            } catch {
+                // Should getRoundData revert, fall back gracefully
+                break;
+            }
+        }
+        
+        // Strict Founder Protocol Vision: Spot prices are extremely unsafe and easily subject to 
+        // flash manipulation right before token unlocks. We completely remove the spot price fallback.
+        // If the Oracle cannot supply sufficient TWAP history, we reject the valuation.
+        require(totalWeightTime > (twapInterval / 2), "insufficient TWAP depth");
+        price = cumulativePriceTime / totalWeightTime;
+        
+        return (price, decimals);
     }
 
     function computeDPV(
         uint256 quantity,
         address token,
-        uint256 unlockTime
+        uint256 unlockTime,
+        address vestingContract
     ) public view returns (uint256 pv, uint256 ltvBps) {
         require(quantity > 0, "quantity=0");
         require(unlockTime > block.timestamp, "already unlocked");
+
+        uint8 rank = registry.getRank(vestingContract);
+        require(rank > 0 && rank <= 3, "unverified contract");
 
         (uint256 price, uint8 decimals) = _readValidatedPrice(token);
 
         uint256 baseValue = (quantity * price) / (10 ** decimals);
 
+        // Core Risk Matrix based on Rank
+        // Rank 1 (Flagship): Base LTV 50%, Risk Free Rate 2%
+        // Rank 2 (Premium): Base LTV 35%, Risk Free Rate 5%
+        // Rank 3 (Standard): Base LTV 20%, Risk Free Rate 10%
+        uint256 rankBaseLtv = rank == 1 ? 5000 : (rank == 2 ? 3500 : 2000);
+        uint256 rankRiskFreeRate = rank == 1 ? 2 : (rank == 2 ? 5 : 10);
+
         // Time discount: exp(-rate * years)
         uint256 timeToUnlock = unlockTime - block.timestamp;
         int128 yearsToUnlock = ABDKMath64x64.divu(timeToUnlock, 365 days);
-        int128 rate = ABDKMath64x64.divu(riskFreeRate, 100);
+        int128 rate = ABDKMath64x64.divu(rankRiskFreeRate, 100);
         int128 discount = ABDKMath64x64.exp(ABDKMath64x64.neg(rate.mul(yearsToUnlock)));
 
         uint256 effectiveVol = volatility;
@@ -254,14 +334,14 @@ contract ValuationEngine is Ownable {
             }
             if (bounds.ath > 0 && priceScaled <= bounds.ath) {
                 uint256 drawdownBps = ((bounds.ath - priceScaled) * BPS_DENOMINATOR) / bounds.ath;
-                uint256 penalty = (drawdownBps * drawdownPenaltyPerBps) / BPS_DENOMINATOR;
+                uint256 penalty = (drawdownBps * drawdownPenaltyPerBps) / 100;
                 if (penalty > maxDrawdownPenaltyBps) penalty = maxDrawdownPenaltyBps;
                 extraDiscountBps = penalty;
             }
             uint256 mid = bounds.ath + bounds.atl;
             if (mid > 0) {
                 uint256 rangeRatioBps = ((bounds.ath - bounds.atl) * BPS_DENOMINATOR) / mid;
-                uint256 volAdd = (rangeRatioBps * rangeVolWeightBps) / BPS_DENOMINATOR;
+                uint256 volAdd = (rangeRatioBps * rangeVolWeightBps) / 100;
                 effectiveVol = volatility + volAdd;
                 if (effectiveVol > 100) effectiveVol = 100;
             }
@@ -275,18 +355,28 @@ contract ValuationEngine is Ownable {
         if (volAdj < 0) {
             volAdj = ABDKMath64x64.fromInt(0);
         }
+        
+        // V4.0 AI Watcher Omega Multiplier
+        // If omega is exactly 0, we assume it hasn't been initialized and default to 100% (10000).
+        // If the AI coprocessor wants to completely slash a token, they should set it to 1 (0.01%).
+        uint256 currentOmega = tokenOmegaBps[token];
+        if (currentOmega == 0) {
+            currentOmega = 10000;
+        }
+        int128 omega = ABDKMath64x64.divu(currentOmega, 10000);
 
         int128 value64 = ABDKMath64x64.fromUInt(baseValue);
-        int128 pv64 = value64.mul(discount).mul(liquidity).mul(shock).mul(volAdj);
+        int128 pv64 = value64.mul(discount).mul(liquidity).mul(shock).mul(volAdj).mul(omega);
         if (extraDiscountBps > 0) {
             pv64 = pv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
         }
         pv = ABDKMath64x64.toUInt(pv64);
 
-        int128 ltv64 = ABDKMath64x64.fromUInt(BASE_LTV_BPS)
+        int128 ltv64 = ABDKMath64x64.fromUInt(rankBaseLtv)
             .mul(liquidity)
             .mul(shock)
-            .mul(volAdj);
+            .mul(volAdj)
+            .mul(omega);
         if (extraDiscountBps > 0) {
             ltv64 = ltv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
         }

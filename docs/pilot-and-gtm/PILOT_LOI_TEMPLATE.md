@@ -1,16 +1,16 @@
-# Pilot LOI Template (UNLOCKD)
+# Pilot LOI Template (Vestra)
 
-This non-binding Letter of Intent (LOI) records intent to run a pilot with UNLOCKD.
+This non-binding Letter of Intent (LOI) records intent to run a pilot with Vestra.
 
 ## Parties
 
 - Protocol partner: `[Partner Name]`
-- UNLOCKD representative: `[Name / Entity]`
+- Vestra representative: `[Name / Entity]`
 - Date: `[YYYY-MM-DD]`
 
 ## Pilot Objective
 
-Partner and UNLOCKD intend to evaluate borrowing against locked/vesting claims under defined risk and reporting controls.
+Partner and Vestra intend to evaluate borrowing against locked/vesting claims under defined risk and reporting controls.
 
 ## Pilot Scope
 
@@ -34,7 +34,7 @@ Partner:
 - Share vesting compatibility inputs
 - Participate in weekly review
 
-UNLOCKD:
+Vestra:
 
 - Provide pilot deployment + monitoring
 - Publish KPI dashboard snapshots
@@ -53,4 +53,4 @@ UNLOCKD:
 ## Signatures
 
 - Partner: ______________________
-- UNLOCKD: _____________________
+- Vestra: _____________________

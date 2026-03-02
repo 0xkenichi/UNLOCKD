@@ -1,5 +1,5 @@
 {
-  "address": "0xd77FC2abbAa127eFd00E6b775C437a54f0756762",
+  "address": "0x2d02B0026f89aDBAC20c8d65EC69141a02F1a582",
   "abi": [
     {
       "inputs": [],
@@ -64,30 +64,48 @@
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "int256",
+          "name": "newPrice",
+          "type": "int256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "staleUpdatedAt",
+          "type": "uint256"
+        }
+      ],
+      "name": "setStalePrice",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
     }
   ],
-  "transactionHash": "0x28c5e2aa1cd43d0c824b206ee22309f8a6445c713cbea9c37feb9c94910aee62",
+  "transactionHash": "0xb5142e6e8feb09cbdcc3eecb02afbf0be3d6f9af50138bcde2c579aa22747894",
   "receipt": {
     "to": null,
     "from": "0x39EcF94ed35451A67006dcCE4A467aecdfAB6940",
-    "contractAddress": "0xd77FC2abbAa127eFd00E6b775C437a54f0756762",
-    "transactionIndex": 62,
-    "gasUsed": "147046",
+    "contractAddress": "0x2d02B0026f89aDBAC20c8d65EC69141a02F1a582",
+    "transactionIndex": 96,
+    "gasUsed": "223212",
     "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-    "blockHash": "0x9166d9a459655c8c64196c20c61a7129301edf40fcbecac2db2480469b27d261",
-    "transactionHash": "0x28c5e2aa1cd43d0c824b206ee22309f8a6445c713cbea9c37feb9c94910aee62",
+    "blockHash": "0x709dcd17b628e08371f6c73db1bf898c345ca93960ecdb9dec73eadd71ac2dc5",
+    "transactionHash": "0xb5142e6e8feb09cbdcc3eecb02afbf0be3d6f9af50138bcde2c579aa22747894",
     "logs": [],
-    "blockNumber": 10138604,
-    "cumulativeGasUsed": "59211530",
+    "blockNumber": 10355212,
+    "cumulativeGasUsed": "11026517",
     "status": 1,
     "byzantium": true
   },
   "args": [],
-  "numDeployments": 1,
-  "solcInputHash": "59243d003e81bfe1b4537c0ad03dbf63",
-  "metadata": "{\"compiler\":{\"version\":\"0.8.20+commit.a1b79de6\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"decimals\",\"outputs\":[{\"internalType\":\"uint8\",\"name\":\"\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"latestRoundData\",\"outputs\":[{\"internalType\":\"uint80\",\"name\":\"\",\"type\":\"uint80\"},{\"internalType\":\"int256\",\"name\":\"\",\"type\":\"int256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint80\",\"name\":\"\",\"type\":\"uint80\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"int256\",\"name\":\"newPrice\",\"type\":\"int256\"}],\"name\":\"setPrice\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/mocks/MockPriceFeed.sol\":\"MockPriceFeed\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\",\"useLiteralContent\":true},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[],\"viaIR\":true},\"sources\":{\"contracts/mocks/MockPriceFeed.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\npragma solidity ^0.8.20;\\n\\ncontract MockPriceFeed {\\n    int256 private price;\\n    uint8 private decimalsValue;\\n\\n    constructor() {\\n        price = 2000e8; // 2000 with 8 decimals\\n        decimalsValue = 8;\\n    }\\n\\n    function setPrice(int256 newPrice) external {\\n        price = newPrice;\\n    }\\n\\n    function decimals() external view returns (uint8) {\\n        return decimalsValue;\\n    }\\n\\n    function latestRoundData()\\n        external\\n        view\\n        returns (uint80, int256, uint256, uint256, uint80)\\n    {\\n        return (0, price, 0, 0, 0);\\n    }\\n}\\n\",\"keccak256\":\"0x268889e43630bea060361b3ff2655ed59b00326b6aabe5d6ac3593154e97e3c7\",\"license\":\"MIT\"}},\"version\":1}",
-  "bytecode": "0x6080806040523461002b57642e90edd000600055600860ff19600154161760015560e390816100318239f35b600080fdfe6080806040526004361015601257600080fd5b600090813560e01c908163313ce56714608c57508063f7a308061460745763feaf968c14603e57600080fd5b34607157806003193601126071578060a09154906040519181835260208301528060408301528060608301526080820152f35b80fd5b50346071576020366003190112607157600435815580f35b90503460a9578160031936011260a95760209060ff600154168152f35b5080fdfea2646970667358221220092c748ac8c25639c051cb68c3bb56a454217afc8d4a60ea310a4e501ceb86bd64736f6c63430008140033",
-  "deployedBytecode": "0x6080806040526004361015601257600080fd5b600090813560e01c908163313ce56714608c57508063f7a308061460745763feaf968c14603e57600080fd5b34607157806003193601126071578060a09154906040519181835260208301528060408301528060608301526080820152f35b80fd5b50346071576020366003190112607157600435815580f35b90503460a9578160031936011260a95760209060ff600154168152f35b5080fdfea2646970667358221220092c748ac8c25639c051cb68c3bb56a454217afc8d4a60ea310a4e501ceb86bd64736f6c63430008140033",
+  "numDeployments": 2,
+  "solcInputHash": "06ed55c210f5261d3a1b3b81955a71e5",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.20+commit.a1b79de6\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"decimals\",\"outputs\":[{\"internalType\":\"uint8\",\"name\":\"\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"latestRoundData\",\"outputs\":[{\"internalType\":\"uint80\",\"name\":\"\",\"type\":\"uint80\"},{\"internalType\":\"int256\",\"name\":\"\",\"type\":\"int256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint80\",\"name\":\"\",\"type\":\"uint80\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"int256\",\"name\":\"newPrice\",\"type\":\"int256\"}],\"name\":\"setPrice\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"int256\",\"name\":\"newPrice\",\"type\":\"int256\"},{\"internalType\":\"uint256\",\"name\":\"staleUpdatedAt\",\"type\":\"uint256\"}],\"name\":\"setStalePrice\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/mocks/MockPriceFeed.sol\":\"MockPriceFeed\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\",\"useLiteralContent\":true},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[],\"viaIR\":true},\"sources\":{\"contracts/mocks/MockPriceFeed.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\npragma solidity ^0.8.20;\\n\\ncontract MockPriceFeed {\\n    int256 private price;\\n    uint8 private decimalsValue;\\n    uint80 private roundId;\\n    uint256 private updatedAt;\\n\\n    constructor() {\\n        price = 2000e8; // 2000 with 8 decimals\\n        decimalsValue = 8;\\n        roundId = 1;\\n        updatedAt = block.timestamp;\\n    }\\n\\n    function setPrice(int256 newPrice) external {\\n        price = newPrice;\\n        roundId += 1;\\n        updatedAt = block.timestamp;\\n    }\\n\\n    function setStalePrice(int256 newPrice, uint256 staleUpdatedAt) external {\\n        price = newPrice;\\n        roundId += 1;\\n        updatedAt = staleUpdatedAt;\\n    }\\n\\n    function decimals() external view returns (uint8) {\\n        return decimalsValue;\\n    }\\n\\n    function latestRoundData()\\n        external\\n        view\\n        returns (uint80, int256, uint256, uint256, uint80)\\n    {\\n        return (roundId, price, updatedAt, updatedAt, roundId);\\n    }\\n}\\n\",\"keccak256\":\"0x9428b4a0d9a488b34b1f541af3c41842ed7912954b9238386a7fe671be743d7c\",\"license\":\"MIT\"}},\"version\":1}",
+  "bytecode": "0x6080806040523461003757642e90edd000600055600180546001600160581b031916610108179055426002556101dd908161003d8239f35b600080fdfe608080604052600436101561001357600080fd5b600090813560e01c908163313ce5671461015357508063eacda914146100f5578063f7a30806146100995763feaf968c1461004d57600080fd5b3461009657806003193601126100965760a09069ffffffffffffffffffff60015460081c1690549060025460405192828452602084015280604084015260608301526080820152f35b80fd5b50346100965760203660031901126100965760043581556001546affffffffffffffffffff006100d769ffffffffffffffffffff8360081c16610176565b60081b16906affffffffffffffffffff001916176001554260025580f35b50346100965760403660031901126100965760043581556001546affffffffffffffffffff0061013369ffffffffffffffffffff8360081c16610176565b60081b16906affffffffffffffffffff0019161760015560243560025580f35b90503461017257816003193601126101725760209060ff600154168152f35b5080fd5b90600169ffffffffffffffffffff8093160191821161019157565b634e487b7160e01b600052601160045260246000fdfea264697066735822122065f0a429e3bc8e4c35bb40d2f311333152020eca47cf180f7b2913f83c9832b764736f6c63430008140033",
+  "deployedBytecode": "0x608080604052600436101561001357600080fd5b600090813560e01c908163313ce5671461015357508063eacda914146100f5578063f7a30806146100995763feaf968c1461004d57600080fd5b3461009657806003193601126100965760a09069ffffffffffffffffffff60015460081c1690549060025460405192828452602084015280604084015260608301526080820152f35b80fd5b50346100965760203660031901126100965760043581556001546affffffffffffffffffff006100d769ffffffffffffffffffff8360081c16610176565b60081b16906affffffffffffffffffff001916176001554260025580f35b50346100965760403660031901126100965760043581556001546affffffffffffffffffff0061013369ffffffffffffffffffff8360081c16610176565b60081b16906affffffffffffffffffff0019161760015560243560025580f35b90503461017257816003193601126101725760209060ff600154168152f35b5080fd5b90600169ffffffffffffffffffff8093160191821161019157565b634e487b7160e01b600052601160045260246000fdfea264697066735822122065f0a429e3bc8e4c35bb40d2f311333152020eca47cf180f7b2913f83c9832b764736f6c63430008140033",
   "devdoc": {
     "kind": "dev",
     "methods": {},
@@ -101,7 +119,7 @@
   "storageLayout": {
     "storage": [
       {
-        "astId": 5118,
+        "astId": 13355,
         "contract": "contracts/mocks/MockPriceFeed.sol:MockPriceFeed",
         "label": "price",
         "offset": 0,
@@ -109,12 +127,28 @@
         "type": "t_int256"
       },
       {
-        "astId": 5120,
+        "astId": 13357,
         "contract": "contracts/mocks/MockPriceFeed.sol:MockPriceFeed",
         "label": "decimalsValue",
         "offset": 0,
         "slot": "1",
         "type": "t_uint8"
+      },
+      {
+        "astId": 13359,
+        "contract": "contracts/mocks/MockPriceFeed.sol:MockPriceFeed",
+        "label": "roundId",
+        "offset": 1,
+        "slot": "1",
+        "type": "t_uint80"
+      },
+      {
+        "astId": 13361,
+        "contract": "contracts/mocks/MockPriceFeed.sol:MockPriceFeed",
+        "label": "updatedAt",
+        "offset": 0,
+        "slot": "2",
+        "type": "t_uint256"
       }
     ],
     "types": {
@@ -123,10 +157,20 @@
         "label": "int256",
         "numberOfBytes": "32"
       },
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
       "t_uint8": {
         "encoding": "inplace",
         "label": "uint8",
         "numberOfBytes": "1"
+      },
+      "t_uint80": {
+        "encoding": "inplace",
+        "label": "uint80",
+        "numberOfBytes": "10"
       }
     }
   }

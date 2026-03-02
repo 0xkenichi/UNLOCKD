@@ -1,6 +1,6 @@
 ## Liquidity Strategy Overview
 
-Vestra Protocol provides vesting-backed credit infrastructure where lenders gain
+Vestra provides vesting-backed credit infrastructure where lenders gain
 liquidity and borrowers gain access to vested tokens and missed sales.
 
 This document outlines multiple liquidity strategies. The initial focus is the

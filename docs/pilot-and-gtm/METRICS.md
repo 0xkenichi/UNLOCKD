@@ -1,6 +1,6 @@
 # Metrics and KPI Framework
 
-This document defines the minimum investor-grade measurement framework for UNLOCKD.
+This document defines the minimum investor-grade measurement framework for Vestra.
 
 ## KPI Categories
 

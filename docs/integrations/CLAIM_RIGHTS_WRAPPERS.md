@@ -1,12 +1,12 @@
 # Claim-Rights Wrappers (Real Vesting Standards)
 
-These wrappers let VESTRA escrow claim rights for **real vesting contracts** that do not
+These wrappers let Vestra escrow claim rights for **real vesting contracts** that do not
 expose `releaseTo` or transfer beneficiary roles. The wrapper becomes the on-chain
 settlement target used by `VestingAdapter`, while the borrower stays the economic owner.
 
 ## Why Wrappers
 - Many real standards only allow **beneficiary** or **operator** withdrawals.
-- VESTRA needs a callable `releaseTo(...)` at unlock for seizure/settlement.
+- Vestra needs a callable `releaseTo(...)` at unlock for seizure/settlement.
 - Wrappers provide that hook without modifying upstream contracts.
 
 ## Supported Patterns

@@ -1,4 +1,3 @@
-import PageIllustration from '../components/illustrations/PageIllustration.jsx';
 import { useNavigate } from 'react-router-dom';
 
 export default function About() {
@@ -22,7 +21,6 @@ export default function About() {
           </button>
         </div>
       </div>
-      <PageIllustration variant="about" />
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Mission Focus</div>
@@ -30,14 +28,14 @@ export default function About() {
           <div className="stat-delta">Non-custodial</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Stage</div>
-          <div className="stat-value">Testnet MVP</div>
-          <div className="stat-delta">UX pilots</div>
+          <div className="stat-label">Architecture</div>
+          <div className="stat-value">Modular</div>
+          <div className="stat-delta">Smart Wallet native</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Security</div>
-          <div className="stat-value">Audit Pending</div>
-          <div className="stat-delta">Internal review</div>
+          <div className="stat-label">Risk Engine</div>
+          <div className="stat-value">Deterministic</div>
+          <div className="stat-delta">On-chain valuation</div>
         </div>
       </div>
       <div className="grid-2">
@@ -52,18 +50,6 @@ export default function About() {
           <p className="muted">
             Time-based enforcement, conservative valuation, and on-chain
             settlement to protect lenders and borrowers.
-          </p>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">Status</h3>
-          <p className="muted">
-            MVP prototype for testnet evaluation and UX pilots.
-          </p>
-        </div>
-        <div className="holo-card">
-          <h3 className="holo-title">Security</h3>
-          <p className="muted">
-            Not audited. Use testnet only until reviews are complete.
           </p>
         </div>
       </div>

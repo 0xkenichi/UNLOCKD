@@ -9,7 +9,7 @@
 ## 1. Document name and scope
 
 - **Title:** Loan Terms and Risk Disclosure (or similar as counsel advises).
-- **Scope:** Governs use of Vestra Protocol (UNLOCKD) to **borrow** against escrowed vesting/claim rights. Optionally a separate short doc for **lenders / LPs** (Lender Terms).
+- **Scope:** Governs use of Vestra (Vestra) to **borrow** against escrowed vesting/claim rights. Optionally a separate short doc for **lenders / LPs** (Lender Terms).
 
 ---
 
@@ -77,7 +77,7 @@
 
 ## 3. Where to host and link
 
-- **Host:** Stable URL, e.g. `https://docs.unlockd.fi/loan-terms` or `https://app.unlockd.fi/terms/loan`.
+- **Host:** Stable URL, e.g. `https://docs.vestra.fi/loan-terms` or `https://app.vestra.fi/terms/loan`.
 - **UI:** In the borrow flow, before “Create Loan”:  
   - Short line: “By creating a loan you agree to the Loan Terms and Risk Disclosure.”  
   - Link: “Read the full terms (opens in new tab).”  
