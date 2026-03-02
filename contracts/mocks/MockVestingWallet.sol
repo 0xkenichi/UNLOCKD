@@ -34,7 +34,10 @@ contract MockVestingWallet {
         require(to != address(0), "to=0");
         require(block.timestamp >= start + duration, "not vested");
         released[token] += amount;
-        IERC20(token).transfer(to, amount);
+        
+        // Use standard transfer
+        bool success = IERC20(token).transfer(to, amount);
+        require(success, "transfer failed");
     }
 
     function release(uint256 amount) external {

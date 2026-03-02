@@ -55,13 +55,32 @@ function normalizePings(items = []) {
 // ─── Main Globe ────────────────────────────────────────────────────────────────
 function EarthGlobe() {
   const globeEl = useRef();
+  const [places, setPlaces] = useState([]);
   const [livePings, setLivePings] = useState([]);
-  const [isDemo, setIsDemo] = useState(false);
-  const [selectedPing, setSelectedPing] = useState(null);
   const [dimensions, setDimensions] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800,
   });
+
+  // Keep a ref to places so the interval can grab random coords without closure-capture issues
+  const placesRef = useRef([]);
+
+  // Fetch High-Accuracy Places Data for city labels and action coordinates
+  useEffect(() => {
+    fetch('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_populated_places_simple.geojson')
+      .then(res => res.json())
+      .then(data => {
+        const placesData = data.features.map(f => ({
+          lat: f.geometry.coordinates[1],
+          lng: f.geometry.coordinates[0],
+          name: f.properties.name,
+          pop: Math.max(f.properties.pop_max, f.properties.pop_min)
+        }));
+        setPlaces(placesData);
+        placesRef.current = placesData;
+      })
+      .catch(console.error);
+  }, []);
 
   // Resize handler
   useEffect(() => {
@@ -72,28 +91,45 @@ function EarthGlobe() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Simulate live geo pings
+  // Simulate Live Action Feed 
   useEffect(() => {
     let cancelled = false;
 
-    // Initial load
-    setLivePings(DEMO_PINGS);
-    setIsDemo(true);
-
-    // Fluctuate counts to make it feel "live"
-    const interval = setInterval(() => {
+    // Pop a "new user action" at a random real-world coordinate every 1 to 3 seconds
+    const loopSimulator = () => {
       if (cancelled) return;
-      setLivePings(prev => prev.map(ping => {
-        // Randomly adjust count slightly up or down, bounded between 5 and 100
-        const change = Math.floor(Math.random() * 5) - 2;
-        const newCount = Math.max(5, Math.min(100, ping.count + change));
-        return { ...ping, count: newCount };
-      }));
-    }, 3000);
+
+      const arr = placesRef.current;
+      if (arr.length > 0) {
+        setLivePings(prev => {
+          // Grab random real-world location
+          const randPlace = arr[Math.floor(Math.random() * arr.length)];
+          const newPing = {
+            id: Date.now() + Math.random(),
+            lat: randPlace.lat,
+            lng: randPlace.lng,
+            maxR: Math.random() * 4 + 2, // random expanding radius
+            propagationSpeed: (Math.random() - 0.5) * 1 + 2,
+            repeatPeriod: 1500 + Math.random() * 1000
+          };
+
+          // Keep only the last 15 active rings on the globe so it doesn't get utterly cluttered
+          let nextState = [...prev, newPing];
+          if (nextState.length > 15) nextState.shift();
+          return nextState;
+        });
+      }
+
+      const nextDelay = 800 + Math.random() * 2000; // Next event happens between 0.8s and 2.8s
+      setTimeout(loopSimulator, nextDelay);
+    };
+
+    // Kick off
+    const initialDelay = setTimeout(loopSimulator, 2000);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearTimeout(initialDelay);
     };
   }, []);
 
@@ -129,20 +165,9 @@ function EarthGlobe() {
     [livePings]
   );
 
-  // Build ring arcs between top cities for visual flair
-  const arcsData = useMemo(() => {
-    if (livePings.length < 2) return [];
-    const top = [...livePings].sort((a, b) => b.count - a.count).slice(0, 6);
-    const arcs = [];
-    for (let i = 0; i < top.length - 1; i++) {
-      arcs.push({
-        startLat: top[i].lat, startLng: top[i].lng,
-        endLat: top[i + 1].lat, endLng: top[i + 1].lng,
-        color: ['rgba(88,166,255,0.6)', 'rgba(88,166,255,0)'],
-      });
-    }
-    return arcs;
-  }, [livePings]);
+  // We'll keep arcs empty or derive them from recent active live pings if desired.
+  // For the purest "Live Ping" simulator, removing static arcs highlights the real-time rings.
+  const arcsData = [];
 
   return (
     <div
@@ -172,6 +197,26 @@ function EarthGlobe() {
         globeImageUrl={EARTH_TEXTURE}
         bumpImageUrl={EARTH_BUMP}
         backgroundColor="rgba(0,0,0,0)"
+        showAtmosphere={true}
+        atmosphereColor="#3b82f6"
+        atmosphereAltitude={0.15}
+
+        // ── Perfect Accuracy City Labels ──
+        labelsData={places}
+        labelLat={d => d.lat}
+        labelLng={d => d.lng}
+        labelText={d => d.name}
+        labelSize={d => Math.max(0.4, Math.sqrt(d.pop) * 2e-4)}
+        labelDotRadius={d => Math.max(0.2, Math.sqrt(d.pop) * 1e-4)}
+        labelColor={() => 'rgba(255, 255, 255, 0.85)'}
+        labelResolution={2}
+
+        // ── LIVE Simulator Action Rings ──
+        ringsData={livePings}
+        ringColor={() => t => `rgba(59,130,246,${Math.sqrt(1 - t)})`}
+        ringMaxRadius="maxR"
+        ringPropagationSpeed="propagationSpeed"
+        ringRepeatPeriod="repeatPeriod"
 
         // ── Arc lines between top cities ──
         arcsData={arcsData}
@@ -181,100 +226,7 @@ function EarthGlobe() {
         arcDashAnimateTime={2200}
         arcStroke={0.5}
         arcAltitude={0.15}
-
-        // ── HTML pin markers (city dots) ──
-        htmlElementsData={livePings}
-        htmlElement={(d) => {
-          const wrapper = document.createElement('div');
-          wrapper.style.position = 'relative';
-          wrapper.style.cursor = 'pointer';
-
-          const size = Math.max(10, Math.min(28, 10 + (d.count / maxCount) * 18));
-
-          // main dot
-          const dot = document.createElement('div');
-          dot.style.cssText = `
-            width: ${size}px; height: ${size}px;
-            background: radial-gradient(circle at 35% 35%, #7ec8ff, #3b82f6 60%, #1d4ed8);
-            border-radius: 50%;
-            border: 1.5px solid rgba(147,197,253,0.9);
-            box-shadow: 0 0 ${Math.round(size * 0.8)}px rgba(88,166,255,0.85),
-                        0 0 ${Math.round(size * 1.4)}px rgba(59,130,246,0.4);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            position: relative; z-index: 2;
-          `;
-
-          // pulse ring
-          const pulse = document.createElement('div');
-          pulse.style.cssText = `
-            position: absolute;
-            top: 50%; left: 50%;
-            width: ${size}px; height: ${size}px;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            border: 2px solid rgba(88,166,255,0.6);
-            animation: ping-pulse ${1.8 + Math.random() * 1.2}s ease-out infinite;
-            pointer-events: none;
-          `;
-
-          // tooltip
-          const tooltip = document.createElement('div');
-          const location = [d.city, d.state, d.country].filter(Boolean).join(', ');
-          tooltip.innerHTML = `
-            <div style="font-weight:700; color:#e6edf3; font-size:12px; margin-bottom:3px;">${location}</div>
-            <div style="display:flex; align-items:center; gap:5px;">
-              <div style="width:6px;height:6px;border-radius:50%;background:#58a6ff;box-shadow:0 0 5px #58a6ff;flex-shrink:0;"></div>
-              <span style="color:#79c0ff; font-weight:700; font-size:13px;">${d.count.toLocaleString()} users</span>
-            </div>
-          `;
-          tooltip.style.cssText = `
-            position:absolute; bottom:calc(100% + 10px); left:50%;
-            transform:translateX(-50%);
-            background:rgba(6,9,18,0.95);
-            border:1px solid rgba(88,166,255,0.4);
-            padding:8px 12px; border-radius:10px;
-            font-family:var(--font-mono,monospace);
-            white-space:nowrap; pointer-events:none;
-            opacity:0; transition:opacity 0.2s;
-            box-shadow:0 6px 24px rgba(0,0,0,0.6);
-            z-index:30;
-          `;
-          // small arrow
-          const arrow = document.createElement('div');
-          arrow.style.cssText = `
-            position:absolute; top:100%; left:50%; transform:translateX(-50%);
-            border:5px solid transparent;
-            border-top-color:rgba(88,166,255,0.4);
-            pointer-events:none;
-          `;
-          tooltip.appendChild(arrow);
-
-          wrapper.appendChild(pulse);
-          wrapper.appendChild(dot);
-          wrapper.appendChild(tooltip);
-
-          // Hover interactions
-          wrapper.addEventListener('mouseenter', () => {
-            dot.style.transform = 'scale(1.6)';
-            dot.style.boxShadow = `0 0 24px rgba(88,166,255,1), 0 0 48px rgba(59,130,246,0.6)`;
-            tooltip.style.transition = 'opacity 0.05s'; // Instant show
-            tooltip.style.opacity = '1';
-            const g = globeEl.current;
-            if (g) g.controls().autoRotate = false;
-          });
-          wrapper.addEventListener('mouseleave', () => {
-            dot.style.transform = 'scale(1)';
-            dot.style.boxShadow = `0 0 ${Math.round(size * 0.8)}px rgba(88,166,255,0.85), 0 0 ${Math.round(size * 1.4)}px rgba(59,130,246,0.4)`;
-            tooltip.style.transition = 'opacity 0.15s';
-            tooltip.style.opacity = '0';
-            const g = globeEl.current;
-            if (g) g.controls().autoRotate = true; // Instant resume
-          });
-
-          return wrapper;
-        }}
       />
-
     </div>
   );
 }

@@ -13,16 +13,19 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1,
       },
       viaIR: true,
     },
   },
   networks: {
-    hardhat: {},
+    hardhat: {
+      allowUnlimitedContractSize: true,
+    },
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
+      allowUnlimitedContractSize: true,
     },
 
     // Ethereum

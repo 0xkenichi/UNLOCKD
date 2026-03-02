@@ -994,6 +994,65 @@ export default function Lender() {
           </div>
         </div>
 
+        <div className="grid-2" style={{ marginBottom: 24 }}>
+          <div className="holo-card" style={{ border: '1px solid rgba(56, 189, 248, 0.4)' }}>
+            <div className="section-head">
+              <div>
+                <h3 className="section-title" style={{ color: '#38bdf8' }}>Institutional Insurance Vault</h3>
+                <div className="section-subtitle">Vestra Core Protection</div>
+              </div>
+              <span className="tag" style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8' }}>Active</span>
+            </div>
+            <p className="muted" style={{ marginTop: 8 }}>
+              A portion of all protocol yields are routed to the Insurance Vault.
+              If a borrower defaults and secondary asset sweeps fail to cover the full deficit,
+              the Vault automatically covers the difference for lenders.
+            </p>
+            <div className="data-table" style={{ marginTop: 12 }}>
+              <div className="table-row header">
+                <div>Metric</div>
+                <div>Value</div>
+              </div>
+              <div className="table-row">
+                <div>Total Vault Reserves</div>
+                <div>$50,000.00 USDC</div>
+              </div>
+              <div className="table-row">
+                <div>Deficits Covered (30d)</div>
+                <div>$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="holo-card" style={{ border: '1px solid rgba(255, 77, 79, 0.4)' }}>
+            <div className="section-head">
+              <div>
+                <h3 className="section-title" style={{ color: '#ff4d4f' }}>Strict Recourse Sweeper</h3>
+                <div className="section-subtitle">Omega AI Risk Agent</div>
+              </div>
+              <span className="tag danger">Active</span>
+            </div>
+            <p className="muted" style={{ marginTop: 8 }}>
+              Lending on Vestra is strictly <strong>full-recourse</strong>. If a borrower defaults on an underwater loan,
+              the Omega AI agent automatically penalizes the borrower and seizes reserve assets (WETH/USDC) directly from their wallet.
+            </p>
+            <div className="data-table" style={{ marginTop: 12 }}>
+              <div className="table-row header">
+                <div>Metric</div>
+                <div>Status</div>
+              </div>
+              <div className="table-row">
+                <div>Agent Heartbeat</div>
+                <div style={{ color: '#52c41a' }}>Online</div>
+              </div>
+              <div className="table-row">
+                <div>Active Bounties</div>
+                <div>0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <SmartWalletOnboardingCard
           walletAddress={address}
           preferredWalletAddress={preferredOnboardingWallet}

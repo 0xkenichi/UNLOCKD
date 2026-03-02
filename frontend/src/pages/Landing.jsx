@@ -84,13 +84,18 @@ function AbstractShape() {
   );
 }
 
-function ThreeBackground() {
+function DynamicParallaxBackground() {
+  const { scrollY } = useScroll();
+  const y1 = useTransform(scrollY, [0, 2000], [0, 400]); // Moves slower than scroll (parallax)
+
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: -1, overflow: 'hidden' }}>
-      <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-        <AbstractShape />
-      </Canvas>
-      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, transparent, rgba(3, 4, 7, 1) 70%)' }} />
+    <div className="dynamic-bg-container">
+      <motion.div className="dynamic-gradient" style={{ y: y1 }} />
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+        <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
+          <AbstractShape />
+        </Canvas>
+      </div>
     </div>
   );
 }
@@ -280,6 +285,7 @@ export default function Landing() {
 
   return (
     <div className="landing-page">
+      <DynamicParallaxBackground />
       {/* Hero Section */}
       <section className="landing-hero-simple" aria-labelledby="hero-title" style={{ justifyContent: 'flex-start' }}>
         <div className="landing-hero-canvas" aria-hidden="true" style={{ width: '100vw', right: 0, left: 'auto' }}>
@@ -399,8 +405,6 @@ export default function Landing() {
         viewport={{ once: true, margin: '-100px' }}
         transition={{ duration: 0.6 }}
       >
-        <ThreeBackground />
-
         <div className="landing-section-content" style={{ position: 'relative', zIndex: 1 }}>
           <h2 className="landing-section-title">Why Vestra Protocol?</h2>
           <p className="landing-section-subtitle">

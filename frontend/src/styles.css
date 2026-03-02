@@ -798,6 +798,28 @@ textarea {
   gap: var(--space-6);
 }
 
+/* Dynamic Gradient Background */
+.dynamic-bg-container {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background-color: var(--deep-slate);
+  will-change: transform;
+}
+
+.dynamic-gradient {
+  position: absolute;
+  width: 150vw;
+  height: 150vh;
+  top: -25vh;
+  left: -25vw;
+  background: radial-gradient(ellipse at 50% 30%, rgba(37, 99, 235, 0.22) 0%, rgba(217, 154, 34, 0.12) 40%, transparent 80%);
+  transform-origin: center center;
+  will-change: transform;
+}
+
+
 .dashboard-stats-minimal {
   display: flex;
   gap: var(--space-3);

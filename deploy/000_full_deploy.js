@@ -172,6 +172,34 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   );
   await (await loanManagerInstance.setTreasuries(issuanceTreasury, returnsTreasury)).wait();
 
+  // 12. Deploy Insurance Vault
+  const insuranceVault = await deploy("InsuranceVault", {
+    from: deployer,
+    args: [usdcAddress],
+    log: true,
+  });
+
+  const insuranceVaultInstance = await ethers.getContractAt(
+    "InsuranceVault",
+    insuranceVault.address,
+    await ethers.getSigner(deployer)
+  );
+  await (await insuranceVaultInstance.setLoanManager(loanManager.address)).wait();
+  await (await loanManagerInstance.setInsuranceVault(insuranceVault.address, 500)).wait();
+
+  // 13. Fund the pools/vaults with initial USDC for demo/testing
+  if (isLocal) {
+    const mockUSDCInstance = await ethers.getContractAt(
+      "MockUSDC",
+      usdcAddress,
+      await ethers.getSigner(deployer)
+    );
+    // Give Insurance Vault 50k USDC
+    await (await mockUSDCInstance.mint(insuranceVault.address, ethers.parseUnits("50000", 6))).wait();
+    // Give LendingPool 1M USDC
+    await (await mockUSDCInstance.mint(pool.address, ethers.parseUnits("1000000", 6))).wait();
+  }
+
   log("Deployment complete!");
 };
 

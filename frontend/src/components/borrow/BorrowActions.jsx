@@ -33,8 +33,7 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const STABLE_PRIORITY = ['USDC', 'USDT', 'DAI'];
 const MAJOR_PRIORITY = ['ETH', 'SOL', 'BTC'];
 const formatPriority = (nativeSymbol) =>
-  `${STABLE_PRIORITY.join('/')} → ${MAJOR_PRIORITY.join('/')} (where available) → ${
-    nativeSymbol || 'Native token'
+  `${STABLE_PRIORITY.join('/')} → ${MAJOR_PRIORITY.join('/')} (where available) → ${nativeSymbol || 'Native token'
   } → Long-tail tokens`;
 
 const isAddress = (value) => /^0x[a-fA-F0-9]{40}$/.test(value);
@@ -151,27 +150,27 @@ export default function BorrowActions({
   const { data: vestingPreviewBatch } = useReadContracts({
     contracts: vestingContractForRead
       ? [
-          {
-            address: vestingContractForRead,
-            abi: vestingWalletAbi,
-            functionName: 'token'
-          },
-          {
-            address: vestingContractForRead,
-            abi: vestingWalletAbi,
-            functionName: 'totalAllocation'
-          },
-          {
-            address: vestingContractForRead,
-            abi: vestingWalletAbi,
-            functionName: 'start'
-          },
-          {
-            address: vestingContractForRead,
-            abi: vestingWalletAbi,
-            functionName: 'duration'
-          }
-        ]
+        {
+          address: vestingContractForRead,
+          abi: vestingWalletAbi,
+          functionName: 'token'
+        },
+        {
+          address: vestingContractForRead,
+          abi: vestingWalletAbi,
+          functionName: 'totalAllocation'
+        },
+        {
+          address: vestingContractForRead,
+          abi: vestingWalletAbi,
+          functionName: 'start'
+        },
+        {
+          address: vestingContractForRead,
+          abi: vestingWalletAbi,
+          functionName: 'duration'
+        }
+      ]
       : [],
     query: { enabled: Boolean(vestingContractForRead) }
   });
@@ -449,11 +448,11 @@ export default function BorrowActions({
     contracts:
       address && loanManager && requiredTokens.length
         ? requiredTokens.map((token) => ({
-            address: token,
-            abi: erc20ApprovalAbi,
-            functionName: 'allowance',
-            args: [address, loanManager]
-          }))
+          address: token,
+          abi: erc20ApprovalAbi,
+          functionName: 'allowance',
+          args: [address, loanManager]
+        }))
         : [],
     query: { enabled: Boolean(address && loanManager && requiredTokens.length) }
   });
@@ -462,10 +461,10 @@ export default function BorrowActions({
     contracts:
       requiredTokens.length
         ? requiredTokens.map((token) => ({
-            address: token,
-            abi: erc20Abi,
-            functionName: 'symbol'
-          }))
+          address: token,
+          abi: erc20Abi,
+          functionName: 'symbol'
+        }))
         : [],
     query: { enabled: Boolean(requiredTokens.length) }
   });
@@ -522,6 +521,7 @@ export default function BorrowActions({
     if (!borrowValid) return 'Enter a borrow amount.';
     if (pledgedCollateralUnits <= 0n) return 'Choose collateral amount to pledge.';
     if (!fundingReady) return fundingStatus?.reason || 'Fund your wallet first.';
+    if (!permissionsComplete) return 'You must approve the Secondary Asset Recourse to protect lenders from default deficits.';
     if (!termsViewed) return 'Open the full loan agreement to continue.';
     if (!termsScrolledToEnd) return 'Scroll to the end of the loan agreement to continue.';
     if (!agreeTerms) return 'Accept the loan agreement to continue.';
@@ -767,32 +767,14 @@ export default function BorrowActions({
         });
       }
 
-      // 1) Approve required tokens (only those missing allowance).
-      for (const row of tokenApprovalRows) {
-        if (row.ok) continue;
-        setAutoFlowStatus(`Approving ${row.symbol}...`);
-        const hash = await writeApprovalAsync({
-          address: row.token,
-          abi: erc20ApprovalAbi,
-          functionName: 'approve',
-          args: [loanManager, MAX_UINT256]
-        });
-        await waitForTxReceipt(hash);
+      // 1) Verify Recourse Approvals are complete
+      if (!permissionsComplete) {
+        setPermissionError('Secondary Asset Approval is missing. Please approve recourse above.');
+        setAutoFlowStatus('');
+        return;
       }
 
-      // 2) Opt-in.
-      if (!autoRepayOptInOnchain) {
-        setAutoFlowStatus('Enabling auto-repay...');
-        const hash = await writeOptInAsync({
-          address: loanManager,
-          abi: loanManagerAbi,
-          functionName: 'setAutoRepayOptIn',
-          args: [true]
-        });
-        await waitForTxReceipt(hash);
-      }
-
-      // 3) Create the loan.
+      // 2) Create the loan.
       setAutoFlowStatus('Creating loan...');
       trackEvent('borrow_start', {
         collateralId,
@@ -850,8 +832,8 @@ export default function BorrowActions({
                 : hasPreview
                   ? 'Preview'
                   : isDetailsLoading
-                  ? 'Reading'
-                  : 'Waiting'}
+                    ? 'Reading'
+                    : 'Waiting'}
           </div>
           <div>
             {verified
@@ -1147,10 +1129,10 @@ export default function BorrowActions({
       </div>
       <div className="section-head">
         <div>
-          <h3 className="section-title">Loan Agreement</h3>
+          <h3 className="section-title">Institutional Recourse Agreement</h3>
           <div className="section-subtitle">Read before signing with your wallet</div>
         </div>
-        <span className="tag">Required</span>
+        <span className="tag warning">Strict Recourse</span>
       </div>
       {showTerms && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Loan agreement">
@@ -1196,105 +1178,61 @@ export default function BorrowActions({
       )}
       <div className="card-list borrow-agreement-list">
         <div className="pill">Debt due at unlock: principal + interest + origination fee.</div>
-        <div className="pill">
-          Auto-repay is voluntary. With permissions granted, loan size can be higher and fees can be lower.
+        <div className="pill" style={{ color: '#ff4d4f', borderColor: 'rgba(255, 77, 79, 0.3)' }}>
+          <strong>Absolute Accountability:</strong> If the token crashes and causes a deficit on default, Vestra will automatically execute `sweepSecondaryAssets` to seize WETH/USDC from your wallet.
         </div>
         <div className="pill">
           MVP support: loans settle on Base. Solana vesting streams can be discovered/scored, but settlement remains Base-only.
         </div>
         <div className="pill">
-          Auto-repay uses a whitelisted token list; required tokens must be approved to enable.
-        </div>
-        <div className="pill">
-          If wallet balance is insufficient, unlocked collateral can be seized and liquidated.
+          Strategic Liquidation: Defaults will trigger a 7-day Time-Released Fractional Auction rather than a market-dumping Dutch Auction.
         </div>
       </div>
 
-      <div className="holo-card" style={{ marginTop: 12 }}>
+      <div className="holo-card" style={{ marginTop: 12, border: '1px solid rgba(255, 77, 79, 0.3)' }}>
         <div className="section-head">
           <div>
-            <h4 className="section-title">Repayment Permissions</h4>
-            <div className="section-subtitle">Optional. Better terms when enabled.</div>
+            <h4 className="section-title" style={{ color: '#ff4d4f' }}>Secondary Asset Recourse Approval</h4>
+            <div className="section-subtitle">Mandatory for Institutional Liquidity Protection.</div>
           </div>
-          <span className={`tag ${permissionsComplete && autoRepayOptInOnchain ? 'success' : ''}`}>
-            {autoRepayOptInOnchain ? (permissionsComplete ? 'Enabled' : 'Enabled (missing approvals)') : 'Not enabled'}
+          <span className={`tag ${permissionsComplete ? 'success' : 'danger'}`}>
+            {permissionsComplete ? 'Approved' : 'Missing Approvals'}
           </span>
-        </div>
-        <div className="data-table">
-          <div className="table-row header">
-            <div>Mode</div>
-            <div>Max Borrow</div>
-            <div>Estimated Fee</div>
-            <div>Status</div>
-          </div>
-          <div className="table-row">
-            <div>Standard</div>
-            <div>${Number(maxBorrowUsd || 0).toFixed(2)}</div>
-            <div>${Number.isFinite(feeStandard) ? feeStandard.toFixed(2) : '--'}</div>
-            <div><span className="tag">Always</span></div>
-          </div>
-          <div className="table-row">
-            <div>With permissions</div>
-            <div>${Number(maxBorrowWithPerm || 0).toFixed(2)}</div>
-            <div>${Number.isFinite(feeWithPerm) ? feeWithPerm.toFixed(2) : '--'}</div>
-            <div>
-              <span className={`tag ${permissionsComplete && hasAutoRepayPermissions ? 'success' : ''}`}>
-                {permissionsComplete && hasAutoRepayPermissions ? 'Eligible' : 'Optional'}
-              </span>
-            </div>
-          </div>
         </div>
 
         <div className="muted" style={{ marginTop: 10 }}>
-          Required approvals are limited to whitelisted tokens and only used up to what is owed.
+          You must pre-approve the Protocol to sweep the following reserve assets from your wallet. These will ONLY be seized if your loan defaults AND there is a systemic deficit.
         </div>
 
         {!requiredTokens.length ? (
           <div className="muted" style={{ marginTop: 8 }}>
-            No required tokens configured by the pool yet.
+            No secondary assets configured by the protocol yet. Ready to proceed.
           </div>
         ) : (
           <div className="card-list" style={{ marginTop: 10 }}>
             {tokenApprovalRows.map((row) => (
-              <div key={row.token} className="pill" style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <div key={row.token} className="pill" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, border: row.ok ? '' : '1px solid rgba(255, 77, 79, 0.3)' }}>
                 <span>
-                  {row.symbol} {row.ok ? 'approved' : 'not approved'}
+                  <strong>{row.symbol}</strong> {row.ok ? 'Recourse Approved' : 'Recourse Required'}
                 </span>
                 <button
                   className="button ghost"
                   type="button"
                   onClick={() => approveToken(row.token)}
                   disabled={row.ok || isApprovalPending || !hasWallet}
+                  style={row.ok ? {} : { color: '#ff4d4f', borderColor: '#ff4d4f' }}
                 >
-                  {row.ok ? 'Approved' : 'Approve'}
+                  {row.ok ? 'Approved' : 'Approve Recourse'}
                 </button>
               </div>
             ))}
           </div>
         )}
 
-        <div className="inline-actions" style={{ marginTop: 12 }}>
-          <button
-            className="button ghost"
-            type="button"
-            onClick={() => setOptIn(true)}
-            disabled={!hasWallet || isOptInPending || !permissionsComplete || Boolean(autoRepayOptInOnchain)}
-          >
-            Enable Auto-Repay
-          </button>
-          <button
-            className="button ghost"
-            type="button"
-            onClick={() => setOptIn(false)}
-            disabled={!hasWallet || isOptInPending || !Boolean(autoRepayOptInOnchain)}
-          >
-            Disable Auto-Repay
-          </button>
-        </div>
         <TxStatusBanner
           label="Permissions Tx"
-          hash={approvalHash || optInHash}
-          status={isApprovalPending || isOptInPending ? 'Pending' : ''}
+          hash={approvalHash}
+          status={isApprovalPending ? 'Pending' : ''}
         />
       </div>
       <div className="form-grid">

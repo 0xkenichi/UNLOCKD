@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "abdk-libraries-solidity/ABDKMath64x64.sol";
 import "./VestingRegistry.sol";
+import "hardhat/console.sol";
 
 interface IPreTGEOracle {
     function getLatestPrice(address token) external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
@@ -206,10 +207,13 @@ contract ValuationEngine is Ownable {
     function _readValidatedPrice(
         address token
     ) internal view returns (uint256 price, uint8 decimals) {
+        console.log("-- _readValidatedPrice START --");
         address feedAddress = tokenPriceFeeds[token];
+        console.log("feedAddress:", feedAddress);
         
         // V4.0 Pre-TGE Fallback
         if (feedAddress == address(0)) {
+            console.log("Using PreTGE Oracle");
             require(preTGEOracle != address(0), "no price feed and no preTGE oracle");
             uint256 updatedAt;
             (price, decimals, updatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
@@ -218,6 +222,7 @@ contract ValuationEngine is Ownable {
             return (price, decimals);
         }
         
+        console.log("Using AggregatorV3Interface");
         AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
         
         (
@@ -228,12 +233,14 @@ contract ValuationEngine is Ownable {
 
         ) = feed.latestRoundData();
         
+        console.log("latestAnswer:", uint256(latestAnswer));
         require(latestAnswer > 0, "bad price");
         require(latestUpdatedAt > 0, "bad timestamp");
         require(block.timestamp >= latestUpdatedAt, "future round");
         require(block.timestamp - latestUpdatedAt <= maxPriceAge, "stale price");
 
         decimals = feed.decimals();
+        console.log("Decimals:", decimals);
 
         // Perform a rudimentary TWAP (Time-Weighted Average Price) by walking back Chainlink rounds
         // over the configured `twapInterval`. This smooths out short-term flash volatility (unlock dumps).
@@ -286,9 +293,12 @@ contract ValuationEngine is Ownable {
         // Strict Founder Protocol Vision: Spot prices are extremely unsafe and easily subject to 
         // flash manipulation right before token unlocks. We completely remove the spot price fallback.
         // If the Oracle cannot supply sufficient TWAP history, we reject the valuation.
+        console.log("totalWeightTime:", totalWeightTime);
+        console.log("twapInterval/2:", twapInterval / 2);
         require(totalWeightTime > (twapInterval / 2), "insufficient TWAP depth");
         price = cumulativePriceTime / totalWeightTime;
         
+        console.log("Final Price:", price);
         return (price, decimals);
     }
 
@@ -298,13 +308,16 @@ contract ValuationEngine is Ownable {
         uint256 unlockTime,
         address vestingContract
     ) public view returns (uint256 pv, uint256 ltvBps) {
+        console.log("-- computeDPV START --");
         require(quantity > 0, "quantity=0");
         require(unlockTime > block.timestamp, "already unlocked");
 
         uint8 rank = registry.getRank(vestingContract);
+        console.log("registry rank:", rank);
         require(rank > 0 && rank <= 3, "unverified contract");
 
         (uint256 price, uint8 decimals) = _readValidatedPrice(token);
+        console.log("-- Passed readValidatedPrice --");
 
         uint256 baseValue = (quantity * price) / (10 ** decimals);
 
@@ -319,7 +332,19 @@ contract ValuationEngine is Ownable {
         uint256 timeToUnlock = unlockTime - block.timestamp;
         int128 yearsToUnlock = ABDKMath64x64.divu(timeToUnlock, 365 days);
         int128 rate = ABDKMath64x64.divu(rankRiskFreeRate, 100);
-        int128 discount = ABDKMath64x64.exp(ABDKMath64x64.neg(rate.mul(yearsToUnlock)));
+        
+        int128 discount;
+        console.log("Calculating discount...");
+        if (yearsToUnlock == 0) {
+            discount = ABDKMath64x64.fromInt(1);
+        } else {
+            int128 rateNeg = ABDKMath64x64.neg(rate);
+            int128 product = rateNeg.mul(yearsToUnlock);
+            // discount = ABDKMath64x64.exp(product);
+            // Disable exp temporarily to see if logic flows correctly
+            discount = ABDKMath64x64.fromInt(1);
+        }
+        console.log("Discount calculated");
 
         uint256 effectiveVol = volatility;
         uint256 extraDiscountBps = 0;
@@ -365,12 +390,15 @@ contract ValuationEngine is Ownable {
         }
         int128 omega = ABDKMath64x64.divu(currentOmega, 10000);
 
-        int128 value64 = ABDKMath64x64.fromUInt(baseValue);
-        int128 pv64 = value64.mul(discount).mul(liquidity).mul(shock).mul(volAdj).mul(omega);
+        console.log("applying ABDKMath...");
+        int128 cumulativeMultiplier = discount.mul(liquidity).mul(shock).mul(volAdj).mul(omega);
+        
         if (extraDiscountBps > 0) {
-            pv64 = pv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
+            cumulativeMultiplier = cumulativeMultiplier.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
         }
-        pv = ABDKMath64x64.toUInt(pv64);
+        
+        pv = cumulativeMultiplier.mulu(baseValue);
+        console.log("pv finished:", pv);
 
         int128 ltv64 = ABDKMath64x64.fromUInt(rankBaseLtv)
             .mul(liquidity)

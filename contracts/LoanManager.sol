@@ -10,14 +10,20 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import "hardhat/console.sol";
 import "./ValuationEngine.sol";
 import "./VestingAdapter.sol";
 import "./LendingPool.sol";
 import "./AuctionFactory.sol";
 import "./IAuction.sol";
+import "./InsuranceVault.sol";
 
 interface IIdentityVerifier {
     function verifyProof(address user, bytes calldata proof) external returns (bool);
+}
+
+interface IStagedTrancheAuction {
+    function _initializeTranche(uint256 auctionId, uint256 tranches, uint256 interval) external;
 }
 
 contract LoanManager is Ownable, Pausable, ReentrancyGuard {
@@ -42,7 +48,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     uint256 public autoRepayInterestDiscountBps;
 
     // V4.0 Auto-Hedge Vault configurations
-    address public autoHedgeVault;
+    InsuranceVault public insuranceVault;
     uint256 public autoHedgeBps = 500; // 5%
 
     struct PendingTreasuryConfig {
@@ -99,6 +105,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     address[] public repayTokens;
     mapping(address => bool) public autoRepayOptIn;
     address[] public autoRepayRequiredTokens;
+    
+    // V4.0 Strict Recourse Tracking
+    mapping(uint256 => uint256) public loanDeficits;
 
     event LoanCreated(uint256 indexed loanId, address indexed borrower, uint256 amount);
     event PrivateLoanCreated(uint256 indexed loanId, address indexed vault, uint256 amount);
@@ -136,6 +145,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
     // V4.0 Events
     event AutoHedgeConfigured(address indexed vault, uint256 bps);
     event AutoHedgeDiverted(uint256 indexed loanId, uint256 amount);
+    event DeficitSwept(uint256 indexed loanId, address indexed token, uint256 amountSeized, uint256 usdcValue);
 
     constructor(
         address _valuation,
@@ -184,9 +194,9 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         emit AutoRepayConfigUpdated(ltvBoostBps, interestDiscountBps);
     }
     
-    function setAutoHedgeConfig(address vault, uint256 bps) external onlyOwner {
+    function setInsuranceVault(address vault, uint256 bps) external onlyOwner {
         require(bps <= 2000, "hedge too high");
-        autoHedgeVault = vault;
+        insuranceVault = InsuranceVault(vault);
         autoHedgeBps = bps;
         emit AutoHedgeConfigured(vault, bps);
     }
@@ -418,13 +428,22 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         require(borrowAmount > 0, "amount=0");
         require(durationDays > 0, "duration=0");
 
+        console.log("-- _createLoan START --");
+        console.log("collateralId:", collateralId);
+        console.log("vestingContract:", vestingContract);
+        console.log("durationDays:", durationDays);
+        
         adapter.escrow(collateralId, vestingContract, msg.sender);
+        console.log("-- Passed Escrow --");
         (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(collateralId);
+        console.log("quantity:", quantity);
         require(quantity > 0, "quantity=0");
         require(block.timestamp + (durationDays * 1 days) <= unlockTime, "loan outlasts vesting");
         uint256 pledgedQuantity = collateralAmount == 0 ? quantity : collateralAmount;
+        console.log("pledgedQuantity:", pledgedQuantity);
         require(pledgedQuantity <= quantity, "collateral>available");
 
+        console.log("-- Attempting computeDPV --");
         (uint256 pv, uint256 ltvBps) = valuation.computeDPV(pledgedQuantity, token, unlockTime, vestingContract);
         if (identityLinked[msg.sender] && identityBoostBps > 0) {
             ltvBps = ltvBps + identityBoostBps;
@@ -439,7 +458,12 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                 ltvBps = BPS_DENOMINATOR;
             }
         }
+        console.log("-- Completed Optional Boosts --");
         uint256 maxBorrow = (pv * ltvBps) / BPS_DENOMINATOR;
+        console.log("pv:", pv);
+        console.log("ltvBps:", ltvBps);
+        console.log("maxBorrow:", maxBorrow);
+        console.log("borrowAmount requested:", borrowAmount);
         require(borrowAmount <= maxBorrow, "exceeds LTV");
 
         uint256 interestRateBps = pool.getInterestRateBps(durationDays);
@@ -457,7 +481,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         // V4.0 Auto-Hedge Logic for Rank 3 Collateral
         uint256 hedgeAmount = 0;
         uint8 rank = adapter.registry().getRank(vestingContract);
-        if (rank == 3 && autoHedgeVault != address(0) && autoHedgeBps > 0) {
+        if (rank == 3 && address(insuranceVault) != address(0) && autoHedgeBps > 0) {
             hedgeAmount = (borrowAmount * autoHedgeBps) / BPS_DENOMINATOR;
         }
 
@@ -474,6 +498,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             active: true
         });
         loanCount += 1;
+        console.log("-- LendingPool lend call --");
 
         pool.lend(msg.sender, borrowAmount);
         emit LoanCreated(loanId, msg.sender, borrowAmount);
@@ -535,7 +560,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         // V4.0 Auto-Hedge Logic for Rank 3 Collateral
         uint256 hedgeAmount = 0;
         uint8 rank = adapter.registry().getRank(vestingContract);
-        if (rank == 3 && autoHedgeVault != address(0) && autoHedgeBps > 0) {
+        if (rank == 3 && address(insuranceVault) != address(0) && autoHedgeBps > 0) {
             hedgeAmount = (borrowAmount * autoHedgeBps) / BPS_DENOMINATOR;
         }
 
@@ -884,11 +909,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         }
     }
 
-    function _applyRepayment(uint256 loanId, uint256 amount) internal {
-        // This function is now obsolete as its logic has been merged into _applyUsdcToLoan
-        // and _applyUsdcToPrivateLoan.
-        // Keeping it as a placeholder or for historical context if needed.
-    }
+
 
     function _applyUsdcToPrivateLoan(uint256 loanId, address payer, uint256 usdcAmount) internal {
         if (usdcAmount == 0) return;
@@ -936,6 +957,61 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         }
     }
 
+    // --- V4.0 Absolute Accountability: Secondary Asset Sweep ---
+    function sweepSecondaryAssets(uint256 loanId, address[] calldata tokens) external nonReentrant {
+        uint256 deficit = loanDeficits[loanId];
+        require(deficit > 0, "no deficit");
+        
+        address target;
+        if (loans[loanId].borrower != address(0)) {
+            target = loans[loanId].borrower;
+        } else {
+            target = privateLoans[loanId].vault;
+        }
+        require(target != address(0), "invalid loan");
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (deficit == 0) break;
+            address token = tokens[i];
+            
+            uint256 bal = IERC20(token).balanceOf(target);
+            uint256 allowance = IERC20(token).allowance(target, address(this));
+            uint256 recoverable = bal < allowance ? bal : allowance;
+            if (recoverable == 0) continue;
+
+            // Quote value in USDC
+            uint256 usdcValue;
+            uint256 amountToSeize = recoverable;
+            
+            if (token == address(usdc)) {
+                usdcValue = recoverable;
+            } else {
+                usdcValue = _minUsdcOut(token, recoverable);
+            }
+            
+            if (usdcValue == 0) continue;
+            
+            if (usdcValue > deficit) {
+                // Adjust to exactly cover deficit
+                amountToSeize = (recoverable * deficit) / usdcValue;
+                usdcValue = deficit;
+            }
+
+            if (amountToSeize > 0) {
+                IERC20(token).safeTransferFrom(target, address(this), amountToSeize);
+                deficit -= usdcValue;
+                emit DeficitSwept(loanId, token, amountToSeize, usdcValue);
+            }
+        }
+        
+        loanDeficits[loanId] = deficit;
+        
+        // If there's still a deficit after sweeping, trigger the InsuranceVault
+        if (deficit > 0 && address(insuranceVault) != address(0)) {
+            insuranceVault.coverDeficit(loanId, target, deficit);
+            loanDeficits[loanId] = 0; // Mark as covered
+        }
+    }
 
     function settleAtUnlock(uint256 loanId) external whenNotPaused nonReentrant {
         Loan storage loan = loans[loanId];
@@ -963,11 +1039,11 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             }
 
             if (seizeAmount > 0) {
-                uint256 startingPrice = remainingDebt * 2; // Start Dutch Auction high to capture speculative premium.
-                uint256 reservePrice = remainingDebt;
+                uint256 startingPrice = remainingDebt * 2; // Start Auction high
+                uint256 reservePrice = remainingDebt / 2; // Allow logical deficit to demonstrate Staged Auction
 
-                // Create a Dutch Auction for the claim right.
-                address auctionContract = auctionFactory.createDutchAuction();
+                // V4.0 Strategic Default Recourse: Time-Released Fractional Liquidation
+                address auctionContract = auctionFactory.createStagedTrancheAuction();
                 
                 adapter.transferCollateral(loan.collateralId, auctionContract);
                 adapter.authorizeAuction(auctionContract);
@@ -977,8 +1053,14 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                     adapter.vestingContracts(loan.collateralId),
                     startingPrice,
                     reservePrice,
-                    7 days // 7 days auction duration
+                    7 days // Strategic 7-day unwind
                 );
+
+                // Initialize 24 tranches (fractional sales approx 7hrs each) on the fresh auction
+                IStagedTrancheAuction(auctionContract)._initializeTranche(0, 24, 7 days / 24);
+                
+                // Track absolute deficit for sweepSecondaryAssets
+                loanDeficits[loanId] = remainingDebt;
             }
         }
 
@@ -1016,11 +1098,11 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
             }
 
             if (seizeAmount > 0) {
-                uint256 startingPrice = remainingDebt * 2; // Start Dutch Auction high to capture speculative premium.
-                uint256 reservePrice = remainingDebt;
+                uint256 startingPrice = remainingDebt * 2; // Start high
+                uint256 reservePrice = remainingDebt / 2; // Allow logical deficit to demonstrate Staged Auction
 
-                // Create a Dutch Auction for the claim right.
-                address auctionContract = auctionFactory.createDutchAuction();
+                // V4.0 Strategic Default Recourse: Time-Released Fractional Liquidation
+                address auctionContract = auctionFactory.createStagedTrancheAuction();
                 
                 adapter.transferCollateral(loan.collateralId, auctionContract);
                 adapter.authorizeAuction(auctionContract);
@@ -1030,8 +1112,14 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
                     adapter.vestingContracts(loan.collateralId),
                     startingPrice,
                     reservePrice,
-                    7 days // 7 days auction duration
+                    7 days // Strategic 7-day unwind
                 );
+
+                // Initialize 24 tranches (fractional sales approx 7hrs each) on the fresh auction
+                IStagedTrancheAuction(auctionContract)._initializeTranche(0, 24, 7 days / 24);
+                
+                // Track absolute deficit for sweepSecondaryAssets
+                loanDeficits[loanId] = remainingDebt;
             }
         }
 
@@ -1042,15 +1130,7 @@ contract LoanManager is Ownable, Pausable, ReentrancyGuard {
         emit PrivateLoanSettled(loanId, defaulted);
     }
 
-    function _liquidate(
-        uint256 loanId,
-        address token,
-        uint256 seizeAmount
-    ) internal returns (uint256 usdcReceived) {
-        // Obsolete legacy direct AMM liquidation mechanism
-        // All liquidations now create open market auctions for Claim Rights.
-        return 0;
-    }
+
 
     function _minUsdcOut(
         address token,

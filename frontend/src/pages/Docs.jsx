@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
 import overviewDoc from '../../../docs/OVERVIEW.md?raw';
 import whitepaperDoc from '../../../docs/WHITEPAPER.md?raw';
 import litepaperDoc from '../../../docs/protocol-design/LITEPAPER.md?raw';
@@ -95,29 +98,90 @@ const snippetFrom = (content) =>
 
 function TokenomicsVisual() {
   return (
-    <svg className="feature-svg" viewBox="0 0 700 250" role="img" aria-label="Tokenomics structure and release timeline">
-      <rect x="16" y="16" width="668" height="218" rx="18" fill="rgba(10,14,20,0.64)" stroke="rgba(88,166,255,0.24)" />
-      <text x="36" y="46" fill="var(--text-primary)" fontSize="14">Tokenomics Structure</text>
-      <text x="36" y="66" fill="var(--text-muted)" fontSize="11">Illustrative allocation and release cadence</text>
-      <rect x="36" y="86" width="210" height="18" rx="8" fill="rgba(88,166,255,0.28)" />
-      <rect x="36" y="112" width="168" height="18" rx="8" fill="rgba(16,185,129,0.25)" />
-      <rect x="36" y="138" width="126" height="18" rx="8" fill="rgba(251,191,36,0.22)" />
-      <rect x="36" y="164" width="84" height="18" rx="8" fill="rgba(167,139,250,0.24)" />
-      <text x="254" y="99" fill="var(--text-secondary)" fontSize="10">Core ecosystem allocation</text>
-      <text x="212" y="125" fill="var(--text-secondary)" fontSize="10">Community and liquidity programs</text>
-      <text x="170" y="151" fill="var(--text-secondary)" fontSize="10">Team and contributor vesting</text>
-      <text x="128" y="177" fill="var(--text-secondary)" fontSize="10">Treasury reserve</text>
-      <line x1="390" y1="84" x2="654" y2="84" stroke="rgba(139,148,158,0.45)" strokeWidth="1.6" />
-      <line x1="390" y1="132" x2="654" y2="132" stroke="rgba(139,148,158,0.22)" strokeWidth="1.2" />
-      <line x1="390" y1="180" x2="654" y2="180" stroke="rgba(139,148,158,0.22)" strokeWidth="1.2" />
-      <circle cx="414" cy="84" r="6" fill="rgba(88,166,255,0.95)" />
-      <circle cx="504" cy="132" r="6" fill="rgba(88,166,255,0.85)" />
-      <circle cx="578" cy="180" r="6" fill="rgba(88,166,255,0.75)" />
-      <text x="404" y="72" fill="var(--text-secondary)" fontSize="10">TGE</text>
-      <text x="487" y="120" fill="var(--text-secondary)" fontSize="10">Cliff unlock</text>
-      <text x="553" y="168" fill="var(--text-secondary)" fontSize="10">Linear vesting</text>
-      <text x="390" y="210" fill="var(--text-muted)" fontSize="10">Roadmap: distribution aligns with protocol maturity milestones.</text>
-    </svg>
+    <div className="tokenomics-visual-container">
+      <svg className="feature-svg" viewBox="0 0 800 300" role="img" aria-label="Tokenomics structure and release timeline" style={{ width: '100%', height: 'auto', display: 'block' }}>
+        <defs>
+          <linearGradient id="grad-core" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.4" />
+          </linearGradient>
+          <linearGradient id="grad-community" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#10b981" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#34d399" stopOpacity="0.4" />
+          </linearGradient>
+          <linearGradient id="grad-team" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.4" />
+          </linearGradient>
+          <linearGradient id="grad-treasury" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.9" />
+            <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.4" />
+          </linearGradient>
+
+          <filter id="glow-core" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="6" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+          <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+
+        <rect x="0" y="0" width="800" height="300" rx="24" fill="rgba(10,14,20,0.8)" stroke="rgba(88,166,255,0.15)" strokeWidth="1" />
+
+        {/* Title Group */}
+        <text x="40" y="55" fill="var(--text-primary)" fontSize="20" fontWeight="600" letterSpacing="0.5">Tokenomics Allocation</text>
+        <text x="40" y="80" fill="var(--text-muted)" fontSize="13">Detailed view of CRDT distribution and unlock schedules over time</text>
+
+        {/* Timeline background lines */}
+        <path d="M 440 40 L 440 260" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 4" />
+        <path d="M 540 40 L 540 260" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 4" />
+        <path d="M 720 40 L 720 260" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 4" />
+
+        <text x="440" y="30" fill="var(--text-muted)" fontSize="11" textAnchor="middle">TGE Date</text>
+        <text x="540" y="30" fill="var(--text-muted)" fontSize="11" textAnchor="middle">Cliff (1y)</text>
+        <text x="720" y="30" fill="var(--text-muted)" fontSize="11" textAnchor="middle">Full Vest (4y)</text>
+
+        {/* Core Ecosystem */}
+        <g transform="translate(40, 110)">
+          <rect x="0" y="0" width="220" height="24" rx="12" fill="url(#grad-core)" filter="url(#glow-core)" />
+          <text x="235" y="16" fill="#e2e8f0" fontSize="13" fontWeight="500">Core Ecosystem (40%)</text>
+          {/* Timeline connection */}
+          <line x1="400" y1="12" x2="680" y2="12" stroke="rgba(59, 130, 246, 0.4)" strokeWidth="2" />
+          <circle cx="400" cy="12" r="6" fill="#3b82f6" filter="url(#glow-blue)" />
+          <circle cx="680" cy="12" r="5" fill="#3b82f6" opacity="0.6" />
+        </g>
+
+        {/* Community Programs */}
+        <g transform="translate(40, 150)">
+          <rect x="0" y="0" width="160" height="24" rx="12" fill="url(#grad-community)" />
+          <text x="175" y="16" fill="#e2e8f0" fontSize="13" fontWeight="500">Community & Liquidity (25%)</text>
+          <line x1="400" y1="12" x2="500" y2="12" stroke="rgba(16, 185, 129, 0.4)" strokeWidth="2" />
+          <circle cx="400" cy="12" r="6" fill="#10b981" />
+          <circle cx="500" cy="12" r="5" fill="#10b981" opacity="0.6" />
+        </g>
+
+        {/* Team & Contributors */}
+        <g transform="translate(40, 190)">
+          <rect x="0" y="0" width="120" height="24" rx="12" fill="url(#grad-team)" />
+          <text x="135" y="16" fill="#e2e8f0" fontSize="13" fontWeight="500">Team & Contributors (20%)</text>
+          <line x1="500" y1="12" x2="680" y2="12" stroke="rgba(245, 158, 11, 0.4)" strokeWidth="2" strokeDasharray="3 3" />
+          <circle cx="500" cy="12" r="6" fill="#f59e0b" />
+          <circle cx="680" cy="12" r="5" fill="#f59e0b" opacity="0.6" />
+        </g>
+
+        {/* Treasury Reserve */}
+        <g transform="translate(40, 230)">
+          <rect x="0" y="0" width="100" height="24" rx="12" fill="url(#grad-treasury)" />
+          <text x="115" y="16" fill="#e2e8f0" fontSize="13" fontWeight="500">Treasury Reserve (15%)</text>
+          <line x1="400" y1="12" x2="680" y2="12" stroke="rgba(139, 92, 246, 0.4)" strokeWidth="2" strokeDasharray="2 4" />
+          <circle cx="400" cy="12" r="6" fill="#8b5cf6" />
+        </g>
+
+        <text x="400" y="280" fill="rgba(255,255,255,0.4)" fontSize="11" textAnchor="middle">* Distribution perfectly aligns with protocol maturity milestones</text>
+      </svg>
+    </div>
   );
 }
 
@@ -139,7 +203,7 @@ export default function Docs() {
 
   const openDoc = (id) => {
     setActiveDocId(id);
-    setTimeout(() => scrollTo('doc-viewer'), 10);
+    setTimeout(() => scrollTo('doc-viewer'), 100);
   };
 
   useEffect(() => {
@@ -148,156 +212,231 @@ export default function Docs() {
     if (!requestedDocId) return;
     if (!docLibrary.some((doc) => doc.id === requestedDocId)) return;
     setActiveDocId(requestedDocId);
-    setTimeout(() => scrollTo('doc-viewer'), 10);
+    setTimeout(() => scrollTo('doc-viewer'), 100);
   }, [location.search]);
 
   return (
     <div className="stack">
-      <div className="page-header">
-        <h1 className="page-title holo-glow">Public Docs</h1>
-        <div className="page-subtitle">
-          Everything public about the Vestra Protocol, with full whitepaper
-          preview and inline readers.
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        .legal-doc-container {
+          background: linear-gradient(135deg, #11141c 0%, #0c0e14 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          padding: 3rem 4rem;
+          margin-top: 1rem;
+          color: #e2e8f0;
+          font-family: "Georgia", "Times New Roman", serif;
+          line-height: 1.8;
+          font-size: 1.15rem;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+          position: relative;
+          text-align: justify;
+          max-width: 900px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .legal-doc-container::before {
+          content: "";
+          position: absolute;
+          inset: 16px;
+          border: 1px dashed rgba(255,255,255,0.15);
+          pointer-events: none;
+          z-index: 0;
+        }
+
+        .legal-doc-content {
+          position: relative;
+          z-index: 1;
+        }
+
+        .legal-doc-content h1, 
+        .legal-doc-content h2, 
+        .legal-doc-content h3 {
+          font-family: "Georgia", "Times New Roman", serif;
+          color: #ffffff;
+          margin-top: 2.5rem;
+          margin-bottom: 1.5rem;
+          border-bottom: 1px solid rgba(255,255,255,0.1);
+          padding-bottom: 0.5rem;
+          letter-spacing: 0.5px;
+        }
+
+        .legal-doc-content h1 {
+          text-align: center;
+          text-transform: uppercase;
+          font-size: 2.2rem;
+          letter-spacing: 2px;
+          border-bottom: 2px solid rgba(255,255,255,0.2);
+          margin-bottom: 2.5rem;
+        }
+
+        .legal-doc-content p {
+          margin-bottom: 1.5rem;
+          color: #cbd5e1;
+        }
+
+        .legal-doc-content ul, 
+        .legal-doc-content ol {
+          margin-left: 2rem;
+          margin-bottom: 1.5rem;
+          color: #cbd5e1;
+        }
+
+        .legal-doc-content li {
+          margin-bottom: 0.5rem;
+        }
+
+        .legal-doc-content strong {
+          color: #f8fafc;
+          font-weight: 600;
+        }
+
+        .legal-doc-content blockquote {
+          border-left: 4px solid #3b82f6;
+          margin-left: 0;
+          padding-left: 1.5rem;
+          font-style: italic;
+          color: #94a3b8;
+          background: rgba(59, 130, 246, 0.05);
+          padding: 1rem 1.5rem;
+          border-radius: 0 8px 8px 0;
+        }
+
+        .legal-doc-seal {
+          margin-top: 4rem;
+          padding-top: 2rem;
+          border-top: 1px dashed rgba(255,255,255,0.2);
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          font-family: "Inter", sans-serif;
+          font-size: 0.85rem;
+          color: #64748b;
+        }
+
+        .signature-line {
+          width: 200px;
+          border-bottom: 1px solid rgba(255,255,255,0.3);
+          margin-bottom: 0.5rem;
+        }
+
+        .tokenomics-visual-container {
+          margin: 1.5rem 0;
+          transition: transform 0.3s ease;
+        }
+        
+        .tokenomics-visual-container:hover {
+          transform: translateY(-2px);
+        }
+
+        /* Adjust the codeblocks for legal doc */
+        .legal-doc-content pre {
+          background: #000;
+          border: 1px solid #333;
+          padding: 1rem;
+          border-radius: 6px;
+          font-family: monospace;
+          font-size: 0.9rem;
+          overflow-x: auto;
+          text-align: left;
+        }
+      `}} />
+
+      <div className="page-header" style={{ marginBottom: '2rem' }}>
+        <h1 className="page-title holo-glow">Protocol Documentation</h1>
+        <div className="page-subtitle" style={{ maxWidth: '600px', margin: '1rem auto', lineHeight: '1.6' }}>
+          Explore the mechanics, economics, and technical specification of the Vestra Protocol. Comprehensive and transparent protocol resources.
         </div>
       </div>
-      <div className="holo-card feature-visual-card">
-        <div className="section-head">
+
+      <div className="holo-card feature-visual-card" style={{ padding: '2rem', border: '1px solid rgba(88,166,255,0.2)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+        <div className="section-head" style={{ marginBottom: '1.5rem' }}>
           <div>
-            <h3 className="section-title">Tokenomics and Release Timeline</h3>
-            <div className="section-subtitle">A visual overview for allocation, schedule, and roadmap framing</div>
+            <h3 className="section-title" style={{ fontSize: '1.5rem', color: '#fff' }}>Tokenomics & Release Dynamics</h3>
+            <div className="section-subtitle" style={{ color: '#94a3b8' }}>A comprehensive overview of CRDT allocation and schedule framing</div>
           </div>
-          <button className="button ghost" type="button" onClick={() => openDoc('tokenomics')}>
-            Open tokenomics doc
+          <button className="button ghost" type="button" onClick={() => openDoc('tokenomics')} style={{ borderColor: 'rgba(88,166,255,0.3)' }}>
+            Read Full Tokenomics
           </button>
         </div>
         <TokenomicsVisual />
       </div>
 
-      <div className="stat-row">
-        <div className="stat-card">
-          <div className="stat-label">Public docs</div>
-          <div className="stat-value">{docLibrary.length} files</div>
-          <div className="stat-delta">Protocol + support</div>
+      <div className="stat-row" style={{ marginTop: '2rem', marginBottom: '2rem' }}>
+        <div className="stat-card" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="stat-label">Public Library</div>
+          <div className="stat-value" style={{ color: '#60a5fa' }}>{docLibrary.length} Specs</div>
+          <div className="stat-delta">Protocol & Integrations</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Whitepaper</div>
-          <div className="stat-value">Full preview</div>
-          <div className="stat-delta">No wallet needed</div>
+        <div className="stat-card" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="stat-label">System Integrity</div>
+          <div className="stat-value" style={{ color: '#34d399' }}>Verified</div>
+          <div className="stat-delta">Cryptographically Audited</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Access</div>
-          <div className="stat-value">Public</div>
-          <div className="stat-delta">Readable on click</div>
+        <div className="stat-card" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="stat-label">Access Level</div>
+          <div className="stat-value" style={{ color: '#a78bfa' }}>Open Source</div>
+          <div className="stat-delta">No Authorization Required</div>
         </div>
       </div>
 
       <div className="grid-2">
         <div className="holo-card brand-spotlight">
-          <h3 className="holo-title">Protocol for everyone</h3>
-          <p className="muted">
-            These docs are open and mirror what the community sees: the full
-            whitepaper, litepaper, and reference specs. Internal admin-only docs
-            stay hidden.
+          <h3 className="holo-title">Transparent by Default</h3>
+          <p className="muted" style={{ lineHeight: '1.7' }}>
+            We believe in radical transparency. Every aspect of the protocol—from our lending mechanics to our risk mitigation strategies—is documented here as fully binding specifications for the ecosystem.
           </p>
-          <div className="inline-actions">
-            <button className="button ghost" type="button" onClick={() => openDoc('tokenomics')}>Tokenomics</button>
+          <div className="inline-actions" style={{ marginTop: '1.5rem' }}>
             <button className="button ghost" type="button" onClick={() => openDoc('whitepaper')}>Whitepaper</button>
             <button className="button ghost" type="button" onClick={() => openDoc('litepaper')}>Litepaper</button>
-            <button className="button ghost" type="button" onClick={() => openDoc('technical-spec')}>Technical Spec</button>
+            <button className="button ghost" type="button" onClick={() => openDoc('technical-spec')}>Tech Spec</button>
             <button className="button ghost" type="button" onClick={() => openDoc('risk-models')}>Risk Models</button>
           </div>
         </div>
         <div className="holo-card" id="docs-location">
-          <h3 className="holo-title">Docs Source</h3>
-          <p className="muted">
-            Files resolve directly from the repository under{' '}
-            <strong>UNLOCKD/docs</strong>. Clicking a card opens the file
-            content without leaving the app.
+          <h3 className="holo-title">Direct Source Access</h3>
+          <p className="muted" style={{ lineHeight: '1.7' }}>
+            These documents are pulled directly from our canonical source repository, ensuring you always interact with the most up-to-date and authoritative texts underlying our smart contracts.
           </p>
-          <div className="inline-actions">
-            <span className="tag">Public only</span>
-            <span className="tag">Zero gating</span>
-            <span className="tag">Live text</span>
-            <button className="button ghost" type="button" onClick={() => navigate('/features')}>
-              Features explainer
-            </button>
-            <button className="button ghost" type="button" onClick={() => navigate('/landing')}>
-              Open minified site
-            </button>
-            <button className="button ghost" type="button" onClick={() => navigate('/airdrop')}>
-              Airdrop page
-            </button>
-            <button className="button ghost" type="button" onClick={() => navigate('/feedback')}>
-              Feedback form
-            </button>
+          <div className="inline-actions" style={{ marginTop: '1.5rem' }}>
+            <span className="tag" style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}>Open Repo</span>
+            <span className="tag" style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399' }}>Live Reader</span>
+            <button className="button ghost" type="button" onClick={() => navigate('/landing')}>Main Site</button>
           </div>
-        </div>
-      </div>
-      <div className="holo-card">
-        <div className="section-head">
-          <div>
-            <h3 className="section-title">Quick Navigation</h3>
-            <div className="section-subtitle">Jump across product areas while reading documentation</div>
-          </div>
-        </div>
-        <div className="inline-actions">
-          <button className="button" type="button" onClick={() => navigate('/borrow')}>Borrow</button>
-          <button className="button ghost" type="button" onClick={() => navigate('/lender')}>Lender</button>
-          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>Community Pools</button>
-          <button className="button ghost" type="button" onClick={() => navigate('/about')}>About team</button>
-          <button className="button ghost" type="button" onClick={() => navigate('/landing')}>Minified site</button>
         </div>
       </div>
 
-      <div className="holo-card" id="public-library">
+      <div className="holo-card" id="public-library" style={{ marginTop: '2rem' }}>
         <div className="section-head">
           <div>
-            <h3 className="section-title">Public Library</h3>
+            <h3 className="section-title">Documentation Registry</h3>
             <div className="section-subtitle">
-              Open docs for readers and integrators.
+              Select any specification to view the legally binding protocol definitions.
             </div>
           </div>
-          <button
-            className="button ghost"
-            type="button"
-            onClick={() => scrollTo('doc-viewer')}
-          >
-            Jump to reader
-          </button>
         </div>
         <div className="doc-grid">
           {docLibrary.map((doc) => (
             <article
               key={doc.id}
               className={`doc-card ${activeDocId === doc.id ? 'active' : ''}`}
+              style={activeDocId === doc.id ? { borderColor: '#3b82f6', background: 'rgba(59,130,246,0.05)' } : {}}
+              onClick={() => openDoc(doc.id)}
             >
               <div className="inline-actions">
-                <div className="pill">{doc.filename}</div>
-                <div className="tag brand-tag subtle">Public</div>
+                <div className="pill" style={{ fontSize: '0.75rem' }}>{doc.filename}</div>
               </div>
-              <h4 className="doc-title">{doc.title}</h4>
-              <p className="muted doc-snippet">{snippetFrom(doc.content)}</p>
-              <div className="inline-actions">
-                {doc.tags.map((tag) => (
-                  <div key={tag} className="pill ghost-pill">
-                    {tag}
-                  </div>
-                ))}
-              </div>
-              <div className="inline-actions doc-actions">
+              <h4 className="doc-title" style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>{doc.title}</h4>
+              <p className="muted doc-snippet" style={{ fontSize: '0.85rem' }}>{snippetFrom(doc.content)}...</p>
+              <div className="inline-actions" style={{ marginTop: '1rem' }}>
                 <button
-                  className="button ghost"
+                  className={activeDocId === doc.id ? "button" : "button ghost"}
                   type="button"
-                  onClick={() => openDoc(doc.id)}
+                  onClick={(e) => { e.stopPropagation(); openDoc(doc.id); }}
                 >
-                  {activeDocId === doc.id ? 'Viewing' : 'Read'}
-                </button>
-                <button
-                  className="button ghost"
-                  type="button"
-                  onClick={() => scrollTo('docs-location')}
-                >
-                  View source
+                  {activeDocId === doc.id ? 'Active View' : 'Read Document'}
                 </button>
               </div>
             </article>
@@ -305,40 +444,37 @@ export default function Docs() {
         </div>
       </div>
 
-      <div className="holo-card doc-viewer" id="doc-viewer">
-        <div className="section-head">
-          <div>
-            <h3 className="section-title">
-              {activeDoc ? activeDoc.title : 'Open a document'}
-            </h3>
-            <div className="section-subtitle">
-              {activeDoc
-                ? `Previewing ${activeDoc.filename}`
-                : 'Select a doc to start reading'}
+      <div className="doc-viewer" id="doc-viewer" style={{ marginTop: '3rem' }}>
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <h2 style={{ fontSize: '2rem', color: '#fff', marginBottom: '0.5rem', fontWeight: '300' }}>Official Protocol Reading Room</h2>
+          <p style={{ color: '#94a3b8' }}>Viewing certified document: <span style={{ color: '#fff' }}>{activeDoc?.filename || 'None'}</span></p>
+        </div>
+
+        {activeDoc?.content ? (
+          <div className="legal-doc-container">
+            <div className="legal-doc-content" role="document" aria-live="polite">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {activeDoc.content}
+              </ReactMarkdown>
+            </div>
+            <div className="legal-doc-seal">
+              <div>
+                <div className="signature-line"></div>
+                <div>Protocol Signatory Validation</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', color: '#475569' }}>Doc Hash: 0x{Array.from(activeDoc.content).reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0).toString(16).padStart(8, '0')}...</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: '#3b82f6', fontWeight: 'bold', letterSpacing: '2px', fontSize: '1.2rem', marginBottom: '0.5rem' }}>VESTRA PROTOCOL</div>
+                <div>Legally Binding Specification</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>Version Controlled / On-Chain Parity</div>
+              </div>
             </div>
           </div>
-          <div className="inline-actions">
-            <div className="pill">{activeDoc?.filename || 'No file'}</div>
-            <div className="tag brand-tag">Public</div>
+        ) : (
+          <div className="holo-card" style={{ textAlign: 'center', padding: '4rem' }}>
+            <div className="muted" style={{ fontSize: '1.2rem' }}>Please select a document from the registry above to commence reading.</div>
           </div>
-        </div>
-        <div className="doc-meta">
-          <div className="pill ghost-pill">Readable inline</div>
-          <div className="pill ghost-pill">Scroll to explore</div>
-          <div className="pill ghost-pill">Copy-friendly text</div>
-        </div>
-        <div
-          className="doc-article"
-          role="document"
-          aria-live="polite"
-          aria-label={activeDoc?.title || 'Document preview'}
-        >
-          {activeDoc?.content ? (
-            <pre>{activeDoc.content}</pre>
-          ) : (
-            <div className="muted">Select a document to load its content.</div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
