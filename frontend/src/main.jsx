@@ -4,6 +4,7 @@ import App from './App.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import './styles.css';
 import './polyfills.js';
+import { Analytics } from '@vercel/analytics/react';
 import { WagmiProvider, createConfig as createWagmiConfig, http, injected } from 'wagmi';
 import { walletConnect } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -49,18 +50,18 @@ const hasAlchemyAccountKit = Boolean(alchemyApiKey);
 
 const alchemyConfig = hasAlchemyAccountKit
   ? createAlchemyConfig(
-      {
-        transport: alchemy({ apiKey: alchemyApiKey }),
-        chain: alchemyChain,
-        ...(alchemyPolicyId ? { policyId: alchemyPolicyId } : {})
-      },
-      {
-        auth: {
-          sections: [[{ type: 'email' }], [{ type: 'passkey' }]],
-          addPasskeyOnSignup: true
-        }
+    {
+      transport: alchemy({ apiKey: alchemyApiKey }),
+      chain: alchemyChain,
+      ...(alchemyPolicyId ? { policyId: alchemyPolicyId } : {})
+    },
+    {
+      auth: {
+        sections: [[{ type: 'email' }], [{ type: 'passkey' }]],
+        addPasskeyOnSignup: true
       }
-    )
+    }
+  )
   : null;
 
 const runtimeAddresses = {
@@ -78,6 +79,7 @@ console.info(
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <Analytics />
       <WagmiProvider config={config}>
         <QueryClientProvider client={queryClient}>
           {hasAlchemyAccountKit && alchemyConfig ? (

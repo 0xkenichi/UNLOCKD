@@ -45,6 +45,10 @@ async function deployFixture() {
   const issuanceSigner = await ethers.getSigner(issuanceTreasury);
   await usdc.connect(issuanceSigner).approve(await pool.getAddress(), ethers.MaxUint256);
 
+  for (const b of borrowers) {
+    await loanManager.connect(deployer).setSanctionsPass(b.address, true);
+  }
+
   return { deployer, lender, keeper, borrowers, usdc, registry, valuation, pool, loanManager, priceFeed };
 }
 

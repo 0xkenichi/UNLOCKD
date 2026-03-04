@@ -55,11 +55,24 @@ async function main() {
         console.error("Missing Protocol Addresses in .env! (VALUATION_ENGINE_ADDR, LOAN_MANAGER_ADDR)");
         console.log("Starting simulation loops...");
 
+        // Start MeTTaclaw Simulation if running locally
+        if (process.env.USE_METTA === "true") {
+            console.log("\n[OMEGA_MAIN] Starting MeTTaclaw logic...");
+            require("./mettaclaw");
+        }
+
         // Fallback simulation loop for demo purposes
         simulateOmegaUpdates();
         simulateBountyHunter();
         return;
     }
+
+    // In production/staged environment
+    if (process.env.USE_METTA === "true") {
+        console.log("\n[OMEGA_MAIN] Empowering Vestra with MeTTa AI Reasoner...");
+        require("./mettaclaw");
+    }
+
 
     const valuationEngine = new ethers.Contract(VALUATION_ENGINE_ADDR, VALUATION_ENGINE_ABI, wallet);
     const loanManager = new ethers.Contract(LOAN_MANAGER_ADDR, LOAN_MANAGER_ABI, wallet);

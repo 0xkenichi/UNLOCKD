@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" aria-label="Vestra Protocol">
+  <defs>
+    <radialGradient id="vl-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="vl-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="vl-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f1c572"/>
+      <stop offset="100%" stop-color="#d99a22"/>
+    </linearGradient>
+    <filter id="vl-blur">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Glow base -->
+  <circle cx="60" cy="58" r="46" fill="url(#vl-glow)"/>
+
+  <!-- Outer vesting arc ring (gold) -->
+  <path d="M 22 72 A 42 42 0 0 1 98 72" stroke="url(#vl-gold)" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.7"/>
+
+  <!-- Inner arc ring (blue) -->
+  <path d="M 32 68 A 30 30 0 0 1 88 68" stroke="url(#vl-blue)" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+
+  <!-- V shape — left arm -->
+  <path d="M 28 28 L 60 82" stroke="url(#vl-blue)" stroke-width="4" stroke-linecap="round" fill="none" filter="url(#vl-blur)"/>
+  <!-- V shape — right arm with upward arrow -->
+  <path d="M 92 28 L 60 82" stroke="url(#vl-blue)" stroke-width="4" stroke-linecap="round" fill="none" filter="url(#vl-blur)"/>
+  <!-- Right arm arrow tip -->
+  <path d="M 84 20 L 94 28 L 82 32" stroke="url(#vl-gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <!-- Central orb -->
+  <circle cx="60" cy="58" r="5" fill="#3b82f6" opacity="0.9"/>
+  <circle cx="60" cy="58" r="3" fill="#93c5fd"/>
+
+  <!-- Milestone dots on outer arc -->
+  <circle cx="22" cy="72" r="2.5" fill="#d99a22"/>
+  <circle cx="40" cy="40" r="2" fill="#60a5fa" opacity="0.8"/>
+  <circle cx="80" cy="40" r="2" fill="#60a5fa" opacity="0.8"/>
+  <circle cx="98" cy="72" r="2.5" fill="#d99a22"/>
+</svg>

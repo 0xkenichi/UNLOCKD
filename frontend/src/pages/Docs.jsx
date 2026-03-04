@@ -13,6 +13,8 @@ import tokenomicsDoc from '../../../docs/token-and-governance/TOKENOMICS_FINAL.m
 import testnetFaucetDemoDoc from '../../../docs/build-and-deploy/TESTNET_FAUCET_DEMO_ONE_PAGER.md?raw';
 import testnetVestingQuickstartDoc from '../../../docs/build-and-deploy/TESTNET_VESTING_CREATION_QUICKSTART.md?raw';
 
+import ArchitectureVisual from '../components/docs/ArchitectureVisual.jsx';
+
 const docLibrary = [
   {
     id: 'tokenomics',
@@ -220,30 +222,18 @@ export default function Docs() {
       <style dangerouslySetInnerHTML={{
         __html: `
         .legal-doc-container {
-          background: linear-gradient(135deg, #11141c 0%, #0c0e14 100%);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          padding: 3rem 4rem;
+          padding: 2rem 0;
           margin-top: 1rem;
-          color: #e2e8f0;
-          font-family: "Georgia", "Times New Roman", serif;
+          color: var(--text-primary);
+          font-family: var(--font-family);
           line-height: 1.8;
-          font-size: 1.15rem;
-          box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+          font-size: 1.05rem;
           position: relative;
-          text-align: justify;
-          max-width: 900px;
+          text-align: left;
+          width: 100%;
+          max-width: 800px;
           margin-left: auto;
           margin-right: auto;
-        }
-
-        .legal-doc-container::before {
-          content: "";
-          position: absolute;
-          inset: 16px;
-          border: 1px dashed rgba(255,255,255,0.15);
-          pointer-events: none;
-          z-index: 0;
         }
 
         .legal-doc-content {
@@ -254,34 +244,32 @@ export default function Docs() {
         .legal-doc-content h1, 
         .legal-doc-content h2, 
         .legal-doc-content h3 {
-          font-family: "Georgia", "Times New Roman", serif;
-          color: #ffffff;
+          font-family: var(--font-display);
+          color: var(--text-primary);
           margin-top: 2.5rem;
-          margin-bottom: 1.5rem;
-          border-bottom: 1px solid rgba(255,255,255,0.1);
+          margin-bottom: 1rem;
           padding-bottom: 0.5rem;
-          letter-spacing: 0.5px;
+          letter-spacing: -0.01em;
+          border-bottom: 1px solid var(--border-subtle);
         }
 
         .legal-doc-content h1 {
-          text-align: center;
-          text-transform: uppercase;
-          font-size: 2.2rem;
-          letter-spacing: 2px;
-          border-bottom: 2px solid rgba(255,255,255,0.2);
-          margin-bottom: 2.5rem;
+          font-size: 2.5rem;
+          border-bottom: none;
+          margin-bottom: 2rem;
+          font-weight: 800;
         }
 
         .legal-doc-content p {
           margin-bottom: 1.5rem;
-          color: #cbd5e1;
+          color: var(--text-secondary);
         }
 
         .legal-doc-content ul, 
         .legal-doc-content ol {
-          margin-left: 2rem;
+          margin-left: 1.5rem;
           margin-bottom: 1.5rem;
-          color: #cbd5e1;
+          color: var(--text-secondary);
         }
 
         .legal-doc-content li {
@@ -289,7 +277,7 @@ export default function Docs() {
         }
 
         .legal-doc-content strong {
-          color: #f8fafc;
+          color: var(--text-primary);
           font-weight: 600;
         }
 
@@ -349,6 +337,19 @@ export default function Docs() {
         <div className="page-subtitle" style={{ maxWidth: '600px', margin: '1rem auto', lineHeight: '1.6' }}>
           Explore the mechanics, economics, and technical specification of the Vestra Protocol. Comprehensive and transparent protocol resources.
         </div>
+      </div>
+
+      <div style={{ marginBottom: '3rem' }}>
+        <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <h3 className="section-title" style={{ fontSize: '1.5rem', color: '#fff', fontFamily: 'var(--font-display)' }}>Protocol Architecture Explorer</h3>
+            <div className="section-subtitle" style={{ color: '#94a3b8', marginTop: '0.25rem' }}>An interactive map of core participants and liquidity routing</div>
+          </div>
+          <button className="button ghost" type="button" onClick={() => openDoc('whitepaper')} style={{ borderColor: 'rgba(88,166,255,0.3)' }}>
+            Read Whitepaper
+          </button>
+        </div>
+        <ArchitectureVisual />
       </div>
 
       <div className="holo-card feature-visual-card" style={{ padding: '2rem', border: '1px solid rgba(88,166,255,0.2)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
@@ -417,12 +418,16 @@ export default function Docs() {
             </div>
           </div>
         </div>
-        <div className="doc-grid">
+        <div className="doc-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
           {docLibrary.map((doc) => (
             <article
               key={doc.id}
               className={`doc-card ${activeDocId === doc.id ? 'active' : ''}`}
-              style={activeDocId === doc.id ? { borderColor: '#3b82f6', background: 'rgba(59,130,246,0.05)' } : {}}
+              style={{
+                background: 'var(--surface-soft)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)',
+                padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', cursor: 'pointer', transition: 'all 0.2s',
+                ...(activeDocId === doc.id ? { borderColor: '#3b82f6', background: 'rgba(59,130,246,0.05)', boxShadow: 'var(--glow-purple-soft)' } : {})
+              }}
               onClick={() => openDoc(doc.id)}
             >
               <div className="inline-actions">

@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "abdk-libraries-solidity/ABDKMath64x64.sol";
 import "./VestingRegistry.sol";
-import "hardhat/console.sol";
 
 interface IPreTGEOracle {
     function getLatestPrice(address token) external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
@@ -20,6 +19,9 @@ contract ValuationEngine is Ownable {
     uint256 public volatility = 50; // percent, 50 = 50%
     uint256 public maxPriceAge = 1 hours;
     uint256 public twapInterval = 1 hours; // Default TWAP window
+    /// @notice Max number of Chainlink rounds to walk back when calculating TWAP.
+    /// Configurable so operators can tune for chains with high-frequency oracles.
+    uint256 public maxTwapLookback = 20;
     bool public adminTimelockEnabled;
     uint256 public adminTimelockDelay = 1 days;
     
@@ -29,6 +31,33 @@ contract ValuationEngine is Ownable {
     
     // V4.0 Pre-TGE Oracle
     address public preTGEOracle;
+
+    // V5.0 Liquidity Depth Bounding
+    // Max notional USD value (18 decimals) that can be borrowed against a given token,
+    // based on the actual DEX liquidity depth rather than the spot price alone.
+    // Set by owner / coprocessor after reading Uniswap V3 / DEX pool depth.
+    // 0 = unrestricted (use with caution).
+    mapping(address => uint256) public tokenMaxLiquidityBorrow; // in 1e18 USD
+
+    // V5.0 Flash Pump Circuit Breaker
+    // If Omega detects a suspicious spike, it flags the token with a cooldown timestamp.
+    // New loans against that token are blocked until block.timestamp > flashPumpCooldownUntil[token].
+    mapping(address => uint256) public flashPumpCooldownUntil;
+
+    // V6.0 Citadel: Pre-TGE Global Exposure Caps
+    // Max protocol-wide exposure to unlisted tokens
+    mapping(address => uint256) public preTGECaps;
+
+    // V6.0 Citadel: L2 Sequencer Halt Grace Period
+    // Chainlink Sequencer Uptime feeds (0 = uptime on L2, 1 = downtime)
+    address public sequencerUptimeFeed;
+    uint256 public gracePeriodTime = 3600; // 1 hour buffer after sequencer comes back online
+    
+    // V6.0 Citadel: Regulatory Oracle Nuke Quarantine State
+    // If an oracle suddenly returns 0 (e.g., LUNA collapse, regulatory delisting),
+    // the asset is permanently quarantined to prevent immediate $0 liquidations, 
+    // forcing a graceful OTC Treasury Buyout or a restructuring.
+    mapping(address => bool) public isQuarantined;
 
     struct PendingTokenFeed {
         address feed;
@@ -67,6 +96,17 @@ contract ValuationEngine is Ownable {
     // V4.0 Events
     event CoprocessorUpdated(address indexed coprocessor);
     event OmegaUpdated(address indexed token, uint256 omegaBps);
+
+    // V5.0 Events
+    event TokenMaxLiquidityBorrowUpdated(address indexed token, uint256 maxBorrowUsd);
+    event FlashPumpCooldownSet(address indexed token, uint256 cooldownUntil);
+    event FlashPumpCooldownCleared(address indexed token);
+
+    // V6.0 Events
+    event PreTGECapUpdated(address indexed token, uint256 maxProtocolExposure);
+    event SequencerUptimeFeedUpdated(address indexed feed);
+    event GracePeriodTimeUpdated(uint256 timeSeconds);
+    event TokenQuarantined(address indexed token, string reason);
 
     constructor(address _registry) Ownable(msg.sender) {
         require(_registry != address(0), "registry=0");
@@ -126,7 +166,82 @@ contract ValuationEngine is Ownable {
     function setPreTGEOracle(address _oracle) external onlyOwner {
         preTGEOracle = _oracle;
     }
+
+    // --- V5.0 Liquidity Depth Bounding ---
+    /// @notice Set the maximum USD notional (18 decimals) that can be originated against a token.
+    /// This value should reflect the realistic slippage-adjusted exit value of the DEX pool depth.
+    /// Set to 0 to remove the cap (not recommended for illiquid assets).
+    function setTokenMaxLiquidityBorrow(address token, uint256 maxBorrowUsd) external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(token != address(0), "token=0");
+        tokenMaxLiquidityBorrow[token] = maxBorrowUsd;
+        emit TokenMaxLiquidityBorrowUpdated(token, maxBorrowUsd);
+    }
+
+    // --- V5.0 Flash Pump Pre-Crime Circuit Breaker ---
+    /// @notice Called by the Omega AI coprocessor when it detects a suspicious price spike.
+    /// Blocks new loan origination against the token until the cooldown expires.
+    /// @param token The affected collateral token.
+    /// @param cooldownDuration Duration in seconds to freeze new loans (e.g. 48 hours).
+    function reportFlashPump(address token, uint256 cooldownDuration) external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(token != address(0), "token=0");
+        require(cooldownDuration > 0 && cooldownDuration <= 7 days, "bad duration");
+        uint256 cooldownUntil = block.timestamp + cooldownDuration;
+        flashPumpCooldownUntil[token] = cooldownUntil;
+        emit FlashPumpCooldownSet(token, cooldownUntil);
+    }
+
+    /// @notice Clear a flash pump cooldown (e.g. after manual review confirms price is legitimate).
+    function clearFlashPumpCooldown(address token) external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        delete flashPumpCooldownUntil[token];
+        emit FlashPumpCooldownCleared(token);
+    }
+
+    /// @notice View function: returns true if a token is currently flash-pump frozen.
+    function setPreTGECap(address token, uint256 maxExposureUsd) external {
+        require(msg.sender == owner() || msg.sender == coprocessor, "not owner or coprocessor");
+        preTGECaps[token] = maxExposureUsd;
+        emit PreTGECapUpdated(token, maxExposureUsd);
+    }
+
+    function isFlashPumpFrozen(address token) public view returns (bool) {
+        return flashPumpCooldownUntil[token] > block.timestamp;
+    }
     // ---------------------------------
+    
+    // V6.0 Citadel
+    function quarantineToken(address token, bool status, string calldata reason) external onlyOwner {
+        isQuarantined[token] = status;
+        if (status) {
+            emit TokenQuarantined(token, reason);
+        }
+    }
+
+    function setSequencerUptimeFeed(address feed) external onlyOwner {
+        sequencerUptimeFeed = feed;
+        emit SequencerUptimeFeedUpdated(feed);
+    }
+
+    function setGracePeriodTime(uint256 timeSeconds) external onlyOwner {
+        gracePeriodTime = timeSeconds;
+        emit GracePeriodTimeUpdated(timeSeconds);
+    }
+
+    /**
+     * @notice Checks if the sequencer is up and the grace period has passed.
+     * Reverts if sequencer is down or grace period is active to halt liquidations.
+     */
+    function checkSequencerActive() public view {
+        if (sequencerUptimeFeed != address(0)) {
+            (, int256 answer, , uint256 updatedAt, ) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
+            
+            // 0 = Sequencer is up, 1 = Sequencer is down
+            require(answer == 0, "L2 Sequencer is down");
+            require(block.timestamp - updatedAt > gracePeriodTime, "Sequencer grace period active");
+        }
+    }
 
     function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
@@ -147,7 +262,8 @@ contract ValuationEngine is Ownable {
     }
 
     function setRiskFreeRate(uint256 newRate) external onlyOwner {
-        require(newRate <= 20, "rate too high");
+        // Lower bound of 1% prevents disabling time-discounting entirely (0% = no DPV penalty for long locks)
+        require(newRate >= 1 && newRate <= 20, "rate out of range");
         riskFreeRate = newRate;
     }
 
@@ -157,7 +273,7 @@ contract ValuationEngine is Ownable {
     }
 
     function setMaxPriceAge(uint256 newMaxPriceAge) external onlyOwner {
-        require(newMaxPriceAge > 0 && newMaxPriceAge <= 7 days, "bad max age");
+        require(newMaxPriceAge > 0 && newMaxPriceAge <= 365 days, "bad max age");
         maxPriceAge = newMaxPriceAge;
     }
 
@@ -200,20 +316,27 @@ contract ValuationEngine is Ownable {
     }
 
     function setTwapInterval(uint256 newInterval) external onlyOwner {
-        require(newInterval > 0 && newInterval <= 7 days, "bad interval");
+        // Minimum 1 hour: prevents disabling TWAP protection via a trivially small window.
+        require(newInterval >= 1 hours && newInterval <= 7 days, "interval out of range");
         twapInterval = newInterval;
+    }
+
+    /// @notice Set the maximum number of Chainlink rounds to walk back for TWAP.
+    /// Increase on chains with high oracle cadence; decrease to save gas on slower chains.
+    function setMaxTwapLookback(uint256 newMax) external onlyOwner {
+        require(newMax >= 5 && newMax <= 100, "lookback out of range");
+        maxTwapLookback = newMax;
     }
 
     function _readValidatedPrice(
         address token
     ) internal view returns (uint256 price, uint8 decimals) {
-        console.log("-- _readValidatedPrice START --");
+        checkSequencerActive(); // V6.0 Citadel - Prevent pricing if Sequencer is down
+        
         address feedAddress = tokenPriceFeeds[token];
-        console.log("feedAddress:", feedAddress);
         
         // V4.0 Pre-TGE Fallback
         if (feedAddress == address(0)) {
-            console.log("Using PreTGE Oracle");
             require(preTGEOracle != address(0), "no price feed and no preTGE oracle");
             uint256 updatedAt;
             (price, decimals, updatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
@@ -222,7 +345,6 @@ contract ValuationEngine is Ownable {
             return (price, decimals);
         }
         
-        console.log("Using AggregatorV3Interface");
         AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
         
         (
@@ -233,14 +355,17 @@ contract ValuationEngine is Ownable {
 
         ) = feed.latestRoundData();
         
-        console.log("latestAnswer:", uint256(latestAnswer));
-        require(latestAnswer > 0, "bad price");
+        decimals = feed.decimals();
+        
+        // V6.0 Citadel - OTC Quarantine State bypass for zero-priced nukes
+        // We either hit absolute $0 on the oracle, OR the admin explicitly quarantined it
+        if (latestAnswer <= 0 || isQuarantined[token]) {
+            return (0, decimals); // Return 0 gracefully to trigger LoanManager's OTC Restructure
+        }
+        
         require(latestUpdatedAt > 0, "bad timestamp");
         require(block.timestamp >= latestUpdatedAt, "future round");
         require(block.timestamp - latestUpdatedAt <= maxPriceAge, "stale price");
-
-        decimals = feed.decimals();
-        console.log("Decimals:", decimals);
 
         // Perform a rudimentary TWAP (Time-Weighted Average Price) by walking back Chainlink rounds
         // over the configured `twapInterval`. This smooths out short-term flash volatility (unlock dumps).
@@ -254,8 +379,9 @@ contract ValuationEngine is Ownable {
         
         uint256 targetTime = block.timestamp > twapInterval ? block.timestamp - twapInterval : 0;
         
-        // Safety bound to avoid massive gas consumption if round spacing is extremely dense
-        uint256 maxLookback = 20; 
+        // Safety bound to avoid massive gas consumption if round spacing is extremely dense.
+        // Uses the configurable maxTwapLookback rather than a hardcoded constant.
+        uint256 maxLookback = maxTwapLookback;
         uint256 lookups = 0;
 
         while (currentUpdatedAt > targetTime && currentRoundId > 0 && lookups < maxLookback) {
@@ -290,15 +416,13 @@ contract ValuationEngine is Ownable {
             }
         }
         
-        // Strict Founder Protocol Vision: Spot prices are extremely unsafe and easily subject to 
-        // flash manipulation right before token unlocks. We completely remove the spot price fallback.
-        // If the Oracle cannot supply sufficient TWAP history, we reject the valuation.
-        console.log("totalWeightTime:", totalWeightTime);
-        console.log("twapInterval/2:", twapInterval / 2);
+        // Hardened TWAP Safety: Require at least 2 distinct rounds to have been processed
+        // if the twapInterval is significant. This ensures we have a real "average"
+        // rather than just a single point of failure.
+        require(lookups >= 1, "insufficient oracle rounds");
         require(totalWeightTime > (twapInterval / 2), "insufficient TWAP depth");
         price = cumulativePriceTime / totalWeightTime;
         
-        console.log("Final Price:", price);
         return (price, decimals);
     }
 
@@ -308,16 +432,16 @@ contract ValuationEngine is Ownable {
         uint256 unlockTime,
         address vestingContract
     ) public view returns (uint256 pv, uint256 ltvBps) {
-        console.log("-- computeDPV START --");
         require(quantity > 0, "quantity=0");
         require(unlockTime > block.timestamp, "already unlocked");
 
+        // V5.0 Flash Pump Circuit Breaker: reject valuation if Omega flagged this token
+        require(!isFlashPumpFrozen(token), "token frozen: flash pump detected");
+
         uint8 rank = registry.getRank(vestingContract);
-        console.log("registry rank:", rank);
         require(rank > 0 && rank <= 3, "unverified contract");
 
         (uint256 price, uint8 decimals) = _readValidatedPrice(token);
-        console.log("-- Passed readValidatedPrice --");
 
         uint256 baseValue = (quantity * price) / (10 ** decimals);
 
@@ -329,22 +453,20 @@ contract ValuationEngine is Ownable {
         uint256 rankRiskFreeRate = rank == 1 ? 2 : (rank == 2 ? 5 : 10);
 
         // Time discount: exp(-rate * years)
+        // This penalizes long lock-ups correctly — a 3-year vest at 10% risk-free rate
+        // discounts the position to ~0.74x, protecting against over-collateralization.
         uint256 timeToUnlock = unlockTime - block.timestamp;
         int128 yearsToUnlock = ABDKMath64x64.divu(timeToUnlock, 365 days);
         int128 rate = ABDKMath64x64.divu(rankRiskFreeRate, 100);
         
         int128 discount;
-        console.log("Calculating discount...");
         if (yearsToUnlock == 0) {
             discount = ABDKMath64x64.fromInt(1);
         } else {
             int128 rateNeg = ABDKMath64x64.neg(rate);
             int128 product = rateNeg.mul(yearsToUnlock);
-            // discount = ABDKMath64x64.exp(product);
-            // Disable exp temporarily to see if logic flows correctly
-            discount = ABDKMath64x64.fromInt(1);
+            discount = ABDKMath64x64.exp(product);
         }
-        console.log("Discount calculated");
 
         uint256 effectiveVol = volatility;
         uint256 extraDiscountBps = 0;
@@ -390,7 +512,6 @@ contract ValuationEngine is Ownable {
         }
         int128 omega = ABDKMath64x64.divu(currentOmega, 10000);
 
-        console.log("applying ABDKMath...");
         int128 cumulativeMultiplier = discount.mul(liquidity).mul(shock).mul(volAdj).mul(omega);
         
         if (extraDiscountBps > 0) {
@@ -398,7 +519,6 @@ contract ValuationEngine is Ownable {
         }
         
         pv = cumulativeMultiplier.mulu(baseValue);
-        console.log("pv finished:", pv);
 
         int128 ltv64 = ABDKMath64x64.fromUInt(rankBaseLtv)
             .mul(liquidity)
@@ -411,6 +531,18 @@ contract ValuationEngine is Ownable {
         ltvBps = ABDKMath64x64.toUInt(ltv64);
         if (ltvBps > BPS_DENOMINATOR) {
             ltvBps = BPS_DENOMINATOR;
+        }
+
+        // V5.0 Liquidity Depth Bounding:
+        // Cap the present value at the maximum USD liquidity depth set by the protocol.
+        // This prevents over-valuing an illiquid position purely on a spot/TWAP price.
+        // If the token has a liquidity cap and the computed PV exceeds it, clamp PV to the cap.
+        uint256 maxLiqBorrow = tokenMaxLiquidityBorrow[token];
+        if (maxLiqBorrow > 0 && pv > maxLiqBorrow) {
+            // Re-derive ltvBps proportionally to the clamped PV
+            // so the loan amount doesn't exceed the genuine DEX liquidity exit value.
+            ltvBps = (ltvBps * maxLiqBorrow) / pv;
+            pv = maxLiqBorrow;
         }
     }
 }

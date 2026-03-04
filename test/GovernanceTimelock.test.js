@@ -17,10 +17,10 @@ describe("Governance timelock controls", () => {
 
     await expect(
       loanManager.setTreasuries(other.address, deployer.address)
-    ).to.be.revertedWith("timelocked");
+    ).to.be.revertedWithCustomError(loanManager, "TimelockPending");
 
     await loanManager.queueTreasuries(other.address, deployer.address);
-    await expect(loanManager.executeQueuedTreasuries()).to.be.revertedWith("timelock pending");
+    await expect(loanManager.executeQueuedTreasuries()).to.be.revertedWithCustomError(loanManager, "TimelockPending");
 
     await ethers.provider.send("evm_increaseTime", [61]);
     await ethers.provider.send("evm_mine", []);
@@ -90,9 +90,7 @@ describe("Governance timelock controls", () => {
     await pool.setAdminTimelockConfig(true, 60);
 
     await expect(pool.setLoanManager(other.address)).to.be.revertedWith("timelocked");
-    await expect(pool.setTreasuries(other.address, deployer.address)).to.be.revertedWith(
-      "timelocked"
-    );
+    await expect(pool.setTreasuries(other.address, deployer.address)).to.be.revertedWith("timelocked");
     await expect(
       pool.setRateModel(3500, 8000, 1000, 1500, 2200)
     ).to.be.revertedWith("timelocked");
@@ -133,17 +131,13 @@ describe("Governance timelock controls", () => {
     await adapter.setAdminTimelockConfig(true, 60);
 
     await expect(adapter.setLoanManager(other.address)).to.be.revertedWith("timelocked");
-    await expect(adapter.setAuthorizedCaller(other.address, true)).to.be.revertedWith(
-      "timelocked"
-    );
+    await expect(adapter.setAuthorizedCaller(other.address, true)).to.be.revertedWith("timelocked");
 
     await adapter.queueLoanManager(other.address);
     await adapter.queueAuthorizedCaller(other.address, true);
 
     await expect(adapter.executeQueuedLoanManager()).to.be.revertedWith("timelock pending");
-    await expect(adapter.executeQueuedAuthorizedCaller(other.address)).to.be.revertedWith(
-      "timelock pending"
-    );
+    await expect(adapter.executeQueuedAuthorizedCaller(other.address)).to.be.revertedWith("timelock pending");
 
     await ethers.provider.send("evm_increaseTime", [61]);
     await ethers.provider.send("evm_mine", []);

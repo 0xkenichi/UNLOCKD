@@ -58,6 +58,15 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
     PendingRateModel public pendingRateModel;
     uint256 public communityPoolCount;
 
+    // V6.0 Citadel: Optimistic AI Veto Timelocks + LP Ragequit
+    address public coprocessor;
+    bool public ragequitActive;
+    uint256 public ragequitEndTime;
+    
+    event CoprocessorUpdated(address indexed coprocessor);
+    event UpgradeVetoed(string reason);
+    event RagequitTriggered(uint256 windowEndTime);
+
     enum CommunityPoolState {
         FUNDRAISING,
         ACTIVE,
@@ -158,6 +167,52 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         require(msg.sender == loanManager, "not loan manager");
         _;
     }
+
+    // --- V6.0 Citadel: Coprocessor & Ragequit ---
+    
+    function setCoprocessor(address _coprocessor) external onlyOwner {
+        coprocessor = _coprocessor;
+        emit CoprocessorUpdated(_coprocessor);
+    }
+
+    /**
+     * @notice V6.0 Citadel: The AI Coprocessor or Owner can veto pending configuration upgrades 
+     * if they are deemed malicious (e.g., routing funds to a hacker's treasury).
+     */
+    function vetoUpgrade(string calldata reason) external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        
+        if (pendingLoanManager.exists) {
+            delete pendingLoanManager;
+            emit LoanManagerQueueCancelled();
+        }
+        if (pendingTreasuryConfig.exists) {
+            delete pendingTreasuryConfig;
+            emit TreasuryConfigCancelled();
+        }
+        if (pendingRateModel.exists) {
+            delete pendingRateModel;
+            emit RateModelCancelled();
+        }
+        
+        emit UpgradeVetoed(reason);
+    }
+
+    /**
+     * @notice V6.0 Citadel: If a malicious upgrade bypasses the veto, the Coprocessor or Owner
+     * can trigger a global 7-day LP Ragequit window, allowing LPs to withdraw all available liquidity instantly.
+     */
+    function triggerRagequit() external {
+        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(!ragequitActive, "already active");
+        
+        ragequitActive = true;
+        ragequitEndTime = block.timestamp + 7 days;
+        
+        emit RagequitTriggered(ragequitEndTime);
+    }
+
+    // --- Core Pool Operations ---
 
     function setLoanManager(address manager) external onlyOwner {
         require(!adminTimelockEnabled, "timelocked");

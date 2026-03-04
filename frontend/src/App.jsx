@@ -33,6 +33,7 @@ const Identity = lazy(routeImports.identity);
 const Features = lazy(routeImports.features);
 const Docs = lazy(routeImports.docs);
 const About = lazy(routeImports.about);
+const Hiring = lazy(routeImports.hiring);
 const AdminAirdrop = lazy(routeImports.adminAirdrop);
 const AdminRisk = lazy(routeImports.adminRisk);
 const Airdrop = lazy(routeImports.airdrop);
@@ -40,6 +41,7 @@ const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
 const CommunityPools = lazy(routeImports.communityPools);
 const Demo = lazy(routeImports.demo);
+const Admin = lazy(routeImports.admin);
 
 function RouteFallback() {
   return (
@@ -54,7 +56,7 @@ function AppShell() {
   const navigate = useNavigate();
   const isLanding = location.pathname === '/';
   const isImmersiveDashboard = location.pathname === '/dashboard';
-  const hasStandardHeader = !isLanding && !isImmersiveDashboard;
+  const hasStandardHeader = !isLanding; // Hide nav on landing page
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const chainId = useChainId();
   const { address: connectedAddress, isConnecting, isReconnecting } = useAccount();
@@ -177,12 +179,38 @@ function AppShell() {
       {hasStandardHeader && (
         <header ref={headerRef} className="app-header">
           <div className="brand" onClick={() => navigate('/dashboard')}>
-            <span className="brand-crest-global" aria-hidden="true" />
+            {/* Native Vestra logomark */}
+            <svg width="36" height="36" viewBox="0 0 120 120" fill="none" aria-label="Vestra" style={{ flexShrink: 0 }}>
+              <defs>
+                <radialGradient id="hdr-glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                </radialGradient>
+                <linearGradient id="hdr-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+                <linearGradient id="hdr-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#f1c572" />
+                  <stop offset="100%" stopColor="#d99a22" />
+                </linearGradient>
+              </defs>
+              <circle cx="60" cy="58" r="46" fill="url(#hdr-glow)" />
+              <path d="M 22 72 A 42 42 0 0 1 98 72" stroke="url(#hdr-gold)" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.7" />
+              <path d="M 28 28 L 60 82" stroke="url(#hdr-blue)" strokeWidth="4" strokeLinecap="round" fill="none" />
+              <path d="M 92 28 L 60 82" stroke="url(#hdr-blue)" strokeWidth="4" strokeLinecap="round" fill="none" />
+              <path d="M 84 20 L 94 28 L 82 32" stroke="url(#hdr-gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              <circle cx="60" cy="58" r="5" fill="#3b82f6" opacity="0.9" />
+              <circle cx="60" cy="58" r="3" fill="#93c5fd" />
+              <circle cx="22" cy="72" r="2.5" fill="#d99a22" />
+              <circle cx="98" cy="72" r="2.5" fill="#d99a22" />
+            </svg>
             <div>
               <div className="brand-title">VESTRA</div>
               <div className="brand-subtitle">Vesting Credit Protocol</div>
             </div>
           </div>
+
           <div className="header-nav" style={{ position: 'relative' }}>
             <div className="header-actions">
               {[
@@ -190,7 +218,7 @@ function AppShell() {
                 { path: '/borrow', label: 'Borrow' },
                 { path: '/portfolio', label: 'Portfolio' },
                 { path: '/community-pools', label: 'Community' },
-                // { path: '/demo', label: 'Demo' },
+                { path: '/demo', label: 'Demo' },
                 { path: '/airdrop', label: 'Airdrop' },
                 { path: '/feedback', label: 'Feedback' },
               ].map((navItem) => {
@@ -286,6 +314,7 @@ function AppShell() {
                 <Route path="/features" element={<Features />} />
                 <Route path="/docs" element={<Docs />} />
                 <Route path="/about" element={<About />} />
+                <Route path="/hiring" element={<Hiring />} />
                 <Route path="/admin/airdrop" element={<AdminAirdrop />} />
                 <Route path="/admin/risk" element={<AdminRisk />} />
                 <Route path="/airdrop" element={<Airdrop />} />
@@ -295,6 +324,7 @@ function AppShell() {
                   <Route path="/fundraise" element={<FundraiseOnboard />} />
                 )}
                 <Route path="/demo" element={<Demo />} />
+                <Route path="/admin" element={<Admin />} />
               </Routes>
             </Suspense>
           </motion.div>
@@ -306,7 +336,7 @@ function AppShell() {
         onClose={() => setWalletModalOpen(false)}
       />
       {!isLanding && <AIBubble />}
-      {!isImmersiveDashboard && (
+      {!isImmersiveDashboard && !isLanding && (
         <footer className="app-footer">
           Testnet • VestraProtocol.io • Not financial advice
         </footer>

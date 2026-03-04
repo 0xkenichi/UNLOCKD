@@ -1,30 +1,18 @@
-import { useRef, Component, useEffect, useMemo, useState, useCallback } from 'react';
+import { useRef, Component, useEffect, useState, useMemo } from 'react';
 import Globe from 'react-globe.gl';
-import { apiGet, fetchActivity } from '../../utils/api.js';
+import { feature } from 'topojson-client';
 
-// ─── Textures ────────────────────────────────────────────────────────────────
-const EARTH_TEXTURE =
-  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r150/examples/textures/planets/earth_atmos_2048.jpg';
-const EARTH_BUMP =
-  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r150/examples/textures/planets/earth_normal_2048.jpg';
-
-// ─── Fallback demo pings (shown when API has no data yet) ────────────────────
-const DEMO_PINGS = [
-  { lat: 40.7128, lng: -74.006, city: 'New York', state: 'NY', country: 'US', count: 42 },
-  { lat: 51.5074, lng: -0.1278, city: 'London', state: null, country: 'UK', count: 31 },
-  { lat: 35.6762, lng: 139.6503, city: 'Tokyo', state: null, country: 'JP', count: 28 },
-  { lat: 37.7749, lng: -122.4194, city: 'San Francisco', state: 'CA', country: 'US', count: 24 },
-  { lat: 1.3521, lng: 103.8198, city: 'Singapore', state: null, country: 'SG', count: 19 },
-  { lat: 52.52, lng: 13.405, city: 'Berlin', state: null, country: 'DE', count: 15 },
-  { lat: -33.8688, lng: 151.2093, city: 'Sydney', state: 'NSW', country: 'AU', count: 12 },
-  { lat: 48.8566, lng: 2.3522, city: 'Paris', state: null, country: 'FR', count: 11 },
-  { lat: 25.2048, lng: 55.2708, city: 'Dubai', state: null, country: 'AE', count: 9 },
-  { lat: 19.076, lng: 72.8777, city: 'Mumbai', state: null, country: 'IN', count: 8 },
-  { lat: 43.6532, lng: -79.3832, city: 'Toronto', state: 'ON', country: 'CA', count: 7 },
-  { lat: -23.5505, lng: -46.6333, city: 'São Paulo', state: null, country: 'BR', count: 6 },
+// ─── Chain registry — each chain has a color and real-world DeFi city biases ─
+const CHAINS = [
+  { id: 'eth', label: 'Ethereum', color: '#627eea', ring: t => `rgba(98,126,234,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'London', 'Zürich', 'Frankfurt', 'Tokyo'] },
+  { id: 'base', label: 'Base', color: '#0052ff', ring: t => `rgba(0,82,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['San Francisco', 'Los Angeles', 'Seattle', 'Austin', 'Boston'] },
+  { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0', ring: t => `rgba(40,160,240,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'Chicago', 'Miami', 'Singapore', 'Seoul'] },
+  { id: 'solana', label: 'Solana', color: '#9945ff', ring: t => `rgba(153,69,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['San Francisco', 'Miami', 'New York', 'Lisbon', 'Dubai'] },
+  { id: 'sui', label: 'Sui', color: '#4da2ff', ring: t => `rgba(77,162,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['Singapore', 'Hong Kong', 'Tokyo', 'Seoul', 'Sydney'] },
+  { id: 'avax', label: 'Avalanche', color: '#e84142', ring: t => `rgba(232,65,66,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'Toronto', 'São Paulo', 'Melbourne', 'Johannesburg'] },
 ];
 
-// ─── Error boundary ───────────────────────────────────────────────────────────
+// ─── Error Boundary ───────────────────────────────────────────────────────────
 class SceneErrorBoundary extends Component {
   state = { hasError: false };
   static getDerivedStateFromError() { return { hasError: true }; }
@@ -34,204 +22,248 @@ class SceneErrorBoundary extends Component {
   }
 }
 
-function normalizePings(items = []) {
-  return items
-    .filter((item) =>
-      typeof item?.lat === 'number' &&
-      typeof item?.lng === 'number' &&
-      typeof item?.city === 'string' &&
-      typeof item?.country === 'string'
-    )
-    .map((item) => ({
-      lat: item.lat,
-      lng: item.lng,
-      city: item.city,
-      state: item.state || null,
-      country: item.country,
-      count: Number.isFinite(Number(item.count)) ? Math.max(0, Number(item.count)) : 0
-    }));
+function getTheme() {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.dataset.theme || 'dark';
 }
 
-// ─── Main Globe ────────────────────────────────────────────────────────────────
+// ─── Chain Explorer Overlay ───────────────────────────────────────────────────
+function ChainExplorerOverlay({ activeChains, onToggle, mode, onModeToggle }) {
+  const isLight = getTheme() === 'light';
+  const bg = isLight ? 'rgba(240,244,251,0.92)' : 'rgba(8,12,22,0.88)';
+  const border = isLight ? 'rgba(59,102,196,0.2)' : 'rgba(88,166,255,0.15)';
+  const text = isLight ? '#0a0f1e' : '#e2e8f0';
+
+  return (
+    <div style={{
+      position: 'absolute', bottom: 24, right: 24, zIndex: 20,
+      background: bg, border: `1px solid ${border}`,
+      borderRadius: 16, padding: '14px 16px',
+      backdropFilter: 'blur(16px)',
+      fontFamily: "'Space Grotesk', sans-serif",
+      display: 'flex', flexDirection: 'column', gap: 10,
+      minWidth: 180,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+    }}>
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: mode === 'chain' ? '#60a5fa' : '#64748b' }}>
+          {mode === 'live' ? '⚡ Live Feed' : '🌐 Chain Explorer'}
+        </span>
+        <button onClick={onModeToggle} style={{
+          fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+          background: mode === 'chain' ? 'rgba(59,130,246,0.2)' : 'rgba(100,116,139,0.15)',
+          border: `1px solid ${mode === 'chain' ? 'rgba(59,130,246,0.4)' : 'rgba(100,116,139,0.3)'}`,
+          borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: text,
+        }}>Switch</button>
+      </div>
+
+      {mode === 'chain' && (
+        <>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>Show chains:</div>
+          {CHAINS.map(chain => (
+            <button
+              key={chain.id}
+              onClick={() => onToggle(chain.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px',
+                borderRadius: 8, border: `1px solid ${activeChains.has(chain.id) ? chain.color + '60' : border}`,
+                background: activeChains.has(chain.id) ? chain.color + '18' : 'transparent',
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
+            >
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: chain.color,
+                boxShadow: activeChains.has(chain.id) ? `0 0 8px ${chain.color}` : 'none',
+                flexShrink: 0,
+              }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: activeChains.has(chain.id) ? text : '#64748b' }}>
+                {chain.label}
+              </span>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Globe ───────────────────────────────────────────────────────────────
 function EarthGlobe() {
   const globeEl = useRef();
-  const [places, setPlaces] = useState([]);
+  const [hexData, setHexData] = useState([]);
   const [livePings, setLivePings] = useState([]);
+  const [theme, setTheme] = useState(getTheme);
+  const [mode, setMode] = useState('live'); // 'live' | 'chain'
+  const [activeChains, setActiveChains] = useState(new Set(CHAINS.map(c => c.id)));
   const [dimensions, setDimensions] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800,
   });
-
-  // Keep a ref to places so the interval can grab random coords without closure-capture issues
   const placesRef = useRef([]);
 
-  // Fetch High-Accuracy Places Data for city labels and action coordinates
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(getTheme()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    fetch('https://unpkg.com/world-atlas@2/land-110m.json')
+      .then(res => res.json())
+      .then(data => setHexData(feature(data, data.objects.land).features))
+      .catch(console.error);
+  }, []);
+
   useEffect(() => {
     fetch('https://raw.githubusercontent.com/vasturiano/react-globe.gl/master/example/datasets/ne_110m_populated_places_simple.geojson')
       .then(res => res.json())
       .then(data => {
-        const placesData = data.features.map(f => ({
+        placesRef.current = data.features.map(f => ({
           lat: f.geometry.coordinates[1],
           lng: f.geometry.coordinates[0],
           name: f.properties.name,
-          pop: Math.max(f.properties.pop_max, f.properties.pop_min)
         }));
-        setPlaces(placesData);
-        placesRef.current = placesData;
       })
       .catch(console.error);
   }, []);
 
-  // Resize handler
   useEffect(() => {
-    const handleResize = () => {
-      setDimensions({ width: window.innerWidth, height: window.innerHeight });
-    };
+    const handleResize = () => setDimensions({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Simulate Live Action Feed 
+  // Live action simulator
   useEffect(() => {
+    if (mode !== 'live') return;
     let cancelled = false;
-
-    // Pop a "new user action" at a random real-world coordinate every 1 to 3 seconds
-    const loopSimulator = () => {
+    const loop = () => {
       if (cancelled) return;
-
       const arr = placesRef.current;
       if (arr.length > 0) {
         setLivePings(prev => {
-          // Grab random real-world location
-          const randPlace = arr[Math.floor(Math.random() * arr.length)];
-          const newPing = {
-            id: Date.now() + Math.random(),
-            lat: randPlace.lat,
-            lng: randPlace.lng,
-            maxR: Math.random() * 4 + 2, // random expanding radius
-            propagationSpeed: (Math.random() - 0.5) * 1 + 2,
-            repeatPeriod: 1500 + Math.random() * 1000
-          };
-
-          // Keep only the last 15 active rings on the globe so it doesn't get utterly cluttered
-          let nextState = [...prev, newPing];
-          if (nextState.length > 15) nextState.shift();
-          return nextState;
+          const p = arr[Math.floor(Math.random() * arr.length)];
+          const ping = { id: Date.now() + Math.random(), lat: p.lat, lng: p.lng, maxR: Math.random() * 3 + 1.5, propagationSpeed: Math.random() * 1.5 + 1.5, repeatPeriod: 1200 + Math.random() * 800, chain: null };
+          const next = [...prev, ping];
+          return next.length > 20 ? next.slice(-20) : next;
         });
       }
-
-      const nextDelay = 800 + Math.random() * 2000; // Next event happens between 0.8s and 2.8s
-      setTimeout(loopSimulator, nextDelay);
+      setTimeout(loop, 600 + Math.random() * 1800);
     };
+    const t = setTimeout(loop, 1500);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [mode]);
 
-    // Kick off
-    const initialDelay = setTimeout(loopSimulator, 2000);
+  // Chain explorer simulator — bias active chains toward their cities
+  const chainPings = useMemo(() => {
+    if (mode !== 'chain') return [];
+    const places = placesRef.current;
+    if (!places.length) return [];
 
-    return () => {
-      cancelled = true;
-      clearTimeout(initialDelay);
-    };
-  }, []);
+    const pings = [];
+    CHAINS.forEach(chain => {
+      if (!activeChains.has(chain.id)) return;
+      // seed 25–40 pings spread around the globe with chain city bias
+      const count = 25 + Math.floor(Math.random() * 15);
+      for (let i = 0; i < count; i++) {
+        // 60% chance: pick near one of chain's biased cities, 40%: random global
+        let place;
+        if (Math.random() < 0.6 && chain.bias.length) {
+          const cityName = chain.bias[Math.floor(Math.random() * chain.bias.length)];
+          const match = places.find(p => p.name === cityName) || places[Math.floor(Math.random() * places.length)];
+          // Slightly spread around the city
+          place = { lat: match.lat + (Math.random() - 0.5) * 12, lng: match.lng + (Math.random() - 0.5) * 18 };
+        } else {
+          place = places[Math.floor(Math.random() * places.length)];
+        }
+        pings.push({
+          id: `${chain.id}-${i}`,
+          lat: place.lat,
+          lng: place.lng,
+          maxR: 2.5 + Math.random() * 2,
+          propagationSpeed: 1.5 + Math.random(),
+          repeatPeriod: 1500 + Math.random() * 1500,
+          chainColor: chain.color,
+          chainRing: chain.ring,
+        });
+      }
+    });
+    return pings;
+  }, [mode, activeChains, placesRef.current.length > 0]); // eslint-disable-line
 
-  // Globe setup — FULL interactivity
   useEffect(() => {
     const g = globeEl.current;
     if (!g) return;
-
     const controls = g.controls();
-
-    // ✅ Enable everything
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.4;
-    controls.enableZoom = true;          // scroll to zoom
-    controls.enablePan = false;          // no panning — only rotation
-    controls.enableRotate = true;        // click-drag to spin
+    controls.autoRotateSpeed = 0.5;
+    controls.enableZoom = true;
+    controls.enablePan = false;
+    controls.enableRotate = true;
     controls.zoomSpeed = 0.8;
-    controls.rotateSpeed = 0.6;
-    controls.minDistance = 120;          // max zoom in
-    controls.maxDistance = 800;          // max zoom out
-
-    // Start slightly zoomed out for cinematic feel
-    g.pointOfView({ altitude: 2.0 }, 0);
+    controls.minDistance = 100;
+    controls.maxDistance = 700;
+    g.pointOfView({ altitude: 1.8 }, 0);
   }, []);
 
-  const totalUsers = useMemo(
-    () => livePings.reduce((sum, p) => sum + (p.count || 0), 0),
-    [livePings]
-  );
+  const isLight = theme === 'light';
+  const activePings = mode === 'live' ? livePings : chainPings;
 
-  const maxCount = useMemo(
-    () => Math.max(...livePings.map(p => p.count), 1),
-    [livePings]
-  );
+  const hexColor = isLight ? () => 'rgba(10, 40, 130, 0.3)' : () => 'rgba(88, 166, 255, 0.4)';
+  const atmColor = isLight ? '#1d48b0' : '#3b82f6';
+  const defaultRingColor = isLight
+    ? () => t => `rgba(14, 50, 160, ${Math.sqrt(1 - t)})`
+    : () => t => `rgba(59, 130, 246, ${Math.sqrt(1 - t)})`;
 
-  // We'll keep arcs empty or derive them from recent active live pings if desired.
-  // For the purest "Live Ping" simulator, removing static arcs highlights the real-time rings.
-  const arcsData = [];
+  const ringColorFn = mode === 'chain'
+    ? d => (d.chainRing ? d.chainRing : t => `rgba(59,130,246,${Math.sqrt(1 - t)})`)
+    : defaultRingColor;
+
+  const toggleChain = id => setActiveChains(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const toggleMode = () => setMode(m => m === 'live' ? 'chain' : 'live');
 
   return (
-    <div
-      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, overflow: 'hidden' }}
-    >
-      {/* Inline keyframe styles */}
-      <style>{`
-        @keyframes pulse-dot {
-          0%, 100% { opacity: 1; box-shadow: 0 0 6px #34d399; }
-          50% { opacity: 0.5; box-shadow: 0 0 14px #34d399; }
-        }
-        @keyframes ping-pulse {
-          0% { transform: scale(1); opacity: 0.9; }
-          70% { transform: scale(2.8); opacity: 0; }
-          100% { transform: scale(1); opacity: 0; }
-        }
-        @keyframes fadeOut {
-          from { opacity: 1; }
-          to { opacity: 0; pointer-events: none; }
-        }
-      `}</style>
-
+    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, overflow: 'hidden' }}>
       <Globe
         ref={globeEl}
         width={dimensions.width}
         height={dimensions.height}
-        globeImageUrl={EARTH_TEXTURE}
-        bumpImageUrl={EARTH_BUMP}
-        backgroundColor="rgba(0,0,0,0)"
+        globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+        backgroundColor={isLight ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0)'}
         showAtmosphere={true}
-        atmosphereColor="#3b82f6"
-        atmosphereAltitude={0.15}
-
-        // ── Perfect Accuracy City Labels ──
-        labelsData={places}
-        labelLat={d => d.lat}
-        labelLng={d => d.lng}
-        labelText={d => d.name}
-        labelSize={d => Math.max(0.4, Math.sqrt(d.pop) * 2e-4)}
-        labelDotRadius={d => Math.max(0.2, Math.sqrt(d.pop) * 1e-4)}
-        labelColor={() => 'rgba(255, 255, 255, 0.85)'}
-        labelResolution={2}
-
-        // ── LIVE Simulator Action Rings ──
-        ringsData={livePings}
-        ringColor={() => t => `rgba(59,130,246,${Math.sqrt(1 - t)})`}
+        atmosphereColor={atmColor}
+        atmosphereAltitude={0.18}
+        hexPolygonsData={hexData}
+        hexPolygonResolution={3}
+        hexPolygonMargin={0.3}
+        hexPolygonColor={hexColor}
+        hexPolygonAltitude={0.001}
+        hexPolygonsTransitionDuration={0}
+        ringsData={activePings}
+        ringColor={ringColorFn}
         ringMaxRadius="maxR"
         ringPropagationSpeed="propagationSpeed"
         ringRepeatPeriod="repeatPeriod"
+      />
 
-        // ── Arc lines between top cities ──
-        arcsData={arcsData}
-        arcColor="color"
-        arcDashLength={0.4}
-        arcDashGap={0.2}
-        arcDashAnimateTime={2200}
-        arcStroke={0.5}
-        arcAltitude={0.15}
+      {/* Chain Explorer control panel */}
+      <ChainExplorerOverlay
+        activeChains={activeChains}
+        onToggle={toggleChain}
+        mode={mode}
+        onModeToggle={toggleMode}
       />
     </div>
   );
 }
 
-// ─── Export ────────────────────────────────────────────────────────────────────
 export default function LandingScene() {
   return (
     <SceneErrorBoundary
@@ -239,9 +271,9 @@ export default function LandingScene() {
         <div style={{
           width: '100%', height: '100%', display: 'flex',
           alignItems: 'center', justifyContent: 'center',
-          color: '#8b949e', fontFamily: 'monospace', fontSize: '14px'
+          color: '#8b949e', fontFamily: 'monospace', fontSize: '14px',
         }}>
-          Initializing 3D Environment...
+          Initializing 3D Environment…
         </div>
       }
     >

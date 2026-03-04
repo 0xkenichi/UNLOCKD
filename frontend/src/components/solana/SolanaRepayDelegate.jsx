@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import {
-  createApproveInstruction,
-  getAccount,
-  getAssociatedTokenAddressSync
+  Token,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
 import { apiGet } from '../../utils/api.js';
 
@@ -41,15 +41,23 @@ export default function SolanaRepayDelegate() {
       const results = await Promise.all(
         config.priorityMints.map(async (mint) => {
           try {
-            const ata = getAssociatedTokenAddressSync(
+            const ata = await Token.getAssociatedTokenAddress(
+              ASSOCIATED_TOKEN_PROGRAM_ID,
+              TOKEN_PROGRAM_ID,
               new PublicKey(mint),
               publicKey
             );
-            const account = await getAccount(connection, ata);
+            const token = new Token(
+              connection,
+              new PublicKey(mint),
+              TOKEN_PROGRAM_ID,
+              null
+            );
+            const account = await token.getAccountInfo(ata);
             return {
               mint,
               ata: ata.toString(),
-              amount: account.amount
+              amount: BigInt(account.amount.toString())
             };
           } catch {
             return { mint, ata: '', amount: 0n };
@@ -83,7 +91,14 @@ export default function SolanaRepayDelegate() {
       for (const item of approvals) {
         const ata = new PublicKey(item.ata);
         const tx = new Transaction().add(
-          createApproveInstruction(ata, delegate, publicKey, item.amount)
+          Token.createApproveInstruction(
+            TOKEN_PROGRAM_ID,
+            ata,
+            delegate,
+            publicKey,
+            [],
+            item.amount
+          )
         );
         const signature = await sendTransaction(tx, connection);
         await connection.confirmTransaction(signature, 'confirmed');

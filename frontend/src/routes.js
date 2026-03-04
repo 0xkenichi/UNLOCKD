@@ -11,11 +11,13 @@ export const routeImports = {
   features: () => import('./pages/Features.jsx'),
   docs: () => import('./pages/Docs.jsx'),
   about: () => import('./pages/About.jsx'),
+  hiring: () => import('./pages/Hiring.jsx'),
   adminAirdrop: () => import('./pages/AdminAirdrop.jsx'),
   adminRisk: () => import('./pages/AdminRisk.jsx'),
   airdrop: () => import('./pages/Airdrop.jsx'),
   feedback: () => import('./pages/Feedback.jsx'),
   fundraiseOnboard: () => import('./pages/FundraiseOnboard.jsx'),
   communityPools: () => import('./pages/CommunityPools.jsx'),
-  demo: () => import('./pages/Demo.jsx')
+  demo: () => import('./pages/Demo.jsx'),
+  admin: () => import('./pages/Admin.jsx')
 };

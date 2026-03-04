@@ -10,6 +10,7 @@ import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '..
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 import { useOnchainSession } from '../utils/onchainSession.js';
 import DashboardHolo from '../components/dashboard/DashboardHolo.jsx';
+import { IsometricVaultHero } from '../components/visuals/IsometricHeroes.jsx';
 import {
   ShieldCheck,
   TrendingUp,
@@ -335,29 +336,18 @@ export default function Dashboard({ onOpenWallet = () => { } }) {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
     >
-      <header className="immersive-topbar">
-        <div className="immersive-brand">
-          <span className="brand-crest-global" aria-hidden="true" />
-          <div>
-            <div className="brand-title">VESTRA</div>
-            <div className="brand-subtitle">Vesting Credit Command Center</div>
-          </div>
+      {/* ── Isometric vault hero banner ── */}
+      {!activeId && (
+        <div style={{
+          position: 'absolute', top: 0, right: 0,
+          width: 'min(440px, 42vw)', height: '240px',
+          pointerEvents: 'none', zIndex: 1, opacity: 0.75,
+          mask: 'linear-gradient(to left, rgba(0,0,0,1) 40%, transparent 100%)',
+          WebkitMask: 'linear-gradient(to left, rgba(0,0,0,1) 40%, transparent 100%)'
+        }}>
+          <IsometricVaultHero width={440} height={240} />
         </div>
-        <div className="immersive-actions">
-          <button className="button ghost" type="button" onClick={() => openModule('portfolio')}>
-            Portfolio
-          </button>
-          <button
-            className={`button ${isWalletConnected ? 'wallet-connected' : ''}`}
-            type="button"
-            onClick={onOpenWallet}
-          >
-            {isWalletConnected
-              ? `${isSolanaSession ? 'Phantom' : 'Connected'} ${shortAddress}`
-              : 'Connect'}
-          </button>
-        </div>
-      </header>
+      )}
 
       <section
         ref={stageRef}

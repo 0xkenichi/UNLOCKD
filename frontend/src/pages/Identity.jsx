@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { IsometricIdentityPassport } from '../components/visuals/IsometricHeroes.jsx';
 import { useAccount, useSignMessage } from 'wagmi';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PassportSummary from '../components/common/PassportSummary.jsx';
@@ -118,13 +119,26 @@ export default function Identity() {
 
   return (
     <div className="stack">
-      <div className="page-header">
-        <h1 className="page-title holo-glow">Identity</h1>
-        <div className="page-subtitle">
+      <div className="page-header" style={{ position: 'relative', overflow: 'hidden' }}>
+        {/* Isometric passport hero — floats top-right */}
+        <div style={{
+          position: 'absolute', top: '-16px', right: '-8px',
+          pointerEvents: 'none', zIndex: 0, opacity: 0.65,
+          mask: 'linear-gradient(to left, rgba(0,0,0,1) 30%, transparent 90%)',
+          WebkitMask: 'linear-gradient(to left, rgba(0,0,0,1) 30%, transparent 90%)'
+        }}>
+          <IsometricIdentityPassport
+            width={280} height={180}
+            tier={profile?.identityTier ?? 0}
+          />
+        </div>
+
+        <h1 className="page-title holo-glow" style={{ position: 'relative', zIndex: 1 }}>Identity</h1>
+        <div className="page-subtitle" style={{ position: 'relative', zIndex: 1 }}>
           Optional verification unlocks better loan terms. Your data stays private; only outcomes are
           stored.
         </div>
-        <div className="inline-actions" style={{ marginTop: 8 }}>
+        <div className="inline-actions" style={{ marginTop: 8, position: 'relative', zIndex: 1 }}>
           <span className="chip">Testnet identity mode</span>
           <span className="chip">Seeded passport scoring</span>
           {activeWalletAddress && (
@@ -133,7 +147,7 @@ export default function Identity() {
             </span>
           )}
         </div>
-        <div className="inline-actions" style={{ marginTop: 10 }}>
+        <div className="inline-actions" style={{ marginTop: 10, position: 'relative', zIndex: 1 }}>
           <PrivacyModeToggle />
         </div>
       </div>

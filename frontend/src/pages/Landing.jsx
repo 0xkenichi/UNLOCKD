@@ -5,12 +5,110 @@ import {
   motion, useScroll, useTransform, useSpring, useVelocity, useMotionValue, useAnimationFrame,
   AnimatePresence
 } from 'framer-motion';
-import { Sparkles, Shield, Zap, Lock, TrendingUp, Clock, Award, ChevronDown, Rocket, Briefcase, Landmark } from 'lucide-react';
+import { Sparkles, Shield, Zap, Lock, TrendingUp, Clock, Award, ChevronDown, Rocket, Briefcase, Landmark, ExternalLink } from 'lucide-react';
 import ChainStatus from '../components/common/ChainStatus.jsx';
 import MarketTicker from '../components/landing/MarketTicker.jsx';
+import Footer from '../components/common/Footer.jsx';
 import useIdleMount from '../utils/useIdleMount.js';
 
 const LandingScene = lazy(() => import('../components/landing/LandingScene.jsx'));
+
+const NavDropdown = ({ title, items, isOpen, onMouseEnter, onMouseLeave }) => {
+  return (
+    <div
+      style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', pointerEvents: 'auto' }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      <button
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: isOpen ? 'var(--text-primary)' : 'var(--text-secondary)',
+          fontSize: '15px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '8px 12px',
+          borderRadius: 'var(--radius-md)',
+          transition: 'all var(--motion-fast)'
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+        onMouseLeave={e => { if (!isOpen) e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
+      >
+        {title}
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              marginTop: '4px',
+              width: 'max-content',
+              minWidth: '240px',
+              background: 'var(--surface-strong)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+              backdropFilter: 'blur(20px)',
+              padding: '6px',
+              zIndex: 100
+            }}
+          >
+            {items.map((item, idx) => (
+              <div
+                key={idx}
+                onClick={item.onClick}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-md)',
+                  cursor: 'pointer',
+                  transition: 'background var(--motion-fast)'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {item.icon && (
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '8px',
+                    background: 'var(--surface-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    border: '1px solid rgba(255,255,255,0.05)'
+                  }}>
+                    {item.icon}
+                  </div>
+                )}
+                <div>
+                  <div style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {item.label}
+                    {item.external && <ExternalLink size={12} strokeWidth={2} style={{ opacity: 0.5 }} />}
+                  </div>
+                  {item.description && (
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.4 }}>
+                      {item.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 const fadeInUp = {
   initial: { opacity: 0, y: 24 },
@@ -185,6 +283,69 @@ export default function Landing() {
   const navigate = useNavigate();
   const showScene = useIdleMount({ timeout: 1000 });
   const [openFaq, setOpenFaq] = useState(null);
+  const [activeDropdown, setActiveDropdown] = useState(null);
+
+  const handleDropdownEnter = (menu) => {
+    setActiveDropdown(menu);
+  };
+
+  const handleDropdownLeave = () => {
+    setActiveDropdown(null);
+  };
+
+  const navItems = {
+    products: [
+      {
+        label: 'Vestra Web App',
+        description: 'The full power of decentralized credit.',
+        icon: <span style={{ fontSize: '18px' }}>📱</span>,
+        onClick: () => navigate('/dashboard')
+      },
+      {
+        label: 'Community Pools',
+        description: 'Lend and earn continuous APY yields.',
+        icon: <span style={{ fontSize: '18px' }}>💧</span>,
+        onClick: () => navigate('/community-pools')
+      }
+    ],
+    resources: [
+      {
+        label: 'Documentation',
+        description: 'Guides and technical details.',
+        onClick: () => navigate('/docs')
+      },
+      {
+        label: 'Governance',
+        description: 'The Vestra protocol governance.',
+        onClick: () => navigate('/governance')
+      },
+      {
+        label: 'Airdrop Info',
+        description: 'Details and eligibility criteria.',
+        onClick: () => navigate('/airdrop')
+      }
+    ],
+    developers: [
+      {
+        label: 'Build',
+        description: 'Integrate Vestra into your platform.',
+        onClick: () => navigate('/docs')
+      },
+      {
+        label: 'Github',
+        description: 'Explore the open source repositories.',
+        external: true,
+        onClick: () => window.open('https://github.com/0xkenichi/UNLOCKD', '_blank')
+      }
+    ],
+    about: [
+      {
+        label: 'About Vestra',
+        description: 'Learn about the vision and the team.',
+        onClick: () => navigate('/about')
+      }
+    ]
+  };
 
   const features = [
     {
@@ -287,8 +448,8 @@ export default function Landing() {
     <div className="landing-page">
       <DynamicParallaxBackground />
       {/* Hero Section */}
-      <section className="landing-hero-simple" aria-labelledby="hero-title" style={{ justifyContent: 'flex-start' }}>
-        <div className="landing-hero-canvas" aria-hidden="true" style={{ width: '100vw', right: 0, left: 'auto' }}>
+      <section className="landing-hero-simple" aria-labelledby="hero-title" style={{ justifyContent: 'flex-start', minHeight: '100vh', position: 'relative' }}>
+        <div className="landing-hero-canvas" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100vw', right: 0, left: 'auto' }}>
           {showScene ? (
             <Suspense
               fallback={
@@ -308,27 +469,36 @@ export default function Landing() {
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
 
           {/* Top Row: Title (Left) + Network Status (Right) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', marginBottom: 'var(--space-8)', zIndex: 20 }}>
 
-            {/* Top Left: Main Title */}
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <h1 id="hero-title" className="landing-hero-title landing-glow" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 6vw, 64px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', margin: 0 }}>
-                <span style={{ color: '#ffffff', display: 'inline-block' }}>
-                  <TypewriterText text="VESTRA PROTOCOL" delay={0.4} />
-                </span>
-              </h1>
-            </motion.div>
+            {/* Top Left: Main Title + Nav Links */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                style={{ pointerEvents: 'auto' }}
+              >
+                <h1 id="hero-title" className="landing-glow" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3vw, 32px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', margin: 0 }}>
+                  <span style={{ color: '#ffffff', display: 'inline-block' }}>
+                    <TypewriterText text="VESTRA PROTOCOL" delay={0.4} />
+                  </span>
+                </h1>
+              </motion.div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <NavDropdown title="Products" items={navItems.products} isOpen={activeDropdown === 'products'} onMouseEnter={() => handleDropdownEnter('products')} onMouseLeave={handleDropdownLeave} />
+                <NavDropdown title="Resources" items={navItems.resources} isOpen={activeDropdown === 'resources'} onMouseEnter={() => handleDropdownEnter('resources')} onMouseLeave={handleDropdownLeave} />
+                <NavDropdown title="Developers" items={navItems.developers} isOpen={activeDropdown === 'developers'} onMouseEnter={() => handleDropdownEnter('developers')} onMouseLeave={handleDropdownLeave} />
+                <NavDropdown title="About" items={navItems.about} isOpen={activeDropdown === 'about'} onMouseEnter={() => handleDropdownEnter('about')} onMouseLeave={handleDropdownLeave} />
+              </div>
+            </div>
 
             {/* Top Right: Network Status */}
-            <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-              <ChainStatus />
-              <p className="landing-hero-disclaimer" style={{ margin: 0, textAlign: 'right', fontSize: '11px', opacity: 0.6 }}>
-                Testnet • Base Sepolia • No real funds
-              </p>
+            <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                <ChainStatus />
+              </div>
             </div>
 
           </div>
@@ -726,6 +896,8 @@ export default function Landing() {
           </motion.div>
         </div>
       </motion.section>
+
+      <Footer />
     </div>
   );
 }

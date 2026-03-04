@@ -4,7 +4,7 @@
   "description": "UNLOCKD MVP",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently -n backend,frontend,docs -c green,blue,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"npm run dev --prefix docs-site\"",
+    "dev": "concurrently --kill-others-on-fail -n backend,frontend,docs -c green,blue,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"npm run dev --prefix docs-site\"",
     "lint": "eslint .",
     "security:scan": "./scripts/security-scan.sh",
     "test": "npx hardhat test",
@@ -53,6 +53,7 @@
     "@openzeppelin/contracts": "^5.0.2",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
+    "@vercel/analytics": "^1.6.1",
     "abdk-libraries-solidity": "^3.0.0",
     "chai": "^4.4.1",
     "dotenv": "^16.4.5"

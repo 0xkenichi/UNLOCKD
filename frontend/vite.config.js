@@ -7,37 +7,29 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   plugins: [
-    nodePolyfills({
-      include: ['buffer', 'process', 'crypto', 'stream', 'util'],
-      globals: {
-        Buffer: true,
-        process: true
-      }
-    }),
+    nodePolyfills(),
     react()
   ],
   resolve: {
-    dedupe: ['react', 'react-dom'],
-    alias: {
-      buffer: resolve(__dirname, 'node_modules/buffer/index.js'),
-      process: resolve(__dirname, 'node_modules/process/browser.js'),
-      'process/': resolve(__dirname, 'node_modules/process/browser.js')
-    }
+    dedupe: ['react', 'react-dom']
   },
   define: {
-    global: 'globalThis',
-    'process.env': {}
-  },
-  optimizeDeps: {
-    include: ['buffer', 'process']
+    global: 'globalThis'
   },
   build: {
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        // Keep Rollup defaults for chunking. The previous manual chunk map
-        // introduced circular chunk graphs in Vite 7+ when wallet adapters
-        // pulled shared dependencies across EVM/Solana bundles.
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('three')) return 'vendor-three';
+            if (id.includes('@react-three')) return 'vendor-three-react';
+            if (id.includes('framer-motion')) return 'vendor-motion';
+            if (id.includes('@solana') || id.includes('@walletconnect')) return 'vendor-wallets';
+            if (id.includes('wagmi') || id.includes('viem')) return 'vendor-web3-core';
+            return 'vendor';
+          }
+        }
       }
     }
   }

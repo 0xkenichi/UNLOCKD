@@ -12,7 +12,8 @@ const prefetchByPath = {
   '/identity': routeImports.identity,
   '/features': routeImports.features,
   '/docs': routeImports.docs,
-  '/about': routeImports.about
+  '/about': routeImports.about,
+  '/hiring': routeImports.hiring
 };
 
 const prefetchedRoutes = new Set();
@@ -35,7 +36,8 @@ const iconPaths = {
   identity: 'M12 3a4 4 0 0 1 0 8 4 4 0 0 1 0-8zm-7 16a7 7 0 0 1 14 0',
   features: 'M5 5h14v4H5V5zm0 6h14v8H5v-8z',
   docs: 'M6 4h10a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4h8',
-  about: 'M11 10h2v7h-2zm0-4h2v2h-2z'
+  about: 'M11 10h2v7h-2zm0-4h2v2h-2z',
+  hiring: 'M17 20h2a2 2 0 0 0 2-2v-1a5 5 0 0 0-5-5h-4a5 5 0 0 0-5 5v1a2 2 0 0 0 2 2h2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z'
 };
 
 const primaryTabs = [
@@ -52,7 +54,8 @@ const primaryTabs = [
 const secondaryTabs = [
   { to: '/features', label: 'Features', icon: 'features' },
   { to: '/docs', label: 'Docs', icon: 'docs' },
-  { to: '/about', label: 'About', icon: 'about' }
+  { to: '/about', label: 'About', icon: 'about' },
+  { to: '/hiring', label: 'Hiring', icon: 'hiring' }
 ];
 
 function TabItem({ tab }) {

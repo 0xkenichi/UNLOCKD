@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import * as Streamflow from '@streamflow/stream';
+import { StreamClient } from '@streamflow/stream';
 import { useAccount, useChainId, useSignTypedData } from 'wagmi';
 import { useOnchainSession } from '../../utils/onchainSession.js';
 import { apiGet, apiPost, fetchVestedContracts } from '../../utils/api.js';
@@ -72,7 +72,7 @@ export default function PrivacyUpgradeWizard({ enabled }) {
 
   useEffect(() => {
     let active = true;
-    if (!enabled || stepId !== 'solana' || !hasSolana) return () => {};
+    if (!enabled || stepId !== 'solana' || !hasSolana) return () => { };
     (async () => {
       try {
         const items = await fetchVestedContracts({
@@ -113,15 +113,10 @@ export default function PrivacyUpgradeWizard({ enabled }) {
     setMessage('');
     try {
       const rpcUrl = connection?.rpcEndpoint || 'https://api.mainnet-beta.solana.com';
-      const StreamflowSolana =
-        Streamflow?.StreamflowSolana ||
-        Streamflow?.default?.StreamflowSolana ||
-        Streamflow?.default ||
-        null;
-      if (!StreamflowSolana?.SolanaStreamClient) {
+      if (!StreamClient) {
         throw new Error('Streamflow client unavailable (check @streamflow/stream export)');
       }
-      const client = new StreamflowSolana.SolanaStreamClient(rpcUrl);
+      const client = new StreamClient(rpcUrl);
       await client.transfer(
         { id: streamId, newRecipient },
         { invoker: solanaWallet, isNative: false }

@@ -86,6 +86,19 @@ export default function BorrowWizard() {
               <div className="progress-fill" style={{ width: `${progress}%` }} />
             </div>
             <p className="muted">{steps[activeStep].description}</p>
+
+            {activeStep === 3 && (
+              <div className="legal-notice" style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                <label style={{ display: 'flex', gap: '10px', cursor: 'pointer', alignItems: 'flex-start' }}>
+                  <input type="checkbox" style={{ marginTop: '3px' }} defaultChecked />
+                  <span>
+                    I accept the <a href="/legal/terms" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Vestra Protocol Terms & Conditions</a>.
+                    I acknowledge this loan is legally binding under the Cayman Islands Foundation framework.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <motion.button
               className="button"
               type="button"

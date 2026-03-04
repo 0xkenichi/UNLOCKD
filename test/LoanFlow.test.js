@@ -70,6 +70,10 @@ async function deployFixture() {
     await valuation.setTokenPriceFeed(usdcDeployment.address, priceFeedAddress);
   }
 
+  await loanManager.connect(deployer).setSanctionsPass(borrower.address, true);
+  await loanManager.connect(deployer).setSanctionsPass(deployer.address, true);
+  await loanManager.connect(deployer).setSanctionsPass(lender.address, true);
+
   return { deployer, lender, borrower, usdc, registry, valuation, pool, loanManager };
 }
 
@@ -159,6 +163,7 @@ describe("Full MVP Flow", () => {
     const vault = await VestraVault.connect(deployer).deploy(deployer.address);
     await vault.waitForDeployment();
     const vaultAddress = await vault.getAddress();
+    await loanManager.connect(deployer).setSanctionsPass(vaultAddress, true);
 
     // Vesting beneficiary is the vault (privacy upgrade prerequisite).
     const vesting = await deployVestingWallet({
@@ -191,10 +196,17 @@ describe("Full MVP Flow", () => {
     expect(privateLoan.principal).to.equal(borrowAmount);
     expect(privateLoan.active).to.equal(true);
 
-    // Third-party repay is allowed for private loans (no borrower-only restriction).
+    // Repay loan via the vault
     const totalDue = privateLoan.principal + privateLoan.interest;
-    await usdc.connect(lender).approve(loanManagerAddress, totalDue);
-    await loanManager.connect(lender).repayPrivateLoan(0, totalDue);
+    await usdc.mint(vaultAddress, totalDue);
+
+    // Vault executes USDC approve
+    const approveData = usdc.interface.encodeFunctionData("approve", [loanManagerAddress, totalDue]);
+    await vault.connect(deployer).exec(await usdc.getAddress(), 0, approveData);
+
+    // Vault executes LoanManager approve
+    const repayData = loanManager.interface.encodeFunctionData("repayPrivateLoan", [0, totalDue]);
+    await vault.connect(deployer).exec(loanManagerAddress, 0, repayData);
 
     await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
@@ -321,7 +333,7 @@ describe("Full MVP Flow", () => {
       loanManager
         .connect(borrower)
         .createLoan(42, await vesting.getAddress(), overBorrow, 29)
-    ).to.be.revertedWith("exceeds LTV");
+    ).to.be.revertedWithCustomError(loanManager, "ExceedsLTV");
   });
 
   it("Rejects vesting when beneficiary mismatches borrower", async () => {
