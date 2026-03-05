@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Rocket, Briefcase, Landmark } from 'lucide-react';

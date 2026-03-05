@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useMemo } from 'react';
 import { useAccount, useBalance, useChainId, useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';

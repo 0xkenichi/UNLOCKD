@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * Seed script: creates a sample vest (1h cliff, 3h total) with MockVestraToken,
  * funds the lending pool with mock USDC, and escrows the vest for borrowing.

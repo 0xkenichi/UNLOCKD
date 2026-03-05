@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { createClient } from '@supabase/supabase-js';
 
 // Vestra Testnet Telemetry Project (Fallback to public anonymous if missing)

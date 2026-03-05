@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /* eslint-disable no-console */
 const REQUIRED_BY_NETWORK = {
   base: ['PRIVATE_KEY', 'USDC_ADDRESS', 'PRICE_FEED_ADDRESS', 'UNISWAP_ROUTER_ADDRESS'],

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * Feature flags for protocol integrations and rollout.
  * Set via env: VITE_FEATURE_SABLIER_IMPORT, VITE_FEATURE_FUNDRAISE_ONBOARD.

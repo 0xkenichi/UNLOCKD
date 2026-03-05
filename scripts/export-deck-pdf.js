@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 #!/usr/bin/env node
 /**
  * Export Vestra Moonshots deck to PDF.

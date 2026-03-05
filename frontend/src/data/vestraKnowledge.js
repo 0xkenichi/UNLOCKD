@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 const KNOWLEDGE_ENTRIES = [
   {
     keywords: ['how to use', 'how do i use this app', 'getting started', 'walkthrough', 'explain app'],

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { keccak256, toBytes } from 'viem';
 
 // Deterministic stringify so relayer signatures are stable across runtimes.

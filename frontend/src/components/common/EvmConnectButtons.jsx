@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import '@rainbow-me/rainbowkit/styles.css';
 import { ConnectButton, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { trackEvent } from '../../utils/analytics.js';

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Zap, Lock, Landmark, Briefcase, Coins, Key, TrendingUp, Cpu, Activity, Layers, Repeat, ArrowRight } from 'lucide-react';

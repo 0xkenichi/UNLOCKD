@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import React, { useEffect, useRef, useState } from 'react';
 import Globe from 'react-globe.gl';
 

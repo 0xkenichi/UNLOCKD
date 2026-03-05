@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * Vestra Protocol — 100+ Scenario Simulation Suite
  * Covers: Pre-TGE, Live, Multi-Token, Best/Worst Case, Stress Tests

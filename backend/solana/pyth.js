@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 const DEFAULT_HERMES_URL = 'https://hermes.pyth.network';
 const DEFAULT_FEED_TTL_MS = 30_000;
 const DEFAULT_SYMBOL_TTL_MS = 10 * 60_000;

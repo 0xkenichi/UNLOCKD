@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 const MODEL_VERSION = 'v1.0.0';
 
 const TIER_NAMES = {

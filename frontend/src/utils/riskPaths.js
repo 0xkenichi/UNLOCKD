@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 export function generateRiskPaths({ pv = 1, ltvBps = 3000 } = {}) {
   const base = Math.max(Number(pv) || 1, 1);
   const ltv = Math.max(Number(ltvBps) || 3000, 1) / 10000;

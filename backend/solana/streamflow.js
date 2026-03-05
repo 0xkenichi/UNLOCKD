@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 const { SolanaStreamClient, StreamType, PROGRAM_ID } = require('@streamflow/stream');
 const { PublicKey } = require('@solana/web3.js');
 const { getMint } = require('@solana/spl-token');

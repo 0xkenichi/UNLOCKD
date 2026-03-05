@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import { Suspense, lazy, useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useNavigate } from 'react-router-dom';

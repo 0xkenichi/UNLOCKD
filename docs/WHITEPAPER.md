@@ -5,8 +5,11 @@ title: The Vestra Whitepaper
 # The Liquidity Paradox: Unlocking Time-Locked Value in Web3
 ## The Unbreakable Credit Primitive for Restoring Economic Velocity
 **Version 4.0 (Adaptive AI & Game Theory)**
-**Protocol:** Vestra Protocol *(Historically known as UNLOCKD)*
+**Protocol:** Vestra Protocol
+**Author:** Olanrewaju Finch Animashaun
 **Date:** March 2026
+
+*Copyright © 2026 Vestra Protocol. All rights reserved. This whitepaper and the proprietary mechanisms described herein (including the Omega AI Watcher Network and dDPV models) are the intellectual property of Vestra Protocol. The associated smart contract implementations are licensed under the Business Source License (BSL) 1.1.*
 
 ### Abstract
 In the decentralized economy, token lockups and vesting schedules are foundational tools for aligning incentives. However, they create a massive inefficiency: trillions of dollars in legally owned, market-priced value are economically inert. Participants hold assets with undeniable current worth but zero immediate utility. 

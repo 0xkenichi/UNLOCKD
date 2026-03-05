@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 export default function FeatureCard({ icon: Icon, title, description }) {
   return (
     <div className="feature-card">

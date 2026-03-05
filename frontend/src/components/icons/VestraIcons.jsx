@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * VestraIcons — Native brand icon system.
  * Each icon is a pure SVG React component with:

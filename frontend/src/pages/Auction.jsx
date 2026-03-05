@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 import AuctionTypeSelector from '../components/auction/AuctionTypeSelector.jsx';
 import { useNavigate } from 'react-router-dom';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';

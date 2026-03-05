@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+// Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * Price-behavior service: spot price, ATH/ATL, drawdown and range metrics.
  * Used by the agent and /api/price-behavior. ATH/ATL can come from oracles
