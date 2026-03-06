@@ -1,6 +1,6 @@
+#!/usr/bin/env node
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
-#!/usr/bin/env node
 /**
  * Export Vestra Moonshots deck to PDF.
  * Run from project root: node scripts/export-deck-pdf.js

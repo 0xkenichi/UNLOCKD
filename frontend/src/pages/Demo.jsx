@@ -34,19 +34,28 @@ export default function Demo() {
 
     return (
         <div className="demo-container v2-container">
-            <div className="demo-header">
-                <h1>Vestra Real-Time Simulator</h1>
-                <p>Interactive playground to stress-test your mock vested collateral.</p>
+            <div className="max-w-6xl mx-auto mb-12 text-center">
+                <h1 className="text-5xl font-black italic uppercase tracking-tighter mb-4 bg-gradient-to-br from-white to-slate-500 bg-clip-text text-transparent">
+                    Vestra Intelligence Simulator
+                </h1>
+                <p className="text-slate-500 font-mono text-[10px] uppercase tracking-[0.3em] mb-12">
+                    Premium Stress-Testing Ground // ASI-Monitored Environment
+                </p>
 
                 {currentStep !== DEMO_STEPS.DASHBOARD && (
-                    <div className="demo-progress-bar">
-                        {Object.keys(DEMO_STEPS).map((key, index) => (
+                    <div className="flex justify-center items-center gap-12 relative py-4">
+                        <div className="absolute h-[1px] bg-slate-800 w-1/2 left-1/4 top-1/2 -z-10"></div>
+                        {Object.entries(DEMO_STEPS).map(([key, value], index) => (
                             <div
                                 key={key}
-                                className={`demo-step-indicator ${currentStep >= index ? 'active' : ''} ${currentStep === index ? 'current' : ''}`}
+                                className={`relative flex flex-col items-center gap-3 transition-all duration-500 ${currentStep >= value ? 'opacity-100' : 'opacity-30'}`}
                             >
-                                <div className="step-dot">{index + 1}</div>
-                                <span className="step-label">{key.replace('_', ' ')}</span>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xs border-2 transition-all duration-500 ${currentStep === value ? 'bg-blue-600 border-blue-500 shadow-lg shadow-blue-900/40 scale-110' : currentStep > value ? 'bg-emerald-500 border-emerald-400' : 'bg-black border-slate-800'}`}>
+                                    {currentStep > value ? '✓' : index + 1}
+                                </div>
+                                <span className={`text-[9px] font-black uppercase tracking-widest ${currentStep === value ? 'text-blue-400' : 'text-slate-600'}`}>
+                                    {key.replace('_', ' ')}
+                                </span>
                             </div>
                         ))}
                     </div>

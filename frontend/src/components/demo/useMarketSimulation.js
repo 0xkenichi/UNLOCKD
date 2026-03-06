@@ -1,109 +1,124 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { logSimulationEvent } from '../../utils/supabaseClient.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Agent Persona Behavioural Engine
-// Each persona runs independently every tick and returns a price delta.
+// SECTION 1: Persona Behavioural Engine
 // ──────────────────────────────────────────────────────────────────────────────
 
 const PERSONA_TYPES = ['Whale', 'Trend Follower', 'Degen', 'Arb', 'Panic Seller', 'VC'];
 
-function runWhale(currentPrice, trend) {
-    // Rare but massive impact. Triggers roughly 3% of ticks.
-    if (Math.random() > 0.97) {
-        const direction = Math.random() > 0.45 ? 1 : -1; // Slight upward bias
-        const size = currentPrice * (0.04 + Math.random() * 0.08); // 4–12% swing
-        return { delta: direction * size, label: `Whale ${direction > 0 ? 'accumulated' : 'dumped'} ${(size / currentPrice * 100).toFixed(1)}%` };
+function runWhale(currentPrice) {
+    if (Math.random() > 0.98) {
+        const direction = Math.random() > 0.45 ? 1 : -1;
+        const size = currentPrice * (0.05 + Math.random() * 0.10);
+        return { delta: direction * size, label: `🐋 Whale ${direction > 0 ? 'Accumulation' : 'Dump'}: ${((size / currentPrice) * 100).toFixed(1)}%` };
     }
     return { delta: 0, label: null };
 }
 
-function runTrendFollower(currentPrice, trend, prevPrice) {
-    // Amplifies recent direction. Creates FOMO and panic spirals.
-    const recentTrend = currentPrice - prevPrice;
-    if (Math.abs(recentTrend) > currentPrice * 0.005) {
-        const follow = recentTrend * (0.3 + Math.random() * 0.4); // 30–70% amplification
-        return { delta: follow, label: `Trend Follower ${follow > 0 ? 'chasing rally' : 'panic selling'}` };
+function runBlackSwan(currentPrice) {
+    // 0.5% chance of a massive protocol-straining event
+    if (Math.random() > 0.995) {
+        const isCrash = Math.random() > 0.3;
+        const magnitude = isCrash ? -0.18 : 0.15;
+        return {
+            delta: currentPrice * magnitude,
+            label: isCrash ? "🚨 BLACK SWAN: Flash Crash / Liquidity Gap" : "🚀 GOD CANDLE: Short Squeeze"
+        };
     }
     return { delta: 0, label: null };
-}
-
-function runDegen(currentPrice) {
-    // Pure noise. High frequency, small size. Always active.
-    const noise = (Math.random() - 0.5) * currentPrice * 0.025;
-    const side = noise > 0 ? 'longed' : 'shorted';
-    return {
-        delta: noise,
-        label: Math.random() > 0.6 ? `Degen ${side} with 50x leverage` : null
-    };
 }
 
 function runArb(currentPrice, twap) {
-    // Tries to revert price back toward TWAP when overextended.
     const deviation = currentPrice - twap;
-    if (Math.abs(deviation) > twap * 0.05) {
-        const correction = -deviation * (0.1 + Math.random() * 0.15);
-        return { delta: correction, label: `Arb bot correcting ${deviation > 0 ? 'premium' : 'discount'} vs TWAP` };
-    }
-    return { delta: 0, label: null };
-}
-
-function runVC(currentPrice, tick) {
-    // VCs lock up, sell at unlock. Simulate a cliff unlock every ~60 ticks.
-    if (tick % 60 === 59) {
-        const dump = -currentPrice * (0.06 + Math.random() * 0.05);
-        return { delta: dump, label: `VC cliff unlock — selling allocation` };
-    }
-    return { delta: 0, label: null };
-}
-
-function runPanicSeller(currentPrice, health) {
-    // If the market is falling (health < 0), this persona amplifies it.
-    if (health < 0 && Math.random() > 0.7) {
-        const panic = currentPrice * -(0.01 + Math.random() * 0.025);
-        return { delta: panic, label: `Panic seller capitulating` };
+    if (Math.abs(deviation) > twap * 0.04) {
+        const correction = -deviation * (0.15 + Math.random() * 0.2);
+        return { delta: correction, label: `🤖 Arb Bot: Correcting ${deviation > 0 ? 'Premium' : 'Discount'}` };
     }
     return { delta: 0, label: null };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Main Simulation Hook
+// SECTION 2: MVP Valuation & Risk Engine
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Computes Discounted Present Value (DPV) and Borrow Limit based on MVP docs.
+ * Formula: DPV = Quantity * Price * (Distance_to_Unlock_Discount) * (Volatility_Haircut)
+ */
+function computeDPV(quantity, spotPrice, monthsToUnlock, sigma = 0.5) {
+    // 1. Time Discount (r=5% annual, 0.41% monthly)
+    const r = 0.05 / 12;
+    const timeDiscount = 1 / Math.pow(1 + r, monthsToUnlock);
+
+    // 2. Volatility Haircut (5th Percentile Proxy from Monte Carlo Table)
+    // For MVP, we map sigma to a conservative multiplier based on months
+    // This approximates the Perc5_PV / Mean_PV ratio
+    let volMultiplier = 1.0;
+    if (sigma <= 0.3) {
+        volMultiplier = Math.max(0.4, 1.0 - (monthsToUnlock * 0.015));
+    } else if (sigma <= 0.5) {
+        volMultiplier = Math.max(0.2, 1.0 - (monthsToUnlock * 0.025));
+    } else {
+        volMultiplier = Math.max(0.1, 1.0 - (monthsToUnlock * 0.04));
+    }
+
+    const rawValue = quantity * spotPrice;
+    const dpv = rawValue * timeDiscount * volMultiplier;
+
+    // 3. LTV Logic (LTV = 40% of DPV for extreme safety)
+    const borrowLimit = dpv * 0.40;
+
+    return {
+        dpv,
+        borrowLimit,
+        timeDiscount,
+        volMultiplier,
+        ltv: 0.40
+    };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SECTION 2: Main Simulation Hook
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function useMarketSimulation() {
     const [isRunning, setIsRunning] = useState(false);
-    const [agents, setAgents] = useState(10);
+    const [agents, setAgents] = useState(1000);
+    const [interestRateBps, setInterestRateBps] = useState(500);
     const [priceHistory, setPriceHistory] = useState([]);
-    const [metrics, setMetrics] = useState({ currentPrice: 1.0, ath: 1.0, atl: 1.0, twap: 1.0 });
     const [tradeFeed, setTradeFeed] = useState([]);
-
-    const stateRef = useRef({
-        agents: 10,
+    const [metrics, setMetrics] = useState({
         currentPrice: 1.0,
-        priceHistory: [],
         twap: 1.0,
-        tick: 0,
-        externalDelta: 0, // injected from protocol actions
+        safetyPrice: 1.0,
+        sentiment: 0.5,
+        utilization: 0,
+        borrowApr: 0.05 // 5% base
     });
 
-    useEffect(() => {
-        stateRef.current.agents = agents;
-    }, [agents]);
+    const stateRef = useRef({
+        tick: 0,
+        externalDelta: 0,
+        priceHistory: [],
+        sessionId: null
+    });
 
-    useEffect(() => {
-        stateRef.current.currentPrice = metrics.currentPrice;
-        stateRef.current.twap = metrics.twap;
-    }, [metrics.currentPrice, metrics.twap]);
+    // ── Session & Telemetry Management ────────────────────────────────────────
+    const initSession = useCallback(() => {
+        const sid = `sid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        window.sessionStorage.setItem('vestra_sid', sid);
+        stateRef.current.sessionId = sid;
+        logSimulationEvent('SESSION_START', { chain: 'Base-Sepolia', timestamp: new Date().toISOString() });
+    }, []);
 
-    useEffect(() => {
-        stateRef.current.priceHistory = priceHistory;
-    }, [priceHistory]);
-
-    // ── External market impact injection ────────────────────────────────────────
-    // Call this from DemoDashboard to inject a protocol-level price delta.
+    // ── External Market Impact (Slippage) ─────────────────────────────────────
     const injectMarketImpact = useCallback((deltaPercent, reason) => {
-        stateRef.current.externalDelta += deltaPercent;
+        const impact = stateRef.current.currentPrice * deltaPercent;
+        stateRef.current.externalDelta += impact;
+
         setTradeFeed(prev => [{
             id: Date.now(),
             time: new Date().toLocaleTimeString(),
@@ -111,108 +126,114 @@ export function useMarketSimulation() {
             type: deltaPercent < 0 ? 'sell' : 'buy',
             highlight: true,
         }, ...prev].slice(0, 20));
+
+        logSimulationEvent('USER_IMPACT', { deltaPercent, reason });
     }, []);
 
+    // ── Simulation Controls ───────────────────────────────────────────────────
     const startSimulation = useCallback((initialPrice = 1.0) => {
+        initSession();
         stateRef.current.tick = 0;
-        stateRef.current.externalDelta = 0;
-        setMetrics({ currentPrice: initialPrice, ath: initialPrice, atl: initialPrice, twap: initialPrice });
+        setMetrics({ currentPrice: initialPrice, twap: initialPrice, safetyPrice: initialPrice, sentiment: 0.5 });
         setPriceHistory([{ time: 0, price: initialPrice }]);
-        setTradeFeed([{ id: 0, time: new Date().toLocaleTimeString(), text: 'Market opened — agents active', type: 'info' }]);
         setIsRunning(true);
-    }, []);
+    }, [initSession]);
 
-    const pauseSimulation = useCallback(() => setIsRunning(false), []);
     const resumeSimulation = useCallback(() => setIsRunning(true), []);
-    const resetSimulation = useCallback(() => {
-        setIsRunning(false);
-        setPriceHistory([]);
-        setTradeFeed([]);
-        setMetrics({ currentPrice: 1.0, ath: 1.0, atl: 1.0, twap: 1.0 });
-        stateRef.current.tick = 0;
-        stateRef.current.externalDelta = 0;
-    }, []);
 
+    // ── Core Market Heartbeat (Stochastic Engine) ─────────────────────────────
     useEffect(() => {
         if (!isRunning) return;
 
-        const interval = setInterval(() => {
-            const { currentPrice, priceHistory: hist, twap, tick, agents: numAgents, externalDelta } = stateRef.current;
-            const prevPrice = hist.length > 1 ? hist[hist.length - 2].price : currentPrice;
-            const trend = currentPrice - prevPrice;
-            const marketHealth = trend / (currentPrice || 1);
-
-            // ── Run Persona Engines ────────────────────────────────────────────────
+        const interval = setInterval(async () => {
+            const { currentPrice, tick, externalDelta, sessionId } = stateRef.current;
             const events = [];
-            let totalDelta = externalDelta; // Start with injected protocol impact
-            stateRef.current.externalDelta = 0; // Consume it
+            let totalDelta = externalDelta;
+            stateRef.current.externalDelta = 0;
 
-            // Scale number of active personas with the agent count slider
-            const activeAgents = Math.max(1, Math.floor(numAgents / 15));
-
-            for (let i = 0; i < activeAgents; i++) {
-                const type = PERSONA_TYPES[i % PERSONA_TYPES.length];
-                let result = { delta: 0, label: null };
-
-                if (type === 'Whale') result = runWhale(currentPrice, trend);
-                else if (type === 'Trend Follower') result = runTrendFollower(currentPrice, trend, prevPrice);
-                else if (type === 'Degen') result = runDegen(currentPrice);
-                else if (type === 'Arb') result = runArb(currentPrice, twap);
-                else if (type === 'VC') result = runVC(currentPrice, tick);
-                else if (type === 'Panic Seller') result = runPanicSeller(currentPrice, marketHealth);
-
-                totalDelta += result.delta;
-                if (result.label) events.push({ type, label: result.label, delta: result.delta });
+            // 1. Black Swan & Persona Execution
+            const swan = runBlackSwan(currentPrice);
+            if (swan.label) {
+                totalDelta += swan.delta;
+                events.push(swan);
+                logSimulationEvent('BLACK_SWAN', { label: swan.label, delta: swan.delta });
             }
 
-            // ── Compute Next Price ─────────────────────────────────────────────────
-            let newPrice = Math.max(0.001, currentPrice + totalDelta);
+            // Scale active personas based on ASI guided agent count
+            const activePersonas = Math.max(1, Math.min(10, Math.floor(agents / 200)));
+            for (let i = 0; i < activePersonas; i++) {
+                const whale = runWhale(currentPrice);
+                const arb = runArb(currentPrice, metrics.twap);
+                const degen = runDegen(currentPrice);
 
-            // ── Update History ─────────────────────────────────────────────────────
+                totalDelta += (whale.delta + arb.delta + degen.delta);
+                if (whale.label) events.push(whale);
+                if (arb.label) events.push(arb);
+            }
+
+            // 2. Final Price Calculation
+            const newPrice = Math.max(0.001, currentPrice + totalDelta);
             const newTick = tick + 1;
-            const newHistory = [...hist.slice(-100), { time: newTick, price: newPrice }];
-            const prices = newHistory.map(d => d.price);
-            const newTwap = prices.reduce((s, p) => s + p, 0) / prices.length;
 
+            // 3. Linear Weighted Moving Average (LWMA) TWAP - 50 Tick Window
+            const newHistory = [...stateRef.current.priceHistory.slice(-49), { time: newTick, price: newPrice }];
+            const sumWeights = (newHistory.length * (newHistory.length + 1)) / 2;
+            const newTwap = newHistory.reduce((acc, curr, idx) => acc + (curr.price * (idx + 1)), 0) / sumWeights;
+
+            // 4. Utilization & Interest Rate Logic
+            // Simulate pool utilization based on state (mocked for demo)
+            const mockUtilization = Math.min(0.95, 0.4 + (Math.random() * 0.2));
+            const baseApr = 0.05;
+            const slope = 0.15; // 15% spread
+            const newBorrowApr = baseApr + (mockUtilization * slope);
+
+            // 5. Update Refs & State
             stateRef.current.tick = newTick;
+            stateRef.current.currentPrice = newPrice;
             stateRef.current.priceHistory = newHistory;
 
-            setPriceHistory(newHistory);
             setMetrics(prev => ({
                 currentPrice: newPrice,
-                ath: Math.max(prev.ath, newPrice),
-                atl: Math.min(prev.atl, newPrice),
                 twap: newTwap,
+                safetyPrice: Math.min(newPrice, newTwap),
+                sentiment: Math.max(-1, Math.min(1, prev.sentiment + (totalDelta / currentPrice))),
+                utilization: mockUtilization,
+                borrowApr: newBorrowApr
             }));
+            setPriceHistory(newHistory);
 
-            // ── Emit top feed events ───────────────────────────────────────────────
+            // 6. Sync with ASI Backend (MeTTa)
+            try {
+                const res = await fetch('http://localhost:4000/api/simulation/state');
+                const data = await res.json();
+                if (data.ok) {
+                    if (data.volatility) setAgents(data.volatility);
+                    if (data.interestRateBps) setInterestRateBps(data.interestRateBps);
+                    logSimulationEvent('ASI_SYNC', { rate: data.interestRateBps, omega: data.omega });
+                }
+            } catch (e) { /* Backend offline */ }
+
+            // 7. Update Feed
             if (events.length > 0) {
-                const top = events.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 2);
                 setTradeFeed(prev => [
-                    ...top.map(e => ({
-                        id: Date.now() + Math.random(),
-                        time: new Date().toLocaleTimeString(),
-                        text: e.label,
-                        type: e.delta > 0 ? 'buy' : 'sell',
-                    })),
-                    ...prev,
+                    ...events.map(e => ({ id: Math.random(), time: new Date().toLocaleTimeString(), text: e.label, type: e.delta > 0 ? 'buy' : 'sell' })),
+                    ...prev
                 ].slice(0, 20));
             }
 
-        }, 1000);
+        }, 3000); // 3s Ticks for realistic dashboard movement
 
         return () => clearInterval(interval);
-    }, [isRunning]);
+    }, [isRunning, agents, metrics.twap, metrics.sentiment]);
 
     return {
         isRunning,
         startSimulation,
-        pauseSimulation,
         resumeSimulation,
-        resetSimulation,
         injectMarketImpact,
+        computeDPV,
         agents,
-        setAgents,
+        interestRateBps,
         metrics,
         priceHistory,
         tradeFeed,

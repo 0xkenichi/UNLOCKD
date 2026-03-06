@@ -98,6 +98,11 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     log: true,
   });
 
+  const loanLogicLib = await deploy("LoanLogicLib", {
+    from: deployer,
+    log: true,
+  });
+
   const loanManager = await deploy("LoanManager", {
     from: deployer,
     args: [
@@ -111,6 +116,9 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
       poolFee,
       slippageBps,
     ],
+    libraries: {
+      LoanLogicLib: loanLogicLib.address,
+    },
     log: true,
   });
 
@@ -131,6 +139,30 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     args: [adapter.address, usdcAddress],
     log: true,
   });
+
+  const originationFacet = await deploy("LoanOriginationFacet", {
+    from: deployer,
+    libraries: {
+      LoanLogicLib: loanLogicLib.address,
+    },
+    log: true,
+  });
+
+  const repaymentFacet = await deploy("LoanRepaymentFacet", {
+    from: deployer,
+    libraries: {
+      LoanLogicLib: loanLogicLib.address,
+    },
+    log: true,
+  });
+
+  const loanManagerInstance = await ethers.getContractAt(
+    "LoanManager",
+    loanManager.address,
+    await ethers.getSigner(deployer)
+  );
+  log("Linking facets to LoanManager...");
+  await (await loanManagerInstance.setFacets(originationFacet.address, repaymentFacet.address)).wait();
 
   const adapterDeployment = await deployments.get("VestingAdapter");
   const adapterInstance = await ethers.getContractAt(
@@ -167,11 +199,6 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   await (await termVaultInstance.setTranche(2, 4 * 365 * 24 * 60 * 60, trancheApyBps, true)).wait();
   await (await termVaultInstance.setTranche(3, 5 * 365 * 24 * 60 * 60, trancheApyBps, true)).wait();
 
-  const loanManagerInstance = await ethers.getContractAt(
-    "LoanManager",
-    loanManager.address,
-    await ethers.getSigner(deployer)
-  );
   await (await loanManagerInstance.setTreasuries(issuanceTreasury, returnsTreasury)).wait();
 
   // 12. Deploy Insurance Vault

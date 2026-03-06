@@ -32,7 +32,7 @@ const loadEncryptionKey = () => {
       encryptionKey = asB64;
       return encryptionKey;
     }
-  } catch (_) {}
+  } catch (_) { }
   console.warn('[privacy] invalid SENSITIVE_DATA_ENCRYPTION_KEY; encryption disabled');
   return null;
 };
@@ -407,7 +407,7 @@ const initSqlite = () => {
     sqlite.exec(
       'CREATE INDEX IF NOT EXISTS idx_events_token ON events (token_address) WHERE token_address IS NOT NULL'
     );
-  } catch (_) {}
+  } catch (_) { }
 };
 
 const init = async () => {
@@ -643,10 +643,18 @@ const clearIndexerCache = async () => {
   if (useSupabase) {
     const client = supabaseClient();
     // Best-effort deletes; failures should not crash the server.
-    await client.from('indexer_events').delete().neq('tx_hash', '').catch(() => null);
-    await client.from('snapshots').delete().neq('timestamp', 0).catch(() => null);
-    await client.from('snapshot_items').delete().neq('timestamp', 0).catch(() => null);
-    await deleteMeta('lastIndexedBlock').catch(() => null);
+    try {
+      await client.from('indexer_events').delete().neq('tx_hash', '');
+    } catch (_) { }
+    try {
+      await client.from('snapshots').delete().neq('timestamp', 0);
+    } catch (_) { }
+    try {
+      await client.from('snapshot_items').delete().neq('timestamp', 0);
+    } catch (_) { }
+    try {
+      await deleteMeta('lastIndexedBlock');
+    } catch (_) { }
     return;
   }
   try {
@@ -654,7 +662,7 @@ const clearIndexerCache = async () => {
     sqlite.prepare('DELETE FROM snapshots').run();
     sqlite.prepare('DELETE FROM snapshot_items').run();
     sqlite.prepare('DELETE FROM meta WHERE key = ?').run('lastIndexedBlock');
-  } catch (_) {}
+  } catch (_) { }
 };
 
 const insertSubmission = async ({ channel, payload, userId }) => {
@@ -1048,11 +1056,11 @@ const getSessionByToken = async (token) => {
       ipHash: data.ip_hash || '',
       user: data.app_users
         ? {
-            id: data.app_users.id,
-            walletAddress: data.app_users.wallet_address,
-            role: data.app_users.role || 'user',
-            linkedWallets
-          }
+          id: data.app_users.id,
+          walletAddress: data.app_users.wallet_address,
+          role: data.app_users.role || 'user',
+          linkedWallets
+        }
         : null
     };
   }
@@ -1075,11 +1083,11 @@ const getSessionByToken = async (token) => {
     ipHash: row.ip_hash || '',
     user: row.user_id
       ? {
-          id: row.user_id,
-          walletAddress: row.wallet_address,
-          role: row.role || 'user',
-          linkedWallets
-        }
+        id: row.user_id,
+        walletAddress: row.wallet_address,
+        role: row.role || 'user',
+        linkedWallets
+      }
       : null
   };
 };
@@ -2030,7 +2038,7 @@ const getAirdropLeaderboard = async ({
   const leaderboard = Array.from(users.values())
     .map((row) => {
       const uniqueEventScore = row.uniqueEvents.size * 4;
-    const consistencyBonus = Math.min(40, Math.floor(row.eventCount / 20) * 5);
+      const consistencyBonus = Math.min(40, Math.floor(row.eventCount / 20) * 5);
       const feedbackBonus = row.feedbackCount * 10;
       const rawScore =
         row.weightedEventScore + uniqueEventScore + consistencyBonus + feedbackBonus - row.penalties;
@@ -3136,23 +3144,23 @@ const purgeSensitiveData = async () => {
     deleted.agentConversations = sqlite
       .prepare('DELETE FROM agent_conversations WHERE created_at IS NOT NULL AND created_at < ?')
       .run(cutoffAgent).changes;
-  } catch (_) {}
+  } catch (_) { }
   try {
     deleted.analyticsEvents = sqlite
       .prepare('DELETE FROM analytics_events WHERE created_at IS NOT NULL AND created_at < ?')
       .run(cutoffAnalytics).changes;
-  } catch (_) {}
+  } catch (_) { }
   try {
     deleted.geoPresence = sqlite
       .prepare('DELETE FROM user_geo_presence WHERE updated_at IS NOT NULL AND updated_at < ?')
       .run(cutoffGeo).changes;
-  } catch (_) {}
+  } catch (_) { }
   try {
     const nowIso = new Date().toISOString();
     deleted.expiredSessions = sqlite
       .prepare('DELETE FROM app_sessions WHERE expires_at IS NOT NULL AND expires_at < ?')
       .run(nowIso).changes;
-  } catch (_) {}
+  } catch (_) { }
 
   return { ok: true, deleted };
 };
@@ -3170,7 +3178,7 @@ const consumeRelayerNonce = async ({ userId, action = 'unknown', nonce, expiresA
     // Best-effort cleanup of expired rows.
     try {
       await client.from('relayer_nonces').delete().lt('expires_at', now);
-    } catch (_) {}
+    } catch (_) { }
     const { data, error } = await client
       .from('relayer_nonces')
       .insert({
@@ -3197,7 +3205,7 @@ const consumeRelayerNonce = async ({ userId, action = 'unknown', nonce, expiresA
     sqlite
       .prepare('DELETE FROM relayer_nonces WHERE expires_at IS NOT NULL AND expires_at < ?')
       .run(now);
-  } catch (_) {}
+  } catch (_) { }
   const id = createId();
   try {
     sqlite

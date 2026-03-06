@@ -135,8 +135,6 @@
 ;
 ; Kinked utilization curve — adapted from Compound/Aave model
 ; but with MeTTa-adjustable parameters that self-tune over time.
-;
-; Current learned parameters (updated by self_improve.metta):
 
 (= (BaseRate) 200)       ; 2% floor APR in bps
 (= (KinkUtil) 8000)      ; 80% utilization = kink point (bps)
@@ -147,8 +145,8 @@
 (= (GetPoolUtil $rank)
    (match &self (PoolUtilization $rank $util) $util))
 
-; BorrowRateBps: the actual rate a borrower should pay
-(= (BorrowRateBps $poolRank)
+; Calculate the base interest rate based on utilization
+(= (BasePoolRateBps $poolRank)
    (let $util (GetPoolUtil $poolRank)
      (if (< $util (KinkUtil))
        ; Pre-kink: linear interpolation
@@ -160,8 +158,22 @@
                 (- $util (KinkUtil)))
              (- 10000 (KinkUtil)))))))
 
-; BorrowerRate: pool rate + reputation adjustment
-; Elite borrowers pay up to 100bps less; risky pay up to 200bps more
+; Chaos/Volatility Multiplied Rate
+(= (ChaosAdjustedRate $baseRate)
+    (match &self (MarketEvent $ts BLACK_SWAN $delta $price)
+        (if (< $delta -0.15)
+            (max $baseRate 1500) ;; Spike to at least 15% if crash > 15%
+            $baseRate)))
+
+; If no black swan, return base rate
+(= (ChaosAdjustedRate $baseRate) $baseRate)
+
+; Main Borrow Rate Query used by mettaclaw.js
+(= (BorrowRateBps $poolId)
+    (let $base (BasePoolRateBps $poolId)
+        (ChaosAdjustedRate $base)))
+
+; Personalized rate for UX/Specific Borrower logic
 (= (PersonalizedBorrowRateBps $borrower $poolRank)
    (let* (($poolRate   (BorrowRateBps $poolRank))
           ($repScore   (ReputationScore $borrower))
@@ -169,4 +181,4 @@
                          (if (>= $repScore 70) -50
                            (if (< $repScore 40) 200
                              0)))))
-     (max 100 (+ $poolRate $repAdj))))   ; minimum 1% APR always enforced
+     (max 100 (+ $poolRate $repAdj))))

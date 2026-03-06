@@ -30,6 +30,16 @@ async function deployFixture() {
     loanManagerDeployment.address,
     deployer
   );
+  const loanManagerOrigination = await ethers.getContractAt(
+    "LoanOriginationFacet",
+    loanManagerDeployment.address,
+    deployer
+  );
+  const loanManagerRepayment = await ethers.getContractAt(
+    "LoanRepaymentFacet",
+    loanManagerDeployment.address,
+    deployer
+  );
 
   await valuation.setMaxPriceAge(7 * ONE_DAY);
   const priceFeedDeployment = await deployments.get("MockPriceFeed");
@@ -51,7 +61,7 @@ async function deployFixture() {
     await loanManager.connect(deployer).setSanctionsPass(b.address, true);
   }
 
-  return { deployer, lender, keeper, borrowers, usdc, registry, valuation, pool, loanManager, priceFeed };
+  return { deployer, lender, keeper, borrowers, usdc, registry, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment, priceFeed };
 }
 
 async function deployVestingWallet({ borrower, usdc, allocation, durationDays }) {
@@ -71,7 +81,7 @@ async function deployVestingWallet({ borrower, usdc, allocation, durationDays })
 
 describe("LoanManager security invariants", () => {
   it("allows permissionless keeper settlement across many loans", async () => {
-    const { lender, keeper, borrowers, usdc, pool, registry, loanManager, valuation, priceFeed } =
+    const { lender, keeper, borrowers, usdc, pool, registry, loanManager, loanManagerOrigination, loanManagerRepayment, valuation, priceFeed } =
       await deployFixture();
 
     const poolAddress = await pool.getAddress();
@@ -103,7 +113,7 @@ describe("LoanManager security invariants", () => {
       const borrowAmount = (pv * ltvBps) / 10_000n / 2n;
       const collateralId = 1_000 + i;
 
-      await loanManager
+      await loanManagerOrigination
         .connect(borrower)
         .createLoan(collateralId, vestingAddress, borrowAmount, 5);
       createdLoanIds.push(i);
@@ -112,7 +122,7 @@ describe("LoanManager security invariants", () => {
         const partialRepay = borrowAmount / 3n;
         await usdc.connect(borrower).mint(borrower.address, partialRepay);
         await usdc.connect(borrower).approve(await loanManager.getAddress(), partialRepay);
-        await loanManager.connect(borrower).repayLoan(i, partialRepay);
+        await loanManagerRepayment.connect(borrower).repayLoan(i, partialRepay);
       }
     }
 
@@ -126,7 +136,7 @@ describe("LoanManager security invariants", () => {
     for (const loanId of createdLoanIds) {
       const loanBefore = await loanManager.loans(loanId);
       if (!loanBefore.active) continue;
-      await expect(loanManager.connect(keeper).settleAtUnlock(loanId)).to.not.be.reverted;
+      await expect(loanManagerRepayment.connect(keeper).liquidateCollateral(loanId)).to.not.be.reverted;
       const loanAfter = await loanManager.loans(loanId);
       expect(loanAfter.active).to.equal(false);
     }

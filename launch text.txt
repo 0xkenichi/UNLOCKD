@@ -1,0 +1,8 @@
+# Install PM2 globally if you haven't
+npm install -g pm2
+
+# Start the whole stack
+pm2 start ecosystem.config.js
+
+# Monitor the AI's brain in real-time
+pm2 logs vestra-asi

@@ -13,11 +13,11 @@ import { flowEvm, flowEvmTestnet } from './chains.js';
 // Localhost (chainId 31337) - matches deployments/localhost from hardhat node
 const LOCALHOST_CHAIN_ID = 31337;
 const LOCALHOST_CONTRACTS = {
-  valuationEngine: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
-  loanManager: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
-  lendingPool: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
-  termVault: '0x0165878A594ca255338adfa4d48449f69242Eb8F',
-  vestingAdapter: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
+  valuationEngine: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
+  loanManager: '0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e',
+  lendingPool: '0x0165878A594ca255338adfa4d48449f69242Eb8F',
+  termVault: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
+  vestingAdapter: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
   usdc: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
   testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
 };

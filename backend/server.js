@@ -131,10 +131,17 @@ const agent = initAgent();
 const blockCache = new Map();
 const activityEvents = [];
 const seenEvents = new Set();
-let lastIndexedBlock = null;
-let latestChainBlock = null;
+let lastIndexedBlock = 0;
+let latestChainBlock = 0;
 let lastPollAt = 0;
 let pollInFlight = false;
+
+// Real-time Simulation State (Guided by MeTTa/Omega Agent)
+let simulationState = {
+  volatility: 10, // Default agent count/intensity
+  interestRateBps: 800, // 8.0%
+  lastUpdate: Date.now()
+};
 let snapshotInFlight = false;
 let cachedRepaySchedule = [];
 let lastScheduleRefresh = 0;
@@ -527,7 +534,7 @@ const pollEvents = async () => {
             const token = details?.[1];
             if (token) e.tokenAddress = typeof token === 'string' ? token : (token?.toString?.() ?? null);
           }
-        } catch (_) {}
+        } catch (_) { }
       }
       await pushEvents(normalized.filter(Boolean));
     }
@@ -550,9 +557,9 @@ const corsOptions = allowWildcardOrigin
   ? { origin: true, credentials: false }
   : corsOrigins.length
     ? { origin: corsOrigins, credentials: true }
-  : isProduction
-    ? { origin: false, credentials: false }
-    : { origin: true, credentials: true };
+    : isProduction
+      ? { origin: false, credentials: false }
+      : { origin: true, credentials: true };
 if (isProduction && !corsOrigins.length) {
   console.warn('[security] CORS_ORIGINS missing in production; cross-origin requests blocked');
 }
@@ -1177,6 +1184,21 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/api/simulation/state', (req, res) => {
+  res.json({
+    ok: true,
+    ...simulationState
+  });
+});
+
+app.post('/api/simulation/update', requireAdmin, (req, res) => {
+  const { volatility, interestRateBps } = req.body;
+  if (volatility !== undefined) simulationState.volatility = Number(volatility);
+  if (interestRateBps !== undefined) simulationState.interestRateBps = Number(interestRateBps);
+  simulationState.lastUpdate = Date.now();
+  res.json({ ok: true, state: simulationState });
+});
+
 const { getPriceBehavior } = require('./lib/priceBehavior');
 
 app.get('/api/price-behavior', async (req, res) => {
@@ -1242,85 +1264,85 @@ app.get(
   requireSession,
   requireWalletOwnerParam('walletAddress'),
   async (req, res) => {
-  const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
-  if (!walletAddress) {
-    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
-  }
-  const targetChain = detectChainTypeForWallet(walletAddress);
-  const sessionWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
-  const linkedEvmWallet =
-    targetChain === 'solana'
-      ? await persistence.getLinkedEvmWallet({ chainType: 'solana', walletAddress })
-      : '';
-  const evmWalletForIdentity =
-    (targetChain === 'evm' ? walletAddress : '') ||
-    linkedEvmWallet ||
-    normalizeWalletAddress(req.user?.walletAddress || '') ||
-    normalizeWalletAddress(
-      sessionWallets.find(
-        (wallet) => String(wallet?.chainType || '').toLowerCase() === 'evm'
-      )?.walletAddress || ''
-    );
-  const identityWallet = evmWalletForIdentity || walletAddress;
-  try {
-    const existing = await persistence.listIdentityAttestations(identityWallet);
-    const existingPassport = existing.find(
-      (item) => String(item?.provider || '').toLowerCase() === 'gitcoin_passport'
-    );
-    let attestationCreated = false;
+    const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
+    if (!walletAddress) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+    const targetChain = detectChainTypeForWallet(walletAddress);
+    const sessionWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
+    const linkedEvmWallet =
+      targetChain === 'solana'
+        ? await persistence.getLinkedEvmWallet({ chainType: 'solana', walletAddress })
+        : '';
+    const evmWalletForIdentity =
+      (targetChain === 'evm' ? walletAddress : '') ||
+      linkedEvmWallet ||
+      normalizeWalletAddress(req.user?.walletAddress || '') ||
+      normalizeWalletAddress(
+        sessionWallets.find(
+          (wallet) => String(wallet?.chainType || '').toLowerCase() === 'evm'
+        )?.walletAddress || ''
+      );
+    const identityWallet = evmWalletForIdentity || walletAddress;
+    try {
+      const existing = await persistence.listIdentityAttestations(identityWallet);
+      const existingPassport = existing.find(
+        (item) => String(item?.provider || '').toLowerCase() === 'gitcoin_passport'
+      );
+      let attestationCreated = false;
 
-    // Stable pseudo-score for MVP testnet UX until live provider integration.
-    const digest = crypto.createHash('sha256').update(identityWallet).digest('hex');
-    const raw = parseInt(digest.slice(0, 8), 16);
-    const score = Math.round((12 + (raw % 36)) * 100) / 100; // 12.00 - 47.99
-    const stampsCount = 2 + (raw % 12); // 2 - 13
+      // Stable pseudo-score for MVP testnet UX until live provider integration.
+      const digest = crypto.createHash('sha256').update(identityWallet).digest('hex');
+      const raw = parseInt(digest.slice(0, 8), 16);
+      const score = Math.round((12 + (raw % 36)) * 100) / 100; // 12.00 - 47.99
+      const stampsCount = 2 + (raw % 12); // 2 - 13
 
-    if (!existingPassport) {
-      await persistence.upsertIdentityAttestation({
+      if (!existingPassport) {
+        await persistence.upsertIdentityAttestation({
+          walletAddress: identityWallet,
+          provider: 'gitcoin_passport',
+          score,
+          stampsCount,
+          verifiedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 180 * ONE_DAY * 1000).toISOString(),
+          metadata: { source: 'mvp_seeded' }
+        });
+        attestationCreated = true;
+      }
+
+      const currentProfile = await persistence.getIdentityProfileByWallet(identityWallet);
+      await persistence.upsertIdentityProfile({
         walletAddress: identityWallet,
-        provider: 'gitcoin_passport',
+        linkedAt: currentProfile?.linkedAt || new Date().toISOString(),
+        identityProofHash: currentProfile?.identityProofHash || `0x${digest.slice(0, 64)}`,
+        sanctionsPass:
+          currentProfile?.sanctionsPass === null || currentProfile?.sanctionsPass === undefined
+            ? true
+            : currentProfile.sanctionsPass
+      });
+
+      const profile = await buildIdentityProfile(identityWallet);
+      return res.json({
+        ok: true,
+        environment: process.env.NODE_ENV || 'development',
+        provider: 'gitcoin_passport_seeded',
+        mock: true,
         score,
         stampsCount,
-        verifiedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 180 * ONE_DAY * 1000).toISOString(),
-        metadata: { source: 'mvp_seeded' }
+        attestationCreated,
+        identityTier: profile.identityTier,
+        tierName: profile.tierName,
+        compositeScore: profile.compositeScore,
+        ias: profile.ias,
+        fbs: profile.fbs,
+        policy: profile.policy
       });
-      attestationCreated = true;
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Failed to score passport identity'
+      });
     }
-
-    const currentProfile = await persistence.getIdentityProfileByWallet(identityWallet);
-    await persistence.upsertIdentityProfile({
-      walletAddress: identityWallet,
-      linkedAt: currentProfile?.linkedAt || new Date().toISOString(),
-      identityProofHash: currentProfile?.identityProofHash || `0x${digest.slice(0, 64)}`,
-      sanctionsPass:
-        currentProfile?.sanctionsPass === null || currentProfile?.sanctionsPass === undefined
-          ? true
-          : currentProfile.sanctionsPass
-    });
-
-    const profile = await buildIdentityProfile(identityWallet);
-    return res.json({
-      ok: true,
-      environment: process.env.NODE_ENV || 'development',
-      provider: 'gitcoin_passport_seeded',
-      mock: true,
-      score,
-      stampsCount,
-      attestationCreated,
-      identityTier: profile.identityTier,
-      tierName: profile.tierName,
-      compositeScore: profile.compositeScore,
-      ias: profile.ias,
-      fbs: profile.fbs,
-      policy: profile.policy
-    });
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error?.message || 'Failed to score passport identity'
-    });
-  }
   }
 );
 
@@ -2758,7 +2780,7 @@ app.post(
           const tx = await wrapperContract.setOperator(vestingAdapter.address);
           await tx.wait(1);
         }
-      } catch (_) {}
+      } catch (_) { }
 
       return res.json({
         ok: true,
@@ -2796,62 +2818,62 @@ app.post(
   validateBody(chatSchema),
   verifyTurnstile,
   async (req, res) => {
-  try {
-    const history = Array.isArray(req.body?.history) ? req.body.history : [];
-    const sessionFingerprint = buildSessionFingerprint(req);
-    let memory = [];
     try {
-      memory = await persistence.listRecentAgentConversations({
-        limit: 90,
-        userId: req.user?.id || undefined,
-        sessionFingerprint: req.user?.id ? undefined : sessionFingerprint
+      const history = Array.isArray(req.body?.history) ? req.body.history : [];
+      const sessionFingerprint = buildSessionFingerprint(req);
+      let memory = [];
+      try {
+        memory = await persistence.listRecentAgentConversations({
+          limit: 90,
+          userId: req.user?.id || undefined,
+          sessionFingerprint: req.user?.id ? undefined : sessionFingerprint
+        });
+      } catch (error) {
+        console.warn('[agent] conversation memory unavailable', error?.message || error);
+      }
+      console.log('[agent] incoming chat', {
+        message: req.body?.message?.slice?.(0, 80) || '',
+        historyCount: history.length
       });
-    } catch (error) {
-      console.warn('[agent] conversation memory unavailable', error?.message || error);
-    }
-    console.log('[agent] incoming chat', {
-      message: req.body?.message?.slice?.(0, 80) || '',
-      historyCount: history.length
-    });
-    let platformSnapshot = null;
-    try {
-      platformSnapshot = await getPlatformSnapshot();
-    } catch (e) {
-      // non-fatal
-    }
-    const result = await answerAgent(agent, {
-      message: req.body?.message,
-      history,
-      memory,
-      context: req.body?.context || null,
-      platformSnapshot
-    });
-    try {
-      await persistence.saveAgentConversation({
-        userId: req.user?.id || null,
-        sessionFingerprint,
-        message: req.body?.message || '',
-        answer: result.answer || '',
-        mode: result.mode || '',
-        provider: result.provider || '',
-        metadata: {
-          sourceFiles: (result.sources || []).map((source) => source.file).slice(0, 8),
-          actionTypes: (result.actions || []).map((action) => action.type).slice(0, 8),
-          intent: result.intent || '',
-          confidence: result.confidence ?? null
-        }
+      let platformSnapshot = null;
+      try {
+        platformSnapshot = await getPlatformSnapshot();
+      } catch (e) {
+        // non-fatal
+      }
+      const result = await answerAgent(agent, {
+        message: req.body?.message,
+        history,
+        memory,
+        context: req.body?.context || null,
+        platformSnapshot
       });
+      try {
+        await persistence.saveAgentConversation({
+          userId: req.user?.id || null,
+          sessionFingerprint,
+          message: req.body?.message || '',
+          answer: result.answer || '',
+          mode: result.mode || '',
+          provider: result.provider || '',
+          metadata: {
+            sourceFiles: (result.sources || []).map((source) => source.file).slice(0, 8),
+            actionTypes: (result.actions || []).map((action) => action.type).slice(0, 8),
+            intent: result.intent || '',
+            confidence: result.confidence ?? null
+          }
+        });
+      } catch (error) {
+        console.warn('[agent] unable to save conversation', error?.message || error);
+      }
+      res.json({ ok: true, ...result });
     } catch (error) {
-      console.warn('[agent] unable to save conversation', error?.message || error);
+      console.error('[agent] chat error', error?.message || error, error);
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'Agent unavailable'
+      });
     }
-    res.json({ ok: true, ...result });
-  } catch (error) {
-    console.error('[agent] chat error', error?.message || error, error);
-    res.status(200).json({
-      ok: false,
-      error: error?.message || 'Agent unavailable'
-    });
-  }
   }
 );
 
@@ -4238,16 +4260,16 @@ app.post(
   verifyTurnstile,
   sanitizePayload,
   async (req, res) => {
-  try {
-    await recordNotification('auction', 'auction_notify', req.body || {}, req.user?.id);
-    res.json({ ok: true, action: 'auction_notify', data: req.body || {} });
-  } catch (error) {
-    res.status(200).json({
-      ok: false,
-      error: error?.message || 'Unable to record notification',
-      data: req.body || {}
-    });
-  }
+    try {
+      await recordNotification('auction', 'auction_notify', req.body || {}, req.user?.id);
+      res.json({ ok: true, action: 'auction_notify', data: req.body || {} });
+    } catch (error) {
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'Unable to record notification',
+        data: req.body || {}
+      });
+    }
   }
 );
 
@@ -4278,16 +4300,16 @@ app.post(
   verifyTurnstile,
   sanitizePayload,
   async (req, res) => {
-  try {
-    await recordSubmission('contact', req.body || {}, req.user?.id);
-    res.json({ ok: true, action: 'contact', data: req.body || {} });
-  } catch (error) {
-    res.status(200).json({
-      ok: false,
-      error: error?.message || 'Unable to record contact submission',
-      data: req.body || {}
-    });
-  }
+    try {
+      await recordSubmission('contact', req.body || {}, req.user?.id);
+      res.json({ ok: true, action: 'contact', data: req.body || {} });
+    } catch (error) {
+      res.status(200).json({
+        ok: false,
+        error: error?.message || 'Unable to record contact submission',
+        data: req.body || {}
+      });
+    }
   }
 );
 
@@ -4445,14 +4467,14 @@ const summarizeSnapshot = (items) => {
   const avgLtv =
     total > 0
       ? Math.round(
-          items.reduce((sum, item) => sum + Number(item.ltvBps || 0), 0) / total
-        )
+        items.reduce((sum, item) => sum + Number(item.ltvBps || 0), 0) / total
+      )
       : 0;
   const avgPv =
     total > 0
       ? Math.round(
-          items.reduce((sum, item) => sum + Number(item.pv || 0), 0) / total
-        )
+        items.reduce((sum, item) => sum + Number(item.pv || 0), 0) / total
+      )
       : 0;
 
   return {
@@ -4735,21 +4757,21 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       const filteredItems = await filterItems(cachedVestedContracts);
       const redacted = privacyRequested
         ? filteredItems.map((item) => {
-            const { borrower, vault, ...rest } = item || {};
-            return {
-              ...rest,
-              // Also remove wallet evidence link which can deanonymize in UI copies.
-              evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
-            };
-          })
+          const { borrower, vault, ...rest } = item || {};
+          return {
+            ...rest,
+            // Also remove wallet evidence link which can deanonymize in UI copies.
+            evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+          };
+        })
         : filteredItems;
-    res.json({
-      ok: true,
-      items: sanitizeForJson(redacted),
-      cached: true,
-      cachedAt: cachedVestedContractsAt
-    });
-    return;
+      res.json({
+        ok: true,
+        items: sanitizeForJson(redacted),
+        cached: true,
+        cachedAt: cachedVestedContractsAt
+      });
+      return;
     } catch (error) {
       return res.status(error.statusCode || 500).json({ ok: false, error: error?.message || 'error', items: [] });
     }
@@ -4772,12 +4794,12 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const filteredItems = await filterItems(items);
     const redacted = privacyRequested
       ? filteredItems.map((item) => {
-          const { borrower, vault, ...rest } = item || {};
-          return {
-            ...rest,
-            evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
-          };
-        })
+        const { borrower, vault, ...rest } = item || {};
+        return {
+          ...rest,
+          evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+        };
+      })
       : filteredItems;
     res.json({
       ok: true,
@@ -4791,21 +4813,21 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
         const filteredItems = await filterItems(cachedVestedContracts);
         const redacted = privacyRequested
           ? filteredItems.map((item) => {
-              const { borrower, vault, ...rest } = item || {};
-              return {
-                ...rest,
-                evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
-              };
-            })
+            const { borrower, vault, ...rest } = item || {};
+            return {
+              ...rest,
+              evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
+            };
+          })
           : filteredItems;
-      res.json({
-        ok: true,
-        items: sanitizeForJson(redacted),
-        cached: true,
-        cachedAt: cachedVestedContractsAt,
-        error: error?.message || 'error'
-      });
-      return;
+        res.json({
+          ok: true,
+          items: sanitizeForJson(redacted),
+          cached: true,
+          cachedAt: cachedVestedContractsAt,
+          error: error?.message || 'error'
+        });
+        return;
       } catch (inner) {
         return res.status(inner.statusCode || 500).json({ ok: false, error: inner?.message || 'error', items: [] });
       }
@@ -4825,9 +4847,9 @@ app.get('/api/vested-snapshots', (req, res) => {
   const snapshots = includeItems
     ? vestedSnapshots
     : vestedSnapshots.map((snapshot) => ({
-        timestamp: snapshot.timestamp,
-        summary: snapshot.summary
-      }));
+      timestamp: snapshot.timestamp,
+      summary: snapshot.summary
+    }));
   res.json({ ok: true, snapshots });
 });
 
@@ -5278,7 +5300,7 @@ const start = async () => {
     console.log(`Vestra backend running on http://localhost:${port}`);
     // Privacy hardening: periodically purge sensitive data (SQLite mode).
     try {
-      persistence.purgeSensitiveData?.().catch?.(() => {});
+      persistence.purgeSensitiveData?.().catch?.(() => { });
       const intervalMs = Math.max(
         60_000,
         Number(process.env.PRIVACY_PURGE_INTERVAL_MS || 60 * 60 * 1000)
@@ -5288,7 +5310,7 @@ const start = async () => {
           console.warn('[privacy] purge failed', error?.message || error);
         });
       }, intervalMs);
-    } catch (_) {}
+    } catch (_) { }
     if (INDEXER_ENABLED) {
       pollEvents().catch((error) =>
         console.error('[indexer] initial poll error', error?.message || error)

@@ -46,7 +46,7 @@ function loadDeploymentAddress(deploymentsDir, name) {
 }
 
 function updateContractsBlock(source, blockKey, updates) {
-  const anchor = `  [${blockKey}.id]: {`;
+  const anchor = blockKey === 'LOCALHOST_CHAIN_ID' ? 'const LOCALHOST_CONTRACTS = {' : `  [${blockKey}.id]: {`;
   const start = source.indexOf(anchor);
   if (start === -1) {
     throw new Error(`Cannot find contracts block for ${blockKey} (missing: ${anchor})`);
@@ -107,10 +107,12 @@ async function main() {
             ? 'flowEvmTestnet'
             : network === 'flowEvm'
               ? 'flowEvm'
-              : null;
+              : network === 'localhost'
+                ? 'LOCALHOST_CHAIN_ID'
+                : null;
   if (!blockKey) {
     console.error(
-      `Unsupported network: ${network}. Supported: sepolia, baseSepolia, base, flowEvmTestnet, flowEvm.`
+      `Unsupported network: ${network}. Supported: localhost, sepolia, baseSepolia, base, flowEvmTestnet, flowEvm.`
     );
     process.exit(1);
   }

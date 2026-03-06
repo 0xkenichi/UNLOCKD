@@ -43,6 +43,16 @@ async function deployFixture() {
     loanManagerDeployment.address,
     deployer
   );
+  const loanManagerOrigination = await ethers.getContractAt(
+    "LoanOriginationFacet",
+    loanManagerDeployment.address,
+    deployer
+  );
+  const loanManagerRepayment = await ethers.getContractAt(
+    "LoanRepaymentFacet",
+    loanManagerDeployment.address,
+    deployer
+  );
 
   // Allow the lending pool to move USDC from the issuance treasury when funding loans
   const poolAddress = await pool.getAddress();
@@ -76,7 +86,7 @@ async function deployFixture() {
   await loanManager.connect(deployer).setSanctionsPass(deployer.address, true);
   await loanManager.connect(deployer).setSanctionsPass(lender.address, true);
 
-  return { deployer, lender, borrower, usdc, registry, valuation, pool, loanManager };
+  return { deployer, lender, borrower, usdc, registry, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment };
 }
 
 async function deployVestingWallet({ beneficiary, borrower, usdc, allocation, duration }) {
@@ -96,7 +106,7 @@ async function deployVestingWallet({ beneficiary, borrower, usdc, allocation, du
 
 describe("Full MVP Flow", () => {
   it("Creates, repays, and settles loan", async () => {
-    const { lender, borrower, usdc, registry, valuation, pool, loanManager } = await deployFixture();
+    const { lender, borrower, usdc, registry, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment } = await deployFixture();
     const poolAddress = await pool.getAddress();
     const loanManagerAddress = await loanManager.getAddress();
 
@@ -120,7 +130,7 @@ describe("Full MVP Flow", () => {
     expect(await loanManager.identityLinked(borrower.address)).to.equal(true);
 
     // Borrower requests loan
-    await loanManager
+    await loanManagerOrigination
       .connect(borrower)
       .createLoan(1, vestingAddress, 25_000e6, 29);
 
@@ -131,7 +141,7 @@ describe("Full MVP Flow", () => {
     // Repay part
     await usdc.connect(borrower).mint(borrower.address, 10_000e6);
     await usdc.connect(borrower).approve(loanManagerAddress, 10_000e6);
-    await loanManager.connect(borrower).repayLoan(0, 10_000e6);
+    await loanManagerRepayment.connect(borrower).repayLoan(0, 10_000e6);
 
     await ethers.provider.send("evm_increaseTime", [31 * 24 * 60 * 60]);
     await ethers.provider.send("evm_mine", []);
@@ -144,14 +154,14 @@ describe("Full MVP Flow", () => {
     await freshPriceFeed.addHistoricalRound(1e8, newBlockTime1 - 1800);
     await freshPriceFeed.addHistoricalRound(1e8, newBlockTime1 - 3600);
     await freshPriceFeed.setPrice(1e8);
-    await loanManager.settleAtUnlock(0);
+    await loanManagerRepayment.liquidateCollateral(0);
 
     const settled = await loanManager.loans(0);
     expect(settled.active).to.equal(false);
   });
 
   it("Creates, repays, and settles private-mode loan (vault is onchain actor)", async () => {
-    const { deployer, lender, borrower, registry, usdc, valuation, pool, loanManager } = await deployFixture();
+    const { deployer, lender, borrower, registry, usdc, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment } = await deployFixture();
     const poolAddress = await pool.getAddress();
     const loanManagerAddress = await loanManager.getAddress();
 
@@ -180,7 +190,7 @@ describe("Full MVP Flow", () => {
 
     // Vault creates private loan (so borrower wallet is not stored in `loans` nor emitted in LoanCreated).
     const borrowAmount = 25_000e6;
-    const callData = loanManager.interface.encodeFunctionData("createPrivateLoan", [
+    const callData = loanManagerOrigination.interface.encodeFunctionData("createPrivateLoan", [
       1,
       vestingAddress,
       borrowAmount,
@@ -207,7 +217,7 @@ describe("Full MVP Flow", () => {
     await vault.connect(deployer).exec(await usdc.getAddress(), 0, approveData);
 
     // Vault executes LoanManager approve
-    const repayData = loanManager.interface.encodeFunctionData("repayPrivateLoan", [0, totalDue]);
+    const repayData = loanManagerRepayment.interface.encodeFunctionData("repayPrivateLoan", [0, totalDue]);
     await vault.connect(deployer).exec(loanManagerAddress, 0, repayData);
 
     await ethers.provider.send("evm_increaseTime", [31 * ONE_DAY]);
@@ -238,7 +248,7 @@ describe("Full MVP Flow", () => {
   });
 
   it("Defaults when no repay at unlock (liquidation path)", async () => {
-    const { lender, borrower, usdc, registry, valuation, pool, loanManager } =
+    const { lender, borrower, usdc, registry, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment } =
       await deployFixture();
     const poolAddress = await pool.getAddress();
 
@@ -274,7 +284,7 @@ describe("Full MVP Flow", () => {
     const maxBorrow = (pv * ltvBps) / 10_000n;
     const borrowAmount = maxBorrow - 1n;
 
-    await loanManager
+    await loanManagerOrigination
       .connect(borrower)
       .createLoan(7, await vesting.getAddress(), borrowAmount, 6);
 
@@ -285,8 +295,8 @@ describe("Full MVP Flow", () => {
     await priceFeed.addHistoricalRound(1e8, newBlockTime3 - 3600);
     await priceFeed.setPrice(1e8);
 
-    await expect(loanManager.settleAtUnlock(0))
-      .to.emit(loanManager, "LoanSettled")
+    await expect(loanManagerRepayment.liquidateCollateral(0))
+      .to.emit(loanManagerRepayment, "LoanSettled")
       .withArgs(0, true);
 
     const loan = await loanManager.loans(0);
@@ -294,7 +304,7 @@ describe("Full MVP Flow", () => {
   });
 
   it("Rejects over-borrow beyond LTV", async () => {
-    const { lender, borrower, usdc, registry, valuation, pool, loanManager } =
+    const { lender, borrower, usdc, registry, valuation, pool, loanManager, loanManagerOrigination } =
       await deployFixture();
     const poolAddress = await pool.getAddress();
     const usdcAddress = await usdc.getAddress();
@@ -332,14 +342,14 @@ describe("Full MVP Flow", () => {
     await pool.connect(lender).deposit(overBorrow);
 
     await expect(
-      loanManager
+      loanManagerOrigination
         .connect(borrower)
         .createLoan(42, await vesting.getAddress(), overBorrow, 29)
     ).to.be.revertedWithCustomError(loanManager, "ExceedsLTV");
   });
 
   it("Rejects vesting when beneficiary mismatches borrower", async () => {
-    const { borrower, lender, registry, usdc, loanManager } = await deployFixture();
+    const { borrower, lender, registry, usdc, loanManager, loanManagerOrigination } = await deployFixture();
 
     const vesting = await deployVestingWallet({
       borrower: lender,
@@ -351,14 +361,14 @@ describe("Full MVP Flow", () => {
     await registry.vetContract(await vesting.getAddress(), 1);
 
     await expect(
-      loanManager
+      loanManagerOrigination
         .connect(borrower)
         .createLoan(9, await vesting.getAddress(), 1_000e6, 29)
     ).to.be.revertedWith("not beneficiary");
   });
 
   it("Creates loan against partial collateral amount", async () => {
-    const { lender, borrower, registry, usdc, valuation, pool, loanManager } =
+    const { lender, borrower, registry, usdc, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment } =
       await deployFixture();
     const poolAddress = await pool.getAddress();
 
@@ -390,7 +400,7 @@ describe("Full MVP Flow", () => {
       ? 50_000n * 10n ** 6n
       : maxBorrow / 2n;
 
-    await loanManager
+    await loanManagerOrigination
       .connect(borrower)
       .createLoanWithCollateralAmount(77, vestingAddress, borrowAmount, pledgedCollateral, 29);
 
@@ -407,7 +417,7 @@ describe("Full MVP Flow", () => {
     await refreshedPriceFeed.addHistoricalRound(1e8, newBlockTime4 - 1800);
     await refreshedPriceFeed.addHistoricalRound(1e8, newBlockTime4 - 3600);
     await refreshedPriceFeed.setPrice(1e8);
-    await loanManager.settleAtUnlock(0);
+    await loanManagerRepayment.liquidateCollateral(0);
 
     // Due to rigorous TWAP valuations and dynamically injected testing block timestamps, 
     // the value is strictly evaluated and verified against protocol metrics rather than exact static ints.
@@ -457,7 +467,7 @@ describe("Full MVP Flow", () => {
   });
 
   it("Escrows Sablier v2 wrapper and creates then settles loan", async () => {
-    const { deployer, lender, borrower, registry, usdc, valuation, pool, loanManager } =
+    const { deployer, lender, borrower, registry, usdc, valuation, pool, loanManager, loanManagerOrigination, loanManagerRepayment } =
       await deployFixture();
     const poolAddress = await pool.getAddress();
 
@@ -526,7 +536,7 @@ describe("Full MVP Flow", () => {
     const borrowAmount = (pv * ltvBps) / 10_000n / 2n;
 
     const collateralId = 100;
-    await loanManager
+    await loanManagerOrigination
       .connect(borrower)
       .createLoan(collateralId, await wrapper.getAddress(), borrowAmount, 29);
 
@@ -547,7 +557,7 @@ describe("Full MVP Flow", () => {
     const dutchDeployment = await deployments.get("DutchAuction");
     await adapterAuction.connect(deployer).setAuthorizedCaller(dutchDeployment.address, true);
 
-    await loanManager.settleAtUnlock(0);
+    await loanManagerRepayment.liquidateCollateral(0);
     const settled = await loanManager.loans(0);
     expect(settled.active).to.equal(false);
   });
