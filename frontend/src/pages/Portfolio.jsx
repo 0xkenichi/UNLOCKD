@@ -52,10 +52,12 @@ export default function Portfolio() {
   const [activity, setActivity] = useState([]);
   const [activityError, setActivityError] = useState('');
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
-  const [solanaPositions, setSolanaPositions] = useState([]);
-  const [solanaError, setSolanaError] = useState('');
-  const [isLoadingSolanaPositions, setIsLoadingSolanaPositions] = useState(false);
-  const [hasLoadedSolanaPositions, setHasLoadedSolanaPositions] = useState(false);
+
+  const [illiquidAssets, setIlliquidAssets] = useState([]);
+  const [illiquidError, setIlliquidError] = useState('');
+  const [isLoadingIlliquid, setIsLoadingIlliquid] = useState(false);
+  const [hasLoadedIlliquid, setHasLoadedIlliquid] = useState(false);
+
   const [solanaStatus, setSolanaStatus] = useState(null);
   const [solanaStatusError, setSolanaStatusError] = useState('');
   const [positionQuery, setPositionQuery] = useState('');
@@ -91,64 +93,59 @@ export default function Portfolio() {
 
   useEffect(() => {
     let active = true;
-    if (!isSolanaSession || !solanaWallet) {
-      setSolanaPositions([]);
-      setSolanaError('');
-      setIsLoadingSolanaPositions(false);
-      setHasLoadedSolanaPositions(false);
-      return () => {
-        active = false;
-      };
+    if (!address && !solanaWallet) {
+      setIlliquidAssets([]);
+      setIlliquidError('');
+      setIsLoadingIlliquid(false);
+      setHasLoadedIlliquid(false);
+      return () => { active = false; };
     }
 
-    const loadSolanaVesting = async () => {
-      setIsLoadingSolanaPositions(true);
-      setSolanaError('');
-      setHasLoadedSolanaPositions(false);
+    const loadIlliquid = async () => {
+      setIsLoadingIlliquid(true);
+      setIlliquidError('');
+      setHasLoadedIlliquid(false);
       try {
-        const items = await fetchVestedContracts({
-          chain: 'solana',
-          walletAddress: solanaWallet,
-          privacyMode
-        });
+        const items = await fetchVestedContracts({ privacyMode });
         if (!active) return;
         const mapped = (items || []).map((item, idx) => {
           const unlockTs = Number(item?.unlockTime || 0);
           const quantity = item?.quantity ? String(item.quantity) : '--';
           return {
-            loanId: item?.loanId || item?.streamId || `solana-${idx}`,
-            id: `Solana-${item?.loanId || item?.streamId || idx}`,
+            loanId: item?.loanId || item?.streamId || `vested-${idx}`,
+            id: `${item?.protocol || 'Vested'}-${item?.collateralId || idx}`,
+            protocol: item?.protocol || (item?.chain === 'solana' ? 'Streamflow' : 'Unknown'),
+            chain: item?.chain || 'unknown',
             principal: quantity,
             interest: item?.pv ? String(item.pv) : '0',
             unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
             unlockTimestamp: unlockTs,
-            active: Boolean(item?.active)
+            active: Boolean(item?.active),
+            timeline: item?.timeline || null
           };
         });
-        setSolanaPositions(mapped);
+        setIlliquidAssets(mapped);
       } catch (error) {
         if (!active) return;
-        setSolanaPositions([]);
+        setIlliquidAssets([]);
         if (isHttpStatusError(error, 404)) {
-          setSolanaError('Solana vesting endpoint is unavailable on backend (`/api/vested-contracts`).');
+          setIlliquidError('Vesting endpoint is unavailable on backend (`/api/vested-contracts`).');
         } else if (String(error?.message || '').toLowerCase().includes('timed out')) {
-          setSolanaError('Solana vesting request timed out. Please retry after backend stabilizes.');
+          setIlliquidError('Vested request timed out. Please retry after backend stabilizes.');
         } else {
-          setSolanaError(error?.message || 'Failed to load Solana vesting.');
+          setIlliquidError(error?.message || 'Failed to load vesting positions.');
         }
       } finally {
         if (active) {
-          setIsLoadingSolanaPositions(false);
-          setHasLoadedSolanaPositions(true);
+          setIsLoadingIlliquid(false);
+          setHasLoadedIlliquid(true);
         }
       }
     };
 
-    loadSolanaVesting();
-    return () => {
-      active = false;
-    };
-  }, [isSolanaSession, solanaWallet, privacyMode]);
+    loadIlliquid();
+    return () => { active = false; };
+  }, [address, solanaWallet, privacyMode]);
 
   useEffect(() => {
     let active = true;
@@ -270,10 +267,7 @@ export default function Portfolio() {
     });
   }, [loanReads, privateFlags, privateLoanReads, recentIds]);
 
-  const positions = useMemo(
-    () => (isSolanaSession ? solanaPositions : evmPositions),
-    [evmPositions, isSolanaSession, solanaPositions]
-  );
+  const positions = evmPositions;
 
   const visiblePositions = useMemo(() => {
     const q = positionQuery.trim().toLowerCase();
@@ -301,23 +295,23 @@ export default function Portfolio() {
     [activity]
   );
 
-  const totals = useMemo(
-    () =>
-      positions.reduce(
-        (acc, p) => ({
-          principal: acc.principal + Number(p.principal || 0),
-          interest: acc.interest + Number(p.interest || 0),
-          activeCount: acc.activeCount + (p.active ? 1 : 0)
-        }),
-        { principal: 0, interest: 0, activeCount: 0 }
-      ),
-    [positions]
-  );
+  const totals = useMemo(() => {
+    const loanTotals = positions.reduce(
+      (acc, p) => ({
+        principal: acc.principal + Number(p.principal || 0),
+        interest: acc.interest + Number(p.interest || 0),
+        activeCount: acc.activeCount + (p.active ? 1 : 0)
+      }),
+      { principal: 0, interest: 0, activeCount: 0 }
+    );
+    const illiquidCount = illiquidAssets.filter(p => p.active).length;
+    return { ...loanTotals, activeCount: loanTotals.activeCount + illiquidCount };
+  }, [positions, illiquidAssets]);
 
   const nextUnlock = useMemo(() => {
-    const ts = positions.map((p) => p.unlockTimestamp).filter(Boolean).sort((a, b) => a - b)[0];
-    return ts ? new Date(ts * 1000).toLocaleDateString() : '--';
-  }, [positions]);
+    const allTs = [...positions, ...illiquidAssets].map((p) => p.unlockTimestamp).filter(Boolean).sort((a, b) => a - b);
+    return allTs[0] ? new Date(allTs[0] * 1000).toLocaleDateString() : '--';
+  }, [positions, illiquidAssets]);
 
   return (
     <motion.div
@@ -351,7 +345,7 @@ export default function Portfolio() {
       <div className="stat-row portfolio-stats">
         <div className="stat-card stat-card-minimal">
           <div className="stat-value">{totals.activeCount}</div>
-          <div className="stat-label">{isSolanaSession ? 'Vesting streams' : 'Loans'}</div>
+          <div className="stat-label">Active Loans & Streams</div>
         </div>
         <div className="stat-card stat-card-minimal">
           <div className="stat-value" style={{ color: 'var(--primary-400)' }}>{formatUsd(totalNet)}</div>
@@ -388,23 +382,11 @@ export default function Portfolio() {
 
       <div className="holo-card">
         <h3 className="section-title">Direct Vestra Positions</h3>
-        {isSolanaSession && solanaStatus?.streamflowEnabled === false && (
-          <p className="error-banner">
-            Solana vesting indexer is disabled on backend (`SOLANA_STREAMFLOW_ENABLED=false`).
-            Enable it and restart backend to load Phantom vesting streams.
-          </p>
-        )}
-        {isLoadingSolanaPositions && (
-          <p className="muted">Loading Solana vesting positions...</p>
-        )}
-        {solanaError && (
-          <p className="muted">{solanaError}</p>
-        )}
         {visiblePositions.length ? (
           <div className="data-table">
             <div className="table-row header">
               <div>Loan</div>
-              <div>{isSolanaSession ? 'Quantity' : 'Principal'}</div>
+              <div>Principal</div>
               <div>Unlock</div>
               <div>Status</div>
               <div>Action</div>
@@ -423,11 +405,7 @@ export default function Portfolio() {
                   <button
                     className="button ghost"
                     type="button"
-                    onClick={() =>
-                      isSolanaSession
-                        ? navigate('/repay')
-                        : navigate(`/repay?loanId=${encodeURIComponent(pos.loanId)}`)
-                    }
+                    onClick={() => navigate(`/repay?loanId=${encodeURIComponent(pos.loanId)}`)}
                     disabled={!pos.active}
                   >
                     Repay
@@ -437,9 +415,60 @@ export default function Portfolio() {
             ))}
           </div>
         ) : (
-          (!isSolanaSession || (hasLoadedSolanaPositions && !isLoadingSolanaPositions && !solanaError)) && (
-            <p className="muted" style={{ padding: '12px 0' }}>{showInactive ? 'No positions.' : 'No active positions on Vestra Protocol directly.'}</p>
-          )
+          <p className="muted" style={{ padding: '12px 0' }}>{showInactive ? 'No positions.' : 'No active loans on Vestra Protocol directly.'}</p>
+        )}
+      </div>
+
+      <div className="holo-card">
+        <h3 className="section-title" style={{ color: '#00ffff' }}>Illiquid Assets (Multi-Protocol)</h3>
+        {isLoadingIlliquid && (
+          <p className="muted">Loading vesting streams...</p>
+        )}
+        {illiquidError && (
+          <p className="error-banner">{illiquidError}</p>
+        )}
+        {!isLoadingIlliquid && !illiquidError && illiquidAssets.length > 0 && (
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Protocol</div>
+              <div>Asset</div>
+              <div>Quantity</div>
+              <div>Timeline</div>
+              <div>Action</div>
+            </div>
+            {illiquidAssets.map((pos) => (
+              <div key={pos.id} className="table-row">
+                <div data-label="Protocol">
+                  <span className="tag">{pos.protocol}</span>
+                </div>
+                <div data-label="Asset">{pos.id.split('-')[1]?.slice(0, 10)}...</div>
+                <div data-label="Quantity">{pos.principal}</div>
+                <div data-label="Timeline">
+                  {pos.timeline ? (
+                    <div style={{ display: 'flex', gap: 6, fontSize: '0.8rem', color: 'var(--primary-400)' }}>
+                      {pos.timeline.cliff && <span>Cliff: {new Date(pos.timeline.cliff * 1000).toLocaleDateString()}</span>}
+                      <span>End: {pos.unlock}</span>
+                    </div>
+                  ) : (
+                    <span>{pos.unlock}</span>
+                  )}
+                </div>
+                <div data-label="Action">
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => navigate(`/borrow?collateral=${encodeURIComponent(pos.id)}`)}
+                    disabled={!pos.active}
+                  >
+                    Borrow Against
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoadingIlliquid && !illiquidError && illiquidAssets.length === 0 && (
+          <p className="muted" style={{ padding: '12px 0' }}>No active vesting streams found on registered wallets.</p>
         )}
       </div>
 

@@ -25,6 +25,9 @@ const {
   fetchStreamflowVestingContracts,
   getUnmappedMints
 } = require('./solana/streamflow');
+const { fetchSablierStreams } = require('./evm/sablier');
+const { fetchSuperfluidStreams } = require('./evm/superfluid');
+const { fetchBonfidaVesting } = require('./solana/bonfida');
 const {
   getRepayConfig,
   buildRepayPlan,
@@ -4977,26 +4980,43 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     });
   };
 
-  const fetchDynamicStreamflow = async () => {
+  const fetchDynamicStreams = async () => {
     const solWallets = new Set(sessionWallets.solana);
+    const evmWallets = new Set(sessionWallets.evm);
     if (walletFilterRaw) {
-      const parsed = normalizeSolanaAddress(walletFilterRaw);
-      if (parsed) solWallets.add(parsed);
+      const parsedSol = normalizeSolanaAddress(walletFilterRaw);
+      if (parsedSol) solWallets.add(parsedSol);
+      else evmWallets.add(walletFilterRaw);
     }
+
+    let streams = [];
     if (solWallets.size > 0) {
       try {
-        return await withTimeout(fetchStreamflowVestingContracts(Array.from(solWallets)), SOLANA_STREAMFLOW_TIMEOUT_MS, []);
-      } catch (e) {
-        return [];
-      }
+        const solArray = Array.from(solWallets);
+        const [sf, bf] = await Promise.all([
+          withTimeout(fetchStreamflowVestingContracts(solArray), SOLANA_STREAMFLOW_TIMEOUT_MS, []),
+          withTimeout(fetchBonfidaVesting(solArray), SOLANA_STREAMFLOW_TIMEOUT_MS, [])
+        ]);
+        streams = streams.concat(sf || [], bf || []);
+      } catch (e) { }
     }
-    return [];
+    if (evmWallets.size > 0) {
+      try {
+        const evmArray = Array.from(evmWallets);
+        const [sab, sup] = await Promise.all([
+          withTimeout(fetchSablierStreams(evmArray), 5000, []),
+          withTimeout(fetchSuperfluidStreams(evmArray), 5000, [])
+        ]);
+        streams = streams.concat(sab || [], sup || []);
+      } catch (e) { }
+    }
+    return streams;
   };
 
   const now = Date.now();
   if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
     try {
-      const dynamicStreams = await fetchDynamicStreamflow();
+      const dynamicStreams = await fetchDynamicStreams();
       const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
       const redacted = privacyRequested
         ? filteredItems.map((item) => {
@@ -5034,7 +5054,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const items = await vestedContractsInFlight;
     cachedVestedContracts = items;
     cachedVestedContractsAt = Date.now();
-    const dynamicStreams = await fetchDynamicStreamflow();
+    const dynamicStreams = await fetchDynamicStreams();
     const filteredItems = await filterItems([...items, ...dynamicStreams]);
     const redacted = privacyRequested
       ? filteredItems.map((item) => {
@@ -5054,7 +5074,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
   } catch (error) {
     if (cachedVestedContracts.length) {
       try {
-        const dynamicStreams = await fetchDynamicStreamflow();
+        const dynamicStreams = await fetchDynamicStreams();
         const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
         const redacted = privacyRequested
           ? filteredItems.map((item) => {
