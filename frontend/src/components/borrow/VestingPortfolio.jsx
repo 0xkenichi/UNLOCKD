@@ -2,7 +2,7 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function VestingPortfolio({ positions = [], selectedId, onSelect, loading = false, onSwitchToSolana }) {
+export default function VestingPortfolio({ positions = [], selectedId, onSelect, loading = false, onSwitchToSolana, isSolanaConnected = false }) {
     if (loading && positions.length === 0) {
         return (
             <div className="holo-card" style={{ padding: '24px', textAlign: 'center' }}>
@@ -33,10 +33,14 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                         <div>
                             <h4 style={{ fontSize: '18px', fontWeight: 600, marginBottom: 8 }}>No Assets Detected</h4>
                             <p className="muted" style={{ maxWidth: '460px', margin: '0 auto', fontSize: '13px' }}>
-                                Connect your Solana wallet to discover Streamflow/Jupiter streams, or ensure your EVM wallet has active Sablier/Vestra positions.
+                                {isSolanaConnected
+                                    ? 'No vesting streams found on your connected EVM or Solana wallets.'
+                                    : 'Connect your Solana wallet to discover Streamflow/Jupiter streams, or ensure your EVM wallet has active Sablier/Vestra positions.'}
                             </p>
                         </div>
-                        <button className="button ghost" onClick={onSwitchToSolana}>Switch to Solana</button>
+                        {!isSolanaConnected && (
+                            <button className="button ghost" onClick={onSwitchToSolana}>Connect Solana Wallet</button>
+                        )}
                     </div>
                 </div>
             </div>

@@ -12,7 +12,7 @@ import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
 import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
 import { fetchIdentity, fetchPassportScore } from '../utils/api.js';
 import { getPassportSnapshotFromAttestations } from '../utils/passport.js';
-import { getActiveIdentity, useOnchainSession } from '../utils/onchainSession.js';
+import { getActiveIdentity, useOnchainSession, useWalletSession, requestWalletSession } from '../utils/onchainSession.js';
 import { usePrivacyMode } from '../utils/privacyMode.js';
 
 function formatProviderLabel(provider = '') {
@@ -35,6 +35,7 @@ export default function Identity() {
   const { address: evmAddress } = useAccount();
   const { publicKey: solPublicKey } = useWallet();
   const { session } = useOnchainSession();
+  const { auth, setAuth } = useWalletSession();
   const { enabled: privacyMode } = usePrivacyMode();
 
   // We default the Identity fetch to EVM if connected to act as the primary Gitcoin Passport Anchor
@@ -82,6 +83,14 @@ export default function Identity() {
     setPassportLoading(true);
     setPassportResult(null);
     try {
+      if (!auth?.token) {
+        if (!evmAddress || !signMessageAsync) {
+          throw new Error('Please connect an EVM wallet to authenticate with Vestra.');
+        }
+        const newAuth = await requestWalletSession({ address: evmAddress, signMessageAsync });
+        setAuth(newAuth);
+      }
+
       const data = await fetchPassportScore(activeWalletAddress);
       setPassportResult(data);
       if (data?.ok) {

@@ -269,6 +269,7 @@ export default function Borrow() {
         onSelect={setSelectedPositionId}
         loading={positionsLoading}
         onSwitchToSolana={handleSwitchToSolana}
+        isSolanaConnected={Boolean(solanaAddress)}
       />
 
       <div className="grid-main" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 24, alignItems: 'start' }}>
