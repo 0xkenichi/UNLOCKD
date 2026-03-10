@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 const { request, gql } = require('graphql-request');
-const { getPriceForErc20 } = require('./pricing');
+// Pricing is handled downstream in the dDPV engine
 
 // Sablier V2 Subgraph for Sepolia (or replace with mainnet as needed)
 const SABLIER_SUBGRAPH_URL = 'https://api.thegraph.com/subgraphs/name/sablier-labs/sablier-v2-sepolia';
@@ -57,12 +57,7 @@ const fetchSablierStreams = async (wallets = []) => {
             let tokenSymbol = stream.asset.symbol || 'SAB';
             let tokenDecimals = Number(stream.asset.decimals || 18);
 
-            const priceInfo = await getPriceForErc20(stream.asset.id, tokenSymbol);
-            let pv = '0';
-            if (priceInfo) {
-                // rough valuation
-                pv = '0'; // We'll compute true PV in the frontend or use a unified valuation engine
-            }
+            let pv = '0'; // PV is calculated by the dDPV engine downstream
 
             const active = endTime > now && locked > 0n;
             const daysToUnlock = endTime > now ? Math.max(0, Math.round((endTime * 1000 - Date.now()) / 86400000)) : null;
