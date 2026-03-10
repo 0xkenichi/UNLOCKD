@@ -151,6 +151,32 @@ export default function DemoDashboard({ vestingContract }) {
     }, [address]);
 
     useEffect(() => {
+        if (vestingContract && address && vestingContract.address && vestingContract.address !== '0xabc123...mockVesting') {
+            const newVest = {
+                symbol: vestingContract.tokenSymbol || 'VSTR',
+                formattedLocked: formatUnits(parseUnits(vestingContract.allocation || '1000000', 0), 0), // it was already 18 decimals from DemoVesting... wait DemoVesting sent 18 decimals toString() 
+                locked: vestingContract.allocation,
+                vestingContract: vestingContract.address,
+                collateralId: vestingContract.collateralId
+            };
+
+            // Just ensure it has reasonable numbers
+            newVest.formattedLocked = 10000;
+
+            setPortfolio(prev => {
+                const existing = prev.vested.find(v => v.vestingContract === vestingContract.address);
+                if (!existing) {
+                    return { ...prev, vested: [newVest, ...prev.vested] };
+                }
+                return prev;
+            });
+            if (!selectedVest) {
+                setSelectedVest(newVest);
+            }
+        }
+    }, [vestingContract, address]);
+
+    useEffect(() => {
         if (isTxSuccess) {
             fetchPortfolio();
             // In a real app we'd also poll the indexer for the new loanId

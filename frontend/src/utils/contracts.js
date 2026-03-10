@@ -20,7 +20,8 @@ const LOCALHOST_CONTRACTS = {
   vestingAdapter: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
   usdc: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
   testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  insuranceVault: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' // placeholder for local
+  insuranceVault: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512', // placeholder for local
+  demoFaucet: '0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8'
 };
 
 export const CONTRACTS = {
@@ -6997,6 +6998,36 @@ export const testnetPriceFeedAbi = [
       { name: '', type: 'uint256' },
       { name: '', type: 'uint80' }
     ]
+  }
+];
+
+export const demoFaucetAbi = [
+  {
+    "inputs": [
+      { "internalType": "address", "name": "registry_", "type": "address" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "borrower", "type": "address" },
+      { "indexed": false, "internalType": "address", "name": "vestingContract", "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "collateralId", "type": "uint256" }
+    ],
+    "name": "DemoPositionMinted",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "allocation", "type": "uint256" },
+      { "internalType": "uint64", "name": "durationMonths", "type": "uint64" }
+    ],
+    "name": "mintDemoPosition",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ];
 

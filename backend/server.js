@@ -247,16 +247,23 @@ const initPersistence = async () => {
 const DEPLOYMENTS_NETWORK = process.env.DEPLOYMENTS_NETWORK || 'sepolia';
 
 const loadDeployment = (name) => {
-  const filePath = path.join(
-    __dirname,
-    '..',
-    'deployments',
-    DEPLOYMENTS_NETWORK,
-    `${name}.json`
-  );
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const parsed = JSON.parse(raw);
-  return parsed;
+  try {
+    const filePath = path.join(
+      __dirname,
+      '..',
+      'deployments',
+      DEPLOYMENTS_NETWORK,
+      `${name}.json`
+    );
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    if (DEPLOYMENTS_NETWORK === 'localhost') {
+      console.warn(`[backend] Missing deployment for ${name} on localhost, using dummy data`);
+      return { address: ethers.ZeroAddress, abi: [] };
+    }
+    throw err;
+  }
 };
 
 const loanManagerDeployment = loadDeployment('LoanManager');

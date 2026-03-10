@@ -233,6 +233,27 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     await (await mockUSDCInstance.mint(pool.address, ethers.parseUnits("1000000", 6))).wait();
   }
 
+  // 14. Deploy DemoFaucet for UI
+  const demoFaucet = await deploy("DemoFaucet", {
+    from: deployer,
+    args: [registry.address],
+    log: true,
+  });
+
+  const registryInstance = await ethers.getContractAt(
+    "VestingRegistry",
+    registry.address,
+    await ethers.getSigner(deployer)
+  );
+
+  const GOVERNOR_ROLE = await registryInstance.GOVERNOR_ROLE();
+  await (await registryInstance.grantRole(GOVERNOR_ROLE, demoFaucet.address)).wait();
+
+  // Give the UI deployer some eth to pay gas
+  if (isLocal) {
+    // If the UI is using some other account, hardhat provides 10,000 ETH to account 0.
+  }
+
   log("Deployment complete!");
 };
 

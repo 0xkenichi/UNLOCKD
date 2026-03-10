@@ -181,7 +181,15 @@ const supabaseClient = () => {
       return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
       if (err.name === 'AbortError') throw new Error('Supabase fetch timed out');
-      throw err;
+      // If fetch completely fails (e.g. DNS resolution, refused connection)
+      // return a fake 503 response so the Supabase client handles it gracefully 
+      // instead of exploding the Node process with unhandled promise rejections.
+      console.warn('[supabase] underlying fetch failed natively:', err.message);
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'Content-Type': 'application/json' }
+      });
     } finally {
       clearTimeout(timeoutId);
     }
