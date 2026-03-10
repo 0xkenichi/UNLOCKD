@@ -43,7 +43,7 @@ jobs:
           cache: npm
 
       - name: Install root dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run lint checks
         run: npm run lint
@@ -64,7 +64,7 @@ jobs:
           cache: npm
 
       - name: Install root dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run contract tests
         run: npm test
@@ -132,7 +132,7 @@ jobs:
           cache: npm
 
       - name: Install backend dependencies
-        run: npm install --prefix backend --legacy-peer-deps
+        run: npm install --prefix backend
 
       - name: Start backend
         run: |
