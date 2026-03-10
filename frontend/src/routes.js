@@ -22,6 +22,5 @@ export const routeImports = {
   communityPools: () => import('./pages/CommunityPools.jsx'),
   demo: () => import('./pages/Demo.jsx'),
   admin: () => import('./pages/Admin.jsx'),
-  treasury: () => import('./pages/Treasury.jsx'),
-  scanner: () => import('./pages/Scanner.jsx')
+  treasury: () => import('./pages/Treasury.jsx')
 };

@@ -2,7 +2,7 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useReadContracts } from 'wagmi';
 import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
@@ -17,11 +17,22 @@ import AdvancedSection from '../components/common/AdvancedSection.jsx';
 import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
 import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
 import { usePrivacyMode } from '../utils/privacyMode.js';
+import { useScanner } from '../utils/ScannerContext.jsx';
 
 const MAX_POSITIONS = 12;
 const MAX_ACTIVITY = 8;
 const isHttpStatusError = (error, code) =>
   new RegExp(`Request failed:\\s*${code}`, 'i').test(String(error?.message || ''));
+
+function formatUsd(value) {
+  if (!value || isNaN(value)) return '$0.00';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
+}
+
+function formatBalance(value, decimals = 4) {
+  if (!value || isNaN(value)) return '0';
+  return value.toLocaleString('en-US', { maximumFractionDigits: decimals });
+}
 
 export default function Portfolio() {
   const navigate = useNavigate();
@@ -29,6 +40,13 @@ export default function Portfolio() {
   const chainId = useChainId();
   const { session } = useOnchainSession();
   const { enabled: privacyMode } = usePrivacyMode();
+
+  // Scanner Context
+  const { data: scannerData, loading: scannerLoading, error: scannerError, refetch: refetchScanner } = useScanner();
+  const liquidAssets = scannerData?.assets?.liquid || [];
+  const defiPositions = scannerData?.assets?.defi || [];
+  const totalNet = scannerData?.summary?.totalNetWorthUsd || 0;
+
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
   const [activity, setActivity] = useState([]);
@@ -310,13 +328,21 @@ export default function Portfolio() {
     >
       <div className="page-header">
         <h1 className="page-title holo-glow">Portfolio</h1>
-        <p className="page-subtitle">Balances and positions.</p>
+        <p className="page-subtitle">Balances, lending streams, and positions.</p>
         <div className="inline-actions" style={{ marginTop: 8 }}>
           <span className="chip">Testnet portfolio mode</span>
-          <span className="chip">For demo verification</span>
+          <span className="chip">Global multi-chain active</span>
         </div>
         <div className="inline-actions" style={{ marginTop: 10 }}>
           <PrivacyModeToggle />
+          <button
+            className="button ghost"
+            onClick={refetchScanner}
+            disabled={scannerLoading}
+            style={{ padding: '4px 12px', fontSize: 13, height: 32 }}
+          >
+            {scannerLoading ? 'Scanning...' : '⟳ Sync Assets'}
+          </button>
         </div>
       </div>
 
@@ -328,8 +354,8 @@ export default function Portfolio() {
           <div className="stat-label">{isSolanaSession ? 'Vesting streams' : 'Loans'}</div>
         </div>
         <div className="stat-card stat-card-minimal">
-          <div className="stat-value">{isSolanaSession ? (solanaWallet ? `${solanaWallet.slice(0, 6)}…${solanaWallet.slice(-4)}` : '--') : formattedBalance}</div>
-          <div className="stat-label">{isSolanaSession ? 'Phantom wallet' : 'USDC'}</div>
+          <div className="stat-value" style={{ color: 'var(--primary-400)' }}>{formatUsd(totalNet)}</div>
+          <div className="stat-label">Total Net Worth</div>
         </div>
         <div className="stat-card stat-card-minimal">
           <div className="stat-value">{nextUnlock}</div>
@@ -339,7 +365,7 @@ export default function Portfolio() {
 
       <div className="dashboard-hero-actions">
         <button className="button" onClick={() => navigate('/borrow')}>
-          Borrow
+          Borrow API
         </button>
         <button
           className="button ghost"
@@ -356,36 +382,23 @@ export default function Portfolio() {
             navigate('/repay');
           }}
         >
-          Repay
+          Repay Debt
         </button>
       </div>
 
       <div className="holo-card">
-        <h3 className="section-title">Positions</h3>
+        <h3 className="section-title">Direct Vestra Positions</h3>
         {isSolanaSession && solanaStatus?.streamflowEnabled === false && (
           <p className="error-banner">
             Solana vesting indexer is disabled on backend (`SOLANA_STREAMFLOW_ENABLED=false`).
             Enable it and restart backend to load Phantom vesting streams.
           </p>
         )}
-        {isSolanaSession && solanaStatus?.streamflowEnabled && (
-          <p className="muted">
-            Solana vesting indexer is enabled ({solanaStatus.cluster || 'mainnet'} cluster).
-          </p>
-        )}
-        {isSolanaSession && solanaStatusError && !solanaError && (
-          <p className="muted">{solanaStatusError}</p>
-        )}
         {isLoadingSolanaPositions && (
           <p className="muted">Loading Solana vesting positions...</p>
         )}
         {solanaError && (
           <p className="muted">{solanaError}</p>
-        )}
-        {isSolanaSession && hasLoadedSolanaPositions && !isLoadingSolanaPositions && !solanaError && !visiblePositions.length && (
-          <p className="muted">
-            No Solana vesting streams found for this Phantom wallet. If Jup shows holdings but not vesting streams, those assets may not be Streamflow vesting contracts indexed by this backend.
-          </p>
         )}
         {visiblePositions.length ? (
           <div className="data-table">
@@ -425,32 +438,117 @@ export default function Portfolio() {
           </div>
         ) : (
           (!isSolanaSession || (hasLoadedSolanaPositions && !isLoadingSolanaPositions && !solanaError)) && (
-            <p className="muted">{showInactive ? 'No positions.' : 'No active positions.'}</p>
+            <p className="muted" style={{ padding: '12px 0' }}>{showInactive ? 'No positions.' : 'No active positions on Vestra Protocol directly.'}</p>
           )
         )}
       </div>
+
+      {scannerError && (
+        <p className="error-banner">Global Scanner Error: {scannerError}</p>
+      )}
+
+      {/* Global Liquid Assets (From Scanner) */}
+      {liquidAssets.length > 0 && (
+        <div className="holo-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="section-head" style={{ padding: '16px 20px 0' }}>
+            <div>
+              <div className="section-title">Global Liquid Assets</div>
+              <div className="section-subtitle">Auto-discovered across networks via indexing nodes.</div>
+            </div>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                <th className="muted" style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Asset</th>
+                <th className="muted" style={{ padding: '10px 8px', textAlign: 'right', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Network</th>
+                <th className="muted" style={{ padding: '10px 8px', textAlign: 'right', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Balance</th>
+                <th className="muted" style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {liquidAssets.map((token, i) => (
+                <motion.tr
+                  key={`${token.chain}-${token.contractAddress}`}
+                  initial={{ opacity: 0, translateY: 6 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ delay: i * 0.04, duration: 0.25 }}
+                  style={{ borderBottom: '1px solid var(--border-primary)' }}
+                >
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{token.symbol}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{token.name?.slice(0, 20)}</div>
+                    </div>
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: 13 }}>
+                    <span className="tag" style={{ fontSize: 10 }}>{token.chain}</span>
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 500, fontSize: 14 }}>
+                    {formatBalance(token.balance)}
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, fontSize: 14 }}>
+                    {token.valueUsd > 0 ? formatUsd(token.valueUsd) : <span className="muted">—</span>}
+                  </td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Global DeFi Positions (From Scanner) */}
+      {defiPositions.length > 0 && (
+        <div className="holo-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="section-head" style={{ padding: '16px 20px 0' }}>
+            <div>
+              <div className="section-title">DeFi Positions</div>
+              <div className="section-subtitle">Dune Analytics / Protocol Discovery</div>
+            </div>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                <th className="muted" style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Protocol</th>
+                <th className="muted" style={{ padding: '10px 8px', textAlign: 'right', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Type</th>
+                <th className="muted" style={{ padding: '10px 8px', textAlign: 'right', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {defiPositions.map((pos, i) => (
+                <motion.tr
+                  key={`defi-${i}`}
+                  initial={{ opacity: 0, translateY: 6 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ delay: i * 0.04, duration: 0.25 }}
+                  style={{ borderBottom: '1px solid var(--border-primary)' }}
+                >
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{pos.protocol}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{pos.description?.slice(0, 32)}</div>
+                  </td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                    <span className="tag" style={{ fontSize: 10 }}>{pos.type || pos.protocol}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, fontSize: 14 }}>
+                    {pos.valueUsd > 0 ? formatUsd(pos.valueUsd) : <span className="muted">—</span>}
+                  </td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <AdvancedSection title="Filters & activity">
         <div className="advanced-block">
           <div className="stack-row" style={{ gap: 8, marginBottom: 12 }}>
             <input
               className="form-input"
-              placeholder="Search"
+              placeholder="Search local positions"
               value={positionQuery}
               onChange={(e) => setPositionQuery(e.target.value)}
               aria-label="Search portfolio positions"
             />
-            <select
-              className="form-input"
-              value={positionSort}
-              onChange={(e) => setPositionSort(e.target.value)}
-              aria-label="Sort portfolio positions"
-            >
-              <option value="unlock-asc">Unlock soonest</option>
-              <option value="unlock-desc">Unlock latest</option>
-              <option value="amount-desc">Largest</option>
-              <option value="amount-asc">Smallest</option>
-            </select>
             <button className="button ghost" type="button" onClick={() => setShowInactive((p) => !p)}>
               {showInactive ? 'Hide inactive' : 'Show inactive'}
             </button>
@@ -500,12 +598,6 @@ export default function Portfolio() {
           ) : (
             <p className="muted">No recent activity.</p>
           )}
-        </div>
-        <div className="advanced-block">
-          <div className="card-list">
-            <div className="pill">Principal: {totals.principal.toLocaleString()}</div>
-            <div className="pill">Interest: {totals.interest.toLocaleString()}</div>
-          </div>
         </div>
       </AdvancedSection>
     </motion.div>

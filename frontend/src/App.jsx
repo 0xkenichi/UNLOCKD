@@ -48,7 +48,6 @@ const CommunityPools = lazy(routeImports.communityPools);
 const Demo = lazy(routeImports.demo);
 const Admin = lazy(routeImports.admin);
 const Treasury = lazy(routeImports.treasury);
-const Scanner = lazy(routeImports.scanner);
 
 function RouteFallback() {
     return (
@@ -201,7 +200,6 @@ function AppShell() {
                                 { path: '/portfolio', label: 'Portfolio' },
                                 { path: '/community-pools', label: 'Community' },
                                 { path: '/treasury', label: 'Treasury' },
-                                { path: '/scanner', label: 'Scanner' },
                                 { path: '/demo', label: 'Demo' },
                                 { path: '/airdrop', label: 'Airdrop' },
                                 { path: '/feedback', label: 'Feedback' },
@@ -338,7 +336,6 @@ function AppShell() {
                                 <Route path="/demo" element={<Demo />} />
                                 <Route path="/admin" element={<Admin />} />
                                 <Route path="/treasury" element={<Treasury />} />
-                                <Route path="/scanner" element={<Scanner />} />
                             </Routes>
                         </Suspense>
                     </motion.div>

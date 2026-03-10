@@ -76,5 +76,17 @@
     "abdk-libraries-solidity": "^3.0.0",
     "chai": "^4.4.1",
     "dotenv": "^16.4.5"
-  }
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xkenichi/UNLOCKD.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xkenichi/UNLOCKD/issues"
+  },
+  "homepage": "https://github.com/0xkenichi/UNLOCKD#readme"
 }
