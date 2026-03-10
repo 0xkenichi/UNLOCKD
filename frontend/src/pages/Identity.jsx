@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { IsometricIdentityPassport } from '../components/visuals/IsometricHeroes.jsx';
 import { useAccount, useSignMessage } from 'wagmi';
+import { useWallet } from '@solana/wallet-adapter-react';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import PassportSummary from '../components/common/PassportSummary.jsx';
 import VerifiedCard from '../components/identity/VerifiedCard.jsx';
@@ -31,11 +32,15 @@ function formatDateLabel(value) {
 }
 
 export default function Identity() {
-  const { address } = useAccount();
+  const { address: evmAddress } = useAccount();
+  const { publicKey: solPublicKey } = useWallet();
   const { session } = useOnchainSession();
   const { enabled: privacyMode } = usePrivacyMode();
-  const activeIdentity = getActiveIdentity(session, address);
-  const activeWalletAddress = activeIdentity.walletAddress || '';
+
+  // We default the Identity fetch to EVM if connected to act as the primary Gitcoin Passport Anchor
+  const activeWalletAddress = evmAddress || (solPublicKey ? solPublicKey.toString() : '');
+  const hasSolanaLinked = Boolean(solPublicKey && evmAddress);
+
   const { signMessageAsync } = useSignMessage();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -135,17 +140,15 @@ export default function Identity() {
           />
         </div>
 
-        <h1 className="page-title holo-glow" style={{ position: 'relative', zIndex: 1 }}>Identity</h1>
+        <h1 className="page-title holo-glow" style={{ position: 'relative', zIndex: 1 }}>Global Identity</h1>
         <div className="page-subtitle" style={{ position: 'relative', zIndex: 1 }}>
-          Optional verification unlocks better loan terms. Your data stays private; only outcomes are
-          stored.
+          Link multiple wallets to a single Gitcoin Passport score. Optional verification unlocks better loan terms.
         </div>
         <div className="inline-actions" style={{ marginTop: 8, position: 'relative', zIndex: 1 }}>
-          <span className="chip">Testnet identity mode</span>
-          <span className="chip">Seeded passport scoring</span>
-          {activeWalletAddress && (
-            <span className="chip">
-              Active identity: {activeIdentity.chainType === 'solana' ? 'Solana' : 'EVM'}
+          <span className="chip">EVM Passport Anchor</span>
+          {hasSolanaLinked && (
+            <span className="chip" style={{ borderColor: 'var(--success-600)', color: 'var(--success-400)' }}>
+              Solana Wallet Linked
             </span>
           )}
         </div>
@@ -154,9 +157,7 @@ export default function Identity() {
         </div>
       </div>
       <PrivacyUpgradeWizard enabled={privacyMode} />
-      <div className="essentials-row">
-        <EssentialsPanel />
-      </div>
+
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Verification Tier</div>
@@ -167,7 +168,7 @@ export default function Identity() {
               '—'
             )}
           </div>
-          <div className="stat-delta">Upgrade to unlock LTV</div>
+          <div className="stat-delta">Based on Gitcoin Stamps</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Composite Score</div>
@@ -193,6 +194,89 @@ export default function Identity() {
           <p className="muted">{error}</p>
         </div>
       )}
+
+      <div className="holo-card" id="identity-checklist">
+        <div className="section-head">
+          <div>
+            <h3 className="section-title">Gitcoin Passport Verification</h3>
+            <div className="section-subtitle">Link wallets and synchronize your off-chain stamps.</div>
+          </div>
+        </div>
+
+        {/* Wallet Linking UI */}
+        <div style={{ marginBottom: 24, padding: 16, background: 'var(--bg-layer-2)', borderRadius: 12, border: '1px solid var(--border-primary)' }}>
+          <h4 style={{ margin: '0 0 12px 0', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>Linked Connected Addresses</h4>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="pill">EVM (Anchor)</span>
+              <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)' }}>{evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : 'Not connected'}</span>
+            </div>
+            {evmAddress && <span className="tag success">Active</span>}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="pill">Solana</span>
+              <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)' }}>{solPublicKey ? `${solPublicKey.toString().slice(0, 6)}...${solPublicKey.toString().slice(-4)}` : 'Not connected'}</span>
+            </div>
+            {solPublicKey && evmAddress ? <span className="tag success">Linked to EVM Passport</span> : <span className="tag">Independent</span>}
+          </div>
+          {!evmAddress && solPublicKey && (
+            <div className="muted" style={{ marginTop: 12, fontSize: 13 }}>
+              Warning: Connect an EVM wallet to act as your primary Gitcoin Passport anchor. Your Solana wallet will map its trust score from the connected EVM address automatically.
+            </div>
+          )}
+        </div>
+
+        <div className="card-list" style={{ marginBottom: 16 }}>
+          <div className={`pill ${activeWalletAddress ? 'success' : ''}`} style={activeWalletAddress ? { borderColor: 'var(--success-600)' } : {}}>
+            {activeWalletAddress ? '✓ ' : ''}Connect Primary Wallet
+          </div>
+          <div className={`pill ${hasAttestations ? 'success' : ''}`}>
+            {hasAttestations ? '✓ ' : ''}Add verification (Passport or attest)
+          </div>
+          <div className={`pill ${(profile?.identityTier ?? 0) >= 2 ? 'success' : ''}`}>
+            {(profile?.identityTier ?? 0) >= 2 ? '✓ ' : ''}Reach Standard tier for best access
+          </div>
+        </div>
+        <div className="stack" style={{ gap: 12 }}>
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={handlePassportCheck}
+            disabled={!evmAddress || passportLoading}
+            aria-disabled={!evmAddress || passportLoading}
+          >
+            {passportLoading ? 'Checking...' : 'Sync Gitcoin Passport Score'}
+          </button>
+          {passportResult && (
+            <div
+              className="muted"
+              style={{ fontSize: 12 }}
+              role="status"
+              aria-live="polite"
+            >
+              {passportResult.error ? (
+                <span style={{ color: 'var(--danger-400)' }}>{passportResult.error}</span>
+              ) : (
+                <>
+                  <PassportSummary
+                    score={passportResult.score}
+                    stamps={passportResult.stampsCount}
+                    showLabel={false}
+                  />
+                  {passportResult.attestationCreated && ' · Score synchronized globally'}
+                </>
+              )}
+            </div>
+          )}
+          <div className="muted" style={{ fontSize: 12 }}>
+            Note: Ensure you have minted your actual Gitcoin Stamps on passport.gitcoin.co prior to syncing your rank here.
+          </div>
+        </div>
+      </div>
+
       <div className="grid-2">
         <VerifiedCard
           identityTier={profile?.identityTier ?? 0}
@@ -238,7 +322,7 @@ export default function Identity() {
               ))}
             </ul>
           ) : (
-            <div className="muted">Run a passport check below to create your first attestation.</div>
+            <div className="muted">Run a passport check to create your first attestation.</div>
           )}
           <div className="identity-attestations__actions">
             <a
@@ -248,78 +332,12 @@ export default function Identity() {
               rel="noreferrer"
               aria-label="Open Gitcoin Passport in a new tab"
             >
-              Open Gitcoin Passport
+              Manage Gitcoin Stamps
             </a>
-            <button
-              className="button"
-              type="button"
-              onClick={() =>
-                document
-                  .getElementById('identity-checklist')
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }
-              aria-controls="identity-checklist"
-            >
-              Verify now
-            </button>
-          </div>
-        </div>
-      </div>
-      <div className="holo-card" id="identity-checklist">
-        <div className="section-head">
-          <div>
-            <h3 className="section-title">Verification checklist</h3>
-            <div className="section-subtitle">Complete steps to raise your tier</div>
-          </div>
-        </div>
-        <div className="card-list" style={{ marginBottom: 16 }}>
-          <div className={`pill ${activeWalletAddress ? 'success' : ''}`} style={activeWalletAddress ? { borderColor: 'var(--success-600)' } : {}}>
-            {activeWalletAddress ? '✓ ' : ''}Connect wallet
-          </div>
-          <div className={`pill ${hasAttestations ? 'success' : ''}`}>
-            {hasAttestations ? '✓ ' : ''}Add verification (Passport or attest)
-          </div>
-          <div className={`pill ${(profile?.identityTier ?? 0) >= 2 ? 'success' : ''}`}>
-            {(profile?.identityTier ?? 0) >= 2 ? '✓ ' : ''}Reach Standard tier for best access
-          </div>
-        </div>
-        <div className="stack" style={{ gap: 12 }}>
-          <button
-            type="button"
-            className="button button--secondary"
-            onClick={handlePassportCheck}
-            disabled={!activeWalletAddress || passportLoading}
-            aria-disabled={!activeWalletAddress || passportLoading}
-          >
-            {passportLoading ? 'Checking...' : 'Verify with Gitcoin Passport'}
-          </button>
-          {passportResult && (
-            <div
-              className="muted"
-              style={{ fontSize: 12 }}
-              role="status"
-              aria-live="polite"
-            >
-              {passportResult.error ? (
-                <span style={{ color: 'var(--danger-400)' }}>{passportResult.error}</span>
-              ) : (
-                <>
-                  <PassportSummary
-                    score={passportResult.score}
-                    stamps={passportResult.stampsCount}
-                    showLabel={false}
-                  />
-                  {passportResult.attestationCreated && ' · Attestation saved'}
-                </>
-              )}
-            </div>
-          )}
-          <div className="muted" style={{ fontSize: 12 }}>
-            Note: Passport verification in this environment is seeded for testnet UX and explicitly
-            marked as mock in API responses.
           </div>
         </div>
       </div>
     </div>
   );
 }
+

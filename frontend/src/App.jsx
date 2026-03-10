@@ -200,9 +200,7 @@ function AppShell() {
                                 { path: '/portfolio', label: 'Portfolio' },
                                 { path: '/community-pools', label: 'Community' },
                                 { path: '/treasury', label: 'Treasury' },
-                                { path: '/demo', label: 'Demo' },
-                                { path: '/airdrop', label: 'Airdrop' },
-                                { path: '/feedback', label: 'Feedback' },
+                                { path: '/identity', label: 'Identity' },
                             ].map((navItem) => {
                                 const isActive = location.pathname.startsWith(navItem.path);
                                 return (
@@ -284,19 +282,11 @@ function AppShell() {
                     </div>
                 </header>
             )}
-            {showChainWarning && (
+            {!isLanding && showChainWarning && (
                 <div className="chain-warning">
                     Please switch to Flow EVM, Base, Arbitrum, or Avalanche to continue.
                 </div>
             )}
-            {!showChainWarning &&
-                session.chainType === 'solana' &&
-                hasSolanaSession &&
-                solanaNetwork && (
-                    <div className="chain-warning">
-                        Phantom wallet: switch to {solanaNetwork.name} to continue.
-                    </div>
-                )}
             <main
                 id="main-content"
                 className={`app-main ${isLanding ? 'app-main--landing' : ''} ${isImmersiveDashboard ? 'app-main--immersive' : ''}`}
