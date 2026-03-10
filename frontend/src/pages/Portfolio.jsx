@@ -106,7 +106,10 @@ export default function Portfolio() {
       setIlliquidError('');
       setHasLoadedIlliquid(false);
       try {
-        const items = await fetchVestedContracts({ privacyMode });
+        const items = await fetchVestedContracts({
+          privacyMode,
+          ...(solanaWallet ? { walletAddress: solanaWallet } : {})
+        });
         if (!active) return;
         const mapped = (items || []).map((item, idx) => {
           const unlockTs = Number(item?.unlockTime || 0);

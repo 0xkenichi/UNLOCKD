@@ -65,8 +65,7 @@ function AppShell() {
     const hasStandardHeader = !isLanding;
     const chainId = useChainId();
     const { address: connectedAddress, isConnecting, isReconnecting } = useAccount();
-    const { connected: solConnected } = useWallet();
-    const { setVisible: setSolanaModalVisible } = useWalletModal();
+    const { select: solSelect, disconnect: solDisconnect, connected: solConnected, publicKey: solPublicKey } = useWallet();
     const { session, setSession } = useOnchainSession();
     const allChainIds = ALL_EVM_CHAINS.map((chain) => chain.id);
     const isEvm = session.chainType !== 'solana';
@@ -122,6 +121,19 @@ function AppShell() {
             evmWalletAddress: connectedAddress
         }));
     }, [connectedAddress, isConnecting, isReconnecting, setSession]);
+
+    useEffect(() => {
+        if (!solPublicKey) {
+            setSession((prev) =>
+                prev?.solanaWalletAddress ? { ...prev, solanaWalletAddress: null } : prev
+            );
+            return;
+        }
+        setSession((prev) => ({
+            ...prev,
+            solanaWalletAddress: solPublicKey.toString()
+        }));
+    }, [solPublicKey, setSession]);
 
     useEffect(() => {
         if (typeof document === 'undefined') return undefined;
@@ -245,8 +257,14 @@ function AppShell() {
                             {/* Phantom / Solana wallet connect */}
                             <button
                                 type="button"
-                                onClick={() => setSolanaModalVisible(true)}
-                                title={solConnected ? 'Solana wallet connected' : 'Connect Solana / Phantom'}
+                                onClick={() => {
+                                    if (solConnected) {
+                                        solDisconnect();
+                                    } else {
+                                        solSelect('Phantom');
+                                    }
+                                }}
+                                title={solConnected ? 'Solana wallet connected (Click to Disconnect)' : 'Connect Solana / Phantom'}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',

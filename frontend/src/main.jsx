@@ -22,6 +22,7 @@ import {
   safeWallet
 } from '@rainbow-me/rainbowkit/wallets';
 import '@rainbow-me/rainbowkit/styles.css';
+import '@solana/wallet-adapter-react-ui/styles.css';
 import { ALL_EVM_CHAINS, DEFAULT_EVM_CHAIN } from './utils/chains.js';
 import { getContractAddress } from './utils/contracts.js';
 import { AlchemyAccountProvider, createConfig as createAlchemyConfig } from '@account-kit/react';
