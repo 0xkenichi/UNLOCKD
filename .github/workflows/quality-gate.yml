@@ -136,7 +136,7 @@ jobs:
 
       - name: Start backend
         run: |
-          PORT=4100 INDEXER_ENABLED=false node backend/server.js > /tmp/unlockd-backend.log 2>&1 &
+          PORT=4100 INDEXER_ENABLED=false DEPLOYMENTS_NETWORK=localhost node backend/server.js > /tmp/unlockd-backend.log 2>&1 &
           echo $! > /tmp/unlockd-backend.pid
 
       - name: Wait for health endpoint
