@@ -40,9 +40,23 @@ module.exports = {
       chainId: 1,
     },
     sepolia: {
-      url: process.env.ALCHEMY_SEPOLIA_URL || "https://rpc.sepolia.org",
+      url: process.env.ALCHEMY_ACCOUNT_KIT_RPC_URL || process.env.ALCHEMY_SEPOLIA_URL || "https://rpc.sepolia.org",
       accounts,
       chainId: 11155111,
+    },
+
+    // ASI Devnet
+    asiDevnet: {
+      url: process.env.ASI_DEVNET_RPC || "https://rpc.devnet.asi.network",
+      accounts,
+      chainId: 1618,
+    },
+
+    // Arbitrum
+    arbitrum: {
+      url: process.env.ARBITRUM_RPC || "https://arb1.arbitrum.io/rpc",
+      accounts,
+      chainId: 42161,
     },
 
     // Base
@@ -108,6 +122,7 @@ module.exports = {
       abstract: process.env.ABSCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "",
       flowEvm: process.env.FLOWSCAN_API_KEY || "",
       flowEvmTestnet: process.env.FLOWSCAN_API_KEY || "",
+      arbitrum: process.env.ARBISCAN_API_KEY || process.env.ETHERSCAN_API_KEY || "",
     },
     customChains: [
       {

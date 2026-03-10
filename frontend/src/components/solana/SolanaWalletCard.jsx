@@ -11,7 +11,7 @@ import SolanaRepayDelegate from './SolanaRepayDelegate.jsx';
 const formatAddress = (value) =>
   value ? `${value.slice(0, 6)}...${value.slice(-4)}` : '';
 export default function SolanaWalletCard() {
-  const { publicKey, connected, wallet } = useWallet();
+  const { publicKey, connected, connecting, disconnecting, wallet } = useWallet();
   const { setVisible: setSolanaModalVisible } = useWalletModal();
   const address = useMemo(() => publicKey?.toString() || '', [publicKey]);
   const { session, setSession } = useOnchainSession();
@@ -31,28 +31,34 @@ export default function SolanaWalletCard() {
   useEffect(() => {
     if (connected && address) {
       trackEvent('solana_connect', { address, wallet: wallet?.adapter?.name });
-      setSession({
+      setSession((prev) => ({
+        ...prev,
         solanaWalletAddress: address,
         solanaWalletName: wallet?.adapter?.name || null
-      });
+      }));
     }
   }, [address, connected, setSession, wallet]);
 
   useEffect(() => {
+    // Prevent aggressive session wiping during initial load or reconnection
+    if (connecting || disconnecting) return;
+
+    // Only clear if we actually disconnected (not just unmounted)
     if (!connected && (session.solanaWalletAddress != null || session.solanaWalletName != null)) {
       trackEvent('solana_disconnect');
-      setSession({
-        chainType: session.primaryIdentity === 'solana' ? 'evm' : session.chainType,
+      setSession((prev) => ({
+        ...prev,
+        chainType: prev.primaryIdentity === 'solana' ? 'evm' : prev.chainType,
         primaryIdentity:
-          session.primaryIdentity === 'solana' ? 'evm' : session.primaryIdentity,
+          prev.primaryIdentity === 'solana' ? 'evm' : prev.primaryIdentity,
         solanaWalletAddress: null,
         solanaWalletName: null
-      });
+      }));
     }
   }, [
     connected,
-    session.chainType,
-    session.primaryIdentity,
+    connecting,
+    disconnecting,
     session.solanaWalletAddress,
     session.solanaWalletName,
     setSession

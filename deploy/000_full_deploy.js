@@ -53,18 +53,19 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const registry = await deploy("VestingRegistry", {
     from: deployer,
+    args: [deployer],
     log: true,
   });
 
   const valuation = await deploy("ValuationEngine", {
     from: deployer,
-    args: [registry.address],
+    args: [registry.address, deployer],
     log: true,
   });
 
   const adapter = await deploy("VestingAdapter", {
     from: deployer,
-    args: [registry.address],
+    args: [registry.address, deployer],
     log: true,
   });
 
@@ -73,13 +74,13 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const pool = await deploy("LendingPool", {
     from: deployer,
-    args: [usdcAddress],
+    args: [usdcAddress, deployer],
     log: true,
   });
 
   const termVault = await deploy("TermVault", {
     from: deployer,
-    args: [usdcAddress, returnsTreasury],
+    args: [usdcAddress, returnsTreasury, deployer],
     log: true,
   });
 
@@ -94,7 +95,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const auctionFactory = await deploy("AuctionFactory", {
     from: deployer,
-    args: [adapter.address, usdcAddress],
+    args: [adapter.address, usdcAddress, deployer],
     log: true,
   });
 
@@ -115,6 +116,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
       uniswapRouterAddress,
       poolFee,
       slippageBps,
+      deployer
     ],
     libraries: {
       LoanLogicLib: loanLogicLib.address,
@@ -124,24 +126,25 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const dutchAuction = await deploy("DutchAuction", {
     from: deployer,
-    args: [adapter.address, usdcAddress],
+    args: [adapter.address, usdcAddress, deployer],
     log: true,
   });
 
   const englishAuction = await deploy("EnglishAuction", {
     from: deployer,
-    args: [adapter.address, usdcAddress],
+    args: [adapter.address, usdcAddress, deployer],
     log: true,
   });
 
   const sealedBidAuction = await deploy("SealedBidAuction", {
     from: deployer,
-    args: [adapter.address, usdcAddress],
+    args: [adapter.address, usdcAddress, deployer],
     log: true,
   });
 
   const originationFacet = await deploy("LoanOriginationFacet", {
     from: deployer,
+    args: [deployer],
     libraries: {
       LoanLogicLib: loanLogicLib.address,
     },
@@ -150,6 +153,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
 
   const repaymentFacet = await deploy("LoanRepaymentFacet", {
     from: deployer,
+    args: [deployer],
     libraries: {
       LoanLogicLib: loanLogicLib.address,
     },
@@ -204,7 +208,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   // 12. Deploy Insurance Vault
   const insuranceVault = await deploy("InsuranceVault", {
     from: deployer,
-    args: [usdcAddress],
+    args: [usdcAddress, deployer],
     log: true,
   });
 

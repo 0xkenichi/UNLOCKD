@@ -40,6 +40,18 @@ function runArb(currentPrice, twap) {
     return { delta: 0, label: null };
 }
 
+function runDegen(currentPrice) {
+    if (Math.random() > 0.95) {
+        const isApe = Math.random() > 0.5;
+        const size = currentPrice * (0.02 + Math.random() * 0.05);
+        return {
+            delta: isApe ? size : -size,
+            label: isApe ? `🚀 Degen: Full Ape In` : `📉 Degen: Panic Close`
+        };
+    }
+    return { delta: 0, label: null };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // SECTION 2: MVP Valuation & Risk Engine
 // ──────────────────────────────────────────────────────────────────────────────
@@ -141,6 +153,13 @@ export function useMarketSimulation() {
 
     const resumeSimulation = useCallback(() => setIsRunning(true), []);
 
+    const updateSimulationPrice = useCallback((newPrice) => {
+        const oldPrice = stateRef.current.currentPrice;
+        stateRef.current.currentPrice = newPrice;
+        setMetrics(prev => ({ ...prev, currentPrice: newPrice }));
+        logSimulationEvent('PRICE_FORCE', { old: oldPrice, new: newPrice });
+    }, []);
+
     // ── Core Market Heartbeat (Stochastic Engine) ─────────────────────────────
     useEffect(() => {
         if (!isRunning) return;
@@ -204,7 +223,7 @@ export function useMarketSimulation() {
 
             // 6. Sync with ASI Backend (MeTTa)
             try {
-                const res = await fetch('http://localhost:4000/api/simulation/state');
+                const res = await fetch('http://localhost:3000/api/simulation/state');
                 const data = await res.json();
                 if (data.ok) {
                     if (data.volatility) setAgents(data.volatility);
@@ -231,6 +250,7 @@ export function useMarketSimulation() {
         startSimulation,
         resumeSimulation,
         injectMarketImpact,
+        updateSimulationPrice,
         computeDPV,
         agents,
         interestRateBps,

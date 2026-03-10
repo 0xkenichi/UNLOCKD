@@ -14,6 +14,8 @@ import "./AuctionFactory.sol";
 import "./InsuranceVault.sol";
 import "./DistressedDebtBond.sol";
 import "./IsolatedLendingPool.sol";
+import "./LoanNFT.sol";
+import "./governance/VestraAccessControl.sol";
 
 // Interfaces
 interface IIdentityVerifier {
@@ -29,7 +31,7 @@ interface IStagedTrancheAuction {
  * @notice V7.0 Citadel Pivot: Abstract contract holding all state variables, structs, and mappings
  * to allow LoanOriginationFacet and LoanRepaymentFacet to share state without triggering EIP-170 limits.
  */
-abstract contract LoanManagerStorage is Ownable, Pausable, ReentrancyGuard {
+abstract contract LoanManagerStorage is VestraAccessControl, Pausable, ReentrancyGuard {
     ValuationEngine public valuation;
     VestingAdapter public adapter;
     LendingPool public pool;
@@ -59,6 +61,11 @@ abstract contract LoanManagerStorage is Ownable, Pausable, ReentrancyGuard {
 
     // V6.0 Citadel: Rank-based Isolated Lending Pools (ERC-4626 standard tranches)
     mapping(uint8 => IsolatedLendingPool) public isolatedPools;
+
+    // V9.0 Sovereign: On-Chain Proofs & Invariant Safety
+    LoanNFT public loanNFT;
+    uint256 public badDebtCeiling = 1_000_000 * 1e6; // $1M USDC default ceiling
+    uint256 public totalBadDebt;
 
     struct PendingTreasuryConfig {
         address issuanceTreasury;

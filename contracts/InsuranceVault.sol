@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -14,7 +14,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * the InsuranceVault steps in to automatically cover the lender's deficit,
  * guaranteeing the Zero-Deficit promise for institutional liquidity providers.
  */
-contract InsuranceVault is Ownable {
+contract InsuranceVault is VestraAccessControl {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable usdc;
@@ -29,12 +29,12 @@ contract InsuranceVault is Ownable {
         _;
     }
 
-    constructor(address _usdc) Ownable(msg.sender) {
+    constructor(address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_usdc != address(0), "Invalid USDC");
         usdc = IERC20(_usdc);
     }
 
-    function setLoanManager(address _loanManager) external onlyOwner {
+    function setLoanManager(address _loanManager) external onlyGovernor {
         require(_loanManager != address(0), "Invalid address");
         loanManager = _loanManager;
         emit LoanManagerUpdated(_loanManager);
@@ -71,7 +71,7 @@ contract InsuranceVault is Ownable {
     /**
      * @dev Emergency admin withdrawal.
      */
-    function emergencyWithdraw(uint256 amount) external onlyOwner {
-        usdc.safeTransfer(owner(), amount);
+    function emergencyWithdraw(uint256 amount) external onlyGovernor {
+        usdc.safeTransfer(msg.sender, amount);
     }
 }

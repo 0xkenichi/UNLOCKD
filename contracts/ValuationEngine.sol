@@ -6,12 +6,17 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "abdk-libraries-solidity/ABDKMath64x64.sol";
 import "./VestingRegistry.sol";
+import "./governance/VestraAccessControl.sol";
 
 interface IPreTGEOracle {
     function getLatestPrice(address token) external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
 }
 
-contract ValuationEngine is Ownable {
+interface IOpenClawLighthouse {
+    function getConsensusOmega(address token) external view returns (uint256);
+}
+
+contract ValuationEngine is VestraAccessControl {
     using ABDKMath64x64 for int128;
 
     VestingRegistry public registry;
@@ -23,6 +28,12 @@ contract ValuationEngine is Ownable {
     /// @notice Max number of Chainlink rounds to walk back when calculating TWAP.
     /// Configurable so operators can tune for chains with high-frequency oracles.
     uint256 public maxTwapLookback = 20;
+    
+    // V6.0 Citadel - EWMA Configuration
+    uint256 public ewmaAlpha = 2000; // 20% alpha (i.e. 0.2 weight on current price, 0.8 on historical EWMA)
+    mapping(address => uint256) public tokenEWMA;
+    mapping(address => uint256) public lastEWMATimestamp;
+
     bool public adminTimelockEnabled;
     uint256 public adminTimelockDelay = 1 days;
     
@@ -109,23 +120,23 @@ contract ValuationEngine is Ownable {
     event GracePeriodTimeUpdated(uint256 timeSeconds);
     event TokenQuarantined(address indexed token, string reason);
 
-    constructor(address _registry) Ownable(msg.sender) {
+    constructor(address _registry, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_registry != address(0), "registry=0");
         registry = VestingRegistry(_registry);
     }
 
-    function setRegistry(address _registry) external onlyOwner {
+    function setRegistry(address _registry) external onlyGovernor {
         require(_registry != address(0), "registry=0");
         registry = VestingRegistry(_registry);
         emit RegistryUpdated(_registry);
     }
 
-    function setTokenPriceFeed(address token, address feed) external onlyOwner {
+    function setTokenPriceFeed(address token, address feed) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyTokenPriceFeed(token, feed);
     }
 
-    function queueTokenPriceFeed(address token, address feed) external onlyOwner {
+    function queueTokenPriceFeed(address token, address feed) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         require(token != address(0), "token=0");
         uint256 executeAfter = block.timestamp + adminTimelockDelay;
@@ -137,7 +148,7 @@ contract ValuationEngine is Ownable {
         emit TokenPriceFeedQueued(token, feed, executeAfter);
     }
 
-    function executeQueuedTokenPriceFeed(address token) external onlyOwner {
+    function executeQueuedTokenPriceFeed(address token) external onlyGovernor {
         PendingTokenFeed memory pending = pendingTokenFeeds[token];
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -145,26 +156,54 @@ contract ValuationEngine is Ownable {
         _applyTokenPriceFeed(token, pending.feed);
     }
 
-    function cancelQueuedTokenPriceFeed(address token) external onlyOwner {
-        require(pendingTokenFeeds[token].exists, "no queued config");
-        delete pendingTokenFeeds[token];
-        emit TokenPriceFeedCancelled(token);
+    address public openClawLighthouse;
+
+    function setOpenClawLighthouse(address _lighthouse) external onlyGovernor {
+        openClawLighthouse = _lighthouse;
     }
     
     // --- V4.0 AI Watcher Endpoints ---
-    function setCoprocessor(address _coprocessor) external onlyOwner {
+    function setCoprocessor(address _coprocessor) external onlyGovernor {
         coprocessor = _coprocessor;
+        _grantRole(GUARDIAN_ROLE, _coprocessor);
         emit CoprocessorUpdated(_coprocessor);
     }
     
-    function updateOmega(address token, uint256 omegaBps) external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized coprocessor");
-        require(omegaBps <= 10000, "invalid omega");
-        tokenOmegaBps[token] = omegaBps;
-        emit OmegaUpdated(token, omegaBps);
+    // V7.0 Safeguards: Hard LTV Caps and Global Ceilings
+    mapping(address => uint256) public hardLTVCapBps; // Immutable fallback maximum
+    uint256 public globalMaxOmegaBps = 10000; // 100% ceiling
+
+    event HardLTVCapUpdated(address indexed token, uint256 capBps);
+    event GlobalMaxOmegaUpdated(uint256 capBps);
+
+    function setHardLTVCap(address token, uint256 capBps) external onlyGovernor {
+        require(capBps <= 10000, "invalid cap");
+        hardLTVCapBps[token] = capBps;
+        emit HardLTVCapUpdated(token, capBps);
+    }
+
+    function setGlobalMaxOmega(uint256 capBps) external onlyGovernor {
+        require(capBps <= 10000, "invalid cap");
+        globalMaxOmegaBps = capBps;
+        emit GlobalMaxOmegaUpdated(capBps);
+    }
+
+    function updateOmega(address token, uint256 omegaBps) external onlyGuardian {
+        
+        // Enforce Global Ceiling
+        uint256 finalOmega = omegaBps > globalMaxOmegaBps ? globalMaxOmegaBps : omegaBps;
+        
+        // Enforce Token-Specific Hard Cap if set
+        uint256 hardCap = hardLTVCapBps[token];
+        if (hardCap > 0 && finalOmega > hardCap) {
+            finalOmega = hardCap;
+        }
+
+        tokenOmegaBps[token] = finalOmega;
+        emit OmegaUpdated(token, finalOmega);
     }
     
-    function setPreTGEOracle(address _oracle) external onlyOwner {
+    function setPreTGEOracle(address _oracle) external onlyGovernor {
         preTGEOracle = _oracle;
     }
 
@@ -173,7 +212,7 @@ contract ValuationEngine is Ownable {
     /// This value should reflect the realistic slippage-adjusted exit value of the DEX pool depth.
     /// Set to 0 to remove the cap (not recommended for illiquid assets).
     function setTokenMaxLiquidityBorrow(address token, uint256 maxBorrowUsd) external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
         require(token != address(0), "token=0");
         tokenMaxLiquidityBorrow[token] = maxBorrowUsd;
         emit TokenMaxLiquidityBorrowUpdated(token, maxBorrowUsd);
@@ -185,7 +224,7 @@ contract ValuationEngine is Ownable {
     /// @param token The affected collateral token.
     /// @param cooldownDuration Duration in seconds to freeze new loans (e.g. 48 hours).
     function reportFlashPump(address token, uint256 cooldownDuration) external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
         require(token != address(0), "token=0");
         require(cooldownDuration > 0 && cooldownDuration <= 7 days, "bad duration");
         uint256 cooldownUntil = block.timestamp + cooldownDuration;
@@ -195,14 +234,14 @@ contract ValuationEngine is Ownable {
 
     /// @notice Clear a flash pump cooldown (e.g. after manual review confirms price is legitimate).
     function clearFlashPumpCooldown(address token) external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
         delete flashPumpCooldownUntil[token];
         emit FlashPumpCooldownCleared(token);
     }
 
     /// @notice View function: returns true if a token is currently flash-pump frozen.
     function setPreTGECap(address token, uint256 maxExposureUsd) external {
-        require(msg.sender == owner() || msg.sender == coprocessor, "not owner or coprocessor");
+        require(hasRole(GOVERNOR_ROLE, msg.sender) || msg.sender == coprocessor, "not owner or coprocessor");
         preTGECaps[token] = maxExposureUsd;
         emit PreTGECapUpdated(token, maxExposureUsd);
     }
@@ -213,19 +252,19 @@ contract ValuationEngine is Ownable {
     // ---------------------------------
     
     // V6.0 Citadel
-    function quarantineToken(address token, bool status, string calldata reason) external onlyOwner {
+    function quarantineToken(address token, bool status, string calldata reason) external onlyGovernor {
         isQuarantined[token] = status;
         if (status) {
             emit TokenQuarantined(token, reason);
         }
     }
 
-    function setSequencerUptimeFeed(address feed) external onlyOwner {
+    function setSequencerUptimeFeed(address feed) external onlyGovernor {
         sequencerUptimeFeed = feed;
         emit SequencerUptimeFeedUpdated(feed);
     }
 
-    function setGracePeriodTime(uint256 timeSeconds) external onlyOwner {
+    function setGracePeriodTime(uint256 timeSeconds) external onlyGovernor {
         gracePeriodTime = timeSeconds;
         emit GracePeriodTimeUpdated(timeSeconds);
     }
@@ -244,7 +283,7 @@ contract ValuationEngine is Ownable {
         }
     }
 
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
+    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
         adminTimelockEnabled = enabled;
         adminTimelockDelay = delaySeconds;
@@ -262,18 +301,18 @@ contract ValuationEngine is Ownable {
         return tokenFeed;
     }
 
-    function setRiskFreeRate(uint256 newRate) external onlyOwner {
+    function setRiskFreeRate(uint256 newRate) external onlyGovernor {
         // Lower bound of 1% prevents disabling time-discounting entirely (0% = no DPV penalty for long locks)
         require(newRate >= 1 && newRate <= 20, "rate out of range");
         riskFreeRate = newRate;
     }
 
-    function setVolatility(uint256 newVol) external onlyOwner {
+    function setVolatility(uint256 newVol) external onlyGovernor {
         require(newVol <= 100, "vol too high");
         volatility = newVol;
     }
 
-    function setMaxPriceAge(uint256 newMaxPriceAge) external onlyOwner {
+    function setMaxPriceAge(uint256 newMaxPriceAge) external onlyGovernor {
         require(newMaxPriceAge > 0 && newMaxPriceAge <= 365 days, "bad max age");
         maxPriceAge = newMaxPriceAge;
     }
@@ -284,7 +323,7 @@ contract ValuationEngine is Ownable {
         uint256 ath,
         uint256 atl,
         uint8 boundsDecimals
-    ) external onlyOwner {
+    ) external onlyGovernor {
         require(token != address(0), "token=0");
         require(atl > 0 && ath >= atl, "invalid bounds");
         tokenPriceBounds[token] = TokenPriceBounds({
@@ -296,13 +335,13 @@ contract ValuationEngine is Ownable {
         emit TokenPriceBoundsUpdated(token, ath, atl, boundsDecimals);
     }
 
-    function clearTokenPriceBounds(address token) external onlyOwner {
+    function clearTokenPriceBounds(address token) external onlyGovernor {
         require(token != address(0), "token=0");
         delete tokenPriceBounds[token];
         emit TokenPriceBoundsUpdated(token, 0, 0, 0);
     }
 
-    function setDrawdownParams(uint256 penaltyPerBps, uint256 maxPenaltyBps) external onlyOwner {
+    function setDrawdownParams(uint256 penaltyPerBps, uint256 maxPenaltyBps) external onlyGovernor {
         require(penaltyPerBps <= 1000, "penalty too high");
         require(maxPenaltyBps <= 5000, "max penalty too high");
         drawdownPenaltyPerBps = penaltyPerBps;
@@ -310,13 +349,13 @@ contract ValuationEngine is Ownable {
         emit DrawdownParamsUpdated(penaltyPerBps, maxPenaltyBps);
     }
 
-    function setRangeVolWeight(uint256 weightBps) external onlyOwner {
+    function setRangeVolWeight(uint256 weightBps) external onlyGovernor {
         require(weightBps <= 1000, "weight too high");
         rangeVolWeightBps = weightBps;
         emit RangeVolWeightUpdated(weightBps);
     }
 
-    function setTwapInterval(uint256 newInterval) external onlyOwner {
+    function setTwapInterval(uint256 newInterval) external onlyGovernor {
         // Minimum 1 hour: prevents disabling TWAP protection via a trivially small window.
         require(newInterval >= 1 hours && newInterval <= 7 days, "interval out of range");
         twapInterval = newInterval;
@@ -324,9 +363,41 @@ contract ValuationEngine is Ownable {
 
     /// @notice Set the maximum number of Chainlink rounds to walk back for TWAP.
     /// Increase on chains with high oracle cadence; decrease to save gas on slower chains.
-    function setMaxTwapLookback(uint256 newMax) external onlyOwner {
+    function setMaxTwapLookback(uint256 newMax) external onlyGovernor {
         require(newMax >= 5 && newMax <= 100, "lookback out of range");
         maxTwapLookback = newMax;
+    }
+
+    /// @notice Set the smoothing factor (alpha) for the EWMA explicitly.
+    function setEWMAAlpha(uint256 newAlphaBps) external onlyGovernor {
+        require(newAlphaBps > 0 && newAlphaBps <= 10000, "alpha out of range");
+        ewmaAlpha = newAlphaBps;
+    }
+
+    /// @notice State-mutating function to update EWMA for a token. Usually called by a keeper or implicitly.
+    function updateEWMA(address token) public returns (uint256) {
+        address feedAddress = tokenPriceFeeds[token];
+        if (feedAddress == address(0)) return 0;
+        
+        AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
+        (, int256 latestAnswer, , uint256 latestUpdatedAt, ) = feed.latestRoundData();
+        
+        if (latestAnswer <= 0 || isQuarantined[token]) return 0;
+
+        uint256 currentPrice = uint256(latestAnswer);
+        uint256 previousEWMAPrice = tokenEWMA[token];
+
+        if (previousEWMAPrice == 0) {
+            tokenEWMA[token] = currentPrice;
+            lastEWMATimestamp[token] = latestUpdatedAt;
+            return currentPrice;
+        }
+
+        uint256 newEWMA = (currentPrice * ewmaAlpha + previousEWMAPrice * (BPS_DENOMINATOR - ewmaAlpha)) / BPS_DENOMINATOR;
+        tokenEWMA[token] = newEWMA;
+        lastEWMATimestamp[token] = latestUpdatedAt;
+
+        return newEWMA;
     }
 
     function _readValidatedPrice(
@@ -422,7 +493,24 @@ contract ValuationEngine is Ownable {
         // rather than just a single point of failure.
         require(lookups >= 1, "insufficient oracle rounds");
         require(totalWeightTime > (twapInterval / 2), "insufficient TWAP depth");
-        price = cumulativePriceTime / totalWeightTime;
+        
+        uint256 twapPrice = cumulativePriceTime / totalWeightTime;
+
+        // V6.0 Citadel - EWMA Smoothing overlay
+        // We blend the standard TWAP with our EWMA (if active) to create an ultra-conservative valuation.
+        // During computeDPV, it uses this result.
+        uint256 previousEWMA = tokenEWMA[token];
+        if (previousEWMA > 0) {
+            // Simulated inline EWMA update for view calculations
+            uint256 currentPrice = uint256(latestAnswer);
+            uint256 inlineEWMA = (currentPrice * ewmaAlpha + previousEWMA * (BPS_DENOMINATOR - ewmaAlpha)) / BPS_DENOMINATOR;
+            
+            // Return the most conservative (lowest) of TWAP, Inline EWMA, and Spot
+            price = currentPrice < twapPrice ? currentPrice : twapPrice;
+            price = inlineEWMA < price ? inlineEWMA : price;
+        } else {
+            price = twapPrice < uint256(latestAnswer) ? twapPrice : uint256(latestAnswer);
+        }
         
         return (price, decimals);
     }
@@ -505,12 +593,25 @@ contract ValuationEngine is Ownable {
         }
         
         // V4.0 AI Watcher Omega Multiplier
-        // If omega is exactly 0, we assume it hasn't been initialized and default to 100% (10000).
-        // If the AI coprocessor wants to completely slash a token, they should set it to 1 (0.01%).
+        // V7.0 Hardened: Clamp AI-driven Omega by protocol-set hard caps
         uint256 currentOmega = tokenOmegaBps[token];
         if (currentOmega == 0) {
             currentOmega = 10000;
         }
+        
+        // Apply Global and Token-Specific Hard Caps
+        if (currentOmega > globalMaxOmegaBps) currentOmega = globalMaxOmegaBps;
+        uint256 hardCap = hardLTVCapBps[token];
+        if (hardCap > 0 && currentOmega > hardCap) currentOmega = hardCap;
+
+        // V8.0 OpenClaw Integration: Social Consensus Ceiling
+        if (openClawLighthouse != address(0)) {
+            uint256 consensusOmega = IOpenClawLighthouse(openClawLighthouse).getConsensusOmega(token);
+            if (currentOmega > consensusOmega) {
+                currentOmega = consensusOmega;
+            }
+        }
+
         int128 omega = ABDKMath64x64.divu(currentOmega, 10000);
 
         int128 cumulativeMultiplier = discount.mul(liquidity).mul(shock).mul(volAdj).mul(omega);

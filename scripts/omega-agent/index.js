@@ -50,14 +50,22 @@ async function main() {
         wallet = ethers.Wallet.createRandom().connect(provider);
     }
 
-    console.log(`Agent Wallet Address: ${wallet.address}`);
+    const KEEPER_INDEX = parseInt(process.env.KEEPER_INDEX || "0");
+    console.log(`Agent Wallet Address: ${wallet.address} (Keeper #${KEEPER_INDEX})`);
+
+    // --- Task 0: Redundancy Jitter ---
+    // Stagger starts to prevent multiple keepers from hitting the exact same block
+    const jitter = KEEPER_INDEX * 2000;
+    console.log(`[MAIN] Redundancy Jitter: Waiting ${jitter}ms before engaging...`);
+    await new Promise(r => setTimeout(r, jitter));
 
     // --- Task 1: Initialize MeTTaclaw (The Brain) ---
     if (process.env.USE_METTA === "true") {
         console.log("[MAIN] Empowering Vestra with MeTTa AI Reasoner...");
-        await mettaclaw.start(provider, wallet);
+        await mettaclaw.start(provider, wallet, true);
     } else {
-        console.log("[MAIN] MeTTa reasoning disabled. (Set USE_METTA=true to enable)");
+        console.log("[MAIN] MeTTa reasoning disabled. Using static multipliers for basic watcher.");
+        await mettaclaw.start(provider, wallet, false);
     }
 
     // --- Task 2: Initialize Bounty Hunter (The Keeper) ---
@@ -68,7 +76,6 @@ async function main() {
         console.log("[MAIN] Bounty Hunter active.");
     } else {
         console.warn("[MAIN] LOAN_MANAGER_ADDR not set. Bounty Hunter running in Simulation Mode.");
-        const mockLoanManager = new ethers.Interface(LOAN_MANAGER_ABI); // Just for log parity if needed
         const bountyHunter = new BountyHunter(null, RECOURSE_TOKENS_TO_SWEEP);
         bountyHunter.simulate();
     }

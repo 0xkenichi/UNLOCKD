@@ -13,11 +13,11 @@ async function deployAuctionFixture() {
   await usdc.waitForDeployment();
 
   const VestingRegistry = await ethers.getContractFactory("VestingRegistry");
-  const registry = await VestingRegistry.deploy();
+  const registry = await VestingRegistry.deploy(deployer.address);
   await registry.waitForDeployment();
 
   const VestingAdapter = await ethers.getContractFactory("VestingAdapter");
-  const adapter = await VestingAdapter.deploy(await registry.getAddress());
+  const adapter = await VestingAdapter.deploy(await registry.getAddress(), deployer.address);
   await adapter.waitForDeployment();
 
   const MockVestingWallet = await ethers.getContractFactory("MockVestingWallet");
@@ -37,17 +37,26 @@ async function deployAuctionFixture() {
   await registry.vetContract(await vesting.getAddress(), 1);
 
   const AuctionFactory = await ethers.getContractFactory("AuctionFactory");
-  const factory = await AuctionFactory.deploy(await adapter.getAddress(), await usdc.getAddress());
+  const factory = await AuctionFactory.deploy(await adapter.getAddress(), await usdc.getAddress(), deployer.address);
   await factory.waitForDeployment();
+
+  const Dutch = await ethers.getContractFactory("DutchAuction");
+  const dutch = await Dutch.deploy(await adapter.getAddress(), await usdc.getAddress(), deployer.address);
+  await factory.registerAuction("DUTCH", await dutch.getAddress());
+
+  const English = await ethers.getContractFactory("EnglishAuction");
+  const english = await English.deploy(await adapter.getAddress(), await usdc.getAddress(), deployer.address);
+  await factory.registerAuction("ENGLISH", await english.getAddress());
+
+  const Sealed = await ethers.getContractFactory("SealedBidAuction");
+  const sealed = await Sealed.deploy(await adapter.getAddress(), await usdc.getAddress(), deployer.address);
+  await factory.registerAuction("SEALED_BID", await sealed.getAddress());
 
   return { deployer, seller, bidderA, bidderB, usdc, adapter, vesting, factory, now, unlockDuration, allocation };
 }
 
 async function deployAuctionFromFactory(factory, eventName) {
-  const tx = await factory[eventName]();
-  const rc = await tx.wait();
-  const evt = rc.logs.find((log) => log.fragment && log.fragment.name === "AuctionDeployed");
-  return evt.args.auction;
+  return await factory[eventName]();
 }
 
 describe("Auction contracts", () => {

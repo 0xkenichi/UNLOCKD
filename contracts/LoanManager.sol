@@ -36,8 +36,9 @@ contract LoanManager is LoanManagerStorage {
         address _auctionFactory,
         address _uniswapRouter,
         uint24 _poolFee,
-        uint256 _slippageBps
-    ) Ownable(msg.sender) {
+        uint256 _slippageBps,
+        address _initialGovernor
+    ) VestraAccessControl(_initialGovernor) {
         valuation = ValuationEngine(_valuation);
         adapter = VestingAdapter(_adapter);
         pool = LendingPool(_pool);
@@ -48,8 +49,8 @@ contract LoanManager is LoanManagerStorage {
         poolFee = _poolFee;
         liquidationSlippageBps = _slippageBps;
         usdc = pool.usdc();
-        issuanceTreasury = msg.sender;
-        returnsTreasury = msg.sender;
+        issuanceTreasury = _initialGovernor;
+        returnsTreasury = _initialGovernor;
         originationFeeBps = 150;
         autoRepayLtvBoostBps = 0;
         autoRepayInterestDiscountBps = 0;
@@ -66,7 +67,7 @@ contract LoanManager is LoanManagerStorage {
     function setAutoRepayConfig(
         uint256 ltvBoostBps,
         uint256 interestDiscountBps
-    ) external onlyOwner {
+    ) external onlyGovernor {
         if (ltvBoostBps > 2000) revert ExceedsLTV();
         if (interestDiscountBps > 2000) revert ExceedsLTV();
         autoRepayLtvBoostBps = ltvBoostBps;
@@ -74,14 +75,14 @@ contract LoanManager is LoanManagerStorage {
         emit AutoRepayConfigUpdated(ltvBoostBps, interestDiscountBps);
     }
     
-    function setInsuranceVault(address vault, uint256 bps) external onlyOwner {
+    function setInsuranceVault(address vault, uint256 bps) external onlyGovernor {
         if (bps > 2000) revert ExceedsLTV();
         insuranceVault = InsuranceVault(vault);
         autoHedgeBps = bps;
         emit AutoHedgeConfigured(vault, bps);
     }
 
-    function setAutoRepayRequiredTokens(address[] calldata tokens) external onlyOwner {
+    function setAutoRepayRequiredTokens(address[] calldata tokens) external onlyGovernor {
         if (tokens.length > 8) revert TooManyTokens();
         // Clear list.
         delete autoRepayRequiredTokens;
@@ -130,7 +131,7 @@ contract LoanManager is LoanManagerStorage {
         return true;
     }
 
-    function setIdentityConfig(address verifier, uint256 boostBps) external onlyOwner {
+    function setIdentityConfig(address verifier, uint256 boostBps) external onlyGovernor {
         if (boostBps > 2000) revert ExceedsLTV();
         identityVerifier = verifier;
         identityBoostBps = boostBps;
@@ -141,7 +142,7 @@ contract LoanManager is LoanManagerStorage {
         address router,
         uint24 newPoolFee,
         uint256 slippageBps
-    ) external onlyOwner {
+    ) external onlyGovernor {
         if (adminTimelockEnabled) revert TimelockPending();
         _applyLiquidationConfig(router, newPoolFee, slippageBps);
     }
@@ -150,7 +151,7 @@ contract LoanManager is LoanManagerStorage {
         address router,
         uint24 newPoolFee,
         uint256 slippageBps
-    ) external onlyOwner {
+    ) external onlyGovernor {
         if (!adminTimelockEnabled) revert TimelockDisabled();
         if (router == address(0)) revert InvalidToken();
         if (slippageBps == 0 || slippageBps > BPS_DENOMINATOR) revert BadSlippage();
@@ -165,7 +166,7 @@ contract LoanManager is LoanManagerStorage {
         emit LiquidationConfigQueued(router, newPoolFee, slippageBps, executeAfter);
     }
 
-    function executeQueuedLiquidationConfig() external onlyOwner {
+    function executeQueuedLiquidationConfig() external onlyGovernor {
         PendingLiquidationConfig memory pending = pendingLiquidationConfig;
         if (!pending.exists) revert NoQueuedConfig();
         if (block.timestamp < pending.executeAfter) revert TimelockPending();
@@ -173,7 +174,7 @@ contract LoanManager is LoanManagerStorage {
         _applyLiquidationConfig(pending.router, pending.poolFee, pending.slippageBps);
     }
 
-    function cancelQueuedLiquidationConfig() external onlyOwner {
+    function cancelQueuedLiquidationConfig() external onlyGovernor {
         if (!pendingLiquidationConfig.exists) revert NoQueuedConfig();
         delete pendingLiquidationConfig;
         emit LiquidationConfigCancelled();
@@ -182,23 +183,23 @@ contract LoanManager is LoanManagerStorage {
     /// @notice Explicitly authorize or revoke an account's compliance status.
     /// @param account The address of the borrower or vault.
     /// @param status True to pass, false to block.
-    function setSanctionsPass(address account, bool status) external onlyOwner {
+    function setSanctionsPass(address account, bool status) external onlyGovernor {
         sanctionsPass[account] = status;
         emit SanctionsStatusUpdated(account, status);
     }
 
     /// @notice V6.0 Citadel - Set the designated Treasury address for a token to enable exclusive OTC buybacks
-    function setTokenTreasury(address token, address treasury) external onlyOwner {
+    function setTokenTreasury(address token, address treasury) external onlyGovernor {
         tokenTreasuries[token] = treasury;
         emit TokenTreasurySet(token, treasury);
     }
 
-    function setTreasuries(address issuance, address returnsAddr) external onlyOwner {
+    function setTreasuries(address issuance, address returnsAddr) external onlyGovernor {
         if (adminTimelockEnabled) revert TimelockPending();
         _applyTreasuries(issuance, returnsAddr);
     }
 
-    function queueTreasuries(address issuance, address returnsAddr) external onlyOwner {
+    function queueTreasuries(address issuance, address returnsAddr) external onlyGovernor {
         if (!adminTimelockEnabled) revert TimelockDisabled();
         if (issuance == address(0)) revert InvalidToken();
         if (returnsAddr == address(0)) revert InvalidToken();
@@ -212,7 +213,7 @@ contract LoanManager is LoanManagerStorage {
         emit TreasuryConfigQueued(issuance, returnsAddr, executeAfter);
     }
 
-    function executeQueuedTreasuries() external onlyOwner {
+    function executeQueuedTreasuries() external onlyGovernor {
         PendingTreasuryConfig memory pending = pendingTreasuryConfig;
         if (!pending.exists) revert NoQueuedConfig();
         if (block.timestamp < pending.executeAfter) revert TimelockPending();
@@ -220,13 +221,13 @@ contract LoanManager is LoanManagerStorage {
         _applyTreasuries(pending.issuanceTreasury, pending.returnsTreasury);
     }
 
-    function cancelQueuedTreasuries() external onlyOwner {
+    function cancelQueuedTreasuries() external onlyGovernor {
         if (!pendingTreasuryConfig.exists) revert NoQueuedConfig();
         delete pendingTreasuryConfig;
         emit TreasuryConfigCancelled();
     }
 
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
+    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
         if (delaySeconds < 1 minutes || delaySeconds > 30 days) revert TimelockPending();
         adminTimelockEnabled = enabled;
         adminTimelockDelay = delaySeconds;
@@ -256,7 +257,7 @@ contract LoanManager is LoanManagerStorage {
 
     /// @notice Update the origination fee. Protected by the admin timelock when enabled
     /// to prevent fee changes from being sandwiched between tx submission and mining.
-    function setOriginationFeeBps(uint256 feeBps) external onlyOwner {
+    function setOriginationFeeBps(uint256 feeBps) external onlyGovernor {
         if (adminTimelockEnabled) revert TimelockPending();
         if (feeBps > 2000) revert ExceedsLTV();
         originationFeeBps = feeBps;
@@ -268,7 +269,7 @@ contract LoanManager is LoanManagerStorage {
      */
     function setDynamicBorrowRate(uint256 rateBps) external {
         require(
-            msg.sender == valuation.coprocessor() || msg.sender == owner(),
+            msg.sender == valuation.coprocessor() || hasRole(GOVERNOR_ROLE, msg.sender),
             "unauthorized coprocessor"
         );
         require(rateBps >= 100 && rateBps <= 5000, "rate out of range");
@@ -286,7 +287,7 @@ contract LoanManager is LoanManagerStorage {
         return true;
     }
 
-    function setFacets(address _origination, address _repayment) external onlyOwner {
+    function setFacets(address _origination, address _repayment) external onlyGovernor {
         originationFacet = _origination;
         repaymentFacet = _repayment;
     }
@@ -324,11 +325,33 @@ contract LoanManager is LoanManagerStorage {
     
     receive() external payable {}
 
-    function pause() external onlyOwner {
+    address public riskModule;
+
+    function setRiskModule(address _riskModule) external onlyGovernor {
+        riskModule = _riskModule;
+    }
+
+    function pause() external onlyPauser {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyGovernor {
         _unpause();
+    }
+
+    // V9.0 Sovereign Functions
+    function setLoanNFT(address _loanNFT) external onlyGovernor {
+        loanNFT = LoanNFT(_loanNFT);
+    }
+
+    function setBadDebtCeiling(uint256 _ceiling) external onlyGovernor {
+        badDebtCeiling = _ceiling;
+    }
+
+    function syncBadDebt(uint256 _totalBadDebt) external onlyGuardian {
+        totalBadDebt = _totalBadDebt;
+        if (totalBadDebt > badDebtCeiling) {
+            _pause();
+        }
     }
 }

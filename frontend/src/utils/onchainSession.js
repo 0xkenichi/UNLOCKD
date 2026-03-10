@@ -14,7 +14,7 @@ const defaultSession = {
   primaryIdentity: 'evm',
   evmChainId: DEFAULT_EVM_CHAIN.id,
   evmWalletAddress: null,
-  solanaNetworkId: 'mainnet-beta',
+  solanaNetworkId: DEFAULT_EVM_CHAIN.testnet ? 'devnet' : 'mainnet-beta',
   solanaWalletAddress: null,
   solanaWalletName: null,
   onrampProvider: 'onramper',

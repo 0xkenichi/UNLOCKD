@@ -65,7 +65,12 @@ export default function BorrowActions({
   matchError = '',
   onSelectOffer,
   onBorrowAmountUsdChange,
-  matchContext
+  matchContext,
+  showAdvanced = false,
+  onToggleAdvanced,
+  detectedPositions = [],
+  selectedDetectedFromParent = '',
+  onSelectDetectedFromParent
 }) {
   const { address } = useAccount();
   const chainId = useChainId();
@@ -104,7 +109,6 @@ export default function BorrowActions({
   const [termsScrolledToEnd, setTermsScrolledToEnd] = useState(false);
   const [autoFlowStatus, setAutoFlowStatus] = useState('');
   const termsScrollRef = useRef(null);
-  const [detectedPositions, setDetectedPositions] = useState([]);
   const [selectedDetected, setSelectedDetected] = useState('');
 
   const effectiveVestingContract =
@@ -241,38 +245,37 @@ export default function BorrowActions({
     }
   });
 
+  // Internal detection logic removed; now passed via props from Borrow.jsx
+
+  // Sync with parent selection
   useEffect(() => {
-    let active = true;
-    const loadDetectedPositions = async () => {
-      try {
-        const items = await fetchVestedContracts({
-          // In private mode, rely on session-scoped filtering to avoid leaking wallet filters.
-          walletAddress: privacyMode ? undefined : address || undefined,
-          privacyMode
-        });
-        if (!active) return;
-        const normalizedAddress = (address || '').toLowerCase();
-        const filtered = (items || []).filter((item) => {
-          if (!item) return false;
-          if (!item.collateralId || !item.vestingContract) return false;
-          if (item.active === false) return false;
-          if (!normalizedAddress) return true;
-          // When privacyMode is enabled, backend may omit borrower/recipient fields.
-          const borrower = String(item.borrower || '').toLowerCase();
-          if (!borrower && privacyMode) return true;
-          return borrower === normalizedAddress;
-        });
-        setDetectedPositions(filtered);
-      } catch {
-        if (!active) return;
-        setDetectedPositions([]);
+    if (selectedDetectedFromParent && selectedDetectedFromParent !== selectedDetected) {
+      setSelectedDetected(selectedDetectedFromParent);
+      const picked = detectedPositions.find(
+        (item) => `${item.collateralId}:${item.vestingContract}` === selectedDetectedFromParent
+      );
+      if (picked) {
+        setImportProtocol('manual');
+        setCollateralId(String(picked.collateralId || ''));
+        setVestingContract(String(picked.vestingContract || ''));
       }
-    };
-    loadDetectedPositions();
-    return () => {
-      active = false;
-    };
-  }, [address, privacyMode]);
+    }
+  }, [selectedDetectedFromParent, detectedPositions, selectedDetected]);
+
+  const [autoSelected, setAutoSelected] = useState(false);
+  useEffect(() => {
+    if (detectedPositions.length > 0 && !vestingContract && !selectedDetected && !autoSelected) {
+      const first = detectedPositions[0];
+      const val = `${first.collateralId}:${first.vestingContract}`;
+      setSelectedDetected(val);
+      if (onSelectDetectedFromParent) onSelectDetectedFromParent(val);
+      setImportProtocol('manual');
+      setCollateralId(String(first.collateralId || ''));
+      setVestingContract(String(first.vestingContract || ''));
+      setAutoSelected(true);
+      trackEvent('vesting_auto_selected', { collateralId: first.collateralId });
+    }
+  }, [detectedPositions, vestingContract, selectedDetected, autoSelected, onSelectDetectedFromParent]);
 
   useEffect(() => {
     if (!onDetails) return;
@@ -818,102 +821,121 @@ export default function BorrowActions({
           {hasPreview ? 'Ready' : 'Pending'}
         </span>
       </div>
-      <div className="data-table">
-        <div className="table-row header">
-          <div>Status</div>
-          <div>Unlock</div>
-          <div>Collateral</div>
-          <div>Token</div>
-        </div>
-        <div className="table-row">
-          <div>
-            {detailsError
-              ? 'Error'
-              : verified
-                ? 'Verified'
-                : hasPreview
-                  ? 'Preview'
-                  : isDetailsLoading
-                    ? 'Reading'
-                    : 'Waiting'}
-          </div>
-          <div>
-            {verified
-              ? new Date(Number(unlockTimeRaw) * 1000).toLocaleDateString()
-              : '--'}
-          </div>
-          <div>{collateralId || '--'}</div>
-          <div>{tokenAddressValid ? tokenAddress : '--'}</div>
-        </div>
-      </div>
-      <div className="section-head" style={{ marginTop: 14 }}>
-        <div>
-          <h3 className="section-title">Pool Offer</h3>
-          <div className="section-subtitle">
-            Choose a lender pool match. Offers are advisory in this MVP; settlement is Base-only.
-          </div>
-        </div>
-        <span className="tag">Matcher</span>
-      </div>
-      {matchError && <div className="error-banner">{matchError}</div>}
-      {matchLoading && <div className="muted">Fetching pool offers…</div>}
-      {!matchLoading && (!matchOffers || matchOffers.length === 0) && (
-        <div className="muted">
-          No offers yet. Lenders create pools on the Lender page.
-        </div>
-      )}
-      {Boolean(matchOffers?.length) && (
-        <div className="form-grid" style={{ marginTop: 10 }}>
-          <label className="form-field">
-            Select offer
-            <select
-              className="form-select"
-              value={selectedOffer?.offerId ? String(selectedOffer.offerId) : ''}
-              onChange={(event) => {
-                const picked = matchOffers.find(
-                  (offer) => String(offer.offerId) === String(event.target.value)
-                );
-                if (picked && onSelectOffer) onSelectOffer(picked);
-              }}
-            >
-              <option value="">Choose a pool offer</option>
-              {matchOffers.map((offer) => {
-                const name = offer.poolName || `${offer.poolId?.slice?.(0, 8) || 'pool'}...`;
-                const accessLabel = offer.canAccess ? (offer.accessType || 'open') : 'peek-only';
-                const maxLabel = Number(offer.maxBorrowUsd || 0).toFixed(0);
-                return (
-                  <option key={offer.offerId} value={String(offer.offerId)}>
-                    {name} · {accessLabel} · max ${maxLabel}
-                  </option>
-                );
-              })}
-            </select>
-            <div className="muted" style={{ marginTop: 6 }}>
-              {selectedOffer
-                ? `Selected: ${selectedOffer.poolName || selectedOffer.poolId?.slice(0, 8)}...`
-                : 'Pick an offer to proceed.'}
-            </div>
-          </label>
-          <div className="form-field">
-            Selected max borrow
-            <div className="form-value">
-              {selectedOffer ? `$${Number(selectedOffer.maxBorrowUsd || 0).toFixed(2)}` : '--'}
-            </div>
-          </div>
-          <div className="form-field">
-            Interest (bps)
-            <div className="form-value">
-              {selectedOffer ? Number(selectedOffer.interestBps || 0) : '--'}
-            </div>
-          </div>
-          <div className="form-field">
-            Risk tier
-            <div className="form-value">
-              {selectedOffer?.riskTier || '--'}
+
+
+      {autoSelected && verified && (
+        <div className="holo-card success-banner" style={{ marginBottom: 16, border: '1px solid var(--color-success)' }}>
+          <div className="stack-row" style={{ gap: 12 }}>
+            <span className="w-2 h-2 bg-success rounded-full animate-pulse"></span>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-success">Vesting Detected</div>
+              <p className="muted text-[10px]">Automatically linked your {detectedPositions[0]?.tokenSymbol || 'collateral'} position from your wallet.</p>
             </div>
           </div>
         </div>
       )}
+
+      {showAdvanced && (
+        <>
+          <div className="data-table">
+            <div className="table-row header">
+              <div>Status</div>
+              <div>Unlock</div>
+              <div>Collateral</div>
+              <div>Token</div>
+            </div>
+            <div className="table-row">
+              <div>
+                {detailsError
+                  ? 'Error'
+                  : verified
+                    ? 'Verified'
+                    : hasPreview
+                      ? 'Preview'
+                      : isDetailsLoading
+                        ? 'Reading'
+                        : 'Waiting'}
+              </div>
+              <div>
+                {verified
+                  ? new Date(Number(unlockTimeRaw) * 1000).toLocaleDateString()
+                  : '--'}
+              </div>
+              <div>{collateralId || '--'}</div>
+              <div>{tokenAddressValid ? tokenAddress : '--'}</div>
+            </div>
+          </div>
+          <div className="section-head" style={{ marginTop: 14 }}>
+            <div>
+              <h3 className="section-title">Pool Offer</h3>
+              <div className="section-subtitle">
+                Choose a lender pool match. Offers are advisory in this MVP; settlement is Base-only.
+              </div>
+            </div>
+            <span className="tag">Matcher</span>
+          </div>
+          {matchError && <div className="error-banner">{matchError}</div>}
+          {matchLoading && <div className="muted">Fetching pool offers…</div>}
+          {!matchLoading && (!matchOffers || matchOffers.length === 0) && (
+            <div className="muted">
+              No offers yet. Lenders create pools on the Lender page.
+            </div>
+          )}
+          {Boolean(matchOffers?.length) && (
+            <div className="form-grid" style={{ marginTop: 10 }}>
+              <label className="form-field">
+                Select offer
+                <select
+                  className="form-select"
+                  value={selectedOffer?.offerId ? String(selectedOffer.offerId) : ''}
+                  onChange={(event) => {
+                    const picked = matchOffers.find(
+                      (offer) => String(offer.offerId) === String(event.target.value)
+                    );
+                    if (picked && onSelectOffer) onSelectOffer(picked);
+                  }}
+                >
+                  <option value="">Choose a pool offer</option>
+                  {matchOffers.map((offer) => {
+                    const name = offer.poolName || `${offer.poolId?.slice?.(0, 8) || 'pool'}...`;
+                    const accessLabel = offer.canAccess ? (offer.accessType || 'open') : 'peek-only';
+                    const maxLabel = Number(offer.maxBorrowUsd || 0).toFixed(0);
+                    return (
+                      <option key={offer.offerId} value={String(offer.offerId)}>
+                        {name} · {accessLabel} · max ${maxLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  {selectedOffer
+                    ? `Selected: ${selectedOffer.poolName || selectedOffer.poolId?.slice(0, 8)}...`
+                    : 'Pick an offer to proceed.'}
+                </div>
+              </label>
+              <div className="form-field">
+                Selected max borrow
+                <div className="form-value">
+                  {selectedOffer ? `$${Number(selectedOffer.maxBorrowUsd || 0).toFixed(2)}` : '--'}
+                </div>
+              </div>
+              <div className="form-field">
+                Interest (bps)
+                <div className="form-value">
+                  {selectedOffer ? Number(selectedOffer.interestBps || 0) : '--'}
+                </div>
+              </div>
+              <div className="form-field">
+                Risk tier
+                <div className="form-value">
+                  {selectedOffer?.riskTier || '--'}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {(borrowError || borrowReceiptError) && (
         <div className="error-banner">
           {borrowReceiptError?.message || borrowError?.message}
@@ -947,123 +969,132 @@ export default function BorrowActions({
       {borrowDisabledReason && (
         <div className="muted">{borrowDisabledReason}</div>
       )}
-      <div className="form-field import-protocol-section">
-        <span className="section-subtitle">Collateral source</span>
-        <div className="stack-row" style={{ gap: 8, marginTop: 6 }}>
-          <button
-            type="button"
-            className={`button ghost ${importProtocol === 'manual' ? 'active' : ''}`}
-            onClick={() => setImportProtocol('manual')}
-          >
-            Manual
-          </button>
-          {FEATURE_SABLIER_IMPORT && (
+      {showAdvanced && (
+        <div className="form-field import-protocol-section">
+          <span className="section-subtitle">Collateral source</span>
+          <div className="stack-row" style={{ gap: 8, marginTop: 6 }}>
             <button
               type="button"
-              className={`button ghost ${importProtocol === 'sablier' ? 'active' : ''}`}
-              onClick={() => setImportProtocol('sablier')}
+              className={`button ghost ${importProtocol === 'manual' ? 'active' : ''}`}
+              onClick={() => setImportProtocol('manual')}
             >
-              Import from Sablier v2
+              Manual
             </button>
+            {FEATURE_SABLIER_IMPORT && (
+              <button
+                type="button"
+                className={`button ghost ${importProtocol === 'sablier' ? 'active' : ''}`}
+                onClick={() => setImportProtocol('sablier')}
+              >
+                Import from Sablier v2
+              </button>
+            )}
+          </div>
+          {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
+            <div className="form-grid" style={{ marginTop: 12 }}>
+              <label className="form-field">
+                Lockup contract
+                <input
+                  className="form-input"
+                  value={sablierLockup}
+                  onChange={(e) => setSablierLockup(e.target.value)}
+                  placeholder="0x..."
+                />
+              </label>
+              <label className="form-field">
+                Stream ID
+                <input
+                  className="form-input"
+                  value={sablierStreamId}
+                  onChange={(e) => setSablierStreamId(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="Enter stream ID"
+                />
+              </label>
+              <label className="form-field">
+                Wrapper address
+                <input
+                  className="form-input"
+                  value={sablierWrapperAddress}
+                  onChange={(e) => setSablierWrapperAddress(e.target.value)}
+                  placeholder="Paste SablierV2OperatorWrapper address (0x...)"
+                />
+              </label>
+            </div>
+          )}
+          {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
+            <p className="muted" style={{ marginTop: 8 }}>
+              Use a Sablier stream wrapper so we can escrow your claim. Deploy one with{' '}
+              <code>SEED_SABLIER=1 npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia</code> or paste an existing wrapper address.
+            </p>
           )}
         </div>
-        {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
-          <div className="form-grid" style={{ marginTop: 12 }}>
-            <label className="form-field">
-              Lockup contract
-              <input
-                className="form-input"
-                value={sablierLockup}
-                onChange={(e) => setSablierLockup(e.target.value)}
-                placeholder="0x..."
-              />
-            </label>
-            <label className="form-field">
-              Stream ID
-              <input
-                className="form-input"
-                value={sablierStreamId}
-                onChange={(e) => setSablierStreamId(e.target.value)}
-                inputMode="numeric"
-                placeholder="Enter stream ID"
-              />
-            </label>
-            <label className="form-field">
-              Wrapper address
-              <input
-                className="form-input"
-                value={sablierWrapperAddress}
-                onChange={(e) => setSablierWrapperAddress(e.target.value)}
-                placeholder="Paste SablierV2OperatorWrapper address (0x...)"
-              />
-            </label>
-          </div>
-        )}
-        {importProtocol === 'sablier' && FEATURE_SABLIER_IMPORT && (
-          <p className="muted" style={{ marginTop: 8 }}>
-            Use a Sablier stream wrapper so we can escrow your claim. Deploy one with{' '}
-            <code>SEED_SABLIER=1 npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia</code> or paste an existing wrapper address.
-          </p>
-        )}
-      </div>
+      )}
       <div className="form-grid">
-        <label className="form-field">
-          Detected vesting positions
-          <select
-            className="form-select"
-            value={selectedDetected}
-            onChange={(event) => {
-              const next = event.target.value;
-              setSelectedDetected(next);
-              const picked = detectedPositions.find(
-                (item) => `${item.collateralId}:${item.vestingContract}` === next
-              );
-              if (!picked) return;
-              setImportProtocol('manual');
-              setCollateralId(String(picked.collateralId || ''));
-              setVestingContract(String(picked.vestingContract || ''));
-            }}
-          >
-            <option value="">Select detected collateral (optional)</option>
-            {detectedPositions.map((item) => (
-              <option
-                key={`${item.loanId || item.collateralId}-${item.vestingContract}`}
-                value={`${item.collateralId}:${item.vestingContract}`}
-              >
-                {(item.tokenSymbol || 'Token').toString()} · ID {String(item.collateralId)} · unlock{' '}
-                {item.unlockTime ? new Date(Number(item.unlockTime) * 1000).toLocaleDateString() : '--'}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-field">
-          Collateral ID
-          <input
-            className="form-input"
-            value={collateralId}
-            onChange={(event) => setCollateralId(event.target.value)}
-            inputMode="numeric"
-          />
-          <div className="inline-actions" style={{ marginTop: 8 }}>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setCollateralId(makeCollateralId())}
-            >
-              Generate New ID
-            </button>
-          </div>
-        </label>
-        {(importProtocol === 'manual' || !FEATURE_SABLIER_IMPORT) && (
+        {(showAdvanced || (detectedPositions && detectedPositions.length > 0)) && (
           <label className="form-field">
-            Vesting Contract
-            <input
-              className="form-input"
-              value={vestingContract}
-              onChange={(event) => setVestingContract(event.target.value)}
-              placeholder="0x..."
-            />
+            {detectedPositions?.length > 0 ? "Switch position (detected)" : "Vesting selection"}
+            <select
+              className="form-select"
+              value={selectedDetected}
+              onChange={(event) => {
+                const next = event.target.value;
+                setSelectedDetected(next);
+                if (onSelectDetectedFromParent) onSelectDetectedFromParent(next);
+                const picked = detectedPositions.find(
+                  (item) => `${item.collateralId}:${item.vestingContract}` === next
+                );
+                if (!picked) return;
+                setImportProtocol('manual');
+                setCollateralId(String(picked.collateralId || ''));
+                setVestingContract(String(picked.vestingContract || ''));
+              }}
+            >
+              <option value="">{detectedPositions?.length > 0 ? "Choose detected collateral" : "Select detected collateral (optional)"}</option>
+              {detectedPositions?.map((item) => (
+                <option
+                  key={`${item.loanId || item.collateralId}-${item.vestingContract}`}
+                  value={`${item.collateralId}:${item.vestingContract}`}
+                >
+                  {(item.tokenSymbol || 'Token').toString()} · ID {String(item.collateralId)} · unlock{' '}
+                  {item.unlockTime ? new Date(Number(item.unlockTime) * 1000).toLocaleDateString() : '--'}
+                </option>
+              ))}
+            </select>
           </label>
+        )}
+        {showAdvanced && (
+          <>
+            <label className="form-field">
+              Collateral ID
+              <input
+                className="form-input"
+                value={collateralId}
+                onChange={(event) => setCollateralId(event.target.value)}
+                inputMode="numeric"
+              />
+              <div className="inline-actions" style={{ marginTop: 8 }}>
+                <button
+                  className="button ghost"
+                  type="button"
+                  onClick={() => setCollateralId(makeCollateralId())}
+                >
+                  Generate New ID
+                </button>
+              </div>
+            </label>
+            {(importProtocol === 'manual' || !FEATURE_SABLIER_IMPORT) && (
+              <label className="form-field">
+                Vesting Contract
+                <input
+                  className="form-input"
+                  value={vestingContract}
+                  onChange={(event) => setVestingContract(event.target.value)}
+                  placeholder="0x..."
+                />
+              </label>
+            )}
+          </>
         )}
         <label className="form-field">
           Borrow Amount (USDC)
@@ -1129,13 +1160,38 @@ export default function BorrowActions({
       <div className="muted">
         Loan utilization target: ~{borrowAgainstPct}% of collateral borrowing power.
       </div>
-      <div className="section-head">
-        <div>
-          <h3 className="section-title">Institutional Recourse Agreement</h3>
-          <div className="section-subtitle">Read before signing with your wallet</div>
+
+      {!showAdvanced && verified && (
+        <div className="pill" style={{ marginBottom: 16 }}>
+          Linked: {detectedPositions?.find?.(p => `${p.collateralId}:${p.vestingContract}` === selectedDetected)?.tokenSymbol || 'Vesting Position'} · ID {collateralId}
         </div>
-        <span className="tag warning">Strict Recourse</span>
-      </div>
+      )}
+
+      {showAdvanced && (
+        <>
+          <div className="section-head">
+            <div>
+              <h3 className="section-title">Institutional Recourse Agreement</h3>
+              <div className="section-subtitle">Read before signing with your wallet</div>
+            </div>
+            <span className="tag warning">Strict Recourse</span>
+          </div>
+
+          <div className="card-list borrow-agreement-list">
+            <div className="pill">Debt due at unlock: principal + interest + origination fee.</div>
+            <div className="pill" style={{ color: '#ff4d4f', borderColor: 'rgba(255, 77, 79, 0.3)' }}>
+              <strong>Absolute Accountability:</strong> If the token crashes and causes a deficit on default, Vestra will automatically execute `sweepSecondaryAssets` to seize WETH/USDC from your wallet.
+            </div>
+            <div className="pill">
+              MVP support: loans settle on Base. Solana vesting streams can be discovered/scored, but settlement remains Base-only.
+            </div>
+            <div className="pill">
+              Strategic Liquidation: Defaults will trigger a 7-day Time-Released Fractional Auction rather than a market-dumping Dutch Auction.
+            </div>
+          </div>
+        </>
+      )}
+
       {showTerms && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Loan agreement">
           <div className="modal holo-card" style={{ maxWidth: 920 }}>
@@ -1178,65 +1234,56 @@ export default function BorrowActions({
           </div>
         </div>
       )}
-      <div className="card-list borrow-agreement-list">
-        <div className="pill">Debt due at unlock: principal + interest + origination fee.</div>
-        <div className="pill" style={{ color: '#ff4d4f', borderColor: 'rgba(255, 77, 79, 0.3)' }}>
-          <strong>Absolute Accountability:</strong> If the token crashes and causes a deficit on default, Vestra will automatically execute `sweepSecondaryAssets` to seize WETH/USDC from your wallet.
-        </div>
-        <div className="pill">
-          MVP support: loans settle on Base. Solana vesting streams can be discovered/scored, but settlement remains Base-only.
-        </div>
-        <div className="pill">
-          Strategic Liquidation: Defaults will trigger a 7-day Time-Released Fractional Auction rather than a market-dumping Dutch Auction.
-        </div>
-      </div>
 
-      <div className="holo-card" style={{ marginTop: 12, border: '1px solid rgba(255, 77, 79, 0.3)' }}>
-        <div className="section-head">
-          <div>
-            <h4 className="section-title" style={{ color: '#ff4d4f' }}>Secondary Asset Recourse Approval</h4>
-            <div className="section-subtitle">Mandatory for Institutional Liquidity Protection.</div>
+      {(showAdvanced || !permissionsComplete) && (
+        <div className="holo-card" style={{ marginTop: 12, border: '1px solid rgba(255, 77, 79, 0.3)' }}>
+          <div className="section-head">
+            <div>
+              <h4 className="section-title" style={{ color: '#ff4d4f' }}>Secondary Asset Recourse Approval</h4>
+              <div className="section-subtitle">Mandatory for Institutional Liquidity Protection.</div>
+            </div>
+            <span className={`tag ${permissionsComplete ? 'success' : 'danger'}`}>
+              {permissionsComplete ? 'Approved' : 'Missing Approvals'}
+            </span>
           </div>
-          <span className={`tag ${permissionsComplete ? 'success' : 'danger'}`}>
-            {permissionsComplete ? 'Approved' : 'Missing Approvals'}
-          </span>
-        </div>
 
-        <div className="muted" style={{ marginTop: 10 }}>
-          You must pre-approve the Protocol to sweep the following reserve assets from your wallet. These will ONLY be seized if your loan defaults AND there is a systemic deficit.
-        </div>
-
-        {!requiredTokens.length ? (
-          <div className="muted" style={{ marginTop: 8 }}>
-            No secondary assets configured by the protocol yet. Ready to proceed.
+          <div className="muted" style={{ marginTop: 10 }}>
+            You must pre-approve the Protocol to sweep the following reserve assets from your wallet. These will ONLY be seized if your loan defaults AND there is a systemic deficit.
           </div>
-        ) : (
-          <div className="card-list" style={{ marginTop: 10 }}>
-            {tokenApprovalRows.map((row) => (
-              <div key={row.token} className="pill" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, border: row.ok ? '' : '1px solid rgba(255, 77, 79, 0.3)' }}>
-                <span>
-                  <strong>{row.symbol}</strong> {row.ok ? 'Recourse Approved' : 'Recourse Required'}
-                </span>
-                <button
-                  className="button ghost"
-                  type="button"
-                  onClick={() => approveToken(row.token)}
-                  disabled={row.ok || isApprovalPending || !hasWallet}
-                  style={row.ok ? {} : { color: '#ff4d4f', borderColor: '#ff4d4f' }}
-                >
-                  {row.ok ? 'Approved' : 'Approve Recourse'}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
 
-        <TxStatusBanner
-          label="Permissions Tx"
-          hash={approvalHash}
-          status={isApprovalPending ? 'Pending' : ''}
-        />
-      </div>
+          {!requiredTokens.length ? (
+            <div className="muted" style={{ marginTop: 8 }}>
+              No secondary assets configured by the protocol yet. Ready to proceed.
+            </div>
+          ) : (
+            <div className="card-list" style={{ marginTop: 10 }}>
+              {tokenApprovalRows.map((row) => (
+                <div key={row.token} className="pill" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, border: row.ok ? '' : '1px solid rgba(255, 77, 79, 0.3)' }}>
+                  <span>
+                    <strong>{row.symbol}</strong> {row.ok ? 'Recourse Approved' : 'Recourse Required'}
+                  </span>
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => approveToken(row.token)}
+                    disabled={row.ok || isApprovalPending || !hasWallet}
+                    style={row.ok ? {} : { color: '#ff4d4f', borderColor: '#ff4d4f' }}
+                  >
+                    {row.ok ? 'Approved' : 'Approve Recourse'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <TxStatusBanner
+            label="Permissions Tx"
+            hash={approvalHash}
+            status={isApprovalPending ? 'Pending' : ''}
+          />
+        </div>
+      )}
+
       <div className="form-grid">
         <div className="form-field">
           <span className="section-subtitle">Full agreement</span>
@@ -1271,9 +1318,11 @@ export default function BorrowActions({
           />
         </label>
       </div>
+
       <div className="muted">
         Repayment priority: {formatPriority(nativeSymbol)}
       </div>
+
       <div className="inline-actions borrow-actions-cta">
         <button
           className="button"

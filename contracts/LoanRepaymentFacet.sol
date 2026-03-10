@@ -13,7 +13,7 @@ import "./libraries/LoanLogicLib.sol";
 contract LoanRepaymentFacet is LoanManagerStorage {
     using SafeERC20 for IERC20;
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _initialGovernor) VestraAccessControl(_initialGovernor) {}
 
     function repayLoan(uint256 loanId, uint256 amount) external whenNotPaused nonReentrant {
         Loan storage loan = loans[loanId];

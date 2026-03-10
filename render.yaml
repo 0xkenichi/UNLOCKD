@@ -1,0 +1,53 @@
+services:
+  # ----------------------------------------
+  # 1. Main Backend Indexer API
+  # ----------------------------------------
+  - type: web
+    name: vestra-indexer-api
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: RPC_URL
+        value: https://rpc.sepolia.org
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+    # Create an attached disk for the local indexer.sqlite so it persists across reboots
+    disk:
+      name: indexer-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    # We want to run this specifically from the backend directory
+    rootDir: backend
+
+  # ----------------------------------------
+  # 2. Omega Agent (Background Worker)
+  # ----------------------------------------
+  - type: worker
+    name: vestra-omega-agent
+    env: node
+    buildCommand: npm install ethers @supabase/supabase-js dotenv
+    startCommand: node index.js
+    envVars:
+      - key: USE_METTA
+        value: "false" # Default to static MVP watcher
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: RPC_URL
+        value: https://rpc.sepolia.org
+      - key: KEEPER_PRIVATE_KEY
+        sync: false
+      - key: VALUATION_ENGINE_ADDR
+        sync: false
+      - key: LOAN_MANAGER_ADDR
+        sync: false
+    # Specifically run the agent from the root scripts folder
+    rootDir: scripts/omega-agent

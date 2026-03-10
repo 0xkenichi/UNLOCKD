@@ -10,7 +10,7 @@ import { formatValue } from '../../utils/format.js';
 
 const DEFAULT_TOKEN = '0x0000000000000000000000000000000000000000';
 
-export default function ValuationForm({ onUpdate, prefill }) {
+export default function ValuationForm({ onUpdate, prefill, compact = false }) {
   const chainId = useChainId();
   const valuationEngine = getContractAddress(chainId, 'valuationEngine');
   const tokenAddress = prefill?.tokenAddress || DEFAULT_TOKEN;
@@ -74,21 +74,23 @@ export default function ValuationForm({ onUpdate, prefill }) {
           Enter collateral ID + vesting contract in Borrow Actions to load real on-chain valuation inputs.
         </div>
       )}
-      <div className="data-table" style={{ marginBottom: 16 }}>
-        <div className="table-row header">
-          <div>Collateral ID</div>
-          <div>Token</div>
-          <div>Quantity</div>
-          <div>Unlock</div>
+      {!compact && (
+        <div className="data-table" style={{ marginBottom: 16 }}>
+          <div className="table-row header">
+            <div>Collateral ID</div>
+            <div>Token</div>
+            <div>Quantity</div>
+            <div>Unlock</div>
+          </div>
+          <div className="table-row">
+            <div>{prefill?.collateralId || '--'}</div>
+            <div>{tokenAddress !== DEFAULT_TOKEN ? tokenAddress : '--'}</div>
+            <div>{quantityDisplay}</div>
+            <div>{unlockLabel}</div>
+          </div>
         </div>
-        <div className="table-row">
-          <div>{prefill?.collateralId || '--'}</div>
-          <div>{tokenAddress !== DEFAULT_TOKEN ? tokenAddress : '--'}</div>
-          <div>{quantityDisplay}</div>
-          <div>{unlockLabel}</div>
-        </div>
-      </div>
-      <div className="stat-row">
+      )}
+      <div className={`stat-row ${compact ? 'compact' : ''}`}>
         <div className="stat-card">
           <div className="stat-label">Present Value</div>
           <div className="stat-value">{pv.toString()}</div>

@@ -8,7 +8,7 @@ import "./BaseAuction.sol";
 contract EnglishAuction is BaseAuction {
     using SafeERC20 for IERC20;
 
-    constructor(address _adapter, address _usdc) BaseAuction(_adapter, _usdc) {}
+    constructor(address _adapter, address _usdc, address _initialGovernor) BaseAuction(_adapter, _usdc, _initialGovernor) {}
 
     function bid(uint256 auctionId, uint256 amount) external override nonReentrant whenNotPaused {
         AuctionItem storage auction = auctions[auctionId];

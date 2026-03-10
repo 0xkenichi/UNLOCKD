@@ -6,6 +6,7 @@ const { getMint } = require('@solana/spl-token');
 const { TokenListProvider, ENV } = require('@solana/spl-token-registry');
 const { getPriceForMint, getFeedMetadata } = require('./pyth');
 const { computeSolanaDpv } = require('./valuation');
+const { mapWithConcurrency } = require('../lib/concurrency');
 
 const DEFAULT_SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 const DEFAULT_REFRESH_MS = 60_000;
@@ -117,12 +118,12 @@ const normalizeStreamflow = async (entry, connection) => {
   }
   const valuation = price
     ? computeSolanaDpv({
-        quantity,
-        price: price.price,
-        priceExpo: price.expo,
-        unlockTime,
-        now
-      })
+      quantity,
+      price: price.price,
+      priceExpo: price.expo,
+      unlockTime,
+      now
+    })
     : { pv: '0', ltvBps: '0' };
 
   const streamId = entry.publicKey?.toString?.() || '';
@@ -216,17 +217,21 @@ const fetchStreamflowVestingContracts = async () => {
     const limit = Number(process.env.SOLANA_STREAMFLOW_LIMIT || 0);
     const limited = limit > 0 ? vesting.slice(0, limit) : vesting;
     const connection = client.getConnection();
-    const normalized = [];
-    for (const entry of limited) {
-      try {
-        normalized.push(await normalizeStreamflow(entry, connection));
-      } catch (error) {
-        if (!isOffsetError(error)) {
-          console.warn('[solana] failed to normalize stream', error?.message || error);
+    const normalized = await mapWithConcurrency(
+      limited,
+      async (entry) => {
+        try {
+          return await normalizeStreamflow(entry, connection);
+        } catch (error) {
+          if (!isOffsetError(error)) {
+            console.warn('[solana] failed to normalize stream', error?.message || error);
+          }
+          return null;
         }
-      }
-    }
-    cachedStreams = normalized;
+      },
+      Number(process.env.SOLANA_CONCURRENCY_LIMIT || 4)
+    );
+    cachedStreams = normalized.filter(Boolean);
     lastFetchedAt = Date.now();
     return normalized;
   })();

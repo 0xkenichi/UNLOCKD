@@ -1,0 +1,17 @@
+node_modules
+.git
+.vercel
+frontend
+backend
+docs-site
+artifacts
+cache
+coverage
+deployments
+*.log
+demo-build.tar.gz
+test_output.log
+notebooks
+.cursor
+.kombai
+mintlify

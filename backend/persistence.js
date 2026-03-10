@@ -146,7 +146,8 @@ const toEvent = (row) => ({
   borrower: row.borrower || '',
   amount: row.amount || '',
   defaulted: Boolean(row.defaulted),
-  tokenAddress: row.token_address ?? row.tokenAddress ?? null
+  tokenAddress: row.token_address ?? row.tokenAddress ?? null,
+  payload: row.payload ? (typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload) : null
 });
 
 const toPool = (row) => {
@@ -173,9 +174,24 @@ const toPool = (row) => {
 
 const supabaseClient = () => {
   if (supabase) return supabase;
+  const customFetch = async (url, options) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      if (err.name === 'AbortError') throw new Error('Supabase fetch timed out');
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
   supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { 'x-client-info': 'vestra-backend/1.0' } }
+    global: {
+      headers: { 'x-client-info': 'vestra-backend/1.0' },
+      fetch: customFetch
+    }
   });
   return supabase;
 };
@@ -242,6 +258,7 @@ const initSqlite = () => {
       amount TEXT,
       defaulted INTEGER,
       token_address TEXT,
+      payload TEXT,
       PRIMARY KEY (txHash, logIndex)
     );
     CREATE TABLE IF NOT EXISTS snapshots (
@@ -404,6 +421,9 @@ const initSqlite = () => {
     if (cols.every((c) => c.name !== 'token_address')) {
       sqlite.exec('ALTER TABLE events ADD COLUMN token_address TEXT');
     }
+    if (cols.every((c) => c.name !== 'payload')) {
+      sqlite.exec('ALTER TABLE events ADD COLUMN payload TEXT');
+    }
     sqlite.exec(
       'CREATE INDEX IF NOT EXISTS idx_events_token ON events (token_address) WHERE token_address IS NOT NULL'
     );
@@ -446,7 +466,8 @@ const loadEvents = async (limit) => {
     borrower: row.borrower || '',
     amount: row.amount || '',
     defaulted: row.defaulted ? Boolean(row.defaulted) : false,
-    tokenAddress: row.token_address ?? null
+    tokenAddress: row.token_address ?? null,
+    payload: row.payload ? JSON.parse(row.payload) : null
   }));
 };
 
@@ -475,8 +496,8 @@ const saveEvents = async (events) => {
   }
   const insert = sqlite.prepare(
     `INSERT OR IGNORE INTO events
-      (txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted, token_address)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted, token_address, payload)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const tx = sqlite.transaction((rows) => {
     rows.forEach((event) =>
@@ -490,7 +511,8 @@ const saveEvents = async (events) => {
         event.borrower || '',
         event.amount || '',
         event.defaulted ? 1 : 0,
-        event.tokenAddress ?? null
+        event.tokenAddress ?? null,
+        event.payload ? JSON.stringify(event.payload) : null
       )
     );
   });
@@ -561,7 +583,7 @@ const saveSnapshot = async (snapshot) => {
       const { error: deleteErr } = await client
         .from('snapshots')
         .delete()
-        .not('timestamp', 'in', keep);
+        .not('timestamp', 'in', `(${keep.join(',')})`);
       if (deleteErr) {
         console.warn('[supabase] trim delete failed:', deleteErr.message);
       }
@@ -3290,5 +3312,6 @@ module.exports = {
   consumeRelayerNonce,
   createRepayJob,
   listPendingRepayJobs,
-  updateRepayJob
+  updateRepayJob,
+  getSqlite: () => sqlite
 };

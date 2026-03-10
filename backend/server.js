@@ -30,7 +30,6 @@ const {
   buildRepayPlan,
   executeRepaySweep
 } = require('./solana/repay');
-const { runBackfillConcentration } = require('./lib/backfillConcentration');
 const {
   deployVestraVault,
   execViaVault,
@@ -40,6 +39,7 @@ const {
   deployTokenTimelockClaimWrapper,
   deploySuperfluidClaimWrapper
 } = require('./relayer/evmRelayer');
+const { mapWithConcurrency } = require('./lib/concurrency');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -179,22 +179,6 @@ const withTimeoutReject = (promise, ms, label = 'operation') =>
     )
   ]);
 
-const mapWithConcurrency = async (items, worker, concurrency = 4) => {
-  if (!Array.isArray(items) || !items.length) return [];
-  const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
-  const results = new Array(items.length);
-  let cursor = 0;
-  const runner = async () => {
-    while (cursor < items.length) {
-      const idx = cursor;
-      cursor += 1;
-      results[idx] = await worker(items[idx], idx);
-    }
-  };
-  await Promise.all(Array.from({ length: safeConcurrency }, runner));
-  return results;
-};
-
 const trimMapToLimit = (map, maxItems) => {
   if (!(map instanceof Map) || !Number.isFinite(maxItems) || maxItems <= 0) return;
   while (map.size > maxItems) {
@@ -294,6 +278,24 @@ const valuationDeployment = loadDeployment('ValuationEngine');
 const valuationEngine = {
   address: valuationDeployment.address,
   iface: new ethers.Interface(valuationDeployment.abi)
+};
+
+const loanNFTDeployment = loadDeployment('LoanNFT');
+const loanNFT = {
+  address: loanNFTDeployment.address,
+  iface: new ethers.Interface(loanNFTDeployment.abi)
+};
+
+const openClawLighthouseDeployment = loadDeployment('OpenClawLighthouse');
+const openClawLighthouse = {
+  address: openClawLighthouseDeployment.address,
+  iface: new ethers.Interface(openClawLighthouseDeployment.abi)
+};
+
+const globalRiskModuleDeployment = loadDeployment('GlobalRiskModule');
+const globalRiskModule = {
+  address: globalRiskModuleDeployment.address,
+  iface: new ethers.Interface(globalRiskModuleDeployment.abi)
 };
 
 const erc20Abi = [
@@ -400,6 +402,50 @@ const normalizeEvent = async (log) => {
       defaulted: Boolean(parsed.args.defaulted)
     };
   }
+
+  // --- V9.0 Sovereign Events ---
+  try {
+    const nftParsed = loanNFT.iface.parseLog(log);
+    if (nftParsed?.name === 'LoanProofMinted') {
+      return {
+        ...base,
+        type: 'LoanProofMinted',
+        loanId: nftParsed.args.loanId.toString(),
+        borrower: nftParsed.args.borrower,
+        payload: { tokenId: nftParsed.args.tokenId.toString() }
+      };
+    }
+  } catch (_) { }
+
+  try {
+    const clawParsed = openClawLighthouse.iface.parseLog(log);
+    if (clawParsed?.name === 'VoteSubmitted') {
+      return {
+        ...base,
+        type: 'VoteSubmitted',
+        tokenAddress: clawParsed.args.token,
+        payload: {
+          agent: clawParsed.args.agent,
+          omegaBps: clawParsed.args.omegaBps.toString()
+        }
+      };
+    }
+  } catch (_) { }
+
+  try {
+    const riskParsed = globalRiskModule.iface.parseLog(log);
+    if (riskParsed?.name === 'BadDebtThresholdBreached') {
+      return {
+        ...base,
+        type: 'BadDebtThresholdBreached',
+        payload: {
+          currentBadDebt: riskParsed.args.currentBadDebt.toString(),
+          ceiling: riskParsed.args.ceiling.toString()
+        }
+      };
+    }
+  } catch (_) { }
+
   return null;
 };
 
@@ -433,9 +479,19 @@ const pushEvents = async (events) => {
   }
 };
 
-const is429 = (err) =>
-  (err?.message || String(err)).includes('429') ||
-  (err?.info?.error?.code === 429);
+const is429 = (err) => {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('429') ||
+    msg.includes('too many requests') ||
+    msg.includes('rate limit') ||
+    msg.includes('rate-limit') || // Added for robustness
+    msg.includes('throttled') || // Added for robustness
+    err?.info?.error?.code === 429 ||
+    err?.status === 429 ||
+    err?.response?.status === 429 // Added for robustness (e.g., axios errors)
+  );
+};
 
 const getLogsWithRetry = async (params) => {
   const maxAttempts = 3;
@@ -476,66 +532,63 @@ const pollEvents = async () => {
     const chunkSize = 10;
     for (let from = startBlock; from <= endBlock; from += chunkSize) {
       const to = Math.min(from + chunkSize - 1, endBlock);
-      const loanCreatedTopic = getEventTopic(loanManager.iface, 'LoanCreated');
-      const privateLoanCreatedTopic = getEventTopic(loanManager.iface, 'PrivateLoanCreated');
-      const loanRepaidTopic = getEventTopic(loanManager.iface, 'LoanRepaid');
-      const privateLoanRepaidTopic = getEventTopic(loanManager.iface, 'PrivateLoanRepaid');
-      const loanRepaidSwapTopic = getEventTopic(loanManager.iface, 'LoanRepaidWithSwap');
-      const loanSettledTopic = getEventTopic(loanManager.iface, 'LoanSettled');
-      const privateLoanSettledTopic = getEventTopic(loanManager.iface, 'PrivateLoanSettled');
 
-      const logParams = (topic) =>
-        topic ? { address: loanManager.address, fromBlock: from, toBlock: to, topics: [topic] } : null;
-      const loanCreatedLogs = logParams(loanCreatedTopic)
-        ? await getLogsWithRetry(logParams(loanCreatedTopic))
-        : [];
-      const privateLoanCreatedLogs = logParams(privateLoanCreatedTopic)
-        ? await getLogsWithRetry(logParams(privateLoanCreatedTopic))
-        : [];
-      const loanRepaidLogs = logParams(loanRepaidTopic)
-        ? await getLogsWithRetry(logParams(loanRepaidTopic))
-        : [];
-      const privateLoanRepaidLogs = logParams(privateLoanRepaidTopic)
-        ? await getLogsWithRetry(logParams(privateLoanRepaidTopic))
-        : [];
-      const loanRepaidSwapLogs = logParams(loanRepaidSwapTopic)
-        ? await getLogsWithRetry(logParams(loanRepaidSwapTopic))
-        : [];
-      const loanSettledLogs = logParams(loanSettledTopic)
-        ? await getLogsWithRetry(logParams(loanSettledTopic))
-        : [];
-      const privateLoanSettledLogs = logParams(privateLoanSettledTopic)
-        ? await getLogsWithRetry(logParams(privateLoanSettledTopic))
-        : [];
+      const topics = [
+        getEventTopic(loanManager.iface, 'LoanCreated'),
+        getEventTopic(loanManager.iface, 'PrivateLoanCreated'),
+        getEventTopic(loanManager.iface, 'LoanRepaid'),
+        getEventTopic(loanManager.iface, 'PrivateLoanRepaid'),
+        getEventTopic(loanManager.iface, 'LoanRepaidWithSwap'),
+        getEventTopic(loanManager.iface, 'LoanSettled'),
+        getEventTopic(loanManager.iface, 'PrivateLoanSettled'),
+        getEventTopic(loanNFT.iface, 'LoanProofMinted'),
+        getEventTopic(openClawLighthouse.iface, 'VoteSubmitted'),
+        getEventTopic(globalRiskModule.iface, 'BadDebtThresholdBreached')
+      ].filter(Boolean);
 
-      const normalized = await Promise.all(
-        [
-          ...loanCreatedLogs,
-          ...privateLoanCreatedLogs,
-          ...loanRepaidLogs,
-          ...privateLoanRepaidLogs,
-          ...loanRepaidSwapLogs,
-          ...loanSettledLogs,
-          ...privateLoanSettledLogs
-        ].map(normalizeEvent)
-      );
-      const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
-      const adapterContractForIndexer = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
-      for (const e of normalized) {
-        if (!e || (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated')) continue;
-        try {
-          const loan =
-            e.type === 'PrivateLoanCreated'
-              ? await loanManagerContract.privateLoans(e.loanId)
-              : await loanManagerContract.loans(e.loanId);
-          const collateralId = loan?.collateralId ?? loan?.[3];
-          if (collateralId != null) {
-            const details = await adapterContractForIndexer.getDetails(collateralId);
-            const token = details?.[1];
-            if (token) e.tokenAddress = typeof token === 'string' ? token : (token?.toString?.() ?? null);
+      // Batch fetch all topics in one RPC call per chunk
+      const allLogs = await getLogsWithRetry({
+        address: [
+          loanManager.address,
+          loanNFT.address,
+          openClawLighthouse.address,
+          globalRiskModule.address
+        ],
+        fromBlock: from,
+        toBlock: to,
+        topics: [topics]
+      });
+
+      const normalized = await mapWithConcurrency(
+        allLogs,
+        async (log) => {
+          try {
+            const e = await normalizeEvent(log);
+            if (!e || (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated')) return e;
+
+            // Parallelize enrichment for individual loans
+            const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
+            const adapterContractForIndexer = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
+
+            const loan =
+              e.type === 'PrivateLoanCreated'
+                ? await loanManagerContract.privateLoans(e.loanId)
+                : await loanManagerContract.loans(e.loanId);
+
+            const collateralId = loan?.collateralId ?? loan?.[3];
+            if (collateralId != null) {
+              const details = await adapterContractForIndexer.getDetails(collateralId);
+              const token = details?.[1];
+              if (token) e.tokenAddress = typeof token === 'string' ? token : (token?.toString?.() ?? null);
+            }
+            return e;
+          } catch (err) {
+            return null;
           }
-        } catch (_) { }
-      }
+        },
+        RPC_CONCURRENCY_LIMIT
+      );
+
       await pushEvents(normalized.filter(Boolean));
     }
     lastIndexedBlock = endBlock;
@@ -564,6 +617,16 @@ if (isProduction && !corsOrigins.length) {
   console.warn('[security] CORS_ORIGINS missing in production; cross-origin requests blocked');
 }
 app.use(cors(corsOptions));
+
+// Security Headers (Hardening)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+  next();
+});
 
 const jsonLimit = process.env.JSON_BODY_LIMIT || '200kb';
 app.use(express.json({ limit: jsonLimit }));
@@ -977,11 +1040,12 @@ const recordAdminAudit = async (req, action, details = {}) => {
 const verifyTurnstile = async (req, res, next) => {
   if (TURNSTILE_BYPASS) return next();
   if (!TURNSTILE_SECRET_KEY) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[turnstile] bypassed: TURNSTILE_SECRET_KEY missing');
+    const isStrict = process.env.TURNSTILE_STRICT === 'true' || isProduction;
+    if (!isStrict) {
+      console.warn('[turnstile] bypassed: TURNSTILE_SECRET_KEY missing (non-strict mode)');
       return next();
     }
-    return res.status(503).json({ ok: false, error: 'Turnstile not configured' });
+    return res.status(503).json({ ok: false, error: 'Security challenge not configured' });
   }
   const token = req.body?.captchaToken;
   if (!token) {
@@ -4253,6 +4317,137 @@ app.get('/api/exports/kpi.csv', expensiveLimiter, async (req, res) => {
   }
 });
 
+// --- Vestra Protocol: MVP Real Data Portfolio Scanning ---
+
+app.get('/api/portfolio/:wallet', strictLimiter, async (req, res) => {
+  const walletAddress = normalizeAnyWalletAddress(req.params.wallet || '');
+  if (!walletAddress) {
+    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+  }
+
+  try {
+    const liquidTokens = [];
+    const vestedTokens = [];
+
+    // 1. Scan for Liquid ERC20s using Alchemy Token API (Sepolia)
+    const alchemyUrl = process.env.ALCHEMY_SEPOLIA_URL;
+    if (alchemyUrl) {
+      try {
+        const fetchRes = await fetch(alchemyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'alchemy_getTokenBalances',
+            params: [walletAddress, 'erc20'],
+            id: 1
+          })
+        });
+        const alchemyData = await fetchRes.json();
+        const balances = alchemyData?.result?.tokenBalances || [];
+
+        // Fetch metadata concurrently for non-zero balances
+        const nonZeroTokenAddresses = balances
+          .filter((t) => t.tokenBalance && BigInt(t.tokenBalance) > 0n)
+          .map((t) => t.contractAddress);
+
+        if (nonZeroTokenAddresses.length > 0) {
+          const metadataRes = await fetch(alchemyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'alchemy_getTokenMetadataBatch',
+              params: nonZeroTokenAddresses.map(addr => [addr]),
+              id: 2
+            })
+          });
+          const metaDataBatch = await metadataRes.json();
+
+          nonZeroTokenAddresses.forEach((address, index) => {
+            const balanceHex = balances.find(b => b.contractAddress.toLowerCase() === address.toLowerCase())?.tokenBalance;
+            const rawBalance = BigInt(balanceHex || '0');
+            const meta = metaDataBatch?.result?.[index] || {};
+
+            liquidTokens.push({
+              type: 'liquid',
+              tokenAddress: address,
+              symbol: meta.symbol || 'UNKNOWN',
+              decimals: meta.decimals || 18,
+              logo: meta.logo || null,
+              rawBalance: rawBalance.toString(),
+              formattedBalance: (Number(rawBalance) / (10 ** (meta.decimals || 18))).toFixed(4)
+            });
+          });
+        }
+      } catch (e) {
+        console.error('[portfolio] alchemy liquid parsing failed', e);
+      }
+    }
+
+    // 2. Scan for Vested Contracts (Fallback to known tracking or DB records)
+    // For MVP, we query the `vesting/sources` to see if this user has matched vest contracts registered.
+    const knownVests = await persistence.listVestingSources({ chainId: '11155111', limit: 50 });
+
+    // In a real scenario, we'd check if the user is the beneficiary. We'll do a quick on-chain read for each known vest.
+    if (knownVests && knownVests.length > 0) {
+      await Promise.all(knownVests.map(async (vest) => {
+        try {
+          const vContract = new ethers.Contract(vest.vestingContract, vestingWalletReadAbi, provider);
+          // OpenZeppelin VestingWallet doesn't have a public `beneficiary()` by default in some older versions,
+          // but standard ones do. We'll try to read it.
+          let isOwner = false;
+          try {
+            const benIface = new ethers.Contract(vest.vestingContract, ['function beneficiary() view returns (address)', 'function owner() view returns (address)'], provider);
+            const ben = await benIface.beneficiary().catch(() => null);
+            const own = await benIface.owner().catch(() => null);
+            if (ben?.toLowerCase() === walletAddress.toLowerCase() || own?.toLowerCase() === walletAddress.toLowerCase()) {
+              isOwner = true;
+            }
+          } catch (e) { }
+
+          if (isOwner) {
+            const tokenAddr = await vContract.token().catch(() => null);
+            if (tokenAddr) {
+              const tContract = new ethers.Contract(tokenAddr, erc20Abi, provider);
+              const symbol = await tContract.symbol().catch(() => 'V-TKN');
+              const decimals = await tContract.decimals().catch(() => 18);
+              const totalAllocation = await vContract.totalAllocation().catch(() => 0n);
+              const released = await vContract.released(tokenAddr).catch(() => 0n);
+              const locked = totalAllocation - released;
+
+              if (locked > 0n) {
+                vestedTokens.push({
+                  type: 'vested',
+                  vestingContract: vest.vestingContract,
+                  tokenAddress: tokenAddr,
+                  symbol: symbol,
+                  decimals: decimals,
+                  lockedAmount: locked.toString(),
+                  formattedLocked: (Number(locked) / (10 ** decimals)).toFixed(4),
+                  protocol: vest.protocol || 'manual'
+                });
+              }
+            }
+          }
+        } catch (e) { }
+      }));
+    }
+
+    return res.json({
+      ok: true,
+      wallet: walletAddress,
+      liquid: liquidTokens,
+      vested: vestedTokens,
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    console.error('[portfolio] error', error);
+    return res.status(500).json({ ok: false, error: 'Failed to scan portfolio' });
+  }
+});
+
 app.post(
   '/api/notify/auction',
   strictLimiter,
@@ -4328,6 +4523,25 @@ app.get('/api/activity', (_req, res) => {
       latestChainBlock,
       lastPollAt
     }
+  });
+});
+
+app.get('/api/risk/consensus/:token', async (req, res) => {
+  const token = normalizeWalletAddress(req.params.token);
+  if (!token) return res.status(400).json({ error: 'invalid token' });
+
+  const votes = activityEvents.filter(e => e.type === 'VoteSubmitted' && e.tokenAddress?.toLowerCase() === token.toLowerCase());
+  const consensus = votes.length > 0 ? Math.min(...votes.map(v => Number(v.payload.omegaBps))) : 10000;
+
+  res.json({
+    ok: true,
+    token,
+    consensusOmegaBps: consensus,
+    votes: votes.map(v => ({
+      agent: v.payload.agent,
+      omegaBps: v.payload.omegaBps,
+      timestamp: v.timestamp
+    }))
   });
 });
 
@@ -4662,7 +4876,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const primaryEvm = normalizeWalletAddress(req.user?.walletAddress || '');
     const primarySol = normalizeSolanaAddress(req.user?.walletAddress || '');
     if (primaryEvm) sessionWallets.evm.add(primaryEvm.toLowerCase());
-    if (primarySol) sessionWallets.solana.add(primarySol.toLowerCase());
+    if (primarySol) sessionWallets.solana.add(primarySol); // Solana is case-sensitive
 
     const linkedWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
     for (const link of linkedWallets) {
@@ -4670,7 +4884,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       const addressRaw = String(link?.walletAddress || '').trim();
       if (chainType === 'solana') {
         const sol = normalizeSolanaAddress(addressRaw);
-        if (sol) sessionWallets.solana.add(sol.toLowerCase());
+        if (sol) sessionWallets.solana.add(sol);
       } else {
         const evm = normalizeWalletAddress(addressRaw);
         if (evm) sessionWallets.evm.add(evm.toLowerCase());
@@ -4693,7 +4907,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       const asEvm = normalizeWalletAddress(walletFilterRaw);
       const asSol = normalizeSolanaAddress(walletFilterRaw);
       const evmOk = asEvm ? sessionWallets.evm.has(asEvm.toLowerCase()) : false;
-      const solOk = asSol ? sessionWallets.solana.has(asSol.toLowerCase()) : false;
+      const solOk = asSol ? sessionWallets.solana.has(asSol) : false;
       if (!evmOk && !solOk) {
         throw Object.assign(new Error('Wallet mismatch'), { statusCode: 403 });
       }
@@ -4720,17 +4934,28 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
         const borrower = normalizeWallet(item?.borrower);
         if (!borrower) return false;
         if (borrower === walletFilterRaw) return true;
+
+        const itemChain = normalizeChain(item?.chain) || 'evm';
+        if (itemChain === 'solana') {
+          // Solana is case-sensitive base58; exact match only (already checked above)
+          // but we can try normalizing both once to be sure
+          return normalizeSolanaAddress(borrower) === normalizeSolanaAddress(walletFilterRaw);
+        }
+
+        // EVM is case-insensitive hex
         return borrower.toLowerCase() === walletFilterRaw.toLowerCase();
       }
 
       // Privacy mode: only return positions linked to this session (EVM wallets + vault).
       const chain = normalizeChain(item?.chain) || 'evm';
       if (chain === 'solana') {
-        const borrower = normalizeWallet(item?.borrower).toLowerCase();
+        const borrower = normalizeWallet(item?.borrower);
         if (!borrower) return false;
         if (!sessionWallets.solana.has(borrower)) return false;
         if (!walletFilterRaw) return true;
-        return borrower === walletFilterRaw.toLowerCase();
+        // Solana addresses are case-sensitive mixed-case base58
+        const normalizedWf = normalizeSolanaAddress(walletFilterRaw);
+        return borrower === (normalizedWf || walletFilterRaw);
       }
 
       const mode = String(item?.mode || '').toLowerCase();
@@ -5285,6 +5510,15 @@ const runEvmRepayKeeperTick = async () => {
   }
 };
 
+// ─── Scanner: Multi-chain wallet portfolio aggregator ─────────────────────────
+const scannerRouter = require('./routes/scanner');
+// Expose the SQLite/Supabase db handle to the scanner router via app.locals
+app.use('/api/scanner', (req, _res, next) => {
+  const db = persistence.getSqlite?.() || null;
+  req.app.locals.db = db;
+  next();
+}, scannerRouter);
+
 const start = async () => {
   try {
     await initPersistence();
@@ -5292,8 +5526,9 @@ const start = async () => {
       `[persistence] using ${persistence.useSupabase ? 'Supabase' : 'local SQLite'}`
     );
   } catch (error) {
-    console.error('[bootstrap] persistence init failed', error?.message || error);
-    process.exit(1);
+    console.warn('[bootstrap] persistence init failed (non-fatal, continuing):', error?.message || error);
+    // Non-fatal: the server starts in degraded mode with SQLite fallback.
+    // This prevents Supabase timeouts from killing the process.
   }
 
   app.listen(port, () => {

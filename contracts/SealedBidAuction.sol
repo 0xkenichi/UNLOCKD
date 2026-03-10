@@ -11,7 +11,7 @@ contract SealedBidAuction is BaseAuction {
     mapping(uint256 => mapping(address => bytes32)) public bidCommitments;
     mapping(uint256 => mapping(address => uint256)) public revealedBids;
 
-    constructor(address _adapter, address _usdc) BaseAuction(_adapter, _usdc) {}
+    constructor(address _adapter, address _usdc, address _initialGovernor) BaseAuction(_adapter, _usdc, _initialGovernor) {}
 
     function buildCommitment(
         uint256 auctionId,

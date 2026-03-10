@@ -24,7 +24,7 @@ contract StagedTrancheAuction is BaseAuction {
     
     mapping(uint256 => TrancheState) public trancheStates;
 
-    constructor(address _adapter, address _usdc) BaseAuction(_adapter, _usdc) {}
+    constructor(address _adapter, address _usdc, address _initialGovernor) BaseAuction(_adapter, _usdc, _initialGovernor) {}
 
     // Override the base creation to initialize tranche states
     function _initializeTranche(

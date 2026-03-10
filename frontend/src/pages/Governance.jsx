@@ -2,17 +2,41 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useChainId } from 'wagmi';
+import { formatUnits } from 'viem';
 import PassportSummary from '../components/common/PassportSummary.jsx';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
+import { CONTRACTS, erc20Abi } from '../utils/contracts.js';
 
 const CrdtOrb = lazy(() => import('../components/governance/CrdtOrb.jsx'));
 const GovernanceSimulator = lazy(() => import('../components/governance/GovernanceSimulator.jsx'));
 
 export default function Governance() {
   const navigate = useNavigate();
+  const chainId = useChainId();
   const { address } = useAccount();
   const passport = usePassportSnapshot(address);
+
+  const contracts = CONTRACTS[chainId] || {};
+
+  // 1. Fetch Voting Power (CRDT Balance)
+  const { data: votingPower, isLoading: isVotingPowerLoading } = useReadContract({
+    address: contracts.vestToken,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [address],
+    query: { enabled: !!address && !!contracts.vestToken }
+  });
+
+  // 2. Fetch Treasury Balance (USDC in Lending Pool)
+  const { data: treasuryBalance, isLoading: isTreasuryLoading } = useReadContract({
+    address: contracts.usdc,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [contracts.lendingPool],
+    query: { enabled: !!contracts.usdc && !!contracts.lendingPool }
+  });
+
   const holoFallback = (
     <div className="holo-card">
       <div className="loading-row">
@@ -92,18 +116,22 @@ export default function Governance() {
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Voting Power</div>
-          <div className="stat-value">0 CRDT</div>
+          <div className="stat-value">
+            {isVotingPowerLoading ? '...' : `${formatUnits(votingPower || 0n, 18)} CRDT`}
+          </div>
           <div className="stat-delta">Stake to activate</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Active Proposals</div>
-          <div className="stat-value">0</div>
-          <div className="stat-delta">Testnet disabled</div>
+          <div className="stat-value">2</div>
+          <div className="stat-delta">Preview mode</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Treasury</div>
-          <div className="stat-value">$0</div>
-          <div className="stat-delta">Awaiting genesis</div>
+          <div className="stat-value">
+            {isTreasuryLoading ? '...' : `$${Number(formatUnits(treasuryBalance || 0n, 6)).toLocaleString()}`}
+          </div>
+          <div className="stat-delta">Lending Pool Reserves</div>
         </div>
       </div>
       <div className="grid-2">
@@ -127,10 +155,10 @@ export default function Governance() {
             className="button ghost"
             type="button"
             onClick={() =>
-              window.open('mailto:0xkenichi@gmail.com?subject=Governance%20updates')
+              window.open('https://tally.xyz/gov/vestra')
             }
           >
-            View All
+            Open Tally
           </button>
         </div>
         <div className="data-table">
@@ -163,3 +191,4 @@ export default function Governance() {
     </div>
   );
 }
+

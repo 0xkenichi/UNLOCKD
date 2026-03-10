@@ -236,8 +236,8 @@ export default function Portfolio() {
           ? Number(loan[5])
           : 0;
       const active = isPrivate ? Boolean(priv?.[6]) : Boolean(loan?.[6]);
-      const principal = isPrivate ? (priv?.[1] ?? 0n) : (loan?.[1] ?? 0n);
-      const interest = isPrivate ? (priv?.[2] ?? 0n) : (loan?.[2] ?? 0n);
+      const principal = (isPrivate ? (priv?.[1] ?? 0n) : (loan?.[1] ?? 0n)) || 0n;
+      const interest = (isPrivate ? (priv?.[2] ?? 0n) : (loan?.[2] ?? 0n)) || 0n;
       const loanId = id?.toString?.() || String(i);
 
       return {
@@ -490,7 +490,7 @@ export default function Portfolio() {
                 <div>Status</div>
               </div>
               {activityRows.map((row, i) => (
-                <div key={i} className="table-row">
+                <div key={`${row.event}-${row.amount}-${i}`} className="table-row">
                   <div data-label="Event">{row.event}</div>
                   <div data-label="Amount">{row.amount}</div>
                   <div data-label="Status" className="tag success">{row.status}</div>

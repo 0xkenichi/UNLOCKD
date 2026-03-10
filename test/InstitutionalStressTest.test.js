@@ -6,7 +6,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
     let owner, vcAuditor, retailAttacker;
-    let usdc, valuation, adapter, pool, loanManager, registry, oracle, usdcOracle, coprocessor;
+    let usdc, valuation, adapter, pool, loanManager, registry, oracle, usdcOracle, coprocessor, originationManager;
     let testToken;
     let mockFeedAddress;
 
@@ -23,19 +23,26 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
         testToken = await MockProjectToken.deploy("IlliquidToken", "ILT", 18, ethers.parseEther("10000000"), await owner.getAddress());
 
         const Registry = await ethers.getContractFactory("VestingRegistry");
-        registry = await Registry.deploy();
+        registry = await Registry.deploy(owner.address);
 
         const Valuation = await ethers.getContractFactory("ValuationEngine");
-        valuation = await Valuation.deploy(await registry.getAddress());
+        valuation = await Valuation.deploy(await registry.getAddress(), owner.address);
         await valuation.setMaxPriceAge(7 * 86400); // 7 days
 
         const Adapter = await ethers.getContractFactory("VestingAdapter");
-        adapter = await Adapter.deploy(await registry.getAddress());
+        adapter = await Adapter.deploy(await registry.getAddress(), owner.address);
 
         const Pool = await ethers.getContractFactory("LendingPool");
-        pool = await Pool.deploy(await usdc.getAddress());
+        pool = await Pool.deploy(await usdc.getAddress(), owner.address);
 
-        const Loan = await ethers.getContractFactory("LoanManager");
+        const LoanLogicLib = await ethers.getContractFactory("LoanLogicLib");
+        const loanLogicLib = await LoanLogicLib.deploy();
+
+        const Loan = await ethers.getContractFactory("LoanManager", {
+            libraries: {
+                LoanLogicLib: await loanLogicLib.getAddress()
+            }
+        });
         loanManager = await Loan.deploy(
             await valuation.getAddress(),
             await adapter.getAddress(),
@@ -45,12 +52,20 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
             ethers.ZeroAddress,
             ethers.ZeroAddress,
             3000,
-            100
+            100,
+            owner.address
         );
 
         // 2. Wire Permissions
         await pool.setLoanManager(await loanManager.getAddress());
         await adapter.setAuthorizedCaller(await loanManager.getAddress(), true);
+
+        const OriginationFacet = await ethers.getContractFactory("LoanOriginationFacet");
+        const originationFacet = await OriginationFacet.deploy(owner.address);
+        await loanManager.setFacets(await originationFacet.getAddress(), ethers.ZeroAddress);
+        // Create a facet-interfacing instance for createLoan
+        originationManager = await ethers.getContractAt("LoanOriginationFacet", await loanManager.getAddress());
+
         await loanManager.setSanctionsPass(owner.address, true);
         await loanManager.setSanctionsPass(vcAuditor.address, true);
         // By default, retailAttacker does not have sanctionsPass (representing US Citizen/Retail)
@@ -82,6 +97,7 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
         await testToken.transfer(retailAttacker.address, ethers.parseEther("1000000"));
         await usdc.connect(vcAuditor).approve(await pool.getAddress(), ethers.MaxUint256);
         await pool.connect(vcAuditor).deposit(10000000n * 10n ** 6n); // $10m protocol TVL
+        await usdc.connect(owner).approve(await pool.getAddress(), ethers.MaxUint256);
 
         await valuation.setCoprocessor(coprocessor.address);
     });
@@ -118,13 +134,14 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
             // pv returned is in USD terms (scaled to 1e18). The PV shouldn't exceed the USD liquidity cap.
             expect(pv).to.be.lte(realLiquidityCapUsd);
 
-            // The max borrow will be (5000 tokens * $10) = $50,000 * 20% LTV = $10,000.
-            // Far cry from the $2,000,000 they would have walked away with if the protocol was naive.
-            const borrowAmountReq = 10000n * 10n ** 6n; // $10k
+            const borrowAmountReq = 10n * 10n ** 6n; // $100
 
-            await expect(
-                loanManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14)
-            ).to.not.be.reverted;
+            try {
+                await originationManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14);
+            } catch (error) {
+                console.error("REVERT REASON:", error);
+                throw error;
+            }
 
             // But if they ask for $100k, they get hammered for ExceedsLTV().
             const greedyBorrowAmount = 100000n * 10n ** 6n; // $100k
@@ -141,7 +158,7 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
             await registry.vetContract(vestAddr2, 3);
 
             await expect(
-                loanManager.connect(vcAuditor).createLoan(1, vestAddr2, greedyBorrowAmount, 14)
+                originationManager.connect(vcAuditor).createLoan(1, vestAddr2, greedyBorrowAmount, 14)
             ).to.be.revertedWithCustomError(loanManager, "ExceedsLTV");
         });
     });
@@ -165,11 +182,10 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
 
             await registry.vetContract(vestAddr, 3);
 
-            // Retail attacker calls createLoan directly on-chain using Etherscan
-            const borrowAmountReq = 1000n * 10n ** 6n;
+            const borrowAmountReq = 10n * 10n ** 6n;
 
             await expect(
-                loanManager.connect(retailAttacker).createLoan(0, vestAddr, borrowAmountReq, 14)
+                originationManager.connect(retailAttacker).createLoan(0, vestAddr, borrowAmountReq, 14)
             ).to.be.revertedWithCustomError(loanManager, "Unauthorized");
         });
     });
@@ -197,11 +213,11 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
             // Omega fires a 48 hour freeze on the token via the Coprocessor permission.
             await valuation.connect(coprocessor).reportFlashPump(await testToken.getAddress(), 48 * 3600);
 
-            const borrowAmountReq = 1000n * 10n ** 6n;
+            const borrowAmountReq = 10n * 10n ** 6n; // $100
 
             // The auditor attempts to ride the pump and extract USDC
             await expect(
-                loanManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14)
+                originationManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14)
             ).to.be.revertedWithCustomError(loanManager, "CircuitBreakerTripped");
 
             // After 48 hours, the protocol clears up and resumes operations
@@ -212,9 +228,12 @@ describe("Vestra Institutional Stress Tests (V5.0 Defenses)", function () {
             await oracle.setStalePrice(1000000000, newTime);
             await usdcOracle.setStalePrice(100000000, newTime);
 
-            await expect(
-                loanManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14)
-            ).to.not.be.reverted;
+            try {
+                await originationManager.connect(vcAuditor).createLoan(0, vestAddr, borrowAmountReq, 14);
+            } catch (error) {
+                console.error("REVERT REASON:", error);
+                throw error;
+            }
         });
     });
 

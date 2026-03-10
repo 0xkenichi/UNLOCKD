@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./IAuction.sol";
 import "./VestingAdapter.sol";
 
-abstract contract BaseAuction is Ownable, IAuction, ReentrancyGuard, Pausable {
+abstract contract BaseAuction is VestraAccessControl, IAuction, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     struct AuctionState {
@@ -32,7 +32,7 @@ abstract contract BaseAuction is Ownable, IAuction, ReentrancyGuard, Pausable {
     event AuctionFinalized(uint256 auctionId, address winner, uint256 amount);
     event AuctionClaimed(uint256 auctionId, address winner, uint256 amount);
 
-    constructor(address _adapter, address _usdc) Ownable(msg.sender) {
+    constructor(address _adapter, address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_adapter != address(0), "adapter=0");
         require(_usdc != address(0), "usdc=0");
         adapter = VestingAdapter(_adapter);
@@ -112,7 +112,7 @@ abstract contract BaseAuction is Ownable, IAuction, ReentrancyGuard, Pausable {
     function _distributeProceeds(address seller, uint256 amount) internal {
         uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
         if (fee > 0) {
-            usdc.safeTransfer(owner(), fee);
+            usdc.safeTransfer(msg.sender, fee); // Or designated treasury
         }
         usdc.safeTransfer(seller, amount - fee);
     }
@@ -121,11 +121,11 @@ abstract contract BaseAuction is Ownable, IAuction, ReentrancyGuard, Pausable {
         return block.timestamp < auction.startTime + auction.duration;
     }
 
-    function pause() external onlyOwner {
+    function pause() external onlyGovernor {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyGovernor {
         _unpause();
     }
 }

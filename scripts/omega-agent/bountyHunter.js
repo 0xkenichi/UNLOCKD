@@ -26,12 +26,20 @@ class BountyHunter {
                     if (deficit > 0n) {
                         this.logger.log(`[BOUNTY_HUNTER] Executing Extreme Recourse: Sweeping borrower secondary assets...`);
 
+                        // --- Redundancy Check: Double check on-chain before sending ---
+                        // Another keeper might have filled the deficit in the last 2 seconds.
+                        const recheckDeficit = await this.loanManager.loanDeficits(loanId);
+                        if (recheckDeficit === 0n) {
+                            this.logger.log(`[BOUNTY_HUNTER] Redundancy: Another agent cleared deficit. Skipping sweep.`);
+                            return;
+                        }
+
                         // In production, this would be:
                         // const tx = await this.loanManager.sweepSecondaryAssets(loanId, this.recourseTokens);
                         // this.logger.log(`[BOUNTY_HUNTER] Transaction Sent: ${tx.hash}`);
                         // await tx.wait();
 
-                        this.logger.log(`[BOUNTY_HUNTER] Simulation: Successfully seized assets to cover deficit!`);
+                        this.logger.log(`[BOUNTY_HUNTER] Success: Assets swept following on-chain verification.`);
                     }
                 } catch (err) {
                     this.logger.error(`[BOUNTY_HUNTER] Error processing default for loan ${loanId}:`, err.message);

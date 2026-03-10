@@ -34,6 +34,19 @@ const buildFeedMap = () => {
   return { ...DEFAULT_MINT_FEEDS, ...override, ...Object.fromEntries(dynamicFeedMap) };
 };
 
+const customFetch = async (url) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Pyth fetch timed out');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 const fetchHermesPrice = async (feedId) => {
   if (!feedId) return null;
   const cached = feedCache.get(feedId);
@@ -42,7 +55,7 @@ const fetchHermesPrice = async (feedId) => {
   }
   const baseUrl = process.env.SOLANA_PYTH_HERMES_URL || DEFAULT_HERMES_URL;
   const url = `${baseUrl}/v2/updates/price/latest?ids[]=${feedId}&parsed=true`;
-  const response = await fetch(url);
+  const response = await customFetch(url);
   if (!response.ok) {
     throw new Error(`Hermes error ${response.status}`);
   }
@@ -51,10 +64,10 @@ const fetchHermesPrice = async (feedId) => {
   const price = parsed?.price || null;
   const value = price
     ? {
-        price: price.price,
-        expo: price.expo,
-        publishTime: price.publish_time
-      }
+      price: price.price,
+      expo: price.expo,
+      publishTime: price.publish_time
+    }
     : null;
   feedCache.set(feedId, { value, fetchedAt: Date.now() });
   return value;
@@ -79,7 +92,7 @@ const resolveFeedIdForSymbol = async (symbol) => {
       query
     )}`;
     try {
-      const response = await fetch(url);
+      const response = await customFetch(url);
       if (!response.ok) continue;
       const data = await response.json();
       if (!Array.isArray(data)) continue;

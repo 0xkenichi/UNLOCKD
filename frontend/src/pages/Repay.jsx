@@ -132,12 +132,19 @@ export default function Repay() {
       <AdvancedSection title="Schedule">
         <div className="section-head">
           <h4 className="section-title">Repayment schedule</h4>
-          <button className="button ghost" type="button" onClick={handleDownload}>
-            Download
-          </button>
+          <div className="flex gap-2">
+            <button className="button ghost small" type="button" onClick={() => window.location.reload()}>
+              Retry Sync
+            </button>
+            <button className="button ghost small" type="button" onClick={handleDownload}>
+              Download
+            </button>
+          </div>
         </div>
         {scheduleError ? (
-          <p className="muted">{scheduleError}</p>
+          <div className="p-4 rounded-lg bg-error-900/20 border border-error-500/30 text-error-400 text-sm">
+            {scheduleError}
+          </div>
         ) : schedule.length ? (
           <div className="data-table">
             <div className="table-row header">

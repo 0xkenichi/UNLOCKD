@@ -16,7 +16,10 @@ const DEMO_STEPS = {
 
 export default function Demo() {
     const [currentStep, setCurrentStep] = useState(DEMO_STEPS.SIGN_IN);
-    const { isConnected } = useAccount();
+    const { isConnected: wagmiConnected } = useAccount();
+    const [isSimulated, setIsSimulated] = useState(false);
+    const isConnected = wagmiConnected || isSimulated;
+
     const [demoState, setDemoState] = useState({
         userLocation: null,
         vestingContract: null,
@@ -32,13 +35,42 @@ export default function Demo() {
         setCurrentStep(DEMO_STEPS.DASHBOARD);
     };
 
+    const handleFastTrack = () => {
+        setDemoState({
+            userLocation: { city: "San Francisco", country: "USA", coords: [37.7749, -122.4194] },
+            vestingContract: {
+                tokenSymbol: "VEST",
+                allocation: "1000000000000", // 1M tokens
+                duration: 12,
+                cliff: 0
+            }
+        });
+        setCurrentStep(DEMO_STEPS.DASHBOARD);
+    };
+
     return (
-        <div className="demo-container v2-container">
+        <div className="demo-container v2-container relative">
+            {/* Developer Controls Overlay */}
+            <div className="fixed bottom-4 right-4 z-50 flex gap-2">
+                <button
+                    onClick={() => setIsSimulated(!isSimulated)}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${isSimulated ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-white'}`}
+                >
+                    Simulator: {isSimulated ? 'ACTIVE' : 'OFF'}
+                </button>
+                <button
+                    onClick={handleFastTrack}
+                    className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase bg-blue-600 border border-blue-500 text-white hover:bg-blue-500 transition-all shadow-lg"
+                >
+                    Fast Track
+                </button>
+            </div>
+
             <div className="max-w-6xl mx-auto mb-12 text-center">
                 <h1 className="text-5xl font-black italic uppercase tracking-tighter mb-4 bg-gradient-to-br from-white to-slate-500 bg-clip-text text-transparent">
                     Vestra Intelligence Simulator
                 </h1>
-                <p className="text-slate-500 font-mono text-[10px] uppercase tracking-[0.3em] mb-12">
+                <p className="text-slate-500 font-mono text-[10px] uppercase tracking-[0.4em] mb-12">
                     Premium Stress-Testing Ground // ASI-Monitored Environment
                 </p>
 
@@ -73,7 +105,7 @@ export default function Demo() {
                             className="demo-card"
                         >
                             <h2>Step 1: Protocol Entry</h2>
-                            <p>Connect your wallet to map your global node.</p>
+                            <p>{isSimulated ? 'Simulator active. Mapping global node...' : 'Connect your wallet to map your global node.'}</p>
                             <GlobalUserMap
                                 isConnected={isConnected}
                                 onComplete={handleSignInComplete}

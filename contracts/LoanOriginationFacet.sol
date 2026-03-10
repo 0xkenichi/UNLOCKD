@@ -5,6 +5,7 @@ pragma solidity ^0.8.20;
 import "./LoanManagerStorage.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+
 /**
  * @title LoanOriginationFacet
  * @notice V7.0 Citadel Pivot: Handles all Loan Creation logic to bypass EIP-170 limits.
@@ -12,7 +13,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 contract LoanOriginationFacet is LoanManagerStorage {
     using SafeERC20 for IERC20;
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _initialGovernor) VestraAccessControl(_initialGovernor) {}
 
     function createLoan(
         uint256 collateralId,
@@ -96,8 +97,16 @@ contract LoanOriginationFacet is LoanManagerStorage {
                 ltvBps = BPS_DENOMINATOR;
             }
         }
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+        uint256 normalizedPv = pv;
+        if (tokenDecimals > 6) {
+            normalizedPv = pv / (10 ** (tokenDecimals - 6));
+        } else if (tokenDecimals < 6) {
+            normalizedPv = pv * (10 ** (6 - tokenDecimals));
+        }
+        uint256 maxBorrow = (normalizedPv * ltvBps) / BPS_DENOMINATOR;
         
-        uint256 maxBorrow = (pv * ltvBps) / BPS_DENOMINATOR;
+        
         if (borrowAmount > maxBorrow) revert ExceedsLTV();
 
         uint8 rank = adapter.registry().getRank(vestingContract);
@@ -137,6 +146,10 @@ contract LoanOriginationFacet is LoanManagerStorage {
         }
         currentGlobalExposure[token] += borrowAmount;
 
+        // V9.0 Sovereign - On-Chain Invariant Guard
+        // Revert instantly if protocol-wide bad debt has breached the ceiling.
+        if (totalBadDebt > badDebtCeiling) revert CircuitBreakerTripped();
+
         uint256 loanId = loanCount;
         if (isPrivate) {
             privateLoans[loanId] = PrivateLoan({
@@ -164,6 +177,20 @@ contract LoanOriginationFacet is LoanManagerStorage {
                 active: true
             });
             emit LoanCreated(loanId, msg.sender, borrowAmount);
+
+            // V9.0 - Mint On-Chain Proof (NFT)
+            if (address(loanNFT) != address(0)) {
+                loanNFT.mintProof(
+                    msg.sender,
+                    loanId,
+                    borrowAmount,
+                    pledgedQuantity,
+                    ltvBps,
+                    valuation.tokenOmegaBps(token),
+                    "ipfs://VESTRA-TERMS-V1", // Real legal hash in prod
+                    "https://vestra.finance/proofs/" // Dynamic URI
+                );
+            }
         }
         loanCount += 1;
 

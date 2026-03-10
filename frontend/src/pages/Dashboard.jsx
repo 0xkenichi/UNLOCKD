@@ -3,6 +3,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useSwitchChain } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { routeImports } from '../routes.js';
 import PassportSummary from '../components/common/PassportSummary.jsx';
 import { ALL_EVM_CHAINS, SOLANA_NETWORKS } from '../utils/chains.js';
@@ -89,7 +91,9 @@ function ModuleFallback({ moduleId }) {
   );
 }
 
-export default function Dashboard({ onOpenWallet = () => { } }) {
+export default function Dashboard() {
+  const { openConnectModal } = useConnectModal();
+  const { setVisible: setSolanaModalVisible } = useWalletModal();
   const prefersReducedMotion = useReducedMotion();
   const { address } = useAccount();
   const chainId = useChainId();
@@ -382,10 +386,14 @@ export default function Dashboard({ onOpenWallet = () => { } }) {
               style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', transition: 'all 0.2s', textAlign: 'left' }}
               onClick={() => {
                 if (isSolanaSession) {
-                  onOpenWallet();
+                  setSolanaModalVisible(true);
                   return;
                 }
-                setNetworkPickerOpen((open) => !open);
+                if (openConnectModal) {
+                  openConnectModal();
+                } else {
+                  setNetworkPickerOpen((open) => !open);
+                }
               }}
             >
               <div className="stat-value" style={{ fontSize: '20px', color: '#fff' }}>

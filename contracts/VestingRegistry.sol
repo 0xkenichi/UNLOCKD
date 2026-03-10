@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 
 /**
  * @title VestingRegistry
@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * Rank 2: Premium
  * Rank 3: Standard
  */
-contract VestingRegistry is Ownable {
+contract VestingRegistry is VestraAccessControl {
     
     mapping(address => uint8) public ranks;
     mapping(address => bool) public isSubmitted;
@@ -25,12 +25,12 @@ contract VestingRegistry is Ownable {
     event ContractRanked(address indexed wrapper, uint8 rank);
     event BytecodeHashVerified(bytes32 indexed bytecodeHash, bool status);
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _initialGovernor) VestraAccessControl(_initialGovernor) {}
 
     /**
      * @notice V6.0 Citadel - Admin explicitly whitelists valid factory/wrapper runtime bytecode hashes
      */
-    function setVerifiedBytecode(bytes32 bytecodeHash, bool status) external onlyOwner {
+    function setVerifiedBytecode(bytes32 bytecodeHash, bool status) external onlyGovernor {
         verifiedBytecodeHashes[bytecodeHash] = status;
         emit BytecodeHashVerified(bytecodeHash, status);
     }
@@ -62,7 +62,7 @@ contract VestingRegistry is Ownable {
      * @param wrapper The vesting wrapper address.
      * @param rank The assigned rank (1=Flagship, 2=Premium, 3=Standard, 0=Revoke).
      */
-    function vetContract(address wrapper, uint8 rank) external onlyOwner {
+    function vetContract(address wrapper, uint8 rank) external onlyGovernor {
         require(wrapper != address(0), "wrapper=0");
         require(rank <= 3, "invalid rank");
         

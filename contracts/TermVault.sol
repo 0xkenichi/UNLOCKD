@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -13,7 +13,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///      deposits without refactoring the existing pool accounting. Guarantees are
 ///      only as strong as the vault being prefunded with reward reserves; deposits
 ///      will revert if the contract does not have enough free reward budget.
-contract TermVault is Ownable, Pausable, ReentrancyGuard {
+contract TermVault is VestraAccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOMINATOR = 10000;
@@ -59,7 +59,7 @@ contract TermVault is Ownable, Pausable, ReentrancyGuard {
     event WithdrawnAtMaturity(uint256 indexed positionId, address indexed owner, uint256 principal, uint256 interest);
     event EarlyWithdrawn(uint256 indexed positionId, address indexed owner, uint256 payout, uint256 fee, uint256 forfeitedInterest);
 
-    constructor(address _usdc, address _feeRecipient) Ownable(msg.sender) {
+    constructor(address _usdc, address _feeRecipient, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_usdc != address(0), "usdc=0");
         usdc = IERC20(_usdc);
         feeRecipient = _feeRecipient == address(0) ? msg.sender : _feeRecipient;
@@ -67,14 +67,14 @@ contract TermVault is Ownable, Pausable, ReentrancyGuard {
 
     // -------- Admin --------
 
-    function setTranche(uint32 trancheId, uint64 termSeconds, uint32 minApyBps, bool enabled) external onlyOwner {
+    function setTranche(uint32 trancheId, uint64 termSeconds, uint32 minApyBps, bool enabled) external onlyGovernor {
         require(termSeconds > 0, "term=0");
         require(minApyBps <= 5000, "apy too high"); // guardrail for MVP
         tranches[trancheId] = Tranche({ termSeconds: termSeconds, minApyBps: minApyBps, enabled: enabled });
         emit TrancheUpdated(trancheId, termSeconds, minApyBps, enabled);
     }
 
-    function setFeeConfig(uint256 _earlyExitFeeBps, address _feeRecipient) external onlyOwner {
+    function setFeeConfig(uint256 _earlyExitFeeBps, address _feeRecipient) external onlyGovernor {
         require(_earlyExitFeeBps <= 2000, "fee too high");
         require(_feeRecipient != address(0), "recipient=0");
         earlyExitFeeBps = _earlyExitFeeBps;
@@ -82,11 +82,11 @@ contract TermVault is Ownable, Pausable, ReentrancyGuard {
         emit FeeConfigUpdated(_earlyExitFeeBps, _feeRecipient);
     }
 
-    function pause() external onlyOwner {
+    function pause() external onlyGovernor {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyGovernor {
         _unpause();
     }
 

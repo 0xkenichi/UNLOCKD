@@ -28,11 +28,11 @@ describe("ValuationEngine security", () => {
     await altFeed.setPrice(2e8); // $2
 
     const VestingRegistry = await ethers.getContractFactory("VestingRegistry");
-    const registry = await VestingRegistry.deploy();
+    const registry = await VestingRegistry.deploy(deployer.address);
     await registry.waitForDeployment();
 
     const ValuationEngine = await ethers.getContractFactory("ValuationEngine");
-    const valuation = await ValuationEngine.deploy(await registry.getAddress());
+    const valuation = await ValuationEngine.deploy(await registry.getAddress(), deployer.address);
     await valuation.waitForDeployment();
     await valuation.setMaxPriceAge(7 * ONE_DAY);
 
@@ -78,12 +78,13 @@ describe("ValuationEngine security", () => {
     const feed = await MockPriceFeed.deploy();
     await feed.waitForDeployment();
 
+    const [deployer] = await ethers.getSigners();
     const VestingRegistry = await ethers.getContractFactory("VestingRegistry");
-    const registry = await VestingRegistry.deploy();
+    const registry = await VestingRegistry.deploy(deployer.address);
     await registry.waitForDeployment();
 
     const ValuationEngine = await ethers.getContractFactory("ValuationEngine");
-    const valuation = await ValuationEngine.deploy(await registry.getAddress());
+    const valuation = await ValuationEngine.deploy(await registry.getAddress(), deployer.address);
     await valuation.waitForDeployment();
     await valuation.setMaxPriceAge(ONE_DAY);
 
@@ -92,7 +93,6 @@ describe("ValuationEngine security", () => {
     const quantity = 1_000n * 10n ** 6n;
     const unlockTime = (await ethers.provider.getBlock("latest")).timestamp + 7 * ONE_DAY;
 
-    const [deployer] = await ethers.getSigners();
     await registry.vetContract(deployer.address, 1);
 
     // Explicitly add a mapping to the stale feed
@@ -112,12 +112,12 @@ describe("ValuationEngine security", () => {
       [deployer, user] = await ethers.getSigners();
 
       const VestingRegistry = await ethers.getContractFactory("VestingRegistry");
-      registry = await VestingRegistry.deploy();
+      registry = await VestingRegistry.deploy(deployer.address);
       await registry.waitForDeployment();
       await registry.vetContract(deployer.address, 1);
 
       const ValuationEngine = await ethers.getContractFactory("ValuationEngine");
-      valuation = await ValuationEngine.deploy(await registry.getAddress());
+      valuation = await ValuationEngine.deploy(await registry.getAddress(), deployer.address);
       await valuation.waitForDeployment();
 
       const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");

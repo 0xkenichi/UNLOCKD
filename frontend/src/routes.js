@@ -21,5 +21,7 @@ export const routeImports = {
   fundraiseOnboard: () => import('./pages/FundraiseOnboard.jsx'),
   communityPools: () => import('./pages/CommunityPools.jsx'),
   demo: () => import('./pages/Demo.jsx'),
-  admin: () => import('./pages/Admin.jsx')
+  admin: () => import('./pages/Admin.jsx'),
+  treasury: () => import('./pages/Treasury.jsx'),
+  scanner: () => import('./pages/Scanner.jsx')
 };

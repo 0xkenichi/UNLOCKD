@@ -104,10 +104,19 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Typography — aspirational DeFi */
-  --font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Consolas', monospace;
-  --font-display: 'Syne', sans-serif;
+  /* Typography — Elegant Stealth & Experimental ZK Stack */
+  --font-brand: 'Syne', sans-serif;
+  --font-body: 'Sora', sans-serif;
+
+  /* Demo specific highly experimental fonts */
+  --font-demo-body: 'DotGothic16', monospace;
+  --font-demo-brand: 'Flow Circular', cursive;
+  --font-demo-encrypted: 'Rubik Glitch', cursive;
+
+  /* Global Fallbacks */
+  --font-family: var(--font-body);
+  --font-mono: 'Space Mono', monospace;
+  --font-display: var(--font-brand);
 
   /* Glass & Gradients */
   --glass-bg: rgba(13, 17, 24, 0.45);
@@ -323,6 +332,97 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Stealth & Privacy Mode (Demo specific) ─────────────────────── */
+.font-decrypted {
+  font-family: var(--font-demo-body) !important;
+  color: var(--primary-400) !important;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
+}
+
+.font-encrypted {
+  font-family: var(--font-demo-encrypted) !important;
+  opacity: 0.4;
+  text-shadow: 2px 0 red, -2px 0 cyan;
+  /* Chromatic aberration effect */
+  animation: glitch-anim 2.5s infinite linear;
+}
+
+@keyframes glitch-anim {
+  0% {
+    opacity: 0.4;
+    transform: translate(0);
+  }
+
+  2% {
+    opacity: 0.8;
+    transform: translate(-2px, 1px);
+  }
+
+  4% {
+    opacity: 0.4;
+    transform: translate(0);
+  }
+
+  98% {
+    opacity: 0.4;
+    transform: translate(0);
+  }
+
+  100% {
+    opacity: 0.7;
+    transform: translate(1px, -1px);
+  }
+}
+
+.brand-waveforms {
+  font-family: var(--font-demo-brand) !important;
+  font-size: 1.4em;
+  letter-spacing: -0.1em;
+  color: var(--text-primary);
+  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.4));
+}
+
+/* ─── Font Lab Specimen Classes ────────────────────────────────────── */
+.font-specimen-1 {
+  font-family: 'DotGothic16', monospace !important;
+}
+
+.font-specimen-2 {
+  font-family: 'Martian Mono', monospace !important;
+}
+
+.font-specimen-3 {
+  font-family: 'Major Mono Display', monospace !important;
+}
+
+.font-specimen-4 {
+  font-family: 'Share Tech Mono', monospace !important;
+}
+
+.font-specimen-5 {
+  font-family: 'Silkscreen', monospace !important;
+}
+
+.font-specimen-6 {
+  font-family: 'VT323', monospace !important;
+}
+
+.font-specimen-7 {
+  font-family: 'Recursive', monospace !important;
+}
+
+.font-specimen-8 {
+  font-family: 'Chivo Mono', monospace !important;
+}
+
+.font-specimen-9 {
+  font-family: 'Fira Code', monospace !important;
+}
+
+.font-specimen-10 {
+  font-family: 'Redacted Script', cursive !important;
 }
 
 /* ─── Vestra native icon system ─────────────────────────────────────── */
@@ -1031,6 +1131,37 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-4);
+}
+
+.stat-row.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-template-columns: none;
+}
+
+.stat-row.compact .stat-card {
+  padding: 12px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: auto;
+}
+
+.stat-row.compact .stat-value {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.stat-row.compact .stat-label {
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+
+.stat-row.compact .stat-delta {
+  font-size: 9px;
+  margin-top: 2px;
 }
 
 .stat-card {
@@ -3658,18 +3789,71 @@ select:focus-visible {
   font-size: 14px;
   margin-bottom: var(--space-5);
 }
+
 /* ─── Demo V4 additions ─────────────────────────────────────────────────── */
 .feed-item.highlight {
   background: rgba(239, 68, 68, 0.08);
   border-left-color: var(--danger-500);
   font-weight: 600;
 }
+
 .feed-item .text {
   text-align: right;
   flex: 1;
   padding-left: var(--space-3);
   word-break: break-word;
 }
+
 .hm-card .value.warning {
   color: #f59e0b;
+}
+
+/* Wallet Ping Indicators */
+@keyframes ping-vibrance {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.ping-indicator {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 8px;
+}
+
+.ping-indicator::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ping-vibrance 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.ping-indicator.success {
+  color: var(--success-500);
+}
+
+.ping-indicator.solana {
+  color: #14f195;
+}
+
+/* Solana green-ish */
+.ping-indicator.evm {
+  color: var(--primary-400);
 }

@@ -32,13 +32,16 @@
 
 ; Is the current config too loose? (too many liquidations)
 (= (IsTooLoose $epochId)
-   (let $liqRate (match &self (EpochLiquidationRate $epochId $r) $r)
-     (> $liqRate (TargetLiqRate))))
+   (let $res (collapse (match &self (EpochLiquidationRate $epochId $r) $r))
+     (if (== $res ()) False
+       (> (superpose $res) (TargetLiqRate)))))
 
 ; Is the current config too tight? (not enough activity / near-zero revenue)
 (= (IsTooTight $epochId)
-   (let* (($liqRate (match &self (EpochLiquidationRate $epochId $r) $r))
-          ($revenue (match &self (EpochRevenueUSDC $epochId $rev) $rev)))
+   (let* (($liqRes (collapse (match &self (EpochLiquidationRate $epochId $r) $r)))
+          ($liqRate (if (== $liqRes ()) 0 (superpose $liqRes)))
+          ($revRes (collapse (match &self (EpochRevenueUSDC $epochId $rev) $rev)))
+          ($revenue (if (== $revRes ()) 0 (superpose $revRes))))
      (and (< $liqRate 0.01) (< $revenue 1000))))
 
 ; OverallHealthSignal: +1 = healthy, 0 = loose (tighten), -1 = tight (loosen)
@@ -80,7 +83,8 @@
 ; Adapt the MaxRate — crisis rate ceiling:
 ;   - Very high default rate → aggressive rate hike
 (= (NewMaxRate $epochId)
-   (let* (($defaultRate (match &self (EpochDefaultRate $epochId $d) $d))
+   (let* (($defRes (collapse (match &self (EpochDefaultRate $epochId $d) $d)))
+          ($defaultRate (if (== $defRes ()) 0 (superpose $defRes)))
           ($current (MaxRate)))
      (if (> $defaultRate (TargetDefaultRate))
        (min 8000 (+ $current 500))   ; hike max rate up (cap 80% APR)

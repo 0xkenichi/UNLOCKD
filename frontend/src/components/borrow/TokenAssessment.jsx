@@ -14,12 +14,12 @@ const TESTNET_CHAIN_IDS = new Set([31337, 11155111, 84532]);
 const formatUsd = (value) =>
   Number.isFinite(value)
     ? value.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      })
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })
     : '0.00';
 
-export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) {
+export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate, compact = false }) {
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const isTestnet = TESTNET_CHAIN_IDS.has(chainId);
@@ -157,21 +157,23 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           Enter collateral ID and vesting contract in Borrow Actions to assess real token data.
         </div>
       )}
-      <div className="data-table" style={{ marginBottom: 16 }}>
-        <div className="table-row header">
-          <div>Collateral ID</div>
-          <div>Vesting Contract</div>
-          <div>Token</div>
-          <div>Unlock</div>
+      {!compact && (
+        <div className="data-table" style={{ marginBottom: 16 }}>
+          <div className="table-row header">
+            <div>Collateral ID</div>
+            <div>Vesting Contract</div>
+            <div>Token</div>
+            <div>Unlock</div>
+          </div>
+          <div className="table-row">
+            <div>{vestingDetails?.collateralId || '--'}</div>
+            <div>{vestingDetails?.vestingContract || '--'}</div>
+            <div>{tokenLabel}</div>
+            <div>{unlockLabel}</div>
+          </div>
         </div>
-        <div className="table-row">
-          <div>{vestingDetails?.collateralId || '--'}</div>
-          <div>{vestingDetails?.vestingContract || '--'}</div>
-          <div>{tokenLabel}</div>
-          <div>{unlockLabel}</div>
-        </div>
-      </div>
-      <div className="stat-row">
+      )}
+      <div className={`stat-row ${compact ? 'compact' : ''}`}>
         <div className="stat-card">
           <div className="stat-label">Vesting Amount</div>
           <div className="stat-value">
@@ -195,7 +197,7 @@ export default function TokenAssessment({ vestingDetails, ltvBps, onEstimate }) 
           <div className="stat-delta">Using on-chain LTV</div>
         </div>
       </div>
-      {feedStatus && <div className="muted">{feedStatus}</div>}
+      {feedStatus && !compact && <div className="muted">{feedStatus}</div>}
     </div>
   );
 }

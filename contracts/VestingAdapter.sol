@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 
 interface IVestingWallet {
     function beneficiary() external view returns (address);
@@ -26,7 +26,7 @@ interface IVestingRegistry {
     function getRank(address wrapper) external view returns (uint8);
 }
 
-contract VestingAdapter is IERC721Receiver, Ownable {
+contract VestingAdapter is IERC721Receiver, VestraAccessControl {
 
     struct Collateral {
         address vestingContract;
@@ -77,23 +77,23 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     event RegistryUpdated(address indexed registry);
     event CollateralTransferred(uint256 indexed collateralId, address indexed oldOwner, address indexed newOwner);
 
-    constructor(address _registry) Ownable(msg.sender) {
+    constructor(address _registry, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_registry != address(0), "registry=0");
         registry = IVestingRegistry(_registry);
     }
 
-    function setRegistry(address _registry) external onlyOwner {
+    function setRegistry(address _registry) external onlyGovernor {
         require(_registry != address(0), "registry=0");
         registry = IVestingRegistry(_registry);
         emit RegistryUpdated(_registry);
     }
 
-    function setLoanManager(address manager) external onlyOwner {
+    function setLoanManager(address manager) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyLoanManager(manager);
     }
 
-    function queueLoanManager(address manager) external onlyOwner {
+    function queueLoanManager(address manager) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         require(manager != address(0), "manager=0");
         uint256 executeAfter = block.timestamp + adminTimelockDelay;
@@ -105,7 +105,7 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         emit LoanManagerQueued(manager, executeAfter);
     }
 
-    function executeQueuedLoanManager() external onlyOwner {
+    function executeQueuedLoanManager() external onlyGovernor {
         PendingLoanManager memory pending = pendingLoanManager;
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -113,18 +113,18 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         _applyLoanManager(pending.manager);
     }
 
-    function cancelQueuedLoanManager() external onlyOwner {
+    function cancelQueuedLoanManager() external onlyGovernor {
         require(pendingLoanManager.exists, "no queued config");
         delete pendingLoanManager;
         emit LoanManagerQueueCancelled();
     }
 
-    function setAuthorizedCaller(address caller, bool allowed) external onlyOwner {
+    function setAuthorizedCaller(address caller, bool allowed) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyAuthorizedCaller(caller, allowed);
     }
 
-    function queueAuthorizedCaller(address caller, bool allowed) external onlyOwner {
+    function queueAuthorizedCaller(address caller, bool allowed) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         require(caller != address(0), "caller=0");
         uint256 executeAfter = block.timestamp + adminTimelockDelay;
@@ -136,7 +136,7 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         emit AuthorizedCallerQueued(caller, allowed, executeAfter);
     }
 
-    function executeQueuedAuthorizedCaller(address caller) external onlyOwner {
+    function executeQueuedAuthorizedCaller(address caller) external onlyGovernor {
         PendingBoolValue memory pending = pendingAuthorizedCallers[caller];
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -144,7 +144,7 @@ contract VestingAdapter is IERC721Receiver, Ownable {
         _applyAuthorizedCaller(caller, pending.value);
     }
 
-    function cancelQueuedAuthorizedCaller(address caller) external onlyOwner {
+    function cancelQueuedAuthorizedCaller(address caller) external onlyGovernor {
         require(pendingAuthorizedCallers[caller].exists, "no queued config");
         delete pendingAuthorizedCallers[caller];
         emit AuthorizedCallerQueueCancelled(caller);
@@ -153,7 +153,7 @@ contract VestingAdapter is IERC721Receiver, Ownable {
     // Note: UseWhitelist and AllowedVestingContract logic removed in favor of VestingRegistry.
     // Legacy mapping configurations have been stripped.
 
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
+    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
         adminTimelockEnabled = enabled;
         adminTimelockDelay = delaySeconds;

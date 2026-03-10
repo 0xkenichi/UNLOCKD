@@ -4,11 +4,11 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract LendingPool is ReentrancyGuard, Ownable, Pausable {
+contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     using SafeERC20 for IERC20;
 
     IERC20 public usdc;
@@ -158,7 +158,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
     );
     event CommunityPoolClosed(uint256 indexed poolId);
 
-    constructor(address _usdc) Ownable(msg.sender) {
+    constructor(address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         usdc = IERC20(_usdc);
         issuanceTreasury = msg.sender;
         returnsTreasury = msg.sender;
@@ -171,7 +171,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
 
     // --- V6.0 Citadel: Coprocessor & Ragequit ---
     
-    function setCoprocessor(address _coprocessor) external onlyOwner {
+    function setCoprocessor(address _coprocessor) external onlyGovernor {
         coprocessor = _coprocessor;
         emit CoprocessorUpdated(_coprocessor);
     }
@@ -181,7 +181,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
      * if they are deemed malicious (e.g., routing funds to a hacker's treasury).
      */
     function vetoUpgrade(string calldata reason) external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
         
         if (pendingLoanManager.exists) {
             delete pendingLoanManager;
@@ -204,7 +204,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
      * can trigger a global 7-day LP Ragequit window, allowing LPs to withdraw all available liquidity instantly.
      */
     function triggerRagequit() external {
-        require(msg.sender == coprocessor || msg.sender == owner(), "unauthorized");
+        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
         require(!ragequitActive, "already active");
         
         ragequitActive = true;
@@ -215,12 +215,12 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
 
     // --- Core Pool Operations ---
 
-    function setLoanManager(address manager) external onlyOwner {
+    function setLoanManager(address manager) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyLoanManager(manager);
     }
 
-    function queueLoanManager(address manager) external onlyOwner {
+    function queueLoanManager(address manager) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         require(manager != address(0), "manager=0");
         uint256 executeAfter = block.timestamp + adminTimelockDelay;
@@ -232,7 +232,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         emit LoanManagerQueued(manager, executeAfter);
     }
 
-    function executeQueuedLoanManager() external onlyOwner {
+    function executeQueuedLoanManager() external onlyGovernor {
         PendingLoanManager memory pending = pendingLoanManager;
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -240,18 +240,18 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         _applyLoanManager(pending.manager);
     }
 
-    function cancelQueuedLoanManager() external onlyOwner {
+    function cancelQueuedLoanManager() external onlyGovernor {
         require(pendingLoanManager.exists, "no queued config");
         delete pendingLoanManager;
         emit LoanManagerQueueCancelled();
     }
 
-    function setTreasuries(address issuance, address returnsAddr) external onlyOwner {
+    function setTreasuries(address issuance, address returnsAddr) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyTreasuries(issuance, returnsAddr);
     }
 
-    function queueTreasuries(address issuance, address returnsAddr) external onlyOwner {
+    function queueTreasuries(address issuance, address returnsAddr) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         require(issuance != address(0), "issuance=0");
         require(returnsAddr != address(0), "returns=0");
@@ -265,7 +265,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         emit TreasuryConfigQueued(issuance, returnsAddr, executeAfter);
     }
 
-    function executeQueuedTreasuries() external onlyOwner {
+    function executeQueuedTreasuries() external onlyGovernor {
         PendingTreasuryConfig memory pending = pendingTreasuryConfig;
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -273,7 +273,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         _applyTreasuries(pending.issuanceTreasury, pending.returnsTreasury);
     }
 
-    function cancelQueuedTreasuries() external onlyOwner {
+    function cancelQueuedTreasuries() external onlyGovernor {
         require(pendingTreasuryConfig.exists, "no queued config");
         delete pendingTreasuryConfig;
         emit TreasuryConfigCancelled();
@@ -285,7 +285,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         uint256 lowRateBps,
         uint256 midRateBps,
         uint256 highRateBps
-    ) external onlyOwner {
+    ) external onlyGovernor {
         require(!adminTimelockEnabled, "timelocked");
         _applyRateModel(
             lowThresholdBps,
@@ -302,7 +302,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         uint256 lowRateBps,
         uint256 midRateBps,
         uint256 highRateBps
-    ) external onlyOwner {
+    ) external onlyGovernor {
         require(adminTimelockEnabled, "timelock disabled");
         _validateRateModel(
             lowThresholdBps,
@@ -331,7 +331,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         );
     }
 
-    function executeQueuedRateModel() external onlyOwner {
+    function executeQueuedRateModel() external onlyGovernor {
         PendingRateModel memory pending = pendingRateModel;
         require(pending.exists, "no queued config");
         require(block.timestamp >= pending.executeAfter, "timelock pending");
@@ -345,13 +345,13 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         );
     }
 
-    function cancelQueuedRateModel() external onlyOwner {
+    function cancelQueuedRateModel() external onlyGovernor {
         require(pendingRateModel.exists, "no queued config");
         delete pendingRateModel;
         emit RateModelCancelled();
     }
 
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyOwner {
+    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
         require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
         adminTimelockEnabled = enabled;
         adminTimelockDelay = delaySeconds;
@@ -463,11 +463,11 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         usdc.safeTransfer(to, amount);
     }
 
-    function pause() external onlyOwner {
+    function pause() external onlyGovernor {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyGovernor {
         _unpause();
     }
 
@@ -697,7 +697,7 @@ contract LendingPool is ReentrancyGuard, Ownable, Pausable {
         CommunityPool storage cp = communityPools[poolId];
         _syncCommunityPoolState(cp, poolId);
         require(cp.state == CommunityPoolState.ACTIVE, "not active");
-        require(msg.sender == owner() || msg.sender == cp.creator, "not authorized");
+        require(hasRole(GOVERNOR_ROLE, msg.sender) || msg.sender == cp.creator, "not authorized");
         cp.state = CommunityPoolState.CLOSED;
         emit CommunityPoolClosed(poolId);
     }

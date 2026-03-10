@@ -19,19 +19,21 @@ const LOCALHOST_CONTRACTS = {
   termVault: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
   vestingAdapter: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
   usdc: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
+  testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
+  insuranceVault: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' // placeholder for local
 };
 
 export const CONTRACTS = {
   [LOCALHOST_CHAIN_ID]: LOCALHOST_CONTRACTS,
   [sepolia.id]: {
-    valuationEngine: '0x99F15E90aB6EDe24afa5Da28a1f4E10cd620b351',
-    loanManager: '0xE747FC57F6B3F0EA9aDc1CdECe5DDe56d7C726ce',
-    lendingPool: '0x8eD7Cc3cE764B7BA57d8DeD29A13F1fD2Fd02a2A',
-    termVault: '',
-    vestingAdapter: '0xF366308b18156bAd74B1274EB1fFECCA2a1B7959',
-    usdc: '0xc9c9083f4794165E9baA920fc9FcBc462864d992',
-    testnetPriceFeed: '0xd77FC2abbAa127eFd00E6b775C437a54f0756762',
+    valuationEngine: '0xB45f5d411A03d113fd6dDB7ed3F6800138a52760',
+    loanManager: '0x3E6ce9289c20EC7822296aaBf8A48A6a2a857B56',
+    lendingPool: '0x0914E18f160700d9ee70d0584F5E869e4CA2b6b6',
+    termVault: '0x7cB24A9eA6bA427Ec9B57752fc9f8A4DB51d2919',
+    vestingAdapter: '0xA8743ABc6BCD80633171Af6AF7091Cf240e77910',
+    usdc: '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8',
+    testnetPriceFeed: '0x96e09de2bF0Eb5Cc26Fc332d2350FBE9c8c5A57F',
+    insuranceVault: '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
     sampleVestingWallet: ''
   },
@@ -6948,6 +6950,30 @@ export const erc20Abi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'string' }]
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  }
+];
+
+export const auctionFactoryAbi = [
+  {
+    name: 'auctions',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'string' }],
+    outputs: [{ name: '', type: 'address' }]
+  },
+  {
+    name: 'createDutchAuction',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }]
   }
 ];
 

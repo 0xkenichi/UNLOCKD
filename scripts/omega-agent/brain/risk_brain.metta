@@ -1,40 +1,35 @@
-; ============================================================
-; UNLOCKD Protocol — MeTTa Risk Brain v1.0
-; ============================================================
-; This file defines the core symbolic reasoning rules for the
-; UNLOCKD coprocessor. The MeTTa runtime evaluates these rules
-; over the atom store (populated by mettaclaw.js) to produce
-; Omega multiplier recommendations pushed back on-chain.
-;
-; Atom Store Schema (populated by mettaclaw.js):
-;   (BorrowerRepaid    <addr> <count>)
-;   (BorrowerDefaulted <addr> <count>)
-;   (CollateralRank    <token> <rank>)   ; 1=Flagship 2=Premium 3=Standard
-;   (TokenVolatility   <token> <vol>)    ; 0-100 integer
-;   (MarketSentiment   <token> <score>)  ; -1.0 to 1.0 float
-;   (LiquidityDepth    <token> <usd>)    ; max USD borrowable w/ <5% slippage
-;   (FlashPumpDetected <token> True/False)
-;   (LiquidationRate   <token> <rate>)   ; 0.0-1.0 recent liq rate
-;   (PoolUtilization   <pool-rank> <util>) ; 0-10000 bps
-; ============================================================
+; ────────────────────────────────────────────────────────────
+; SECTION 0: MATH UTILITIES
+; ────────────────────────────────────────────────────────────
+
+(= (max $a $b) (if (> $a $b) $a $b))
+(= (min $a $b) (if (< $a $b) $a $b))
+(= (abs $x) (if (< $x 0) (- 0 $x) $x))
+
+; Use raw values for now as truncate/round are missing
+(= (round $x) $x)
+
+; ────────────────────────────────────────────────────────────
 
 
 ; ────────────────────────────────────────────────────────────
 ; SECTION 1: BORROWER REPUTATION ENGINE
 ; ────────────────────────────────────────────────────────────
 
-; ReputationScore: 0–100. Higher = more trustworthy.
-; Formula: (repaid / (repaid + defaulted)) * 100
-; Edge: if no history, return 50 (neutral baseline).
-(= (ReputationScore $borrower)
-   (let* (($repaid   (match &self (BorrowerRepaid $borrower $r) $r))
-          ($defaulted (match &self (BorrowerDefaulted $borrower $d) $d))
-          ($total    (+ $repaid $defaulted)))
-     (if (== $total 0)
-       50   ; neutral for new borrowers — no history yet
-       (/ (* $repaid 100) $total))))
+(= (GetBorrowerStat $borrower $stat $default)
+   (let $res (collapse (match &self ($stat $borrower $v) $v))
+     (case $res (
+       (() $default)
+       (($v) $v)
+       ($any (superpose $any))
+     ))))
 
-; ReputationTier: classify into tiers for UX display
+(= (ReputationScore $borrower)
+   (let* (($repaid   (GetBorrowerStat $borrower BorrowerRepaid 0))
+          ($defaulted (GetBorrowerStat $borrower BorrowerDefaulted 0))
+          ($total    (+ $repaid $defaulted)))
+     (if (== $total 0) 50 (/ (* $repaid 100) $total))))
+
 (= (ReputationTier $borrower)
    (let $score (ReputationScore $borrower)
      (if (>= $score 90) Tier1-Elite
@@ -42,53 +37,44 @@
          (if (>= $score 50) Tier3-Standard
            Tier4-HighRisk)))))
 
-; LTV boost in BPS from good reputation (max +1000 = +10%)
-; Elite borrowers get full reward; high-risk pay penalty via lower cap.
-(= (ReputationLTVBoostBps $borrower)
-   (let $score (ReputationScore $borrower)
-     (if (>= $score 90) 1000
-       (if (>= $score 70) 500
-         (if (>= $score 50) 0
-           -500)))))   ; negative = LTV reduction for risky borrowers
-
-
 ; ────────────────────────────────────────────────────────────
 ; SECTION 2: TOKEN RISK CLASSIFICATION
 ; ────────────────────────────────────────────────────────────
 
+(= (GetTokenParam $token $stat $default)
+   (let $res (collapse (match &self ($stat $token $v) $v))
+     (case $res (
+       (() $default)
+       (($v) $v)
+       ($any (superpose $any))
+     ))))
+
 ; Base LTV per collateral rank (bps)
 (= (BaseRankLTVBps $token)
-   (let $rank (match &self (CollateralRank $token $r) $r)
-     (if (== $rank 1) 5000   ; Flagship: 50%
-       (if (== $rank 2) 3500 ; Premium: 35%
-         2000))))             ; Standard: 20%
+   (let $rank (GetTokenParam $token CollateralRank 3)
+     (if (== $rank 1) 5000
+       (if (== $rank 2) 3500
+         2000))))
 
-; Volatility discount in bps: each vol point costs 20 bps LTV
-; Capped at 3000 bps (30%) maximum discount
+; Volatility discount in bps
 (= (VolatilityDiscountBps $token)
-   (let $vol (match &self (TokenVolatility $token $v) $v)
+   (let $vol (GetTokenParam $token TokenVolatility 0)
      (min (* $vol 20) 3000)))
 
-; Sentiment adjustment: bad news = tighten, good news = relax
-; Sentiment is -1.0 to 1.0; maps to -500 to +200 bps range
+; Sentiment adjustment
 (= (SentimentAdjBps $token)
-   (let $sent (match &self (MarketSentiment $token $s) $s)
-     (if (< $sent -0.5) -500    ; very negative: -5% LTV
-       (if (< $sent -0.2) -200  ; negative: -2% LTV
-         (if (< $sent 0.2) 0    ; neutral: no change
-           (if (< $sent 0.5) 100 ; positive: +1%
-             200))))))            ; very positive: +2%
+   (let $sent (GetTokenParam $token MarketSentiment 0.0)
+     (if (< $sent -0.5) -500
+       (if (< $sent -0.2) -200
+         (if (< $sent 0.2) 0
+           (if (< $sent 0.5) 100
+             200))))))
 
-; Liquidity cap check: returns max borrowable USD (0 = no cap set yet)
-(= (LiquidityCap $token)
-   (match &self (LiquidityDepth $token $usd) $usd))
-
-; Flash pump guard: is this token currently dangerous?
+; Flash pump guard
 (= (IsFlashPumped $token)
-   (match &self (FlashPumpDetected $token $status) $status))
+   (GetTokenParam $token FlashPumpDetected False))
 
-; NetTokenRiskBps: combined risk adjustment before Omega calc
-; Positive = safer (higher LTV allowed), Negative = more dangerous
+; NetTokenRiskBps
 (= (NetTokenRiskBps $token)
    (- (SentimentAdjBps $token)
       (VolatilityDiscountBps $token)))
@@ -97,78 +83,47 @@
 ; ────────────────────────────────────────────────────────────
 ; SECTION 3: DYNAMIC OMEGA MULTIPLIER
 ; ────────────────────────────────────────────────────────────
-;
-; Omega is the final multiplier on LTV sent to ValuationEngine.
-; Range: 0–10000 bps (10000 = 1.0x = no restriction)
-;
-; Logic:
-;   1. Start at baseline 10000 (100%)
-;   2. Apply sentiment and volatility adjustments
-;   3. Hard-clamp to [3000, 10000] — never below 30% or above 100%
-;   4. If flash-pumped: clamp to 0 (block all new loans)
-;   5. High recent liquidation rate: further tighten
 
 (= (RecommendedOmegaBps $token)
    (if (== (IsFlashPumped $token) True)
-     0   ; HARD BLOCK: flash pump detected — no new loans
+     0
      (let* (($base      10000)
             ($riskAdj   (NetTokenRiskBps $token))
-            ($liqRate   (match &self (LiquidationRate $token $lr) $lr))
-            ; Liquidation rate penalty: >10% liquidation history = -1000 bps
+            ($liqRate   (GetTokenParam $token LiquidationRate 0.0))
             ($liqPenalty (if (> $liqRate 0.1)
-                           (round (* $liqRate 5000))   ; 5000 bps per 100% liq rate
+                           (round (* $liqRate 5000))
                            0))
             ($rawOmega  (- (+ $base $riskAdj) $liqPenalty)))
-       ; Clamp to valid range [3000, 10000]
        (max 3000 (min 10000 $rawOmega)))))
-
-; OmegaChanged: only emit an update if the delta is significant (>50 bps)
-; This prevents noisy micro-adjustments from spamming the chain.
-(= (ShouldUpdateOmega $token $currentOnChainBps)
-   (let $recommended (RecommendedOmegaBps $token)
-     (> (abs (- $recommended $currentOnChainBps)) 50)))
-
 
 ; ────────────────────────────────────────────────────────────
 ; SECTION 4: DYNAMIC INTEREST RATE ENGINE
 ; ────────────────────────────────────────────────────────────
-;
-; Kinked utilization curve — adapted from Compound/Aave model
-; but with MeTTa-adjustable parameters that self-tune over time.
 
-(= (BaseRate) 200)       ; 2% floor APR in bps
-(= (KinkUtil) 8000)      ; 80% utilization = kink point (bps)
-(= (RateAtKink) 1000)    ; 10% APR at kink in bps
-(= (MaxRate) 5000)       ; 50% APR max (crisis rate) in bps
+(= (BaseRate) 200)
+(= (KinkUtil) 8000)
+(= (RateAtKink) 1000)
+(= (MaxRate) 5000)
 
-; PoolUtilizationBps: read from atom store
-(= (GetPoolUtil $rank)
-   (match &self (PoolUtilization $rank $util) $util))
+(= (GetPoolUtil $rank) (GetTokenParam $rank PoolUtilization 0))
 
 ; Calculate the base interest rate based on utilization
 (= (BasePoolRateBps $poolRank)
    (let $util (GetPoolUtil $poolRank)
      (if (< $util (KinkUtil))
-       ; Pre-kink: linear interpolation
-       (+ (BaseRate)
-          (/ (* (- (RateAtKink) (BaseRate)) $util) (KinkUtil)))
-       ; Post-kink: steep jump
-       (+ (RateAtKink)
-          (/ (* (- (MaxRate) (RateAtKink))
-                (- $util (KinkUtil)))
-             (- 10000 (KinkUtil)))))))
+       (+ (BaseRate) (/ (* (- (RateAtKink) (BaseRate)) $util) (KinkUtil)))
+       (+ (RateAtKink) (/ (* (- (MaxRate) (RateAtKink)) (- $util (KinkUtil))) (- 10000 (KinkUtil)))))))
 
 ; Chaos/Volatility Multiplied Rate
 (= (ChaosAdjustedRate $baseRate)
-    (match &self (MarketEvent $ts BLACK_SWAN $delta $price)
-        (if (< $delta -0.15)
-            (max $baseRate 1500) ;; Spike to at least 15% if crash > 15%
-            $baseRate)))
+    (let $event (collapse (match &self (MarketEvent $ts BLACK_SWAN $delta $price) $delta))
+      (case $event (
+        (() $baseRate)
+        (($deltaVal) (if (< $deltaVal -0.15) 1500 $baseRate))
+        ($any $baseRate)
+      ))))
 
-; If no black swan, return base rate
-(= (ChaosAdjustedRate $baseRate) $baseRate)
-
-; Main Borrow Rate Query used by mettaclaw.js
+; Main Borrow Rate Query
 (= (BorrowRateBps $poolId)
     (let $base (BasePoolRateBps $poolId)
         (ChaosAdjustedRate $base)))
