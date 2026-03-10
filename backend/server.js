@@ -4976,10 +4976,28 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       return borrower === walletFilterRaw.toLowerCase();
     });
   };
+
+  const fetchDynamicStreamflow = async () => {
+    const solWallets = new Set(sessionWallets.solana);
+    if (walletFilterRaw) {
+      const parsed = normalizeSolanaAddress(walletFilterRaw);
+      if (parsed) solWallets.add(parsed);
+    }
+    if (solWallets.size > 0) {
+      try {
+        return await withTimeout(fetchStreamflowVestingContracts(Array.from(solWallets)), SOLANA_STREAMFLOW_TIMEOUT_MS, []);
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  };
+
   const now = Date.now();
   if (cachedVestedContracts.length && now - cachedVestedContractsAt < VESTED_CACHE_TTL_MS) {
     try {
-      const filteredItems = await filterItems(cachedVestedContracts);
+      const dynamicStreams = await fetchDynamicStreamflow();
+      const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
       const redacted = privacyRequested
         ? filteredItems.map((item) => {
           const { borrower, vault, ...rest } = item || {};
@@ -5016,7 +5034,8 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const items = await vestedContractsInFlight;
     cachedVestedContracts = items;
     cachedVestedContractsAt = Date.now();
-    const filteredItems = await filterItems(items);
+    const dynamicStreams = await fetchDynamicStreamflow();
+    const filteredItems = await filterItems([...items, ...dynamicStreams]);
     const redacted = privacyRequested
       ? filteredItems.map((item) => {
         const { borrower, vault, ...rest } = item || {};
@@ -5035,7 +5054,8 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
   } catch (error) {
     if (cachedVestedContracts.length) {
       try {
-        const filteredItems = await filterItems(cachedVestedContracts);
+        const dynamicStreams = await fetchDynamicStreamflow();
+        const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
         const redacted = privacyRequested
           ? filteredItems.map((item) => {
             const { borrower, vault, ...rest } = item || {};

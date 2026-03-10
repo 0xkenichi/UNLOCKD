@@ -163,83 +163,58 @@ const isOffsetError = (err) => {
   return msg.includes('offset') && (msg.includes('range') || msg.includes('out of'));
 };
 
-const fetchStreamflowVestingContracts = async () => {
+const fetchStreamflowVestingContracts = async (wallets = []) => {
   if (!STREAMFLOW_ENABLED) {
-    cachedStreams = [];
-    lastFetchedAt = Date.now();
     return [];
   }
-  const refreshMs = Number(process.env.SOLANA_STREAMFLOW_REFRESH_MS || DEFAULT_REFRESH_MS);
-  if (Date.now() - lastFetchedAt < refreshMs && cachedStreams.length) {
-    return cachedStreams;
+
+  if (!wallets || wallets.length === 0) {
+    // If no wallets provided, we don't fetch globally anymore to avoid RPC offset limits and timeouts.
+    return [];
   }
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    const client = createClient();
-    const includeClosed = process.env.SOLANA_STREAMFLOW_INCLUDE_CLOSED === 'true';
-    let streams = [];
+
+  const client = createClient();
+  const includeClosed = process.env.SOLANA_STREAMFLOW_INCLUDE_CLOSED === 'true';
+  const vesting = [];
+
+  for (const wallet of wallets) {
     try {
-      streams = await client.searchStreams(includeClosed ? {} : { closed: false });
-    } catch (error) {
-      if (isOffsetError(error)) {
-        // Malformed account data; skip silently
-        cachedStreams = [];
-        lastFetchedAt = Date.now();
-        return [];
+      const searchParams = { recipient: wallet };
+      if (!includeClosed) {
+        searchParams.closed = false;
       }
-      if (includeClosed) {
-        try {
-          streams = await client.searchStreams({ closed: false });
-        } catch (fallbackError) {
-          console.warn('[solana] streamflow search failed', fallbackError?.message || fallbackError);
-          cachedStreams = [];
-          lastFetchedAt = Date.now();
-          return [];
-        }
-      } else {
-        console.warn('[solana] streamflow search failed', error?.message || error);
-        cachedStreams = [];
-        lastFetchedAt = Date.now();
-        return [];
-      }
-    }
-    // Filter vesting safely - account decode can throw "offset out of range"
-    const vesting = [];
-    for (const entry of streams) {
-      try {
+      const streams = await client.searchStreams(searchParams);
+      for (const entry of streams) {
         if (entry?.account?.type === StreamType.Vesting) {
           vesting.push(entry);
         }
-      } catch {
-        // Skip malformed entries
+      }
+    } catch (error) {
+      if (!isOffsetError(error)) {
+        console.warn(`[solana] streamflow search failed for wallet ${wallet}`, error?.message || error);
       }
     }
-    const limit = Number(process.env.SOLANA_STREAMFLOW_LIMIT || 0);
-    const limited = limit > 0 ? vesting.slice(0, limit) : vesting;
-    const connection = client.getConnection();
-    const normalized = await mapWithConcurrency(
-      limited,
-      async (entry) => {
-        try {
-          return await normalizeStreamflow(entry, connection);
-        } catch (error) {
-          if (!isOffsetError(error)) {
-            console.warn('[solana] failed to normalize stream', error?.message || error);
-          }
-          return null;
-        }
-      },
-      Number(process.env.SOLANA_CONCURRENCY_LIMIT || 4)
-    );
-    cachedStreams = normalized.filter(Boolean);
-    lastFetchedAt = Date.now();
-    return normalized;
-  })();
-  try {
-    return await inFlight;
-  } finally {
-    inFlight = null;
   }
+
+  const limit = Number(process.env.SOLANA_STREAMFLOW_LIMIT || 0);
+  const limited = limit > 0 ? vesting.slice(0, limit) : vesting;
+  const connection = client.getConnection();
+  const normalized = await mapWithConcurrency(
+    limited,
+    async (entry) => {
+      try {
+        return await normalizeStreamflow(entry, connection);
+      } catch (error) {
+        if (!isOffsetError(error)) {
+          console.warn('[solana] failed to normalize stream', error?.message || error);
+        }
+        return null;
+      }
+    },
+    Number(process.env.SOLANA_CONCURRENCY_LIMIT || 4)
+  );
+
+  return normalized.filter(Boolean);
 };
 
 module.exports = {
