@@ -53,10 +53,11 @@ export default [
       globals: {
         ...globals.browser,
         ...globals.node,
+        Buffer: "readonly",
       },
     },
     settings: {
-      react: { version: "detect" },
+      react: { version: "18.2" },
     },
     rules: {
       ...react.configs.recommended.rules,
