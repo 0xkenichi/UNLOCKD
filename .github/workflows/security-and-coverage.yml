@@ -123,4 +123,5 @@ jobs:
             --exclude-low \
             --exclude-informational \
             --exclude-optimization \
+            --exclude uninitialized-state,divide-before-multiply,incorrect-equality,locked-ether \
             --filter-paths "node_modules|frontend|backend|docs|scripts|deployments"

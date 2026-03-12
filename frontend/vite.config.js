@@ -20,10 +20,6 @@ export default defineConfig({
 
     react()
   ],
-  define: {
-    global: 'globalThis',
-    'process.env': {}
-  },
   resolve: {
     dedupe: ['react', 'react-dom']
   },
