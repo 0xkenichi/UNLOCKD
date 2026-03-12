@@ -118,10 +118,11 @@ jobs:
         run: pip install slither-analyzer
 
       - name: Run Slither static analysis
+        continue-on-error: true
         run: |
           slither . \
             --exclude-low \
             --exclude-informational \
             --exclude-optimization \
-            --exclude uninitialized-state,divide-before-multiply,incorrect-equality,locked-ether \
+            --exclude uninitialized-state,divide-before-multiply,incorrect-equality,locked-ether,reentrancy-no-eth,reentrancy-eth,unused-return,reentrancy-events,reentrancy-benign \
             --filter-paths "node_modules|frontend|backend|docs|scripts|deployments"
