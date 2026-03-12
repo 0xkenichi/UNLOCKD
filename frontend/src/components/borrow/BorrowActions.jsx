@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useEffect, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   useAccount,
   useChainId,
@@ -22,6 +23,8 @@ import {
   vestingWalletAbi
 } from '../../utils/contracts.js';
 import { getEvmChainById } from '../../utils/chains.js';
+import { LOAN_NFT_ABI, getLoanNFTAddress } from '../../utils/loanNFT.js';
+import { decodeEventLog } from 'viem';
 import { toUnits } from '../../utils/format.js';
 import { acceptMatchOffer, apiGet, apiPost, fetchVestedContracts } from '../../utils/api.js';
 import { makeRelayerAuth } from '../../utils/privacy.js';
@@ -348,10 +351,15 @@ export default function BorrowActions({
   const { signTypedDataAsync } = useSignTypedData();
 
   const {
+    data: borrowReceipt,
     isLoading: isBorrowMining,
     isSuccess: borrowConfirmed,
     error: borrowReceiptError
   } = useWaitForTransactionReceipt({ hash: borrowHash });
+
+  const [isMintingProof, setIsMintingProof] = useState(false);
+  const [mintProofHash, setMintProofHash] = useState('');
+  const { writeContractAsync: writeNftAsync } = useWriteContract();
 
   const hasWallet = Boolean(address);
   const hasGas = fundingStatus?.hasGas ?? true;
@@ -554,10 +562,71 @@ export default function BorrowActions({
   });
 
   useEffect(() => {
-    if (borrowConfirmed) {
-      trackEvent('borrow_create_confirmed', { chainId });
-    }
-  }, [borrowConfirmed, chainId]);
+    const processMint = async () => {
+      if (borrowConfirmed && borrowReceipt && address) {
+        if (isMintingProof || mintProofHash) return;
+        try {
+          setIsMintingProof(true);
+          setAutoFlowStatus('Generating IPFS metadata...');
+          
+          let loanId = 0n;
+          if (borrowReceipt.logs) {
+            for (const log of borrowReceipt.logs) {
+              try {
+                const decoded = decodeEventLog({
+                  abi: loanManagerAbi,
+                  data: log.data,
+                  topics: log.topics
+                });
+                if (decoded.eventName === 'LoanCreated') {
+                  loanId = decoded.args.loanId;
+                  break;
+                }
+              } catch(e) {}
+            }
+          }
+
+          const ipfsResp = await apiPost('/api/loans/ipfs-metadata', {
+            borrower: address,
+            loanId: Number(loanId),
+            principal: borrowUnits.toString(),
+            ltvBps: ltvBps ? Number(ltvBps) : 0,
+            timestamp: Date.now()
+          });
+          const tokenURI = ipfsResp.uri || 'ipfs://placeholder';
+
+          setAutoFlowStatus('Minting vLOAN NFT Proof...');
+          const nftAddress = getLoanNFTAddress(chainId);
+          const tx = await writeNftAsync({
+            address: nftAddress,
+            abi: LOAN_NFT_ABI,
+            functionName: 'mintProof',
+            args: [
+              address,
+              loanId,
+              borrowUnits,
+              pledgedCollateralUnits,
+              ltvBps || 0n,
+              0n, // omegaBps placeholder
+              'ipfs://VESTRA-TERMS-V1',
+              tokenURI
+            ]
+          });
+          setMintProofHash(tx);
+          toast.success('vLOAN NFT Minted Successfully!');
+          setAutoFlowStatus('');
+          trackEvent('borrow_create_confirmed', { chainId });
+        } catch (err) {
+          console.error('Minting failed', err);
+          toast.error('NFT Mint Failed');
+          setAutoFlowStatus('');
+        } finally {
+          setIsMintingProof(false);
+        }
+      }
+    };
+    processMint();
+  }, [borrowConfirmed, borrowReceipt, chainId, address, borrowUnits, pledgedCollateralUnits, ltvBps, isMintingProof, mintProofHash, writeNftAsync]);
 
   const {
     data: approvalHash,
@@ -1329,7 +1398,7 @@ export default function BorrowActions({
           type="button"
           onClick={handleCreateLoanBestTerms}
           data-guide-id="borrow-create-loan"
-          disabled={isBorrowPending || !canBorrow}
+          disabled={isBorrowPending || isMintingProof || !canBorrow}
         >
           Create Loan (Best Terms)
         </button>
@@ -1337,7 +1406,7 @@ export default function BorrowActions({
           className="button ghost"
           type="button"
           onClick={handleCreateLoanStandard}
-          disabled={isBorrowPending || !canBorrow}
+          disabled={isBorrowPending || isMintingProof || !canBorrow}
         >
           Create Loan (Standard)
         </button>

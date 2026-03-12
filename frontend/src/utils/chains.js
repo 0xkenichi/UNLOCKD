@@ -50,8 +50,24 @@ export const flowEvmTestnet = {
   }
 };
 
+// Custom ASI Chain Definition
+export const asiTestnet = {
+  id: 42000,
+  name: 'ASI Testnet',
+  network: 'asi-testnet',
+  nativeCurrency: { name: 'Artificial Superintelligence', symbol: 'ASI', decimals: 18 },
+  rpcUrls: {
+    default: { http: [import.meta.env?.VITE_ASI_TESTNET_RPC || 'https://rpc-testnet.asi.network'] },
+    public: { http: [import.meta.env?.VITE_ASI_TESTNET_RPC || 'https://rpc-testnet.asi.network'] }
+  },
+  blockExplorers: {
+    default: { name: 'ASIScan', url: 'https://explorer-testnet.asi.network' }
+  },
+  testnet: true
+};
+
 export const EVM_MAINNET_CHAINS = [base, arbitrum, avalanche, flowEvm];
-export const EVM_TESTNET_CHAINS = [sepolia, baseSepolia, avalancheFuji, flowEvmTestnet, hardhat];
+export const EVM_TESTNET_CHAINS = [sepolia, baseSepolia, avalancheFuji, flowEvmTestnet, asiTestnet, hardhat];
 export const ALL_EVM_CHAINS = [...EVM_MAINNET_CHAINS, ...EVM_TESTNET_CHAINS];
 const envDefaultChainId = Number(import.meta.env.VITE_DEFAULT_EVM_CHAIN_ID || '');
 const defaultChainId = Number.isFinite(envDefaultChainId) ? envDefaultChainId : sepolia.id;

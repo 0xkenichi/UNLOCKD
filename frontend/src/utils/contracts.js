@@ -8,7 +8,7 @@ import {
   baseSepolia,
   sepolia
 } from 'viem/chains';
-import { flowEvm, flowEvmTestnet } from './chains.js';
+import { flowEvm, flowEvmTestnet, asiTestnet } from './chains.js';
 
 // Localhost (chainId 31337) - matches deployments/localhost from hardhat node
 const LOCALHOST_CHAIN_ID = 31337;
@@ -36,6 +36,17 @@ export const CONTRACTS = {
     testnetPriceFeed: '0x96e09de2bF0Eb5Cc26Fc332d2350FBE9c8c5A57F',
     insuranceVault: '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
+    sampleVestingWallet: ''
+  },
+  [asiTestnet.id]: {
+    valuationEngine: '',
+    loanManager: '',
+    lendingPool: '',
+    termVault: '',
+    vestingAdapter: '',
+    usdc: '',
+    testnetPriceFeed: '',
+    vestToken: '',
     sampleVestingWallet: ''
   },
   [flowEvmTestnet.id]: {

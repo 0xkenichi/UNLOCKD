@@ -43,6 +43,8 @@ const {
   deploySuperfluidClaimWrapper
 } = require('./relayer/evmRelayer');
 const { mapWithConcurrency } = require('./lib/concurrency');
+const { uploadJSONToIPFS } = require('./lib/ipfs');
+const omegaWatcher = require('./omegaWatcher');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -599,7 +601,22 @@ const pollEvents = async () => {
         RPC_CONCURRENCY_LIMIT
       );
 
-      await pushEvents(normalized.filter(Boolean));
+      const validEvents = normalized.filter(Boolean);
+      for (const e of validEvents) {
+        if (e.type === 'LoanCreated' || e.type === 'PrivateLoanCreated') {
+          // Push initial lean state to the Omega Watcher grid
+          omegaWatcher.emit('loanCreated', {
+            id: e.loanId,
+            principal: e.amount || '0',
+            interestAccrued: '0',
+            collateralValueUsd: '0', // Will be enriched on next tick
+            durationDays: 30, // Default mock logic if unset
+            elapsedDays: 0
+          });
+        }
+      }
+
+      await pushEvents(validEvents);
     }
     lastIndexedBlock = endBlock;
     await persistence.setMeta('lastIndexedBlock', lastIndexedBlock);
@@ -5557,6 +5574,15 @@ const runEvmRepayKeeperTick = async () => {
   }
 };
 
+app.post('/api/loans/ipfs-metadata', async (req, res) => {
+  try {
+    const uri = await uploadJSONToIPFS(req.body);
+    res.json({ ok: true, uri });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error?.message || 'IPFS upload failed' });
+  }
+});
+
 // ─── Scanner: Multi-chain wallet portfolio aggregator ─────────────────────────
 const scannerRouter = require('./routes/scanner');
 // Expose the SQLite/Supabase db handle to the scanner router via app.locals
@@ -5649,6 +5675,8 @@ const start = async () => {
       }, Math.max(5000, EVM_REPAY_KEEPER_INTERVAL_MS));
       console.log('[evm-repay-keeper] enabled');
     }
+
+    omegaWatcher.start();
   });
 };
 

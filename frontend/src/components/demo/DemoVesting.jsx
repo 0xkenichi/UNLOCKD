@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { parseUnits, decodeEventLog } from 'viem';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId, usePublicClient, useAccount } from 'wagmi';
 import { getContractAddress, demoFaucetAbi } from '../../utils/contracts.js';
@@ -24,11 +25,11 @@ export default function DemoVesting({ onComplete }) {
 
     const handleCreateVesting = async () => {
         if (!isConnected) {
-            setErrorMsg('Wallet not connected! (Check connection or toggle Simulator)');
+            toast.error('Wallet not connected! (Check connection or toggle Simulator)');
             return;
         }
         if (!demoFaucetAddress) {
-            setErrorMsg('DemoFaucet contract not found on this network.');
+            toast.error('DemoFaucet contract not found on this network.');
             return;
         }
 
@@ -46,7 +47,7 @@ export default function DemoVesting({ onComplete }) {
             });
         } catch (err) {
             console.error('Minting failed:', err);
-            setErrorMsg(err.shortMessage || err.message || 'Transaction failed');
+            toast.error(err.shortMessage || err.message || 'Transaction failed');
             setIsMinting(false);
         }
     };
@@ -77,6 +78,7 @@ export default function DemoVesting({ onComplete }) {
             }
 
             setIsMinting(false);
+            toast.success('Mock Vesting Position Created!');
             onComplete({
                 tokenName,
                 tokenSymbol,

@@ -22,6 +22,7 @@
     "@streamflow/stream": "^11.0.0",
     "@supabase/supabase-js": "^2.93.3",
     "better-sqlite3": "^12.6.2",
+    "big.js": "^7.0.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
@@ -29,9 +30,12 @@
     "express-rate-limit": "^8.2.1",
     "graphql": "^16.13.1",
     "graphql-request": "^7.4.0",
+    "mathjs": "^15.1.1",
     "minisearch": "^7.2.0",
+    "node-cron": "^4.2.1",
     "tweetnacl": "^1.0.3",
     "undici": "^7.21.0",
+    "winston": "^3.19.0",
     "zod": "^4.3.6"
   }
 }

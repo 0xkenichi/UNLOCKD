@@ -179,18 +179,18 @@ contract LoanOriginationFacet is LoanManagerStorage {
             emit LoanCreated(loanId, msg.sender, borrowAmount);
 
             // V9.0 - Mint On-Chain Proof (NFT)
-            if (address(loanNFT) != address(0)) {
-                loanNFT.mintProof(
-                    msg.sender,
-                    loanId,
-                    borrowAmount,
-                    pledgedQuantity,
-                    ltvBps,
-                    valuation.tokenOmegaBps(token),
-                    "ipfs://VESTRA-TERMS-V1", // Real legal hash in prod
-                    "https://vestra.finance/proofs/" // Dynamic URI
-                );
-            }
+            // if (address(loanNFT) != address(0)) {
+            //     loanNFT.mintProof(
+            //         msg.sender,
+            //         loanId,
+            //         borrowAmount,
+            //         pledgedQuantity,
+            //         ltvBps,
+            //         valuation.tokenOmegaBps(token),
+            //         "ipfs://VESTRA-TERMS-V1", // Real legal hash in prod
+            //         "https://vestra.finance/proofs/" // Dynamic URI
+            //     );
+            // }
         }
         loanCount += 1;
 

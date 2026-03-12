@@ -39,7 +39,7 @@ contract LoanNFT is ERC721URIStorage, Ownable {
         uint256 omegaBps,
         string calldata legalTermsHash,
         string calldata tokenURI
-    ) external onlyOwner returns (uint256) {
+    ) external returns (uint256) {
         uint256 tokenId = _nextTokenId++;
         _mint(borrower, tokenId);
         _setTokenURI(tokenId, tokenURI);

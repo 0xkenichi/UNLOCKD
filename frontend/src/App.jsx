@@ -20,6 +20,7 @@ import { FEATURE_FUNDRAISE_ONBOARD } from './utils/featureFlags.js';
 import OnboardingModal from './components/onboarding/OnboardingModal.jsx';
 import AIBubble from './components/common/AIBubble.jsx';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Toaster } from 'react-hot-toast';
 import {
     trackEvent,
     flushAnalyticsQueue,
@@ -349,6 +350,19 @@ function AppShell() {
                     </motion.div>
                 </AnimatePresence>
             </main>
+            <Toaster 
+               position="bottom-right" 
+               toastOptions={{ 
+                  style: { 
+                     background: 'rgba(10, 14, 26, 0.85)', 
+                     color: '#fff', 
+                     border: '1px solid rgba(59, 130, 246, 0.4)', 
+                     backdropFilter: 'blur(12px)',
+                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)'
+                  },
+                  success: { iconTheme: { primary: '#3b82f6', secondary: '#fff' } }
+               }} 
+            />
             <OnboardingModal />
             {!isLanding && <AIBubble />}
             {!isImmersiveDashboard && !isLanding && (
