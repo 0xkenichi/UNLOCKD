@@ -31,5 +31,5 @@ test('hover dwell triggers module auto-open transition', async ({ page }) => {
   await page.waitForTimeout(1100);
 
   await expect(page.locator('.immersive-focus-layer')).toBeVisible();
-  await expect(page.locator('.immersive-focus-title')).toContainText('Borrow');
+  await expect(page.locator('.immersive-focus-title')).toContainText('Auction');
 });

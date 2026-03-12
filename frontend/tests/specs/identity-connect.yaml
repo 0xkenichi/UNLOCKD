@@ -1,5 +1,5 @@
 name: Identity connect prompt
 steps:
   - goto: /identity
-  - expectText: Identity
-  - expectText: Optional identity linking is a prototype UX flow.
+  - expectText: Global Identity
+  - expectText: Link multiple wallets to a single Gitcoin Passport score. Optional verification unlocks better loan terms.

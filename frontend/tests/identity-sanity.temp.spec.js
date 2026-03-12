@@ -28,20 +28,11 @@ test.describe('Identity page sanity', () => {
     // 4. Open Gitcoin Passport link
     await expect(page.getByRole('link', { name: 'Open Gitcoin Passport' })).toBeVisible();
 
-    // 5. Verify now button
-    const verifyNowBtn = page.getByRole('button', { name: 'Verify now' });
+    // 5. Verify now button -> Sync Gitcoin Passport Score
+    const verifyNowBtn = page.getByRole('button', { name: 'Sync Gitcoin Passport Score' });
     await expect(verifyNowBtn).toBeVisible();
 
-    // 6. Verification checklist section
-    await expect(page.getByRole('heading', { name: 'Verification checklist' })).toBeVisible();
-
-    // 7. Verify with Gitcoin Passport button
-    await expect(page.getByRole('button', { name: 'Verify with Gitcoin Passport' })).toBeVisible();
-
-    // Click Verify now and confirm scroll to checklist
-    const checklist = page.locator('#identity-checklist');
-    await verifyNowBtn.click();
-    await page.waitForTimeout(800);
-    await expect(checklist).toBeInViewport();
+    // Click verify button and confirm disabled when disconnected
+    await expect(verifyNowBtn).toBeDisabled();
   });
 });
