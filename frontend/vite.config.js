@@ -9,7 +9,14 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   plugins: [
-    nodePolyfills(),
+    nodePolyfills({
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+      protocolImports: true,
+    }),
     react()
   ],
   resolve: {

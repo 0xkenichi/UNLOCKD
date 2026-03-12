@@ -1,12 +1,10 @@
-// Copyright (c) 2026 Vestra Protocol. All rights reserved.
-// Licensed under the Business Source License 1.1 (BSL-1.1).
+import './polyfills.js';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import SolanaProvider from './components/solana/SolanaProvider.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
 import './styles.css';
-import './polyfills.js';
 import { Analytics } from '@vercel/analytics/react';
 import { WagmiProvider, createConfig as createWagmiConfig, http, injected } from 'wagmi';
 import { walletConnect, coinbaseWallet, safe } from 'wagmi/connectors';
