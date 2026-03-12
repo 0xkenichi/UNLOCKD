@@ -123,5 +123,4 @@ jobs:
             --exclude-low \
             --exclude-informational \
             --exclude-optimization \
-            --exclude-detectors immutable-states \
             --filter-paths "node_modules|frontend|backend|docs|scripts|deployments"
