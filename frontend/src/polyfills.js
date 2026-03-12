@@ -4,7 +4,12 @@ import { Buffer } from 'buffer';
 import process from 'process';
 
 if (typeof window !== 'undefined') {
+  window.global = window.global || window;
   window.Buffer = window.Buffer || Buffer;
   window.process = window.process || process;
-  window.global = window.global || window;
+  
+  // Safe-buffer and some older CJS modules might look for globalThis.Buffer
+  globalThis.Buffer = globalThis.Buffer || Buffer;
+  globalThis.process = globalThis.process || process;
+
 }
