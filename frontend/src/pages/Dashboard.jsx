@@ -14,6 +14,7 @@ import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '..
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 import { useOnchainSession } from '../utils/onchainSession.js';
 import DashboardHolo from '../components/dashboard/DashboardHolo.jsx';
+
 import { IsometricVaultHero } from '../components/visuals/IsometricHeroes.jsx';
 import {
   ShieldCheck,
@@ -507,14 +508,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="w-full mt-6 mb-8 max-w-6xl mx-auto">
-          <DashboardHolo positions={[
-            { title: "TGE Event", amount: "100,000 CRDT" },
-            { title: "Cliff End", amount: "25,000 CRDT" },
-            { title: "Quarter 3 Vest", amount: "12,500 CRDT" },
-            { title: "Quarter 4 Vest", amount: "12,500 CRDT" },
-            { title: "Final Unlock", amount: "50,000 CRDT" }
-          ]} />
+        <div className="w-full mt-6 mb-8 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <DashboardHolo positions={[
+              { title: "TGE Event", amount: "100,000 CRDT" },
+              { title: "Cliff End", amount: "25,000 CRDT" },
+              { title: "Quarter 3 Vest", amount: "12,500 CRDT" },
+              { title: "Quarter 4 Vest", amount: "12,500 CRDT" },
+              { title: "Final Unlock", amount: "50,000 CRDT" }
+            ]} />
+          </div>
+
         </div>
 
         <div className="immersive-modules-grid">

@@ -68,8 +68,12 @@ SEED_OUTPUT=$(npx hardhat run scripts/seed-sample-vest.js --network localhost 2>
 echo "${SEED_OUTPUT}"
 
 # Extract collateral ID and vesting address from output for convenience
-COLLATERAL_ID=$(echo "${SEED_OUTPUT}" | grep -oE "Collateral ID \(use in UI for escrow + borrow\): [0-9]+" | grep -oE "[0-9]+" | tail -1)
-VESTING_ADDR=$(echo "${SEED_OUTPUT}" | grep "Vesting contract:" | awk '{print $3}')
+COLLATERAL_ID=$(echo "${SEED_OUTPUT}" | grep -oE "Collateral ID \(use in UI for escrow + borrow\): [0-9]+" | grep -oE "[0-9]+" | tail -1 || true)
+VESTING_ADDR=$(echo "${SEED_OUTPUT}" | grep "Vesting contract:" | awk '{print $3}' || true)
+
+log "Verification of extracted IDs:"
+log "  COLLATERAL_ID: ${COLLATERAL_ID}"
+log "  VESTING_ADDR:   ${VESTING_ADDR}"
 
 log ""
 log "--- Use these in the Borrow UI ---"
@@ -88,8 +92,9 @@ log ""
 log "Open http://localhost:5173 and connect wallet to Localhost (chain 31337)"
 log ""
 
+log "DEBUG: About to run npm run dev:services"
 export DEPLOYMENTS_NETWORK=localhost
 export RPC_URL=http://127.0.0.1:8545
 export INDEXER_ENABLED=false
 
-npm run dev
+npm run dev:services

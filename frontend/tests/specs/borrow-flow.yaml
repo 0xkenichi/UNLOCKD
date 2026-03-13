@@ -6,12 +6,13 @@ steps:
       name: Borrow Actions
       exact: true
   - expectText: Valuation Engine
+  - click: "Advanced Parameters"
   - click: "Manual"
   - fill:
-      label: "NFT Collateral Vault ID"
+      label: "Collateral ID"
       value: "1770076022"
   - fill:
-      label: "Vesting Contract Address (ERC-721)"
+      label: "Vesting Contract"
       value: "0xFF5F4903F8093E3b7cC15a4503159880B478622E"
   - expectDisabled:
-      selector: "button:has-text('Create Loan')"
+      selector: "[data-guide-id='borrow-create-loan']"

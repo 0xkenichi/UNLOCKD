@@ -113,6 +113,13 @@ export default function BorrowActions({
   const [autoFlowStatus, setAutoFlowStatus] = useState('');
   const termsScrollRef = useRef(null);
   const [selectedDetected, setSelectedDetected] = useState('');
+  const [volatility, setVolatility] = useState(0);
+
+  useEffect(() => {
+    apiGet('/api/simulation/state').then(res => {
+      if (res.ok) setVolatility(res.volatility || 0);
+    }).catch(() => {});
+  }, []);
 
   const effectiveVestingContract =
     importProtocol === 'sablier' && sablierWrapperAddress
@@ -889,6 +896,11 @@ export default function BorrowActions({
         <span className={`tag ${verified ? 'success' : ''}`}>
           {hasPreview ? 'Ready' : 'Pending'}
         </span>
+        {volatility > 10 && (
+          <span className="tag info animate-pulse" style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', borderColor: 'rgba(59, 130, 246, 0.4)' }}>
+            MeTTA Optimized
+          </span>
+        )}
       </div>
 
 

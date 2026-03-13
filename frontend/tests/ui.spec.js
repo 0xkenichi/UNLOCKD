@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test('landing CTA routes to dashboard', async ({ page }) => {
   await page.goto('/');
   await expect(
-    page.getByRole('heading', { name: 'VESTRA PROTOCOL', exact: true })
+    page.locator('#hero-title')
   ).toBeVisible();
   await page.getByTestId('landing-cta').click();
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -34,6 +34,7 @@ test('tab bar navigation reaches borrow flow', async ({ page }) => {
 
 test('borrow page shows collateral source Manual and Import from Sablier v2', async ({ page }) => {
   await page.goto('/borrow');
+  await page.getByRole('button', { name: 'Advanced Parameters' }).click();
   await expect(page.getByText('Collateral source')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Manual' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Import from Sablier v2' })).toBeVisible();
@@ -41,6 +42,7 @@ test('borrow page shows collateral source Manual and Import from Sablier v2', as
 
 test('import Sablier v2 shows lockup stream and wrapper fields', async ({ page }) => {
   await page.goto('/borrow');
+  await page.getByRole('button', { name: 'Advanced Parameters' }).click();
   await page.getByRole('button', { name: 'Import from Sablier v2' }).click();
   await expect(page.getByLabel('Lockup contract')).toBeVisible();
   await expect(page.getByLabel('Stream ID')).toBeVisible();

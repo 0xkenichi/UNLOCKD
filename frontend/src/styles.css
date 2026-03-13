@@ -3857,3 +3857,134 @@ select:focus-visible {
 .ping-indicator.evm {
   color: var(--primary-400);
 }
+/* Onboarding Premium UI Improvement */
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  background: rgba(4, 7, 12, 0.82);
+  backdrop-filter: blur(24px) saturate(180%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  animation: onboarding-fade-in 0.4s var(--ease-standard);
+}
+
+.onboarding-modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 80px);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.75);
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  overflow-y: auto;
+  position: relative;
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.onboarding-image {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.onboarding-text {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-secondary);
+}
+
+.onboarding-button {
+  padding: 12px 32px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-standard);
+  border: 1px solid var(--primary-400);
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-500));
+  color: white;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.onboarding-button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 40px rgba(59, 130, 246, 0.55);
+  border-color: var(--primary-300);
+  filter: brightness(1.1);
+}
+
+.onboarding-button:active:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.onboarding-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.onboarding-button.secondary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.onboarding-button.secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.progress-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: var(--space-4);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-400), var(--primary-200));
+  box-shadow: 0 0 16px rgba(96, 165, 250, 0.6);
+  transition: width 0.5s var(--ease-smooth);
+}
+
+@keyframes onboarding-fade-in {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(24px); }
+}
+
+@media (max-width: 640px) {
+  .onboarding-modal {
+    padding: var(--space-5);
+    width: 100%;
+    border-radius: var(--radius-lg);
+  }
+}

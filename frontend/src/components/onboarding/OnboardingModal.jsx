@@ -18,7 +18,7 @@ const onboardingHeroImage =
   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200' viewBox='0 0 320 200'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%2358a6ff;stop-opacity:0.9'/><stop offset='100%' style='stop-color:%231a6fda;stop-opacity:1'/></linearGradient></defs><rect width='320' height='200' fill='%230a0e14'/><rect x='16' y='16' width='288' height='168' rx='12' fill='%23161b22' opacity='0.95'/><circle cx='160' cy='90' r='36' fill='url(%23grad)' opacity='0.2'/><text x='160' y='104' font-size='18' fill='%2358a6ff' text-anchor='middle' dominant-baseline='middle' font-family='monospace' font-weight='600'>VESTRA</text><text x='160' y='130' font-size='11' fill='%238b949e' text-anchor='middle' dominant-baseline='middle' font-family='sans-serif'>Vesting Credit Protocol</text></svg>";
 
 export default function OnboardingModal() {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const { address } = useAccount();
   const chainId = useChainId();
@@ -27,8 +27,8 @@ export default function OnboardingModal() {
 
   useEffect(() => {
     const seen = localStorage.getItem('crdt-onboarding-seen');
-    if (seen) {
-      setIsOpen(false);
+    if (!seen) {
+      setIsOpen(true);
     }
   }, []);
 

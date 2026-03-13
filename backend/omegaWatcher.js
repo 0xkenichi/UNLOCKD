@@ -36,6 +36,8 @@ class OmegaWatcher extends EventEmitter {
     super();
     this.isActive = false;
     this.activeLoans = new Map(); // Store light state of loans {id: {principal, accrued, health, duration}}
+    this.alerts = []; // Log of recent monitoring alerts
+    this.MAX_ALERTS = 50;
   }
 
   /**
@@ -55,6 +57,14 @@ class OmegaWatcher extends EventEmitter {
     this.on('loanCreated', (loanData) => this._cacheLoan(loanData));
     this.on('loanRepaid', (loanId) => this._removeLoan(loanId));
     this.on('pricePing', (tokenValue) => this._triggerVolatilityCheck(tokenValue));
+    this.on('simulationUpdate', (state) => {
+      logger.info(`Simulation State Sync: Volatility at ${state.volatility}%`);
+      if (state.volatility > 40) {
+        this._pushAlert('CRITICAL', 'Market Chaos Detected', { volatility: state.volatility });
+      } else if (state.volatility > 20) {
+        this._pushAlert('WARNING', 'Intermittent Volatility', { volatility: state.volatility });
+      }
+    });
   }
 
   stop() {
@@ -93,12 +103,29 @@ class OmegaWatcher extends EventEmitter {
 
       // Detect breaches
       if (healthFactor <= 1.0) {
-        logger.warn(`CRITICAL INCIDENT: Loan ${loanId} Health Factor breached threshold! HF: ${healthFactor.toFixed(4)}`);
+        const msg = `CRITICAL INCIDENT: Loan ${loanId} Health Factor breached threshold! HF: ${healthFactor.toFixed(4)}`;
+        logger.warn(msg);
+        this._pushAlert('CRITICAL', msg, { loanId, healthFactor });
         this.emit('liquidationTrigger', { loanId, healthFactor });
       } else if (healthFactor < 1.15) {
-        logger.warn(`WARNING: Loan ${loanId} approaching liquidation zone. HF: ${healthFactor.toFixed(4)}`);
+        const msg = `WARNING: Loan ${loanId} approaching liquidation zone. HF: ${healthFactor.toFixed(4)}`;
+        logger.warn(msg);
+        this._pushAlert('WARNING', msg, { loanId, healthFactor });
         this.emit('marginCallAlert', { loanId, healthFactor });
       }
+    }
+  }
+
+  _pushAlert(level, message, data) {
+    this.alerts.unshift({
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: Date.now(),
+      level,
+      message,
+      data
+    });
+    if (this.alerts.length > this.MAX_ALERTS) {
+      this.alerts.pop();
     }
   }
 

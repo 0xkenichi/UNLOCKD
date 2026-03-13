@@ -2,7 +2,8 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Lock, Eye, EyeOff, Plus, Trash2, Copy, CheckCircle, FileText, AlertTriangle, Users, LogOut, ChevronRight, Key, X } from 'lucide-react';
+import { Shield, Lock, Eye, EyeOff, Plus, Trash2, Copy, CheckCircle, FileText, AlertTriangle, Users, LogOut, ChevronRight, Key, X, Activity } from 'lucide-react';
+import RiskPulse from '../components/dashboard/RiskPulse.jsx';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const SUPER_ADMIN_PASSPHRASE = 'vestra-finch-2025-Ω';     // Change in production
@@ -187,6 +188,7 @@ Vestra's moat is the DPV engine. No competitor currently uses Monte Carlo simula
 // ─── Admin Panel Tabs ─────────────────────────────────────────────────────────
 const TABS = [
     { id: 'vault', label: 'IP Vault', icon: FileText },
+    { id: 'sentinel', label: 'Sentinel', icon: Activity },
     { id: 'whitelist', label: 'Whitelist', icon: Users },
 ];
 
@@ -518,6 +520,11 @@ export default function Admin() {
                 <AnimatePresence mode="wait">
                     <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
                         {tab === 'vault' && <IPVault />}
+                        {tab === 'sentinel' && (
+                            <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                                <RiskPulse />
+                            </div>
+                        )}
                         {tab === 'whitelist' && <WhitelistManager />}
                     </motion.div>
                 </AnimatePresence>

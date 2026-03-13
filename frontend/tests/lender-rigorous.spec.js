@@ -25,6 +25,11 @@ test('deposit and withdraw start disabled in disconnected state', async ({ page 
 
 test('approve click writes blocked action log entry when disconnected', async ({ page }) => {
   await page.goto('/lender');
+  
+  // Fill deposit amount so the button becomes enabled (it checks !depositUnits)
+  await page.getByLabel('Deposit amount (USDC)').fill('100');
+  
+  // Now click. It should be enabled now even though disconnected.
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
 
   const logPanel = page.getByTestId('lender-action-log');
@@ -38,6 +43,7 @@ test('action log panel starts empty and then increments after action', async ({ 
   const logPanel = page.getByTestId('lender-action-log');
   await expect(logPanel.getByText('No actions yet.')).toBeVisible();
 
+  await page.getByLabel('Deposit amount (USDC)').fill('100');
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(logPanel.getByText('1 events')).toBeVisible();
 });

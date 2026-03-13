@@ -6,6 +6,7 @@ const crypto = require('crypto');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
+const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { fetch } = require('undici');
@@ -44,6 +45,7 @@ const {
 } = require('./relayer/evmRelayer');
 const { mapWithConcurrency } = require('./lib/concurrency');
 const { uploadJSONToIPFS } = require('./lib/ipfs');
+const meTTabrain = require('./meTTabrain');
 const omegaWatcher = require('./omegaWatcher');
 
 const app = express();
@@ -643,6 +645,7 @@ const corsOptions = allowWildcardOrigin
 if (isProduction && !corsOrigins.length) {
   console.warn('[security] CORS_ORIGINS missing in production; cross-origin requests blocked');
 }
+app.use(helmet()); // Added helmet usage
 app.use(cors(corsOptions));
 
 // Security Headers (Hardening)
@@ -1287,7 +1290,45 @@ app.post('/api/simulation/update', requireAdmin, (req, res) => {
   if (volatility !== undefined) simulationState.volatility = Number(volatility);
   if (interestRateBps !== undefined) simulationState.interestRateBps = Number(interestRateBps);
   simulationState.lastUpdate = Date.now();
+  
+  // Inform Omega Watcher of changes
+  omegaWatcher.emit('simulationUpdate', simulationState);
+  
   res.json({ ok: true, state: simulationState });
+});
+
+app.get('/api/omega/alerts', (req, res) => {
+  res.json({
+    ok: true,
+    alerts: omegaWatcher.alerts || []
+  });
+});
+
+app.get('/api/loan/:id/health', async (req, res) => {
+  const { id } = req.params;
+  const loan = omegaWatcher.activeLoans.get(id);
+  if (!loan) {
+    return res.status(404).json({ ok: false, error: 'Loan not tracked by sentinel' });
+  }
+
+  const healthFactor = meTTabrain.evaluateLoanHealth({
+    principal: loan.principal,
+    interestAccrued: loan.interestAccrued || '0',
+    collateralValueUsd: loan.collateralValueUsd || '0',
+    durationDays: loan.durationDays || 30,
+    elapsedDays: loan.elapsedDays || 0
+  });
+
+  res.json({
+    ok: true,
+    loanId: id,
+    healthFactor,
+    status: healthFactor <= 1.0 ? 'LIQUIDATABLE' : healthFactor < 1.15 ? 'WARNING' : 'HEALTHY',
+    metrics: {
+      principal: loan.principal,
+      collateralValueUsd: loan.collateralValueUsd
+    }
+  });
 });
 
 const { getPriceBehavior } = require('./lib/priceBehavior');
@@ -2002,6 +2043,7 @@ const getDaysToUnlock = (unlockTime) => {
 };
 
 const getPoolInterestBps = async () => {
+  let bps = 1800;
   try {
     const contract = new ethers.Contract(
       lendingPool.address,
@@ -2009,12 +2051,27 @@ const getPoolInterestBps = async () => {
       provider
     );
     const rate = await contract.getInterestRateBps();
-    let bps = Number(rate);
-    if (MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 && bps < MIN_INTEREST_BPS) bps = MIN_INTEREST_BPS;
-    return bps;
+    bps = Number(rate);
   } catch {
-    return MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 ? MIN_INTEREST_BPS : 1800;
+    bps = MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 ? MIN_INTEREST_BPS : 1800;
   }
+
+  // Apply MeTTabrain dynamic adjustments based on simulation state (volatility/chaos)
+  if (simulationState && simulationState.volatility > 10) {
+    const dynamicApr = meTTabrain.calculateDynamicAPR({
+      baseRateBps: bps,
+      utilizationRatio: 0.65, // Mocked for MVP demo responsiveness
+      volatilityIndex: Math.min(1.0, simulationState.volatility / 100),
+      userCreditScore: 750
+    });
+    // Convert percentage string back to BPS
+    const oldBps = bps;
+    bps = Math.round(parseFloat(dynamicApr) * 100);
+    console.log(`[Ω OMEGA] Dynamic APR Adjustment: Volatility ${simulationState.volatility}%, BPS ${oldBps} -> ${bps}`);
+  }
+
+  if (MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 && bps < MIN_INTEREST_BPS) bps = MIN_INTEREST_BPS;
+  return bps;
 };
 
 const USDC_UNITS = 1_000_000n;

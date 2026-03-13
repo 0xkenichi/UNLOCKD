@@ -5,4 +5,4 @@ steps:
       role: heading
       name: Repay
       exact: true
-  - expectText: Connect wallet to repay or reclaim collateral
+  - expectText: Connect the borrower wallet to repay.

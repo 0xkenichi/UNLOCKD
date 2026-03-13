@@ -14,6 +14,8 @@ test('lender approve action is logged with blocked reason when disconnected', as
   await expect(page.getByRole('heading', { name: 'Lender Pools' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Action Log' })).toBeVisible();
 
+  // Fill deposit amount so the button becomes enabled
+  await page.getByLabel('Deposit amount (USDC)').fill('100');
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
 
   const logPanel = page.getByTestId('lender-action-log');
