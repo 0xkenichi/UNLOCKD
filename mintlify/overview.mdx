@@ -2,25 +2,26 @@
 title: Protocol Overview
 ---
 
-# CRDT / Vestra Overview
+# Protocol Overview
 
-CRDT enables borrowing against time-locked or vested tokens without breaking vesting rules. Borrowers escrow claim rights (not tokens), get a conservative loan based on discounted present value (DPV), and settle on-chain at unlock. Lenders are protected by risk models, LTV caps, and automatic settlement.
+Vestra Protocol is a non-custodial credit infrastructure that enables borrowing against the deterministic value of vested and locked token claims. 
 
-## Who This Is For
-- Contributors with vesting schedules who need liquidity.
-- DAOs/startups who want to support contributors without early token sales.
-- Lenders seeking conservative, secured yield on time-based collateral.
+By collateralizing vesting schedules rather than circulating tokens, Vestra preserves long-term alignment between builders and ecosystems while providing immediate liquidity for founders, contributors, and DAOs.
 
-## Core Idea
-Locked tokens are future value. The protocol prices that value conservatively:
-`PV = Q * P * D` and `Borrow <= PV * LTV`.
+## Market Segmentation
 
-## What Makes It Different
-- Time-based enforcement (no price-based margin calls).
-- Non-custodial control of wallets.
-- Conservative risk-first lending with on-chain settlement.
+- **Borrowers**: Founders and contributors who need liquidity without selling their vested upside at a discount.
+- **Lenders**: Institutional practitioners seeking secured, high-trust yield correlated to vesting schedules and missed-sale upside.
+- **Ecoytsem**: DAOs and Treasuries that want to support talent without diluting their governance or market presence.
 
-## Where to Go Next
-- `MVP.md` for build plan
-- `ARCHITECTURE.md` for system design
-- `SEPOLIA_BORROW_FLOW.md` for test flow
+## Core Value Proposition
+
+- **Vesting-Backed Credit**: No forced sales or price-based margin calls.
+- **Deterministic Risk**: Underwriting is tied to time/unlock events rather than market volatility.
+- **Non-Custodial Enforcement**: Escrow claim rights via on-chain smart contracts with settlement-at-unlock.
+
+## Next Steps
+
+- **[Whitepaper](/whitepaper)**: Deep dive into the underwriting mechanics.
+- **[Litepaper](/litepaper)**: High-level protocol summary.
+- **[Risk Models](/risk-models)**: LTV and liquidation math.

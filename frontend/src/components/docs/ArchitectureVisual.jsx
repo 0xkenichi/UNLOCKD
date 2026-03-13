@@ -1,13 +1,28 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Zap, Lock, Landmark, Briefcase, Coins, Key, TrendingUp, Cpu, Activity, Layers, Repeat, ArrowRight } from 'lucide-react';
+import { Shield, Activity, TrendingUp, Cpu, Layers, Key, Coins, Repeat, Landmark, Zap, Info } from 'lucide-react';
 
-// Premium glowing node component
-const NextGenNode = ({ id, icon: Icon, title, subtitle, color, x, y, activeKey, onHover, floatDelay = 0 }) => {
-    const isActive = activeKey === id || activeKey === 'all';
-    const isDimmed = activeKey !== null && activeKey !== id && activeKey !== 'all';
+/**
+ * Premium redesigned Node component
+ */
+const ProNode = ({ id, icon: Icon, title, subtitle, colorVar, activeNode, onHover, x, y }) => {
+    const isActive = activeNode === id;
+    const isRelated = useMemo(() => {
+        if (!activeNode) return false;
+        const relationships = {
+            borrowers: ['valuator', 'core'],
+            lenders: ['pool', 'core'],
+            valuator: ['borrowers', 'core'],
+            pool: ['lenders', 'core'],
+            core: ['borrowers', 'lenders', 'valuator', 'pool', 'vault'],
+            vault: ['core']
+        };
+        return relationships[activeNode]?.includes(id);
+    }, [activeNode, id]);
+
+    const isDimmed = activeNode && !isActive && !isRelated;
 
     return (
         <motion.div
@@ -15,143 +30,145 @@ const NextGenNode = ({ id, icon: Icon, title, subtitle, color, x, y, activeKey, 
             onMouseLeave={() => onHover(null)}
             style={{
                 position: 'absolute',
-                top: y,
-                left: x,
+                top: `${y}%`,
+                left: `${x}%`,
                 transform: 'translate(-50%, -50%)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '12px',
+                gap: '10px',
                 cursor: 'pointer',
-                zIndex: isActive ? 10 : 2,
+                zIndex: isActive ? 50 : (isRelated ? 30 : 10),
             }}
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: 0.9 }}
             animate={{
                 opacity: isDimmed ? 0.3 : 1,
                 scale: isActive ? 1.05 : 1,
-                y: isActive ? -5 : [0, -4, 0],
+                y: isActive ? `${y - 1}%` : `${y}%`,
             }}
-            transition={{
-                y: isActive ? { type: 'spring', stiffness: 300, damping: 20 } : { duration: 4, repeat: Infinity, ease: 'easeInOut', delay: floatDelay },
-                opacity: { duration: 0.3 },
-                scale: { duration: 0.3 }
-            }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
         >
             <div style={{ position: 'relative' }}>
-                {isActive && (
-                    <motion.div
-                        layoutId="node-glow"
-                        style={{
-                            position: 'absolute', inset: -20, borderRadius: '50%',
-                            background: `radial-gradient(circle, rgba(${color}, 0.4) 0%, transparent 70%)`,
-                            zIndex: -1
-                        }}
+                <AnimatePresence>
+                    {(isActive || isRelated) && (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1.2 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            style={{
+                                position: 'absolute',
+                                inset: -15,
+                                borderRadius: '50%',
+                                background: `radial-gradient(circle, var(${colorVar}, rgba(59, 130, 246, 0.4)) 0%, transparent 70%)`,
+                                filter: 'blur(8px)',
+                                opacity: isActive ? 0.5 : 0.2,
+                                zIndex: -1
+                            }}
+                        />
+                    )}
+                </AnimatePresence>
+                
+                <div style={{
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '16px',
+                    background: 'var(--glass-bg)',
+                    backdropFilter: 'blur(12px)',
+                    border: `1px solid ${isActive ? `var(${colorVar})` : 'var(--glass-border)'}`,
+                    boxShadow: isActive ? `0 0 20px var(${colorVar}), inset 0 0 10px rgba(255,255,255,0.1)` : 'var(--shadow-sm)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.3s'
+                }}>
+                    <Icon 
+                        size={26} 
+                        color={isActive ? '#fff' : `var(${colorVar})`} 
+                        style={{ filter: isActive ? `drop-shadow(0 0 8px #fff)` : 'none', transition: 'all 0.3s' }} 
                     />
-                )}
-                <div
-                    style={{
-                        width: '64px', height: '64px', borderRadius: '20px',
-                        background: `linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%)`,
-                        border: `1px solid rgba(${color}, ${isActive ? 0.6 : 0.2})`,
-                        boxShadow: isActive ? `0 8px 32px rgba(${color}, 0.3), inset 0 0 20px rgba(${color}, 0.2)` : '0 4px 16px rgba(0,0,0,0.2)',
-                        backdropFilter: 'blur(10px)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'all 0.4s cubic-bezier(0.22, 1, 0.36, 1)'
-                    }}
-                >
-                    <Icon size={32} color={`rgb(${color})`} strokeWidth={isActive ? 2 : 1.5} style={{ transition: 'all 0.3s' }} />
                 </div>
             </div>
-            <div style={{ textAlign: 'center', width: '100px' }}>
-                <div style={{ fontWeight: 700, fontSize: '12px', color: isActive ? '#fff' : '#e2e8f0', letterSpacing: '0.01em', transition: 'color 0.3s' }}>{title}</div>
-                {subtitle && <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>{subtitle}</div>}
+            
+            <div style={{ textAlign: 'center', maxWidth: '100px' }}>
+                <div style={{ 
+                    fontWeight: 800, 
+                    fontSize: '11px', 
+                    color: isActive ? '#fff' : 'var(--text-primary)',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    fontFamily: 'var(--font-display)',
+                }}>
+                    {title}
+                </div>
+                {subtitle && (
+                    <div style={{ 
+                        fontSize: '10px', 
+                        color: 'var(--text-muted)', 
+                        marginTop: '1px',
+                        fontWeight: 600
+                    }}>
+                        {subtitle}
+                    </div>
+                )}
             </div>
         </motion.div>
     );
 };
 
-// Advanced animated flow line with moving particles
-const AdvancedFlowLine = ({ id, start, end, control, color, activeKey, triggerKeys, dash = false }) => {
-    const isActive = triggerKeys.includes(activeKey) || activeKey === 'all';
-    const pathData = `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
+const FlowPath = ({ start, end, activeNode, triggerNodes, colorVar, dash = false }) => {
+    const isActive = triggerNodes.includes(activeNode);
+    const isDimmed = activeNode && !isActive;
+
+    // Direct lines for aligned nodes
+    const pathData = `M ${start.x}% ${start.y}% L ${end.x}% ${end.y}%`;
 
     return (
-        <g>
-            {/* Base faint line */}
+        <g style={{ transition: 'opacity 0.4s' }}>
             <path
                 d={pathData}
                 fill="none"
-                stroke={dash ? `rgba(255,255,255,0.1)` : `rgba(${color}, 0.1)`}
-                strokeWidth={isActive ? 2 : 1}
-                strokeDasharray={dash ? "4 4" : "none"}
-                style={{ transition: 'stroke-width 0.3s ease' }}
+                stroke={isActive ? `var(${colorVar})` : 'var(--border-primary)'}
+                strokeWidth={isActive ? 2.5 : 1}
+                strokeDasharray={dash ? "5 5" : "none"}
+                opacity={isDimmed ? 0.1 : (isActive ? 1 : 0.3)}
+                style={{ transition: 'all 0.4s' }}
             />
-
-            {/* Animated gradient flow */}
-            {isActive && !dash && (
-                <motion.path
-                    d={pathData}
-                    fill="none"
-                    stroke={`url(#grad-${id})`}
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    initial={{ pathLength: 0, opacity: 0 }}
-                    animate={{ pathLength: 1, opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.6, ease: 'easeOut' }}
-                />
-            )}
-
-            {/* Moving Particles */}
             {isActive && (
-                <>
-                    <motion.circle r="3" fill="#fff" filter="blur(1px)">
-                        <animateMotion dur="2s" repeatCount="indefinite" path={pathData} />
-                    </motion.circle>
-                    <motion.circle r="2" fill={`rgb(${color})`} filter={`drop-shadow(0 0 4px rgb(${color}))`}>
-                        <animateMotion dur="2s" repeatCount="indefinite" begin="0.5s" path={pathData} />
-                    </motion.circle>
-                </>
+                <motion.circle r="2.5" fill="#fff" filter="blur(1px)">
+                    <animateMotion dur="2.5s" repeatCount="indefinite" path={`M ${start.x * 10},${start.y * 10} L ${end.x * 10},${end.y * 10}`} keyPoints="0;1" keyTimes="0;1" calcMode="linear" />
+                </motion.circle>
             )}
-
-            <defs>
-                <linearGradient id={`grad-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor={`rgba(${color}, 0)`} />
-                    <stop offset="50%" stopColor={`rgba(${color}, 0.8)`} />
-                    <stop offset="100%" stopColor={`rgba(${color}, 0.2)`} />
-                </linearGradient>
-            </defs>
         </g>
     );
 };
 
 export default function ArchitectureVisual() {
     const [activeNode, setActiveNode] = useState(null);
-    const [viewState, setViewState] = useState('ecosystem'); // ecosystem, borrow_flow, yield_flow
+    const [viewState, setViewState] = useState('ecosystem');
 
     const views = {
         ecosystem: { label: 'Full Ecosystem', icon: Layers },
-        borrow_flow: { label: 'Borrow Engine', icon: Activity },
-        yield_flow: { label: 'Yield & Vaults', icon: TrendingUp }
+        borrow_flow: { label: 'Borrow flow', icon: Activity },
+        yield_flow: { label: 'Yield flow', icon: TrendingUp }
     };
 
     const nodeData = {
-        borrowers: { title: "Vesting Holders", subtitle: "Borrowers", icon: Key, color: "59, 130, 246", x: "18%", y: "25%", floatDelay: 0 },
-        lenders: { title: "Liquidity Providers", subtitle: "Suppliers", icon: Coins, color: "16, 185, 129", x: "82%", y: "25%", floatDelay: 0.5 },
-        valuator: { title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, color: "236, 72, 153", x: "32%", y: "50%", floatDelay: 0.2 },
-        pool: { title: "Community Pools", subtitle: "Lending logic", icon: Repeat, color: "16, 185, 129", x: "82%", y: "50%", floatDelay: 0.7 },
-        core: { title: "Vestra Core", subtitle: "Settlement", icon: Shield, color: "139, 92, 246", x: "50%", y: "75%", floatDelay: 0.3 },
-        vault: { title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, color: "245, 158, 11", x: "82%", y: "75%", floatDelay: 0.8 },
+        borrowers: { id: 'borrowers', title: "Vesting Holders", subtitle: "Collateral", icon: Key, colorVar: "--primary-400", x: 15, y: 30 },
+        valuator: { id: 'valuator', title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, colorVar: "--primary-400", x: 50, y: 30 },
+        core: { id: 'core', title: "Vestra Core", subtitle: "Settlement", icon: Shield, colorVar: "--primary-400", x: 85, y: 30 },
+        lenders: { id: 'lenders', title: "Liquidity Providers", subtitle: "Assets", icon: Coins, colorVar: "--success-400", x: 15, y: 70 },
+        pool: { id: 'pool', title: "Community Pools", subtitle: "Management", icon: Repeat, colorVar: "--success-400", x: 50, y: 70 },
+        vault: { id: 'vault', title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, colorVar: "--warning-400", x: 85, y: 70 },
     };
 
     const infoBlocks = {
-        borrowers: { title: "Vesting Asset Holders", desc: "Users holding locked tokens (e.g. Sablier, OpenZeppelin) borrow stable liquidity against their unvested allocations." },
-        lenders: { title: "Liquidity Providers", desc: "Users deposit USDC into Community Pools to earn a continuous stream of interest from borrower activities." },
-        valuator: { title: "DPV Risk Engine", desc: "A Monte Carlo-trained evaluation system that computes the Discounted Present Value of unvested tokens based on TWAP and volatility." },
-        pool: { title: "Community Pools", desc: "ERC-4626 standard vaults holding lender deposits. They distribute yield dynamically based on utilization rates." },
-        core: { title: "Vestra Core Mechanics", desc: "The central nervous system that orchestrates loan origination, collateral locking, and automatic settlement at the token unlock date." },
-        vault: { title: "Insurance Vault (Backstop)", desc: "Funded by a portion of protocol interest. It acts as a strict-recourse backstop, liquidating bad debt internally to protect lenders." },
-        all: { title: "Vestra V2 Engine", desc: "Select a tab or hover over the ecosystem nodes to explore the technical flow of liquidity and risk mitigation." }
+        borrowers: { title: "Vesting Asset Holders", desc: "Unlock liquidity from locked tokens (Sablier, Streamflow, etc.) without selling your long-term upside." },
+        lenders: { title: "Liquidity Providers", desc: "Supply stable assets into the protocol to earn optimized, risk-adjusted yield from borrowing activities." },
+        valuator: { title: "DPV Risk Engine", desc: "Advanced Monte Carlo calculations determine the Discounted Present Value of vesting claims in real-time." },
+        pool: { title: "ERC-4626 Pools", desc: "Standardized liquidity vaults that optimize capital allocation and ensure deep liquidity for borrowers." },
+        core: { title: "Vestra Settlement Core", desc: "The definitive engine managing loan states, automated unlock captures, and non-custodial debt settlement." },
+        vault: { title: "Protocol Safety Vault", desc: "A robust backstop funded by protocol fees to ensure lender security and internal debt liquidation." },
+        all: { title: "Vestra V2 Engine", desc: "A streamlined credit infrastructure for the next generation of on-chain assets. Hover nodes to explore." }
     };
 
     const currentInfo = activeNode ? infoBlocks[activeNode] : infoBlocks.all;
@@ -159,120 +176,132 @@ export default function ArchitectureVisual() {
     return (
         <div style={{
             width: '100%',
-            background: 'linear-gradient(180deg, rgba(4, 7, 14, 0.4) 0%, rgba(13, 17, 26, 0.8) 100%)',
-            borderRadius: '24px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)',
-            position: 'relative',
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-xl)',
+            border: '1px solid var(--border-primary)',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(280px, 1fr) 2.5fr',
+            minHeight: '480px',
             overflow: 'hidden',
-            fontFamily: 'var(--font-family)'
+            fontFamily: 'var(--font-family)',
+            boxShadow: 'var(--shadow-lg)'
         }}>
-
-            {/* Dynamic Background Noise/Glow */}
+            {/* Left Column: Control & Info */}
             <div style={{
-                position: 'absolute', inset: 0,
-                background: 'radial-gradient(circle at 50% 100%, rgba(59, 130, 246, 0.08) 0%, transparent 60%)',
-                pointerEvents: 'none', zIndex: 0
-            }} />
-
-            {/* Header Tabs */}
-            <div style={{
-                display: 'flex', gap: '8px', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)',
-                background: 'rgba(255,255,255,0.02)', position: 'relative', zIndex: 20
+                padding: '32px',
+                borderRight: '1px solid var(--border-secondary)',
+                background: 'rgba(255,255,255,0.01)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '24px'
             }}>
-                {Object.entries(views).map(([key, view]) => (
-                    <button
-                        key={key}
-                        onClick={() => { setViewState(key); setActiveNode(null); }}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '12px',
-                            border: '1px solid transparent',
-                            background: viewState === key ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                            borderColor: viewState === key ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
-                            color: viewState === key ? '#fff' : '#94a3b8',
-                            fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s'
-                        }}
-                    >
-                        <view.icon size={16} />
-                        {view.label}
-                    </button>
-                ))}
-            </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary-400)' }}>
+                        <Activity size={18} />
+                        <span style={{ fontSize: '14px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Visualizer</span>
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: '24px', fontWeight: 800, fontFamily: 'var(--font-display)', color: '#fff' }}>Vestra V2</h3>
+                </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', '@media(min-width: 900px)': { gridTemplateColumns: 'minmax(250px, 1fr) 2.5fr' }, minHeight: '440px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {Object.entries(views).map(([key, view]) => (
+                        <button
+                            key={key}
+                            onClick={() => { setViewState(key); setActiveNode(null); }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderRadius: 'var(--radius-md)',
+                                background: viewState === key ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                                border: `1px solid ${viewState === key ? 'var(--primary-400)' : 'transparent'}`,
+                                color: viewState === key ? '#fff' : 'var(--text-muted)',
+                                fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left'
+                            }}
+                        >
+                            <view.icon size={16} />
+                            {view.label}
+                        </button>
+                    ))}
+                </div>
 
-                {/* Left Side: Info Panel */}
-                <div style={{ padding: '32px', borderRight: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', zIndex: 10 }}>
+                <div style={{ marginTop: 'auto', padding: '20px', borderRadius: 'var(--radius-lg)', background: 'var(--surface-glass)', border: '1px solid var(--border-secondary)' }}>
                     <AnimatePresence mode="wait">
                         <motion.div
-                            key={activeNode || viewState}
-                            initial={{ opacity: 0, x: -20 }}
+                            key={activeNode || 'all'}
+                            initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ duration: 0.3 }}
+                            exit={{ opacity: 0, x: 10 }}
+                            transition={{ duration: 0.2 }}
                         >
-                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
-                                <Cpu size={20} color="#60a5fa" />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: activeNode ? `var(${nodeData[activeNode].colorVar})` : 'var(--primary-400)' }}>
+                                <Info size={16} />
+                                <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase' }}>Details</span>
                             </div>
-                            <h4 style={{ margin: '0 0 8px 0', fontSize: '20px', color: '#fff', fontFamily: 'var(--font-display)', fontWeight: 800 }}>
-                                {currentInfo.title}
-                            </h4>
-                            <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>
-                                {currentInfo.desc}
-                            </p>
-
-                            <div style={{ marginTop: '32px', display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa', fontSize: '13px', fontWeight: 600, cursor: 'pointer', width: 'fit-content' }}>
-                                Explore Technical Spec <ArrowRight size={14} />
-                            </div>
+                            <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', color: '#fff', fontWeight: 800 }}>{currentInfo.title}</h4>
+                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px', lineHeight: 1.6 }}>{currentInfo.desc}</p>
                         </motion.div>
                     </AnimatePresence>
                 </div>
+            </div>
 
-                {/* Right Side: Interactive Node Canvas */}
-                <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '440px', zIndex: 5 }}>
+            {/* Right Column: Interactive Canvas */}
+            <div style={{ position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', inset: 0, padding: '40px' }}>
+                    {/* Stage Headers */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', padding: '0 5%' }}>
+                        {['Input Layer', 'Logic Layer', 'Settlement Layer'].map((label, i) => (
+                            <div key={i} style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-disabled)' }}>
+                                {label}
+                            </div>
+                        ))}
+                    </div>
 
                     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-                        {/* Background structural lines */}
-                        <path d="M 18% 25% L 18% 75% L 50% 75%" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="4 4" />
-                        <path d="M 82% 25% L 82% 75% L 50% 75%" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="4 4" />
-
-                        {(viewState === 'ecosystem' || viewState === 'borrow_flow') && (
+                        {/* Row 1 Paths (Borrow) */}
+                        {viewState !== 'yield_flow' && (
                             <>
-                                <AdvancedFlowLine id="b-v" start={{ x: "18%", y: "25%" }} control={{ x: "18%", y: "50%" }} end={{ x: "32%", y: "50%" }} color="59, 130, 246" activeKey={activeNode} triggerKeys={['borrowers', 'valuator']} />
-                                <AdvancedFlowLine id="v-c" start={{ x: "32%", y: "50%" }} control={{ x: "32%", y: "75%" }} end={{ x: "50%", y: "75%" }} color="236, 72, 153" activeKey={activeNode} triggerKeys={['valuator', 'core']} />
+                                <FlowPath start={nodeData.borrowers} end={nodeData.valuator} activeNode={activeNode} triggerNodes={['borrowers', 'valuator']} colorVar="--primary-400" />
+                                <FlowPath start={nodeData.valuator} end={nodeData.core} activeNode={activeNode} triggerNodes={['valuator', 'core']} colorVar="--primary-400" />
+                            </>
+                        )}
+                        
+                        {/* Row 2 Paths (Yield) */}
+                        {viewState !== 'borrow_flow' && (
+                            <>
+                                <FlowPath start={nodeData.lenders} end={nodeData.pool} activeNode={activeNode} triggerNodes={['lenders', 'pool']} colorVar="--success-400" />
+                                <FlowPath start={nodeData.pool} end={nodeData.vault} activeNode={activeNode} triggerNodes={['pool', 'vault']} colorVar="--success-400" />
                             </>
                         )}
 
-                        {(viewState === 'ecosystem' || viewState === 'yield_flow') && (
-                            <>
-                                <AdvancedFlowLine id="l-p" start={{ x: "82%", y: "25%" }} control={{ x: "82%", y: "40%" }} end={{ x: "82%", y: "50%" }} color="16, 185, 129" activeKey={activeNode} triggerKeys={['lenders', 'pool']} />
-                                <AdvancedFlowLine id="p-c" start={{ x: "82%", y: "50%" }} control={{ x: "70%", y: "50%" }} end={{ x: "50%", y: "75%" }} color="16, 185, 129" activeKey={activeNode} triggerKeys={['pool', 'core']} />
-                                <AdvancedFlowLine id="c-v" start={{ x: "50%", y: "75%" }} control={{ x: "65%", y: "75%" }} end={{ x: "82%", y: "75%" }} color="245, 158, 11" activeKey={activeNode} triggerKeys={['core', 'vault']} dash={true} />
-                            </>
+                        {/* Cross Connect (Settlement Safety) */}
+                        {viewState === 'ecosystem' && (
+                            <FlowPath start={nodeData.core} end={nodeData.vault} activeNode={activeNode} triggerNodes={['core', 'vault']} colorVar="--warning-400" dash={true} />
                         )}
                     </svg>
 
-                    {/* Render Nodes based on viewState */}
-                    <AnimatePresence>
-                        {(viewState === 'ecosystem' || viewState === 'borrow_flow') && (
+                    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                        {viewState !== 'yield_flow' && (
                             <>
-                                <NextGenNode {...nodeData.borrowers} activeKey={activeNode} onHover={setActiveNode} />
-                                <NextGenNode {...nodeData.valuator} activeKey={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.borrowers} activeNode={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.valuator} activeNode={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.core} activeNode={activeNode} onHover={setActiveNode} />
                             </>
                         )}
 
-                        {(viewState === 'ecosystem' || viewState === 'yield_flow') && (
+                        {viewState !== 'borrow_flow' && (
                             <>
-                                <NextGenNode {...nodeData.lenders} activeKey={activeNode} onHover={setActiveNode} />
-                                <NextGenNode {...nodeData.pool} activeKey={activeNode} onHover={setActiveNode} />
-                                <NextGenNode {...nodeData.vault} activeKey={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.lenders} activeNode={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.pool} activeNode={activeNode} onHover={setActiveNode} />
+                                <ProNode {...nodeData.vault} activeNode={activeNode} onHover={setActiveNode} />
                             </>
                         )}
-
-                        <NextGenNode {...nodeData.core} activeKey={activeNode} onHover={setActiveNode} />
-                    </AnimatePresence>
-
+                    </div>
                 </div>
+
+                {/* Ambient background glow */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'radial-gradient(circle at 70% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 60%)',
+                    pointerEvents: 'none', zIndex: 0
+                }} />
             </div>
         </div>
     );

@@ -5,9 +5,9 @@
   "mode": "light",
   "theme": "mint",
   "colors": {
-    "primary": "#3dd6ff",
-    "light": "#f5f8ff",
-    "dark": "#0b1220"
+    "primary": "#2EBEB5",
+    "light": "#1E2A44",
+    "dark": "#0B1E3A"
   },
   "navigation": {
     "tabs": [],
