@@ -167,6 +167,9 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         }
 
         loan.active = false;
+        if (address(loanNFT) != address(0)) {
+            loanNFT.settleProof(loanId);
+        }
         emit LoanSettled(loanId, true);
     }
     
@@ -282,6 +285,9 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         loan.interest -= repayInterest;
         inOTCBuyback[loanId] = false;
         loan.active = false;
+        if (address(loanNFT) != address(0)) {
+            loanNFT.settleProof(loanId);
+        }
 
         usdc.safeTransferFrom(msg.sender, address(this), discountedPayment);
 
@@ -375,6 +381,9 @@ contract LoanRepaymentFacet is LoanManagerStorage {
 
         if (loan.principal == 0 && loan.interest == 0) {
             loan.active = false;
+            if (address(loanNFT) != address(0)) {
+                loanNFT.settleProof(loanId);
+            }
             adapter.transferCollateral(loan.collateralId, loan.borrower);
             emit LoanSettled(loanId, false);
         }

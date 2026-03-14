@@ -13,6 +13,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract LoanNFT is ERC721URIStorage, Ownable {
     uint256 private _nextTokenId;
+    address public loanManager;
+
+    modifier onlyLoanManager() {
+        require(msg.sender == loanManager, "Not LoanManager");
+        _;
+    }
 
     struct LoanMetadata {
         uint256 loanId;
@@ -25,8 +31,11 @@ contract LoanNFT is ERC721URIStorage, Ownable {
     }
 
     mapping(uint256 => LoanMetadata) public loanDetails;
+    mapping(uint256 => uint256) public loanIdToTokenId;
+    mapping(uint256 => bool) public isSettled;
 
     event LoanProofMinted(uint256 indexed tokenId, uint256 indexed loanId, address indexed borrower);
+    event LoanProofSettled(uint256 indexed tokenId, uint256 indexed loanId);
 
     constructor() ERC721("Vestra Loan Proof", "vLOAN") Ownable(msg.sender) {}
 
@@ -39,11 +48,12 @@ contract LoanNFT is ERC721URIStorage, Ownable {
         uint256 omegaBps,
         string calldata legalTermsHash,
         string calldata tokenURI
-    ) external returns (uint256) {
+    ) external onlyLoanManager returns (uint256) {
         uint256 tokenId = _nextTokenId++;
         _mint(borrower, tokenId);
         _setTokenURI(tokenId, tokenURI);
 
+        loanIdToTokenId[loanId] = tokenId;
         loanDetails[tokenId] = LoanMetadata({
             loanId: loanId,
             principal: principal,
@@ -56,5 +66,16 @@ contract LoanNFT is ERC721URIStorage, Ownable {
 
         emit LoanProofMinted(tokenId, loanId, borrower);
         return tokenId;
+    }
+
+    function settleProof(uint256 loanId) external onlyLoanManager {
+        uint256 tokenId = loanIdToTokenId[loanId];
+        require(!isSettled[tokenId], "Already settled");
+        isSettled[tokenId] = true;
+        emit LoanProofSettled(tokenId, loanId);
+    }
+
+    function setLoanManager(address _loanManager) external onlyOwner {
+        loanManager = _loanManager;
     }
 }

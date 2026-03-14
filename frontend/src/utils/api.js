@@ -308,6 +308,17 @@ export async function downloadAdminAirdropLeaderboard(windowDays = 30, limit = 2
   );
 }
 
+export async function fetchTestnetPoints(walletAddress) {
+  if (!walletAddress) return null;
+  const data = await apiGet(`/api/testnet/points/${walletAddress}`);
+  return data.data;
+}
+
+export async function fetchTestnetLeaderboard(limit = 50) {
+  const data = await apiGet(`/api/testnet/leaderboard?limit=${limit}`);
+  return data.data;
+}
+
 export async function fetchAdminRiskFlags(wallet = null, token = null) {
   const params = new URLSearchParams();
   if (wallet) params.set('wallet', wallet);

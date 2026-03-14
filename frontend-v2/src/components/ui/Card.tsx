@@ -39,6 +39,15 @@ export const CardHeader: React.FC<{ children: React.ReactNode; className?: strin
   </div>
 );
 
+export const CardTitle: React.FC<{ children: React.ReactNode; className?: string }> = ({ 
+  children, 
+  className = '' 
+}) => (
+  <h3 className={`text-xl font-display font-bold ${className}`}>
+    {children}
+  </h3>
+);
+
 export const CardContent: React.FC<{ children: React.ReactNode; className?: string }> = ({ 
   children, 
   className = '' 

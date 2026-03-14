@@ -93,6 +93,58 @@ export const lendingPoolAbi = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+      { internalType: 'uint256', name: 'durationDays', type: 'uint256' }
+    ],
+    name: 'stake',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'stakeId', type: 'uint256' }],
+    name: 'unstake',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'stakeId', type: 'uint256' }],
+    name: 'claimYield',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: 'user', type: 'address' },
+      { internalType: 'uint256', name: 'stakeId', type: 'uint256' }
+    ],
+    name: 'calculateYield',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: '', type: 'address' },
+      { internalType: 'uint256', name: '', type: 'uint256' }
+    ],
+    name: 'userStakes',
+    outputs: [
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+      { internalType: 'uint256', name: 'apyBps', type: 'uint256' },
+      { internalType: 'uint256', name: 'startTime', type: 'uint256' },
+      { internalType: 'uint256', name: 'lockEndTime', type: 'uint256' },
+      { internalType: 'uint256', name: 'lastClaimTime', type: 'uint256' },
+      { internalType: 'uint256', name: 'durationDays', type: 'uint256' },
+      { internalType: 'bool', name: 'isActive', type: 'bool' }
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  }
 ] as const;
 
 // Helper to get contract info

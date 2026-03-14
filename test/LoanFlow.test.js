@@ -132,7 +132,7 @@ describe("Full MVP Flow", () => {
     // Borrower requests loan
     await loanManagerOrigination
       .connect(borrower)
-      .createLoan(1, vestingAddress, 25_000e6, 29);
+      .createLoan(1, vestingAddress, 25_000e6, 29, "ipfs://test");
 
     const loan = await loanManager.loans(0);
     expect(loan.borrower).to.equal(borrower.address);
@@ -194,7 +194,8 @@ describe("Full MVP Flow", () => {
       1,
       vestingAddress,
       borrowAmount,
-      29
+      29,
+      "ipfs://test-private"
     ]);
     await expect(vault.connect(deployer).exec(loanManagerAddress, 0, callData))
       .to.emit(loanManager, "PrivateLoanCreated")
@@ -286,7 +287,7 @@ describe("Full MVP Flow", () => {
 
     await loanManagerOrigination
       .connect(borrower)
-      .createLoan(7, await vesting.getAddress(), borrowAmount, 6);
+      .createLoan(7, await vesting.getAddress(), borrowAmount, 6, "ipfs://test-default");
 
     await ethers.provider.send("evm_increaseTime", [8 * ONE_DAY]);
     await ethers.provider.send("evm_mine", []);
@@ -344,7 +345,7 @@ describe("Full MVP Flow", () => {
     await expect(
       loanManagerOrigination
         .connect(borrower)
-        .createLoan(42, await vesting.getAddress(), overBorrow, 29)
+        .createLoan(42, await vesting.getAddress(), overBorrow, 29, "ipfs://test-ltv")
     ).to.be.revertedWithCustomError(loanManager, "ExceedsLTV");
   });
 
@@ -363,7 +364,7 @@ describe("Full MVP Flow", () => {
     await expect(
       loanManagerOrigination
         .connect(borrower)
-        .createLoan(9, await vesting.getAddress(), 1_000e6, 29)
+        .createLoan(9, await vesting.getAddress(), 1_000e6, 29, "ipfs://test-beneficiary")
     ).to.be.revertedWith("not beneficiary");
   });
 
@@ -402,7 +403,7 @@ describe("Full MVP Flow", () => {
 
     await loanManagerOrigination
       .connect(borrower)
-      .createLoanWithCollateralAmount(77, vestingAddress, borrowAmount, pledgedCollateral, 29);
+      .createLoanWithCollateralAmount(77, vestingAddress, borrowAmount, pledgedCollateral, 29, "ipfs://test-partial");
 
     const loan = await loanManager.loans(0);
     expect(loan.collateralAmount).to.equal(pledgedCollateral);
@@ -538,7 +539,7 @@ describe("Full MVP Flow", () => {
     const collateralId = 100;
     await loanManagerOrigination
       .connect(borrower)
-      .createLoan(collateralId, await wrapper.getAddress(), borrowAmount, 29);
+      .createLoan(collateralId, await wrapper.getAddress(), borrowAmount, 29, "ipfs://test-sablier");
 
     const loan = await loanManager.loans(0);
     expect(loan.borrower).to.equal(borrower.address);

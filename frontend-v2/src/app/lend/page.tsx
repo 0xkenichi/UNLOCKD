@@ -14,6 +14,14 @@ import {
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { AssetTable } from "@/components/ui/AssetTable";
+import { useAccount, useChainId, useReadContract, useWriteContract } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { getContract, lendingPoolAbi } from "@/config/contracts";
+import { api } from "@/utils/api";
+import { ChartContainer } from "@/components/ui/ChartContainer";
+import { StakeModal } from "@/components/lend/StakeModal";
+import { useState } from "react";
+import { formatUnits } from "viem";
 import { 
   AreaChart, 
   Area, 
@@ -22,10 +30,6 @@ import {
   CartesianGrid, 
   Tooltip 
 } from "recharts";
-import { useAccount, useChainId, useReadContract } from "wagmi";
-import { useQuery } from "@tanstack/react-query";
-import { getContract, lendingPoolAbi } from "@/config/contracts";
-import { api } from "@/utils/api";
 
 const yieldData = [
   { name: "Mon", apy: 3.8 },
@@ -40,6 +44,7 @@ const yieldData = [
 export default function Lend() {
   const { address } = useAccount();
   const chainId = useChainId();
+  const [isStakeModalOpen, setIsStakeModalOpen] = useState(false);
 
   // On-chain data
   const lendingPool = getContract(chainId, 'lendingPool');
@@ -49,6 +54,15 @@ export default function Lend() {
     abi: lendingPoolAbi,
     functionName: 'totalSupplied',
     query: { enabled: !!lendingPool }
+  });
+
+  // Simplified: In a real app we'd fetch the count of stakes first or more robustly
+  const { data: userStakes } = useReadContract({
+    address: lendingPool,
+    abi: lendingPoolAbi,
+    functionName: 'userStakes',
+    args: [address!, BigInt(0)],
+    query: { enabled: !!address && !!lendingPool }
   });
 
   // Backend data
@@ -81,9 +95,12 @@ export default function Lend() {
           <h1 className="text-4xl font-display font-bold text-glow-teal">Capital Markets</h1>
           <p className="text-secondary mt-1">Supply liquidity to verified vesting-collateralized pools.</p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-accent-teal text-background font-bold hover:opacity-90 transition-all shadow-[0_0_20px_rgba(46,190,181,0.2)]">
+        <button 
+          onClick={() => setIsStakeModalOpen(true)}
+          className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-accent-teal text-background font-bold hover:opacity-90 transition-all shadow-[0_0_20px_rgba(46,190,181,0.2)]"
+        >
           <Plus className="w-5 h-5" />
-          <span>Create New Pool</span>
+          <span>New Stake</span>
         </button>
       </header>
 
@@ -93,31 +110,31 @@ export default function Lend() {
           label="Global TVL (Lending)"
           value={`$${formattedTotalSupplied}`}
           subValue="+4.2% from yesterday"
-          indicator="up"
-          percentage="+4.2%"
+          trend="up"
+          change={4.2}
           icon={<DollarSign className="w-5 h-5" />}
-          glow="teal"
+          glowColor="teal"
         />
         <MetricCard
           label="Average Yield"
           value="5.24%"
           subValue="Cross-protocol base APY"
-          indicator="up"
-          percentage="+0.15%"
+          trend="up"
+          change={0.15}
           icon={<TrendingUp className="w-5 h-5" />}
         />
         <MetricCard
           label="Protocol Health"
           value="99.8%"
           subValue="Collateralization Ratio"
-          indicator="neutral"
+          trend="neutral"
           icon={<ShieldCheck className="w-5 h-5" />}
         />
         <MetricCard
           label="Active Lenders"
           value="428"
           subValue="Across 12 verified pools"
-          indicator="neutral"
+          trend="neutral"
           icon={<Activity className="w-5 h-5" />}
         />
       </div>
@@ -146,7 +163,7 @@ export default function Lend() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                 <XAxis dataKey="name" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v: any) => `${v}%`} />
                 <Tooltip />
                 <Area type="monotone" dataKey="apy" stroke="#2EBEB5" strokeWidth={2} fill="url(#yieldGlow)" />
               </AreaChart>
@@ -192,6 +209,38 @@ export default function Lend() {
         </Card>
       </div>
 
+      {/* My Positions */}
+      {address && (
+        <Card variant="solid" className="border-accent-teal/20">
+          <CardHeader>
+            <CardTitle className="text-accent-teal flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5" />
+              Your Active Stakes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AssetTable
+              columns={[
+                { header: "Principal", accessorKey: "principal" },
+                { header: "APY", accessorKey: "apy", align: "right" },
+                { header: "Ends In", accessorKey: "timeLeft", align: "right" },
+                { header: "Accrued Yield", accessorKey: "yield", align: "right", className: "text-accent-teal" },
+                { header: "Action", accessorKey: "action", align: "right" }
+              ] as any}
+              data={userStakes && userStakes[6] ? [
+                {
+                  principal: `${formatUnits(userStakes[0], 6)} USDC`,
+                  apy: `${Number(userStakes[1])/100}%`,
+                  timeLeft: `${Math.max(0, Math.floor((Number(userStakes[3]) - Date.now()/1000) / 86400))} Days`,
+                  yield: "Calculating...", 
+                  action: <button className="text-xs font-bold text-accent-teal hover:underline">Manage</button>
+                }
+              ] : []}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Available Pools */}
       <Card variant="solid">
         <CardHeader className="flex flex-row items-center justify-between">
@@ -207,37 +256,34 @@ export default function Lend() {
         <CardContent>
           <AssetTable
             columns={[
-              { header: "Pool Name", accessor: "name" },
-              { header: "Total Capacity", accessor: "capacity", align: "right" },
-              { header: "Utilization", accessor: "utilization", align: "right" },
+              { header: "Pool Name", accessorKey: "name" },
+              { header: "Total Capacity", accessorKey: "capacity", align: "right" },
+              { header: "Utilization", accessorKey: "utilization", align: "right" },
               { 
                 header: "Base APY", 
-                accessor: "apy", 
+                accessorKey: "apy", 
                 align: "right",
                 className: "text-accent-teal font-bold"
               },
               { 
                 header: "Risk Profile", 
-                accessor: "risk",
-                render: (val) => (
+                accessorKey: (item: any) => (
                   <div className={`px-2 py-0.5 rounded-full text-[10px] inline-block border ${
-                    val === 'Low' ? 'bg-green-400/10 border-green-400/20 text-green-400' : 'bg-yellow-400/10 border-yellow-400/20 text-yellow-400'
+                    item.risk === 'Low' ? 'bg-green-400/10 border-green-400/20 text-green-400' : 'bg-yellow-400/10 border-yellow-400/20 text-yellow-400'
                   }`}>
-                    {val}
+                    {item.risk}
                   </div>
                 )
               },
               {
                 header: "Action",
-                accessor: "action",
-                align: "right",
-                render: (val) => (
+                accessorKey: (item: any) => (
                   <button className="text-xs font-bold text-accent-teal hover:underline px-4">
-                    {val}
+                    Supply
                   </button>
                 )
               }
-            ]}
+            ] as any}
             data={poolsList.length > 0 ? poolsList : [
               { name: "Vestra Core USDC", capacity: "$2.5M", utilization: "62%", apy: "4.8%", risk: "Low", action: "Supply" },
               { name: "ASI Ecosystem Growth", capacity: "$1.2M", utilization: "24%", apy: "8.2%", risk: "Medium", action: "Supply" },
@@ -246,6 +292,12 @@ export default function Lend() {
           />
         </CardContent>
       </Card>
+      
+      <StakeModal 
+        isOpen={isStakeModalOpen} 
+        onClose={() => setIsStakeModalOpen(false)} 
+        chainId={chainId} 
+      />
     </div>
   );
 }

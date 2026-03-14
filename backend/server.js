@@ -557,7 +557,9 @@ const pollEvents = async () => {
         getEventTopic(loanManager.iface, 'PrivateLoanSettled'),
         getEventTopic(loanNFT.iface, 'LoanProofMinted'),
         getEventTopic(openClawLighthouse.iface, 'VoteSubmitted'),
-        getEventTopic(globalRiskModule.iface, 'BadDebtThresholdBreached')
+        getEventTopic(globalRiskModule.iface, 'BadDebtThresholdBreached'),
+        getEventTopic(lendingPool.iface, 'CommunityPoolCreated'),
+        getEventTopic(lendingPool.iface, 'CommunityPoolContribution')
       ].filter(Boolean);
 
       // Batch fetch all topics in one RPC call per chunk
@@ -566,7 +568,8 @@ const pollEvents = async () => {
           loanManager.address,
           loanNFT.address,
           openClawLighthouse.address,
-          globalRiskModule.address
+          globalRiskModule.address,
+          lendingPool.address
         ],
         fromBlock: from,
         toBlock: to,
@@ -578,7 +581,24 @@ const pollEvents = async () => {
         async (log) => {
           try {
             const e = await normalizeEvent(log);
-            if (!e || (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated')) return e;
+            if (!e) return null;
+            
+            // Phase 1 Points Allocation Logic
+            if (e.type === 'LoanCreated' || e.type === 'PrivateLoanCreated') {
+                const amountUsd = parseFloat(ethers.formatUnits(e.amount || '0', 6));
+                const borrowPoints = Math.floor(amountUsd / 10); // 100 points per $1000 PV
+                const privacyMultiplier = e.type === 'PrivateLoanCreated' ? 1.2 : 1.0;
+                await persistence.updatePoints(e.borrower, { 
+                    borrow: borrowPoints, 
+                    privacy: e.type === 'PrivateLoanCreated' ? Math.floor(borrowPoints * 0.2) : 0 
+                });
+            } else if (e.type === 'CommunityPoolContribution') {
+                const amountUsd = parseFloat(ethers.formatUnits(e.amount || '0', 6));
+                const lendPoints = Math.floor(amountUsd / 6.66); // ~150 points per $1000 liquidity
+                await persistence.updatePoints(e.contributor, { lend: lendPoints });
+            }
+
+            if (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated') return e;
 
             // Parallelize enrichment for individual loans
             const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
@@ -1388,6 +1408,28 @@ app.get('/api/identity/:walletAddress', async (req, res) => {
       ok: false,
       error: error?.message || 'Failed to build identity profile'
     });
+  }
+});
+
+// V16.0 Incentivized Testnet Points & Leaderboard
+app.get('/api/testnet/points/:wallet', async (req, res) => {
+  const wallet = normalizeAnyWalletAddress(req.params.wallet || '');
+  if (!wallet) return res.status(400).json({ ok: false, error: 'Invalid wallet' });
+  try {
+    const points = await persistence.getPoints(wallet);
+    res.json({ ok: true, data: points });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get('/api/testnet/leaderboard', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const board = await persistence.getLeaderboard(limit);
+    res.json({ ok: true, data: board });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 

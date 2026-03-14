@@ -299,10 +299,10 @@ contract LoanManager is LoanManagerStorage {
         
         // Origination Routes
         if (
-            sig == bytes4(keccak256("createLoan(uint256,address,uint256,uint256)")) ||
-            sig == bytes4(keccak256("createLoanWithCollateralAmount(uint256,address,uint256,uint256,uint256)")) ||
-            sig == bytes4(keccak256("createPrivateLoan(uint256,address,uint256,uint256)")) ||
-            sig == bytes4(keccak256("createPrivateLoanWithCollateralAmount(uint256,address,uint256,uint256,uint256)"))
+            sig == bytes4(keccak256("createLoan(uint256,address,uint256,uint256,string)")) ||
+            sig == bytes4(keccak256("createLoanWithCollateralAmount(uint256,address,uint256,uint256,uint256,string)")) ||
+            sig == bytes4(keccak256("createPrivateLoan(uint256,address,uint256,uint256,string)")) ||
+            sig == bytes4(keccak256("createPrivateLoanWithCollateralAmount(uint256,address,uint256,uint256,uint256,string)"))
         ) {
             facet = originationFacet;
         } 

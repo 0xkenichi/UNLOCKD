@@ -158,6 +158,23 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     );
     event CommunityPoolClosed(uint256 indexed poolId);
 
+    struct StakedPosition {
+        uint256 amount;
+        uint256 durationDays;
+        uint256 lockEndTime;
+        uint256 apyBps;
+        uint256 accumulatedYield;
+        uint256 lastClaimTime;
+        bool isActive;
+    }
+
+    mapping(address => StakedPosition[]) public userStakes;
+    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 500; // 5%
+
+    event Staked(address indexed user, uint256 amount, uint256 durationDays, uint256 apyBps);
+    event Unstaked(address indexed user, uint256 amount, uint256 yield, bool penaltyApplied);
+    event YieldClaimed(address indexed user, uint256 amount);
+
     constructor(address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         usdc = IERC20(_usdc);
         issuanceTreasury = msg.sender;
@@ -763,5 +780,84 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     function _resetRewardDebt(CommunityPool storage cp, CommunityPosition storage pos) internal {
         uint256 weight = _positionWeight(cp, pos);
         pos.rewardDebt = (weight * cp.accRewardPerWeight) / REWARD_PRECISION;
+    }
+
+    function stake(uint256 amount, uint256 durationDays) external nonReentrant whenNotPaused {
+        require(amount > 0, "amount=0");
+        require(durationDays == 30 || durationDays == 90 || durationDays == 180, "invalid duration");
+        require(returnsTreasury != address(0), "returns=0");
+
+        uint256 apyBps;
+        if (durationDays == 30) apyBps = 1100;
+        else if (durationDays == 90) apyBps = 1200;
+        else apyBps = 1400;
+
+        usdc.safeTransferFrom(msg.sender, returnsTreasury, amount);
+        totalDeposits += amount;
+
+        userStakes[msg.sender].push(StakedPosition({
+            amount: amount,
+            durationDays: durationDays,
+            lockEndTime: block.timestamp + (durationDays * 1 days),
+            apyBps: apyBps,
+            accumulatedYield: 0,
+            lastClaimTime: block.timestamp,
+            isActive: true
+        }));
+
+        emit Staked(msg.sender, amount, durationDays, apyBps);
+    }
+
+    function unstake(uint256 stakeId) external nonReentrant whenNotPaused {
+        require(stakeId < userStakes[msg.sender].length, "invalid stakeId");
+        StakedPosition storage sp = userStakes[msg.sender][stakeId];
+        require(sp.isActive, "already unstaked");
+
+        uint256 yield = calculateYield(msg.sender, stakeId);
+        uint256 principal = sp.amount;
+        bool penaltyApplied = false;
+
+        if (block.timestamp < sp.lockEndTime) {
+            uint256 penalty = (principal * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS_DENOMINATOR;
+            principal -= penalty;
+            yield = 0;
+            penaltyApplied = true;
+        }
+
+        sp.isActive = false;
+        totalDeposits -= sp.amount;
+
+        uint256 totalReturn = principal + yield;
+        // Check balance of returnsTreasury instead of availableLiquidity (which is pool-centric)
+        require(usdc.balanceOf(returnsTreasury) >= totalReturn, "insufficient liquidity");
+        
+        usdc.safeTransferFrom(returnsTreasury, msg.sender, totalReturn);
+
+        emit Unstaked(msg.sender, sp.amount, yield, penaltyApplied);
+    }
+
+    function claimYield(uint256 stakeId) external nonReentrant whenNotPaused {
+        require(stakeId < userStakes[msg.sender].length, "invalid stakeId");
+        StakedPosition storage sp = userStakes[msg.sender][stakeId];
+        require(sp.isActive, "not active");
+
+        uint256 yield = calculateYield(msg.sender, stakeId);
+        require(yield > 0, "no yield");
+
+        sp.lastClaimTime = block.timestamp;
+        
+        require(usdc.balanceOf(returnsTreasury) >= yield, "insufficient liquidity");
+        usdc.safeTransferFrom(returnsTreasury, msg.sender, yield);
+
+        emit YieldClaimed(msg.sender, yield);
+    }
+
+    function calculateYield(address user, uint256 stakeId) public view returns (uint256) {
+        StakedPosition memory sp = userStakes[user][stakeId];
+        if (!sp.isActive) return 0;
+
+        uint256 timePassed = block.timestamp - sp.lastClaimTime;
+        uint256 yield = (sp.amount * sp.apyBps * timePassed) / (BPS_DENOMINATOR * 365 days);
+        return yield;
     }
 }

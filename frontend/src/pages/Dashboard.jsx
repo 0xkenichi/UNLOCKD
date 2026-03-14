@@ -14,6 +14,7 @@ import { fetchAgentReplay, fetchAnalyticsBenchmark, fetchKpiDashboard } from '..
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
 import { useOnchainSession } from '../utils/onchainSession.js';
 import DashboardHolo from '../components/dashboard/DashboardHolo.jsx';
+import TestnetPointsBadge from '../components/rewards/TestnetPointsBadge.jsx';
 
 import { IsometricVaultHero } from '../components/visuals/IsometricHeroes.jsx';
 import {
@@ -41,6 +42,7 @@ const FeaturesPage = lazy(routeImports.features);
 const DocsPage = lazy(routeImports.docs);
 const AboutPage = lazy(routeImports.about);
 const CommunityPoolsPage = lazy(routeImports.communityPools);
+const TestnetLeaderboard = lazy(() => import('../components/rewards/TestnetLeaderboard.jsx'));
 
 const modules = [
   { id: 'borrow', title: 'Borrow', subtitle: 'Collateralized vesting credit', component: BorrowPage, icon: Coins },
@@ -53,7 +55,8 @@ const modules = [
   { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage, icon: Search },
   { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage, icon: Library },
   { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage, icon: Info },
-  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage, icon: TrendingUp }
+  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage, icon: TrendingUp },
+  { id: 'testnet', title: 'Testnet Rewards', subtitle: 'Pioneer leaderboard + $CREDT allocation', component: TestnetLeaderboard, icon: Trophy }
 ];
 
 const moduleLoaders = {
@@ -67,7 +70,8 @@ const moduleLoaders = {
   features: routeImports.features,
   docs: routeImports.docs,
   about: routeImports.about,
-  communityPools: routeImports.communityPools
+  communityPools: routeImports.communityPools,
+  testnet: () => import('../components/rewards/TestnetLeaderboard.jsx')
 };
 
 const ZOOM_OPEN_DURATION_MS = 720;
@@ -402,6 +406,11 @@ export default function Dashboard() {
               </div>
               <div className="stat-label" style={{ color: 'var(--primary-400)' }}>Network</div>
             </button>
+            
+            <TestnetPointsBadge 
+              walletAddress={activeWalletAddress} 
+              onOpenLeaderboard={() => openModule('testnet')}
+            />
           </div>
           <div className="stat-row" style={{ padding: 'var(--space-4)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
             <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
