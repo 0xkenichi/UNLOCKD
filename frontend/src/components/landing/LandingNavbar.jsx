@@ -207,12 +207,15 @@ export default function LandingNavbar() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-12)' }}>
                 {/* Logo area */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => navigate('/')}>
-                    <svg width="32" height="32" viewBox="0 0 120 120" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-                        <circle cx="60" cy="58" r="46" fill="rgba(59, 130, 246, 0.2)" />
-                        <path d="M 28 28 L 60 82" stroke="#3b82f6" strokeWidth="6" strokeLinecap="round" fill="none" />
-                        <path d="M 92 28 L 60 82" stroke="#3b82f6" strokeWidth="6" strokeLinecap="round" fill="none" />
-                        <circle cx="60" cy="58" r="6" fill="#60a5fa" />
-                    </svg>
+                    <img 
+                        src="/logo.png" 
+                        alt="Vestra" 
+                        style={{ 
+                            width: 32, 
+                            height: 32, 
+                            borderRadius: '6px' 
+                        }} 
+                    />
                     <span style={{ fontSize: '20px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
                         VESTRA
                     </span>

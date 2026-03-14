@@ -411,6 +411,19 @@ const initSqlite = () => {
     );
     CREATE INDEX IF NOT EXISTS idx_repay_jobs_status ON repay_jobs (status, created_at DESC);
 
+    -- V16.0 Incentivized Testnet Points Program
+    CREATE TABLE IF NOT EXISTS testnet_points (
+      wallet_address TEXT PRIMARY KEY,
+      total_points INTEGER DEFAULT 0,
+      borrow_points INTEGER DEFAULT 0,
+      lend_points INTEGER DEFAULT 0,
+      privacy_points INTEGER DEFAULT 0,
+      feedback_points INTEGER DEFAULT 0,
+      multiplier REAL DEFAULT 1.0,
+      last_updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_points_total ON testnet_points (total_points DESC);
+
     -- Relayer request nonces (prevents replay for private-mode relayed actions).
     CREATE TABLE IF NOT EXISTS relayer_nonces (
       id TEXT PRIMARY KEY,
@@ -1417,6 +1430,81 @@ const createMatchEvent = async ({ type, payload }) => {
     .prepare('INSERT INTO match_events (id, type, payload, created_at) VALUES (?, ?, ?, ?)')
     .run(id, type || 'unknown', JSON.stringify(normalized), createdAt);
   return { id, type: type || 'unknown', payload: normalized, createdAt };
+};
+
+const getPoints = async (walletAddress) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('testnet_points')
+      .select('*')
+      .eq('wallet_address', walletAddress)
+      .maybeSingle();
+    if (error) throw new Error(`[supabase] getPoints failed: ${error.message}`);
+    return data || { wallet_address: walletAddress, total_points: 0, borrow_points: 0, lend_points: 0, privacy_points: 0, feedback_points: 0, multiplier: 1.0 };
+  }
+  const row = sqlite.prepare('SELECT * FROM testnet_points WHERE wallet_address = ?').get(walletAddress);
+  return row || { wallet_address: walletAddress, total_points: 0, borrow_points: 0, lend_points: 0, privacy_points: 0, feedback_points: 0, multiplier: 1.0 };
+};
+
+const updatePoints = async (walletAddress, { borrow = 0, lend = 0, privacy = 0, feedback = 0, multiplierBoost = 0 }) => {
+  if (useSupabase) {
+    const current = await getPoints(walletAddress);
+    const newBorrow = (current.borrow_points || 0) + borrow;
+    const newLend = (current.lend_points || 0) + lend;
+    const newPrivacy = (current.privacy_points || 0) + privacy;
+    const newFeedback = (current.feedback_points || 0) + feedback;
+    const newMultiplier = (current.multiplier || 1.0) + multiplierBoost;
+    const total = Math.floor((newBorrow + newLend + newPrivacy + newFeedback) * newMultiplier);
+    
+    const { error } = await supabaseClient()
+      .from('testnet_points')
+      .upsert({
+        wallet_address: walletAddress,
+        total_points: total,
+        borrow_points: newBorrow,
+        lend_points: newLend,
+        privacy_points: newPrivacy,
+        feedback_points: newFeedback,
+        multiplier: newMultiplier,
+        last_updated_at: new Date().toISOString()
+      }, { onConflict: 'wallet_address' });
+    if (error) throw new Error(`[supabase] updatePoints failed: ${error.message}`);
+    return;
+  }
+  
+  const current = await getPoints(walletAddress);
+  const newBorrow = (current.borrow_points || 0) + borrow;
+  const newLend = (current.lend_points || 0) + lend;
+  const newPrivacy = (current.privacy_points || 0) + privacy;
+  const newFeedback = (current.feedback_points || 0) + feedback;
+  const newMultiplier = (current.multiplier || 1.0) + multiplierBoost;
+  const total = Math.floor((newBorrow + newLend + newPrivacy + newFeedback) * newMultiplier);
+
+  sqlite.prepare(`
+    INSERT INTO testnet_points (wallet_address, total_points, borrow_points, lend_points, privacy_points, feedback_points, multiplier, last_updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(wallet_address) DO UPDATE SET
+      total_points = excluded.total_points,
+      borrow_points = excluded.borrow_points,
+      lend_points = excluded.lend_points,
+      privacy_points = excluded.privacy_points,
+      feedback_points = excluded.feedback_points,
+      multiplier = excluded.multiplier,
+      last_updated_at = excluded.last_updated_at
+  `).run(walletAddress, total, newBorrow, newLend, newPrivacy, newFeedback, newMultiplier);
+};
+
+const getLeaderboard = async (limit = 50) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('testnet_points')
+      .select('*')
+      .order('total_points', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(`[supabase] getLeaderboard failed: ${error.message}`);
+    return data || [];
+  }
+  return sqlite.prepare('SELECT * FROM testnet_points ORDER BY total_points DESC LIMIT ?').all(limit);
 };
 
 const listRecentAgentConversations = async ({
@@ -3284,6 +3372,9 @@ module.exports = {
   listPools,
   getPoolById,
   createMatchEvent,
+  getPoints,
+  updatePoints,
+  getLeaderboard,
   listRecentAgentConversations,
   saveAgentConversation,
   saveAnalyticsEvent,

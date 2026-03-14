@@ -106,6 +106,7 @@ Glossary, FAQ, and changelog.
 
 ## Legal (docs root)
 Advisory and compliance — not legal advice; engage counsel for mainnet and offerings.
+- **legal/VESTRA_UNA_CONSTITUTION.md** — Formal Constitution of the Vestra Unincorporated Nonprofit Association.
 - **LEGAL_ADVISORY_MEMO.md** — Legal arm memo: biggest risks, loan T&Cs, LOI, IP, mainnet steps, traffic-light areas.
 - **LOAN_TERMS_AND_RISK_DISCLOSURE_OUTLINE.md** — Outline for counsel to draft Loan Terms; UI linkage and one accept trigger.
 - **integrations/LEGAL_IMPLICATIONS.md** — Full legal implications (regulatory, custody, liability, presale).

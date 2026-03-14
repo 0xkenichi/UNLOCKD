@@ -82,7 +82,7 @@ const ProNode = ({ id, icon: Icon, title, subtitle, colorVar, activeNode, onHove
                     transition: 'all 0.3s'
                 }}>
                     <Icon 
-                        size={26} 
+                        size={32} 
                         color={isActive ? '#fff' : `var(${colorVar})`} 
                         style={{ filter: isActive ? `drop-shadow(0 0 8px #fff)` : 'none', transition: 'all 0.3s' }} 
                     />
@@ -153,12 +153,12 @@ export default function ArchitectureVisual() {
     };
 
     const nodeData = {
-        borrowers: { id: 'borrowers', title: "Vesting Holders", subtitle: "Collateral", icon: Key, colorVar: "--primary-400", x: 15, y: 30 },
-        valuator: { id: 'valuator', title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, colorVar: "--primary-400", x: 50, y: 30 },
-        core: { id: 'core', title: "Vestra Core", subtitle: "Settlement", icon: Shield, colorVar: "--primary-400", x: 85, y: 30 },
-        lenders: { id: 'lenders', title: "Liquidity Providers", subtitle: "Assets", icon: Coins, colorVar: "--success-400", x: 15, y: 70 },
-        pool: { id: 'pool', title: "Community Pools", subtitle: "Management", icon: Repeat, colorVar: "--success-400", x: 50, y: 70 },
-        vault: { id: 'vault', title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, colorVar: "--warning-400", x: 85, y: 70 },
+        borrowers: { id: 'borrowers', title: "Vesting Holders", subtitle: "Collateral", icon: Key, colorVar: "--primary-400", x: 15, y: 18 },
+        valuator: { id: 'valuator', title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, colorVar: "--primary-400", x: 50, y: 18 },
+        core: { id: 'core', title: "Vestra Core", subtitle: "Settlement", icon: Shield, colorVar: "--primary-400", x: 85, y: 18 },
+        lenders: { id: 'lenders', title: "Liquidity Providers", subtitle: "Assets", icon: Coins, colorVar: "--success-400", x: 15, y: 52 },
+        pool: { id: 'pool', title: "Community Pools", subtitle: "Management", icon: Repeat, colorVar: "--success-400", x: 50, y: 52 },
+        vault: { id: 'vault', title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, colorVar: "--warning-400", x: 85, y: 52 },
     };
 
     const infoBlocks = {
@@ -181,7 +181,7 @@ export default function ArchitectureVisual() {
             border: '1px solid var(--border-primary)',
             display: 'grid',
             gridTemplateColumns: 'minmax(280px, 1fr) 2.5fr',
-            minHeight: '480px',
+            minHeight: '600px',
             overflow: 'hidden',
             fontFamily: 'var(--font-family)',
             boxShadow: 'var(--shadow-lg)'
@@ -246,10 +246,27 @@ export default function ArchitectureVisual() {
             <div style={{ position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', inset: 0, padding: '40px' }}>
                     {/* Stage Headers */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', padding: '0 5%' }}>
-                        {['Input Layer', 'Logic Layer', 'Settlement Layer'].map((label, i) => (
-                            <div key={i} style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-disabled)' }}>
-                                {label}
+                    <div style={{ position: 'relative', height: '20px', marginBottom: '20px' }}>
+                        {[
+                            { label: 'Input Layer', x: 15 },
+                            { label: 'Logic Layer', x: 50 },
+                            { label: 'Settlement Layer', x: 85 }
+                        ].map((stage, i) => (
+                            <div 
+                                key={i} 
+                                style={{ 
+                                    position: 'absolute',
+                                    left: `${stage.x}%`,
+                                    transform: 'translateX(-50%)',
+                                    fontSize: '10px', 
+                                    fontWeight: 800, 
+                                    textTransform: 'uppercase', 
+                                    letterSpacing: '0.1em', 
+                                    color: 'var(--text-disabled)',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                {stage.label}
                             </div>
                         ))}
                     </div>

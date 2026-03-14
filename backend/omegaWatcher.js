@@ -38,6 +38,15 @@ class OmegaWatcher extends EventEmitter {
     this.activeLoans = new Map(); // Store light state of loans {id: {principal, accrued, health, duration}}
     this.alerts = []; // Log of recent monitoring alerts
     this.MAX_ALERTS = 50;
+    this.valuationContract = null;
+  }
+
+  /**
+   * Set the ValuationEngine contract for on-chain enforcement
+   */
+  setContract(contract) {
+    this.valuationContract = contract;
+    logger.info('Omega Watcher: ValuationEngine contract bound.');
   }
 
   /**
@@ -129,9 +138,20 @@ class OmegaWatcher extends EventEmitter {
     }
   }
 
-  _triggerVolatilityCheck(tokenValue) {
-      logger.info(`Volatility ping detected. Evaluating systemic impact... Asset Val: ${tokenValue}`);
-      // Typically, Omega would instruct MeTTabrain to re-calculate base APRs across specific pools here.
+  async _triggerVolatilityCheck(tokenValue, tokenAddress) {
+      logger.info(`Volatility ping detected for ${tokenAddress || 'Unknown'}. Evaluating systemic impact... Asset Val: ${tokenValue}`);
+      
+      // If volatility is extreme (>50%), trigger an autonomous circuit breaker freeze
+      if (parseFloat(tokenValue) > 5.0 && this.valuationContract && tokenAddress) {
+          logger.warn(`EXTREME PRICE ANOMALY: Triggering autonomous circuit breaker for ${tokenAddress}`);
+          try {
+              const tx = await this.valuationContract.reportFlashPump(tokenAddress, 48 * 3600); // 48 hour freeze
+              logger.info(`Circuit breaker transaction sent: ${tx.hash}`);
+              this._pushAlert('CRITICAL', `AUTONOMOUS FREEZE: Flash pump detected on ${tokenAddress}`, { txHash: tx.hash });
+          } catch (err) {
+              logger.error(`Failed to trigger circuit breaker: ${err.message}`);
+          }
+      }
   }
 }
 

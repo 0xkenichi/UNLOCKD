@@ -1,0 +1,93 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  /* Colors */
+  --color-background: #0B0D10;
+  --color-foreground: #FFFFFF;
+  --color-surface: #161B22;
+  --color-surface-hover: #1E252E;
+  
+  --color-accent-teal: #2EBEB5;
+  --color-accent-cyan: #40E0FF;
+  --color-accent-glow: rgba(46, 190, 181, 0.15);
+  --color-accent-cyan-glow: rgba(64, 224, 255, 0.15);
+  
+  --color-risk-low: #2EBEB5;
+  --color-risk-medium: #F5A623;
+  --color-risk-high: #FF4D4D;
+
+  --color-border-glass: rgba(255, 255, 255, 0.08);
+  --color-border-glass-bright: rgba(255, 255, 255, 0.15);
+
+  /* Fonts */
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-heading: "Montserrat", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Radius */
+  --radius-xl: 16px;
+  --radius-lg: 12px;
+  --radius-md: 8px;
+
+  /* Shadows & Blurs */
+  --shadow-premium: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+  --blur-glass: 12px;
+}
+
+@utility glass-card {
+  background: rgba(22, 27, 34, 0.7);
+  backdrop-filter: blur(var(--blur-glass));
+  border: 1px solid var(--color-border-glass);
+  box-shadow: var(--shadow-premium);
+}
+
+@utility glass-card-hover {
+  background: rgba(30, 37, 46, 0.8);
+  border: 1px solid var(--color-border-glass-bright);
+  box-shadow: 0 0 20px var(--color-accent-glow);
+}
+
+@utility text-glow-teal {
+  text-shadow: 0 0 10px var(--color-accent-glow);
+}
+
+@utility text-glow-cyan {
+  text-shadow: 0 0 10px var(--color-accent-cyan-glow);
+}
+
+:root {
+  --background: #0B0D10;
+  --foreground: #FFFFFF;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-hover);
+}

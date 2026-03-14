@@ -17,10 +17,16 @@ To ensure that the Vestra Protocol can legally enforce debt obligations on defau
 
 ## Proposed Structure
 
-### Primary Entity: Cayman Islands Foundation Company
-- **Purpose:** Hold the protocol's IP, act as the legal face of the protocol, issue governance documents, and serve as the plaintiff in enforcement proceedings.
-- **Why Cayman:** The Cayman Islands Foundation Company structure is purpose-built for DAOs — it has no shareholders, can be governed by a council, and limits personal liability. Widely used by Uniswap, Aave, and Compound.
-- **Governance:** A small Foundation Council (initially the Founder + 2 independent directors) with major decisions subject to on-chain `veCRDT` holder ratification.
+### Primary Entity: Unincorporated Nonprofit Association (UNA)
+- **Status:** **ACTIVE (March 14, 2026)**
+- **Purpose:** Provide a legal wrapper for the Vestra Protocol, shielding core contributors from personal liability and establishing the protocol as a public utility.
+- **Governance:** Governed by the [VESTRA_UNA_CONSTITUTION.md](VESTRA_UNA_CONSTITUTION.md). Decisions are made via on-chain `veCRDT` governance.
+- **Cost:** $0 Setup; minimal maintenance.
+
+### Secondary Entity (Strategic): Cayman Islands Foundation Company
+- **Status:** Strategic Roadmap (Institutional Growth)
+- **Purpose:** Hold the protocol's IP for high-value Tier 3 loan origination and enforcement where a sovereign-recognized entity is required.
+- **Why Cayman:** The Cayman Islands Foundation Company structure is purpose-built for DAOs — it has no shareholders and limits personal liability.
 
 ### Secondary Entity (Optional): BVI Special Purpose Vehicle (SPV)
 - **Purpose:** Specifically for high-value Tier 3 loan origination and enforcement. The SPV enters into a binding legal framework with Tier 3 borrowers, including jurisdiction clauses and arbitration agreements.
@@ -94,8 +100,9 @@ To avoid classification as an unregulated shadow bank under MiCA, SEC, or other 
 
 ## Next Steps
 
-1. **Engage Cayman counsel** to form the Foundation Company (cost estimate: $8k–$15k USD, 4–8 weeks).
-2. **Draft the NFT Debt Ticket smart contract module** as a separate, upgradeable module on top of `LoanManager`.
-3. **Revise Loan Terms and Risk Disclosure** to reference the Foundation's enforcement rights and the NFT Debt Ticket mechanic.
+1.  **Execute UNA Constitution:** Core members to sign the [VESTRA_UNA_CONSTITUTION.md](VESTRA_UNA_CONSTITUTION.md) and establish the legal association today.
+2.  **Engage Cayman counsel (Phase 2):** When institutional liquidity or high-value Tier 3 loans are required, initiate the Foundation Company formation (cost estimate: $8k–$15k USD, 4–8 weeks).
+3.  **Draft the NFT Debt Ticket smart contract module** as a separate, upgradeable module on top of `LoanManager`.
+4.  **Revise Loan Terms and Risk Disclosure** to reference the Association's (and future Foundation's) enforcement rights.
 4. **Integrate Tier 3 KYC portal** using Sumsub or Jumio for Proof-of-Life verification.
 5. **Geoblocking middleware** to be implemented at the CDN/frontend level (Cloudflare Workers).

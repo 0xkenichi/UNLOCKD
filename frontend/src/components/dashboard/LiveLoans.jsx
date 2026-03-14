@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChainId, useReadContract } from 'wagmi';
 import { getContractAddress, loanManagerAbi } from '../../utils/contracts.js';
+import ZKShield from '../common/ZKShield.jsx';
 
 function formatDate(timestamp) {
   if (!timestamp) return '--';
@@ -82,9 +83,9 @@ export default function LiveLoans() {
               <div>Unlock</div>
             </div>
             <div className="table-row">
-              <div>{lastLoan[0]}</div>
-              <div>{lastLoan[1].toString()}</div>
-              <div>{lastLoan[2].toString()}</div>
+              <div><ZKShield label="Borrower Address">{lastLoan[0]}</ZKShield></div>
+              <div><ZKShield label="Principal Amount">{lastLoan[1].toString()}</ZKShield></div>
+              <div><ZKShield label="Interest Accumulated">{lastLoan[2].toString()}</ZKShield></div>
               <div>{formatDate(lastLoan[4])}</div>
             </div>
           </div>
@@ -127,9 +128,9 @@ export default function LiveLoans() {
               <div>Status</div>
             </div>
             <div className="table-row">
-              <div>{selectedLoan[0]}</div>
-              <div>{selectedLoan[1].toString()}</div>
-              <div>{selectedLoan[2].toString()}</div>
+              <div><ZKShield label="Borrower Address">{selectedLoan[0]}</ZKShield></div>
+              <div><ZKShield label="Principal Amount">{selectedLoan[1].toString()}</ZKShield></div>
+              <div><ZKShield label="Interest Accumulated">{selectedLoan[2].toString()}</ZKShield></div>
               <div>
                 <span className={`tag ${selectedLoan[5] ? 'success' : ''}`}>
                   {selectedLoan[5] ? 'Active' : 'Inactive'}

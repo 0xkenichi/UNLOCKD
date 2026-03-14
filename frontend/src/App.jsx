@@ -26,6 +26,7 @@ import {
     flushAnalyticsQueue,
     initAnalyticsAutoCapture
 } from './utils/analytics.js';
+import PrivacyModeToggle from './components/privacy/PrivacyModeToggle.jsx';
 
 const Landing = lazy(routeImports.landing);
 const Dashboard = lazy(routeImports.dashboard);
@@ -174,31 +175,16 @@ function AppShell() {
             {hasStandardHeader && (
                 <header ref={headerRef} className="app-header">
                     <div className="brand" onClick={() => navigate('/dashboard')}>
-                        <svg width="36" height="36" viewBox="0 0 120 120" fill="none" aria-label="Vestra" style={{ flexShrink: 0 }}>
-                            <defs>
-                                <radialGradient id="hdr-glow" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.35" />
-                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                                </radialGradient>
-                                <linearGradient id="hdr-blue" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stopColor="#60a5fa" />
-                                    <stop offset="100%" stopColor="#2563eb" />
-                                </linearGradient>
-                                <linearGradient id="hdr-gold" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stopColor="#f1c572" />
-                                    <stop offset="100%" stopColor="#d99a22" />
-                                </linearGradient>
-                            </defs>
-                            <circle cx="60" cy="58" r="46" fill="url(#hdr-glow)" />
-                            <path d="M 22 72 A 42 42 0 0 1 98 72" stroke="url(#hdr-gold)" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.7" />
-                            <path d="M 28 28 L 60 82" stroke="url(#hdr-blue)" strokeWidth="4" strokeLinecap="round" fill="none" />
-                            <path d="M 92 28 L 60 82" stroke="url(#hdr-blue)" strokeWidth="4" strokeLinecap="round" fill="none" />
-                            <path d="M 84 20 L 94 28 L 82 32" stroke="url(#hdr-gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                            <circle cx="60" cy="58" r="5" fill="#3b82f6" opacity="0.9" />
-                            <circle cx="60" cy="58" r="3" fill="#93c5fd" />
-                            <circle cx="22" cy="72" r="2.5" fill="#d99a22" />
-                            <circle cx="98" cy="72" r="2.5" fill="#d99a22" />
-                        </svg>
+                        <img 
+                            src="/logo.png" 
+                            alt="Vestra Logo" 
+                            style={{ 
+                                width: 36, 
+                                height: 36, 
+                                marginRight: 12,
+                                borderRadius: '8px' 
+                            }} 
+                        />
                         <div>
                             <div className="brand-title">VESTRA</div>
                             <div className="brand-subtitle">Vesting Credit Protocol</div>
@@ -254,6 +240,10 @@ function AppShell() {
                             >
                                 {theme === 'dark' ? 'Light' : 'Dark'}
                             </button>
+
+                            <div style={{ marginRight: 12 }}>
+                                <PrivacyModeToggle compact={true} />
+                            </div>
 
                             {/* Phantom / Solana wallet connect */}
                             <button

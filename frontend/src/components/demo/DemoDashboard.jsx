@@ -124,7 +124,8 @@ export default function DemoDashboard({ vestingContract }) {
         if (!address) return;
         setPortfolio(prev => ({ ...prev, loading: true }));
         try {
-            const url = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+            const isProd = window.location.hostname !== 'localhost';
+            const url = import.meta.env.VITE_BACKEND_URL || (isProd ? 'https://vestra-backend-stack.vercel.app' : 'http://localhost:4000');
             const res = await fetch(`${url}/api/portfolio/${address}`);
             if (res.ok) {
                 const data = await res.json();

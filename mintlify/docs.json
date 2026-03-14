@@ -1,7 +1,7 @@
 {
   "name": "Vestra Docs",
-  "logo": "/logo.svg",
-  "favicon": "/favicon.svg",
+  "logo": "/logo.png",
+  "favicon": "/logo.png",
   "mode": "light",
   "theme": "mint",
   "colors": {

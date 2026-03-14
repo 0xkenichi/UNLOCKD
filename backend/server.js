@@ -5733,7 +5733,13 @@ const start = async () => {
       console.log('[evm-repay-keeper] enabled');
     }
 
+    // V15.0 Autonomous Enforcement Injection
+    const relayer = getRelayerWallet();
+    const valuationContract = new ethers.Contract(valuationEngine.address, valuationDeployment.abi, relayer);
+    omegaWatcher.setContract(valuationContract);
+    
     omegaWatcher.start();
+
   });
 };
 

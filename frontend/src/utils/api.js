@@ -2,8 +2,10 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { readWalletAuthToken } from './authStorage.js';
 
+const isProd = typeof window !== 'undefined' && (window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1'));
+
 const API_BASE =
-  import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+  import.meta.env.VITE_BACKEND_URL || (isProd ? 'https://vestra-backend-stack.vercel.app' : 'http://localhost:4000');
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 12000);
 const API_GET_RETRIES = Number(import.meta.env.VITE_API_GET_RETRIES || 1);
 
@@ -17,7 +19,10 @@ function normalizeNetworkError(error) {
   }
   // Browser fetch throws TypeError("Failed to fetch") when backend is unreachable.
   if (error instanceof TypeError) {
-    return new Error('Cannot reach backend API. Ensure backend is running on localhost:4000.');
+    const message = isProd && !import.meta.env.VITE_BACKEND_URL 
+      ? 'Cannot reach backend API. Production URL (VITE_BACKEND_URL) is not configured.' 
+      : `Cannot reach backend API. Ensure backend is running on ${API_BASE}.`;
+    return new Error(message);
   }
   return error;
 }
