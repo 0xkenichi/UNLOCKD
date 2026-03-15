@@ -318,6 +318,32 @@ const initSqlite = () => {
       protocol TEXT NOT NULL DEFAULT 'manual',
       lockup_address TEXT,
       stream_id TEXT,
+      last_synced_at TEXT,
+      consensus_score REAL DEFAULT 1.0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS staked_sources (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL,
+      staking_contract TEXT NOT NULL,
+      protocol TEXT NOT NULL,
+      wallet_address TEXT NOT NULL,
+      amount TEXT,
+      last_synced_at TEXT,
+      consensus_score REAL DEFAULT 1.0,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(chain_id, staking_contract, wallet_address)
+    );
+    CREATE TABLE IF NOT EXISTS locked_sources (
+      id TEXT PRIMARY KEY,
+      chain_id TEXT NOT NULL,
+      lock_contract TEXT NOT NULL,
+      protocol TEXT NOT NULL,
+      asset_address TEXT,
+      amount TEXT,
+      unlock_time INTEGER,
+      last_synced_at TEXT,
+      consensus_score REAL DEFAULT 1.0,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS fundraising_sources (
@@ -460,6 +486,14 @@ const initSqlite = () => {
     CREATE INDEX IF NOT EXISTS idx_relayer_nonces_expires ON relayer_nonces (expires_at) WHERE expires_at IS NOT NULL;
   `);
   try {
+    const vCols = sqlite.prepare('PRAGMA table_info(vesting_sources)').all();
+    if (vCols.every((c) => c.name !== 'last_synced_at')) {
+      sqlite.exec('ALTER TABLE vesting_sources ADD COLUMN last_synced_at TEXT');
+    }
+    if (vCols.every((c) => c.name !== 'consensus_score')) {
+      sqlite.exec('ALTER TABLE vesting_sources ADD COLUMN consensus_score REAL DEFAULT 1.0');
+    }
+
     const cols = sqlite.prepare('PRAGMA table_info(events)').all();
     if (cols.every((c) => c.name !== 'token_address')) {
       sqlite.exec('ALTER TABLE events ADD COLUMN token_address TEXT');
@@ -2646,37 +2680,134 @@ const upsertIdentityAttestation = async ({
 };
 
 const saveVestingSource = async ({
+  id,
   chainId,
   vestingContract,
   protocol = 'manual',
   lockupAddress = null,
-  streamId = null
+  streamId = null,
+  lastSyncedAt = null,
+  consensusScore = 1.0
 }) => {
-  const id = createId();
+  const finalId = id || createId();
   const createdAt = new Date().toISOString();
   if (useSupabase) {
     const { error } = await supabaseClient().from('vesting_sources').upsert(
       {
-        id,
+        id: finalId,
         chain_id: String(chainId),
         vesting_contract: String(vestingContract),
         protocol: String(protocol),
         lockup_address: lockupAddress || null,
         stream_id: streamId || null,
+        last_synced_at: lastSyncedAt || null,
+        consensus_score: consensusScore,
         created_at: createdAt
       },
       { onConflict: 'id' }
     );
     if (error) throw new Error(`[supabase] saveVestingSource failed: ${error.message}`);
-    return { id, createdAt };
+    return { id: finalId, createdAt };
   }
   sqlite
     .prepare(
-      `INSERT INTO vesting_sources (id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO vesting_sources (id, chain_id, vesting_contract, protocol, lockup_address, stream_id, last_synced_at, consensus_score, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         last_synced_at = excluded.last_synced_at,
+         consensus_score = excluded.consensus_score`
     )
-    .run(id, String(chainId), String(vestingContract), String(protocol), lockupAddress || null, streamId || null, createdAt);
-  return { id, createdAt };
+    .run(finalId, String(chainId), String(vestingContract), String(protocol), lockupAddress || null, streamId || null, lastSyncedAt || null, consensusScore, createdAt);
+  return { id: finalId, createdAt };
+};
+
+const saveStakedSource = async ({
+  id,
+  chainId,
+  stakingContract,
+  protocol,
+  walletAddress,
+  amount = null,
+  lastSyncedAt = null,
+  consensusScore = 1.0
+}) => {
+  const finalId = id || createId();
+  const createdAt = new Date().toISOString();
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('staked_sources').upsert(
+      {
+        id: finalId,
+        chain_id: String(chainId),
+        staking_contract: String(stakingContract),
+        protocol: String(protocol),
+        wallet_address: String(walletAddress).toLowerCase(),
+        amount: amount ? String(amount) : null,
+        last_synced_at: lastSyncedAt || null,
+        consensus_score: consensusScore,
+        created_at: createdAt
+      },
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(`[supabase] saveStakedSource failed: ${error.message}`);
+    return { id: finalId, createdAt };
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO staked_sources (id, chain_id, staking_contract, protocol, wallet_address, amount, last_synced_at, consensus_score, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         amount = excluded.amount,
+         last_synced_at = excluded.last_synced_at,
+         consensus_score = excluded.consensus_score`
+    )
+    .run(finalId, String(chainId), String(stakingContract), String(protocol), String(walletAddress).toLowerCase(), amount ? String(amount) : null, lastSyncedAt || null, consensusScore, createdAt);
+  return { id: finalId, createdAt };
+};
+
+const saveLockedSource = async ({
+  id,
+  chainId,
+  lockContract,
+  protocol,
+  assetAddress = null,
+  amount = null,
+  unlockTime = null,
+  lastSyncedAt = null,
+  consensusScore = 1.0
+}) => {
+  const finalId = id || createId();
+  const createdAt = new Date().toISOString();
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('locked_sources').upsert(
+      {
+        id: finalId,
+        chain_id: String(chainId),
+        lock_contract: String(lockContract),
+        protocol: String(protocol),
+        asset_address: assetAddress || null,
+        amount: amount ? String(amount) : null,
+        unlock_time: unlockTime || null,
+        last_synced_at: lastSyncedAt || null,
+        consensus_score: consensusScore,
+        created_at: createdAt
+      },
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(`[supabase] saveLockedSource failed: ${error.message}`);
+    return { id: finalId, createdAt };
+  }
+  sqlite
+    .prepare(
+      `INSERT INTO locked_sources (id, chain_id, lock_contract, protocol, asset_address, amount, unlock_time, last_synced_at, consensus_score, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         amount = excluded.amount,
+         unlock_time = excluded.unlock_time,
+         last_synced_at = excluded.last_synced_at,
+         consensus_score = excluded.consensus_score`
+    )
+    .run(finalId, String(chainId), String(lockContract), String(protocol), assetAddress, amount ? String(amount) : null, unlockTime, lastSyncedAt || null, consensusScore, createdAt);
+  return { id: finalId, createdAt };
 };
 
 const createFundraisingSource = async ({
