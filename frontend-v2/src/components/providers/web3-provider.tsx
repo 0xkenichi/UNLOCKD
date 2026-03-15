@@ -6,7 +6,7 @@ import {
   darkTheme, 
   getDefaultConfig 
 } from '@rainbow-me/rainbowkit';
-import { WagmiProvider, http } from 'wagmi';
+import { WagmiProvider, http, fallback } from 'wagmi';
 import { 
   sepolia, 
   mainnet, 
@@ -59,9 +59,17 @@ const config = getDefaultConfig({
     asiTestnet as any
   ],
   transports: {
-    [sepolia.id]: http(),
+    [sepolia.id]: fallback([
+      http(process.env.NEXT_PUBLIC_SEPOLIA_RPC || 'https://rpc.sepolia.org'),
+      http('https://sepolia.infura.io/v3/'),
+      http('https://eth-sepolia.g.alchemy.com/v2/'),
+    ]),
     [mainnet.id]: http(),
     [base.id]: http(),
+    [baseSepolia.id]: fallback([
+      http('https://sepolia.base.org'),
+      http('https://base-sepolia.g.alchemy.com/v2/'),
+    ]),
     [arbitrum.id]: http(),
     [avalanche.id]: http(),
     [747]: http(),

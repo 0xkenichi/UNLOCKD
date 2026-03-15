@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "contracts/**"
+      - "packages/contracts/**"
       - "test/**"
       - "hardhat.config.js"
       - "package.json"
@@ -13,7 +13,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "contracts/**"
+      - "packages/contracts/**"
       - "test/**"
       - "hardhat.config.js"
       - "package.json"
@@ -48,7 +48,7 @@ jobs:
           export MIN_LINES=30
           node -e '
           const fs = require("fs");
-          const path = "coverage.json";
+          const path = "packages/contracts/coverage.json";
           if (!fs.existsSync(path)) {
             console.error("coverage report not found at " + path);
             process.exit(1);
@@ -120,7 +120,7 @@ jobs:
       - name: Run Slither static analysis
         continue-on-error: true
         run: |
-          slither . \
+          slither packages/contracts \
             --exclude-low \
             --exclude-informational \
             --exclude-optimization \

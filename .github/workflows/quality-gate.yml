@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "contracts/**"
+      - "packages/contracts/**"
       - "test/**"
-      - "scripts/**"
-      - "backend/**"
-      - "frontend/**"
+      - "packages/scripts/**"
+      - "packages/backend/**"
+      - "frontend-v2/**"
       - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
@@ -16,11 +16,11 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "contracts/**"
+      - "packages/contracts/**"
       - "test/**"
-      - "scripts/**"
-      - "backend/**"
-      - "frontend/**"
+      - "packages/scripts/**"
+      - "packages/backend/**"
+      - "frontend-v2/**"
       - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
@@ -85,10 +85,10 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm install --prefix frontend-v2
 
       - name: Build frontend
-        run: npm run build --prefix frontend
+        run: npm run build --prefix frontend-v2
 
   frontend-e2e-smoke:
     runs-on: ubuntu-latest
@@ -107,14 +107,14 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+        run: npm install --prefix frontend-v2
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
-        working-directory: frontend
+        working-directory: frontend-v2
 
       - name: Run frontend smoke tests
-        run: npm run test:e2e:smoke --prefix frontend
+        run: npm run test:e2e:smoke --prefix frontend-v2
 
   backend-smoke:
     runs-on: ubuntu-latest
@@ -132,13 +132,12 @@ jobs:
           cache: npm
 
       - name: Install backend dependencies
-        run: npm install --prefix backend
+        run: npm install --prefix packages/backend
 
       - name: Start backend
         run: |
-          PORT=4100 INDEXER_ENABLED=false DEPLOYMENTS_NETWORK=localhost node backend/server.js > /tmp/unlockd-backend.log 2>&1 &
+          PORT=4100 INDEXER_ENABLED=false DEPLOYMENTS_NETWORK=localhost node packages/backend/server.js > /tmp/unlockd-backend.log 2>&1 &
           echo $! > /tmp/unlockd-backend.pid
-
       - name: Wait for health endpoint
         run: |
           for i in {1..60}; do

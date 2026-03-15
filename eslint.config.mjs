@@ -15,12 +15,14 @@ export default [
       "**/deployments/**",
       "**/.cursor/**",
       "**/.vercel/**",
+      "**/.next/**",
+      "frontend-v2/.next/**",
       "**/*.min.js",
     ],
   },
   js.configs.recommended,
   {
-    files: ["backend/**/*.js", "scripts/**/*.js", "test/**/*.js", "deploy/**/*.js", "sdk/**/*.js", "**/*.cjs", "*.js"],
+    files: ["packages/backend/**/*.js", "packages/scripts/**/*.js", "packages/test/**/*.js", "test/**/*.js", "packages/contracts/test/**/*.js", "deploy/**/*.js", "packages/sdk/**/*.js", "sdk/**/*.js", "**/*.cjs", "*.js"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "script",
@@ -38,7 +40,7 @@ export default [
     },
   },
   {
-    files: ["frontend/**/*.{js,jsx,mjs}"],
+    files: ["frontend-v2/**/*.{js,jsx,ts,tsx,mjs}", "frontend/**/*.{js,jsx,mjs}"],
     plugins: {
       react,
       "react-hooks": reactHooks,
