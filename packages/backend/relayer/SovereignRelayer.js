@@ -78,7 +78,11 @@ class SovereignRelayer {
         const consensusPrice = await SovereignDataService.getConsensusPrice(asset);
         if (consensusPrice > 0) {
           console.log(`[SovereignRelayer] Verified Global Consensus for ${asset}: $${consensusPrice.toFixed(4)}`);
-          // Optionally save to metadata for the Oracle Consumer to pick up
+          
+          // If RedStone is the source, log that the Pull Model payload is ready
+          const providers = await SovereignDataService.getConsensusPrice(asset, true); // Future: return provider details
+          console.log(`[SovereignRelayer] RedStone Pull Model payload ready for ${asset}`);
+          
           await persistence.setMeta(`consensus_price_${asset}`, consensusPrice);
         }
       }

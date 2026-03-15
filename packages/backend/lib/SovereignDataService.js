@@ -6,6 +6,8 @@ const persistence = require('../persistence');
 const { fetchSablierStreams } = require('../evm/sablier');
 const { fetchSuperfluidStreams } = require('../evm/superfluid');
 const { fetchStreamflowVestingContracts } = require('../solana/streamflow');
+const { WrapperBuilder } = require('@redstone-finance/evm-connector');
+const { DataServiceWrapper } = require('@redstone-finance/sdk');
 
 const DUNE_API_KEY = process.env.DUNE_API_KEY || '';
 const MOBULA_API_KEY = process.env.MOBULA_API_KEY || '';
@@ -15,6 +17,8 @@ const DIA_API_URL = 'https://api.diadata.org/v1/asset_information';
 const MOBULA_API_URL = 'https://api.mobula.io/api/v1';
 const CRYPTORANK_API_URL = 'https://api.cryptorank.io/v2';
 const DEFILLAMA_VESTING_URL = 'https://api.llama.fi/listVesting';
+
+const REDSTONE_DATA_SERVICE_ID = 'redstone-primary-prod';
 
 class SovereignDataService {
   constructor() {
@@ -232,22 +236,26 @@ class SovereignDataService {
   /**
    * Multi-Source Consensus Pricing
    */
-  async getConsensusPrice(symbol) {
+  async getConsensusPrice(symbol, returnDetails = false) {
     const providers = [
       this.getDiaAssetInfo(symbol).then(d => d ? { price: d.price, source: 'DIA' } : null),
       this.fetchCryptoRankPrice(symbol).then(p => p ? { price: p, source: 'CryptoRank' } : null),
+      this.fetchRedstonePrice(symbol).then(p => p ? { price: p, source: 'RedStone' } : null),
       Promise.resolve({ price: null, source: 'Pyth' }) 
     ];
 
     const results = await Promise.allSettled(providers);
-    const validPrices = results
+    const validProviders = results
       .filter(r => r.status === 'fulfilled' && r.value && r.value.price)
-      .map(r => r.value.price);
+      .map(r => r.value);
 
-    if (validPrices.length === 0) return 0;
+    if (validProviders.length === 0) return returnDetails ? [] : 0;
 
+    const validPrices = validProviders.map(p => p.price);
     const sum = validPrices.reduce((a, b) => a + b, 0);
-    return sum / validPrices.length;
+    const avg = sum / validPrices.length;
+
+    return returnDetails ? validProviders : avg;
   }
 
   async fetchCryptoRankPrice(symbol) {
@@ -261,6 +269,46 @@ class SovereignDataService {
       return data.data && data.data[0] ? data.data[0].values.USD.price : null;
     } catch (err) {
       return null;
+    }
+  }
+
+  /**
+   * RedStone Pull Model Price Retrieval
+   */
+  async fetchRedstonePrice(symbol) {
+    try {
+      const dataServiceWrapper = new DataServiceWrapper({
+        dataServiceId: REDSTONE_DATA_SERVICE_ID,
+        dataFeeds: [symbol],
+      });
+      const dataPackages = await dataServiceWrapper.getDataPackages({
+        dataServiceId: REDSTONE_DATA_SERVICE_ID,
+        dataFeeds: [symbol],
+      });
+      if (dataPackages && dataPackages[symbol]) {
+        return dataPackages[symbol][0].dataPackage.dataPoints[0].value;
+      }
+      return null;
+    } catch (err) {
+      console.warn(`[SovereignDataService] RedStone price failed for ${symbol}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * RedStone Payload Generator
+   * Used for injecting into transactions for VestraOracleConsumer
+   */
+  async fetchRedstonePayload(symbols = ['VSTR', 'ETH', 'BTC']) {
+    try {
+      const dataServiceWrapper = new DataServiceWrapper({
+        dataServiceId: REDSTONE_DATA_SERVICE_ID,
+        dataFeeds: symbols,
+      });
+      return await dataServiceWrapper.getRedstonePayloadForManualUsage();
+    } catch (err) {
+      console.warn('[SovereignDataService] RedStone payload generation failed:', err.message);
+      return '0x';
     }
   }
 

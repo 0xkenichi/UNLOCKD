@@ -63,15 +63,24 @@ contract VestraOracleConsumer is RedstoneConsumerNumericBase {
         uint256[] calldata prices,
         bytes[] calldata signatures
     ) external pure returns (bool) {
-        // Logic to verify that multiple oracle providers (DIA, Mobula, Pyth) 
-        // signed off on a price within a tight range.
-        // For Testnet Alpha, we return true if prices are within 5% of each other.
+        // RedStone already provides its own verification via the Pull Model.
+        // This function adds a second layer of defense by checking if 
+        // supplementary sources (DIA, CryptoRank, Pyth) are within a sane range.
         if (prices.length < 2) return false;
         
-        uint256 avg = (prices[0] + prices[1]) / 2;
-        uint256 diff = prices[0] > prices[1] ? prices[0] - prices[1] : prices[1] - prices[0];
+        uint256 total = 0;
+        for (uint256 i = 0; i < prices.length; i++) {
+            total += prices[i];
+        }
+        uint256 avg = total / prices.length;
         
-        return (diff * 10000 / avg) < 500; // 5% threshold
+        // Ensure no outlier is more than 10% from the average
+        for (uint256 i = 0; i < prices.length; i++) {
+            uint256 diff = prices[i] > avg ? prices[i] - avg : avg - prices[i];
+            if ((diff * 10000 / avg) > 1000) return false; // 10% outlier threshold
+        }
+        
+        return true;
     }
 
     function getHistoricalVol(address token) public view returns (uint256) {

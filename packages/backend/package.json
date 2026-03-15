@@ -16,6 +16,8 @@
     "@bonfida/token-vesting": "^0.0.9",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@pythnetwork/client": "^2.22.1",
+    "@redstone-finance/evm-connector": "^0.9.0",
+    "@redstone-finance/sdk": "^0.9.0",
     "@solana/spl-token": "0.3.7",
     "@solana/spl-token-registry": "^0.2.4574",
     "@solana/web3.js": "^1.98.4",

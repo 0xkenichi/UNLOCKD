@@ -5908,6 +5908,11 @@ const start = async () => {
     
     omegaWatcher.start();
 
+    // Sovereign Mirror Relayer Activation
+    sovereignRelayer.start().catch((error) =>
+      console.error('[sovereign-relayer] startup error', error?.message || error)
+    );
+
   });
 };
 
