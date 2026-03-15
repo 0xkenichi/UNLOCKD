@@ -88,7 +88,7 @@ export const usdcAbi = [
 export const lendingPoolAbi = [
   {
     inputs: [],
-    name: 'totalSupplied',
+    name: 'totalDeposits',
     outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
     stateMutability: 'view',
     type: 'function',

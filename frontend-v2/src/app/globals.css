@@ -1,5 +1,61 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Redaction';
+  src: url('/fonts/Redaction-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction';
+  src: url('/fonts/Redaction-Bold.woff2') format('woff2');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction10';
+  src: url('/fonts/Redaction10-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction20';
+  src: url('/fonts/Redaction20-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction35';
+  src: url('/fonts/Redaction35-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction50';
+  src: url('/fonts/Redaction50-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction70';
+  src: url('/fonts/Redaction70-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Redaction100';
+  src: url('/fonts/Redaction100-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
 
 @theme {
   /* Colors */
@@ -56,6 +112,73 @@
   text-shadow: 0 0 10px var(--color-accent-cyan-glow);
 }
 
+@utility font-redacted {
+  color: transparent !important;
+  background-color: currentColor !important;
+  user-select: none;
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    animation: redacted-shimmer 2s infinite;
+  }
+}
+
+@keyframes redacted-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@utility matrix-reveal-window {
+  mask-image: linear-gradient(to bottom, transparent, black 40%, black 60%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 40%, black 60%, transparent);
+}
+
+@utility redaction-text {
+  font-family: 'Redaction', serif !important;
+}
+
+@utility redaction-10 { font-family: 'Redaction10', serif !important; }
+@utility redaction-20 { font-family: 'Redaction20', serif !important; }
+@utility redaction-35 { font-family: 'Redaction35', serif !important; }
+@utility redaction-50 { font-family: 'Redaction50', serif !important; }
+@utility redaction-70 { font-family: 'Redaction70', serif !important; }
+@utility redaction-100 { font-family: 'Redaction100', serif !important; }
+
+@utility noise-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+@utility stealth-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+}
+
+@utility glitch-text {
+  animation: glitch 1s infinite linear alternate-reverse;
+}
+
+@keyframes glitch {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
 :root {
   --background: #0B0D10;
   --foreground: #FFFFFF;
@@ -67,6 +190,17 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.stealth-active {
+  filter: contrast(1.1) brightness(0.95);
+  background-color: #000;
+  color: #fff;
+}
+
+body.stealth-active * {
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -90,4 +224,87 @@ h1, h2, h3, h4, h5, h6 {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-hover);
+}
+@layer components {
+  /* CREDIT AI Mascot & Animations */
+  .crdt-mascot {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    pointer-events: none;
+  }
+
+  .crdt-mascot-core {
+    font-size: 1.2em;
+    color: var(--color-accent-teal);
+    z-index: 2;
+    text-shadow: 0 0 10px var(--color-accent-glow);
+  }
+
+  .crdt-mascot-ghost {
+    position: absolute;
+    font-size: 1em;
+    opacity: 0.3;
+    filter: blur(1px);
+    transition: all 0.5s ease-out;
+  }
+
+  .crdt-mascot-ghost.a {
+    color: var(--color-accent-cyan);
+    transform: translate(-4px, -2px) scale(0.9);
+  }
+
+  .crdt-mascot-ghost.b {
+    color: var(--color-risk-medium);
+    transform: translate(4px, 2px) scale(0.85);
+  }
+
+  .crdt-mascot.pulse .crdt-mascot-core {
+    animation: mascot-pulse 0.4s ease-out;
+  }
+
+  @keyframes mascot-pulse {
+    0% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.2); filter: brightness(1.5); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+
+  /* Interactive Guide Effects */
+  .guide-glow {
+    position: relative;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5), 0 0 20px rgba(59, 130, 246, 0.3) !important;
+    z-index: 999 !important;
+    transition: all 0.3s ease-out;
+  }
+
+  .guide-step-pill {
+    position: absolute;
+    top: -24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #3b82f6;
+    color: white;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    pointer-events: none;
+    animation: pill-bounce 1s infinite alternate;
+  }
+
+  .guide-step-pill.done {
+    background: #10b981;
+    animation: none;
+  }
+
+  @keyframes pill-bounce {
+    from { transform: translateX(-50%) translateY(0); }
+    to { transform: translateX(-50%) translateY(-5px); }
+  }
 }

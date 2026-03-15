@@ -28,7 +28,8 @@ import {
   LayoutDashboard,
   Coins,
   Library,
-  Info
+  Info,
+  Trophy
 } from 'lucide-react';
 
 const PortfolioPage = lazy(routeImports.portfolio);

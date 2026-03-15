@@ -4,7 +4,6 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  BarChart3, 
   LayoutDashboard, 
   Wallet, 
   ArrowUpRight, 
@@ -12,20 +11,35 @@ import {
   Settings,
   ShieldCheck,
   Menu,
-  X
+  X,
+  Gavel,
+  BookText,
+  Fingerprint,
+  Gift,
+  Cpu,
+  Eye,
+  EyeOff,
+  Terminal
 } from 'lucide-react';
+import { useStealthMode } from '../providers/stealth-provider';
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, href: '/' },
+  { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { name: 'Portfolio', icon: Wallet, href: '/portfolio' },
   { name: 'Borrow', icon: ArrowUpRight, href: '/borrow' },
   { name: 'Supply', icon: ArrowDownLeft, href: '/lend' },
+  { name: 'Auctions', icon: Gavel, href: '/auctions' },
   { name: 'Governance', icon: ShieldCheck, href: '/governance' },
+  { name: 'Identity', icon: Fingerprint, href: '/identity' },
+  { name: 'Airdrop', icon: Gift, href: '/airdrop' },
+  { name: 'Simulator', icon: Terminal, href: '/demo' },
+  { name: 'Documentation', icon: BookText, href: '/docs' },
 ];
 
 export const Sidebar = () => {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = React.useState(false);
+  const { isStealthMode, toggleStealthMode } = useStealthMode();
 
   return (
     <>
@@ -51,12 +65,12 @@ export const Sidebar = () => {
         lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="flex flex-col h-full p-6">
-          <div className="flex items-center gap-3 mb-10 px-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-accent-teal to-accent-cyan shadow-[0_0_15px_rgba(46,190,181,0.4)]" />
-            <span className="text-xl font-black uppercase tracking-tighter text-glow-teal">
+          <Link href="/" className="flex items-center gap-3 mb-10 px-2 group">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-accent-teal via-accent-cyan to-accent-teal bg-[length:200%_200%] animate-gradient shadow-[0_0_20px_rgba(46,190,181,0.5)] group-hover:shadow-[0_0_30px_rgba(46,190,181,0.8)] transition-all duration-500" />
+            <span className="text-2xl font-black uppercase tracking-tighter text-glow-teal group-hover:scale-105 transition-transform italic">
               Vestra
             </span>
-          </div>
+          </Link>
 
           <nav className="flex-1 space-y-2">
             {navItems.map((item) => {
@@ -85,7 +99,24 @@ export const Sidebar = () => {
             })}
           </nav>
 
-          <div className="mt-auto pt-6 border-t border-border-glass">
+          <div className="mt-auto space-y-2 pt-6 border-t border-border-glass">
+            <button 
+              onClick={toggleStealthMode}
+              className={`
+                flex items-center gap-4 px-4 py-3 w-full rounded-xl transition-all group
+                ${isStealthMode 
+                  ? 'bg-accent-teal/20 text-accent-teal border border-accent-teal/30' 
+                  : 'text-foreground/40 hover:text-foreground hover:bg-surface-hover'}
+              `}
+            >
+              {isStealthMode ? <EyeOff size={20} /> : <Eye size={20} />}
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-bold">Stealth Mode</span>
+                <span className="text-[10px] font-black uppercase tracking-widest opacity-50">
+                  {isStealthMode ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+            </button>
             <button className="flex items-center gap-4 px-4 py-3 w-full text-foreground/40 hover:text-foreground hover:bg-surface-hover rounded-xl transition-all">
               <Settings size={20} />
               <span className="text-sm font-bold">Settings</span>

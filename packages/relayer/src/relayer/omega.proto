@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package vestra;
+
+service OmegaWatcher {
+  rpc EvaluateRisk (RiskRequest) returns (RiskResponse) {}
+}
+
+message RiskRequest {
+  string chain = 1;
+  string token = 2;
+  string vesting_id = 3;
+  double quantity = 4;
+}
+
+message RiskResponse {
+  double dDPV = 1;
+  double omega = 2;
+  string zk_proof = 3;
+}

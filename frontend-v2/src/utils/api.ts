@@ -54,5 +54,33 @@ export const api = {
     if (params.chain) query.set('chain', params.chain);
     if (params.status) query.set('status', params.status);
     return fetchApi(`/api/pools?${query.toString()}`);
-  }
+  },
+
+  // AI Agent specific
+  askAgent: async (message: string, history: Message[] = [], captchaToken?: string, context: Record<string, any> | null = null) => {
+    const payload: { message: string; history: Message[]; context?: Record<string, any>; captchaToken?: string } = { message, history };
+    if (context) payload.context = context;
+    if (captchaToken) payload.captchaToken = captchaToken;
+    
+    return fetchApi('/api/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  requestMatchQuote: (payload: Record<string, any>) => fetchApi('/api/match/quote', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  fetchIdentity: (walletAddress: string) => fetchApi(`/api/identity/${walletAddress}`),
+  fetchLoans: (walletAddress: string) => fetchApi(`/api/loans?wallet=${walletAddress}`)
 };
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export const askAgent = api.askAgent;
+export const requestMatchQuote = api.requestMatchQuote;
+export const fetchIdentity = api.fetchIdentity;

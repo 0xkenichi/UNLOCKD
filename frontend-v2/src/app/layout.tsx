@@ -1,7 +1,23 @@
 import type { Metadata } from "next";
+import { Inter, Montserrat, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { Web3Provider } from "@/components/providers/web3-provider";
+import AIBubble from "@/components/common/AIBubble";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  variable: "--font-heading",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "Vestra Protocol | Premium Vesting-Credit Protocol",
@@ -14,17 +30,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable}`}>
       <body className="antialiased bg-background text-foreground selection:bg-accent-teal/30">
         <Web3Provider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 lg:ml-64 p-4 lg:p-8">
-              <div className="max-w-7xl mx-auto space-y-8">
-                {children}
-              </div>
-            </main>
-          </div>
+          {children}
+          <AIBubble />
         </Web3Provider>
       </body>
     </html>

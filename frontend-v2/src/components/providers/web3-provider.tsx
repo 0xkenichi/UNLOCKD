@@ -72,6 +72,10 @@ const config = getDefaultConfig({
 
 const queryClient = new QueryClient();
 
+import { StealthProvider } from './stealth-provider';
+
+// ... (rest of imports)
+
 export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
@@ -86,7 +90,9 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
           })}
           modalSize="compact"
         >
-          {children}
+          <StealthProvider>
+            {children}
+          </StealthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

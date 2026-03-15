@@ -1,69 +1,35 @@
-MVP DEMO (FRONTEND + BACKEND + CONTRACTS)
+# Vestra Protocol - Sovereign Data Layer
 
-Goal
-Provide a functional end-to-end demo on Sepolia with:
-- Frontend UI (wallet + flows)
-- Backend indexer APIs
-- Live contract reads/writes
+Production-grade Data Oracle & Vesting Feed Service for the Vestra credit primitive.
 
-Quick start (Sepolia)
-1) Start backend + frontend:
-   ./scripts/run-mvp.sh
+## One-Command Testnet Spin-Up
 
-2) Open:
-   http://localhost:5173
+To deploy the entire sovereign stack (Backend, Relayer, Redis, DB):
 
-Required env (optional, but recommended)
-- RPC_URL: Sepolia RPC endpoint (defaults to https://rpc.sepolia.org)
-- DEPLOYMENTS_NETWORK: deployments folder (defaults to sepolia)
-- VITE_WC_PROJECT_ID: WalletConnect project id for reliable wallet connects
+```bash
+docker-compose up --build -d
+```
 
-Seed on-chain demo data (Sepolia)
-Run one of the scripts below with a funded Sepolia wallet:
-1) Full loan + repay path:
-   npx hardhat run scripts/e2e-sepolia.js --network sepolia
+## Monorepo Structure
 
-2) Just a vesting escrow (to use in Borrow flow):
-   npx hardhat run scripts/seed-sepolia-vesting.js --network sepolia
+- `/packages/backend`: Node.js/TS service with BullMQ + gRPC.
+- `/packages/contracts`: Solidity contracts (EVM) + Anchor (Solana).
+- `/packages/relayer`: ZK-friendly relayer with PyTorch risk-predictive AI.
+- `/packages/sdk`: Client SDK for multi-chain data consumption.
 
-MVP flows to verify
-1) Wallet + network
-   - Connect wallet
-   - Switch to Sepolia (contracts are deployed there)
+## Core Features
 
-2) Portfolio
-   - Activity list loads from backend (/api/activity)
-   - Export activity CSV works
-   - Positions populated from LoanManager
+1. **Vesting Feeds**: Native support for Streamflow (Solana), Superfluid, and Sablier.
+2. **Oracle Consensus**: Median-of-three consensus across RedStone, Pyth, and Chainlink.
+3. **AI Risk Engine (Omega Ω)**: Neural network-based predictive risk multiplier.
+4. **Privacy**: ERC-5564 stealth addresses and ZK-proofs for non-custodial valuation.
 
-3) Borrow
-   - Enter collateral ID + vesting contract
-   - Escrow transaction confirms
-   - Create loan transaction confirms
+## Testing
 
-4) Repay
-   - Repay schedule loads from backend
-   - CSV export works
+```bash
+npm test # Runs all workspace tests
+```
 
-5) Dashboard (Spotlight)
-   - Vested contracts and snapshots load from backend
-   - Liquidity data pulls from GeckoTerminal when on mainnet/Base
+---
 
-Local hardhat option (advanced)
-If you want local chain instead of Sepolia:
-1) Run hardhat node and deploy:
-   npx hardhat node --no-deploy
-   npx hardhat deploy --network localhost --tags full
-
-2) Seed sample data:
-   npx hardhat run scripts/vestra-realistic-setup.js --network localhost
-
-3) Export frontend env with local contract addresses:
-   VITE_LOANMANAGER_ADDRESS
-   VITE_VALUATIONENGINE_ADDRESS
-   VITE_VESTINGADAPTER_ADDRESS
-   VITE_USDC_ADDRESS
-   VITE_MOCKPRICEFEED_ADDRESS
-
-4) Start MVP with:
-   DEPLOYMENTS_NETWORK=localhost RPC_URL=http://localhost:8545 ./scripts/run-mvp.sh
+*Vestra Command Center - 2026*

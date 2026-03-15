@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DB_URL=postgres://user:pass@db:5432/vestra
+    depends_on:
+      - redis
+      - db
+
+  relayer:
+    build:
+      context: .
+      dockerfile: packages/relayer/Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=vestra
+    ports:
+      - "5432:5432"
