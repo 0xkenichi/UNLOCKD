@@ -48,6 +48,7 @@ const { mapWithConcurrency } = require('./lib/concurrency');
 const { uploadJSONToIPFS } = require('./lib/ipfs');
 const meTTabrain = require('./meTTabrain');
 const omegaWatcher = require('./omegaWatcher');
+const sovereignRelayer = require('./relayer/SovereignRelayer');
 
 const app = express();
 const port = process.env.PORT || 4000;

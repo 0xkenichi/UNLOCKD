@@ -3562,6 +3562,31 @@ const consumeRelayerNonce = async ({ userId, action = 'unknown', nonce, expiresA
   return { id };
 };
 
+const getActiveSovereignWallets = async () => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('vesting_sources')
+      .select('lockup_address')
+      .not('lockup_address', 'is', null);
+    if (error) throw error;
+    return [...new Set(data.filter(r => r.lockup_address).map(r => r.lockup_address))];
+  }
+  const rows = sqlite.prepare('SELECT DISTINCT lockup_address FROM vesting_sources WHERE lockup_address IS NOT NULL').all();
+  return rows.map(r => r.lockup_address);
+};
+
+const getRecentWallets = async () => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('user_loans')
+      .select('wallet_address');
+    if (error) throw error;
+    return [...new Set(data.map(r => r.wallet_address))];
+  }
+  const rows = sqlite.prepare('SELECT DISTINCT wallet_address FROM user_loans').all();
+  return rows.map(r => r.wallet_address);
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -3610,6 +3635,10 @@ module.exports = {
   listIdentityAttestations,
   upsertIdentityAttestation,
   saveVestingSource,
+  saveStakedSource,
+  saveLockedSource,
+  getActiveSovereignWallets,
+  getRecentWallets,
   createFundraisingSource,
   getFundraisingSource,
   listFundraisingSources,

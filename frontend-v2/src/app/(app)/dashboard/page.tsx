@@ -20,6 +20,7 @@ import { DashboardHolo } from "@/components/dashboard/DashboardHolo";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { ChartContainer } from "@/components/ui/ChartContainer";
 import { AssetTable } from "@/components/ui/AssetTable";
+import { SovereignAssetCard } from "@/components/dashboard/SovereignAssetCard";
 import { 
   AreaChart, 
   Area, 
@@ -82,6 +83,12 @@ export default function Dashboard() {
   const { data: userLoans, isLoading: loansLoading } = useQuery({
     queryKey: ['userLoans', address],
     queryFn: () => (api as any).fetchLoans(address),
+    enabled: !!address
+  });
+
+  const { data: portfolio, isLoading: portfolioLoading } = useQuery({
+    queryKey: ['portfolio', address],
+    queryFn: () => api.fetchPortfolio(address!),
     enabled: !!address
   });
 
@@ -278,7 +285,6 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </motion.div>
-
         {/* Recent Activity */}
         <motion.div
           initial={{ opacity: 0, x: 30 }}
@@ -320,6 +326,47 @@ export default function Dashboard() {
           </Card>
         </motion.div>
       </div>
+
+      {/* Sovereign Data Acquisition Layer */}
+      {address && (
+        <motion.section
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7, duration: 0.8 }}
+          className="space-y-6"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-3xl font-black uppercase italic tracking-tighter text-glow-teal redaction-text">Sovereign Data Mirror</h2>
+              <p className="text-xs text-secondary mt-1 font-medium opacity-70">Decentralized asset tracking & local replication active.</p>
+            </div>
+            <div className="flex items-center gap-4">
+               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface/50 border border-white/5">
+                 <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-ping" />
+                 <span className="text-[10px] font-black tracking-widest uppercase text-accent-cyan">Syncing Graph v3</span>
+               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {portfolioLoading ? (
+              [1, 2, 3].map(i => (
+                <div key={i} className="h-[200px] rounded-3xl bg-surface/20 animate-pulse border border-white/5" />
+              ))
+            ) : portfolio?.vested?.length > 0 ? (
+              portfolio.vested.map((asset: any, i: number) => (
+                <SovereignAssetCard key={i} asset={asset} />
+              ))
+            ) : (
+              <div className="lg:col-span-3 p-12 rounded-3xl border border-dashed border-white/10 flex flex-col items-center justify-center text-center">
+                <ShieldCheck className="w-12 h-12 text-secondary opacity-20 mb-4" />
+                <p className="text-sm text-secondary font-medium opacity-50">No sovereign vesting streams discovered for this wallet.</p>
+                <button className="mt-4 text-[10px] font-black uppercase tracking-widest text-accent-teal hover:text-white transition-colors">Report Missing Contract</button>
+              </div>
+            )}
+          </div>
+        </motion.section>
+      )}
 
       {/* Market Overview Table */}
       <motion.div

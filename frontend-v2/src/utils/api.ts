@@ -73,7 +73,8 @@ export const api = {
     body: JSON.stringify(payload)
   }),
   fetchIdentity: (walletAddress: string) => fetchApi(`/api/identity/${walletAddress}`),
-  fetchLoans: (walletAddress: string) => fetchApi(`/api/loans?wallet=${walletAddress}`)
+  fetchLoans: (walletAddress: string) => fetchApi(`/api/loans?wallet=${walletAddress}`),
+  fetchPortfolio: (walletAddress: string, chain = 'all') => fetchApi(`/api/scanner/portfolio/${walletAddress}?chain=${chain}`)
 };
 
 export interface Message {

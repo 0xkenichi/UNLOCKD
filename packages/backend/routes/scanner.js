@@ -5,6 +5,7 @@
 // Real APIs: Alchemy (EVM), Helius (Solana), Dune Analytics (DeFi), CoinGecko + Jupiter (prices)
 
 const express = require('express');
+const SovereignDataService = require('../lib/SovereignDataService');
 
 const router = express.Router();
 
@@ -564,36 +565,56 @@ async function getDuneDefiPositions(wallet) {
 }
 
 // ─── Vestra Vested Contracts (from on-chain indexer DB) ─────────────────────
-function getVestedPositions(db, wallet) {
+function getSovereignAssets(db, wallet) {
     try {
         if (!db) return [];
         const normalizedWallet = String(wallet || '').toLowerCase().trim();
-        const rows = db.prepare(`
-      SELECT vs.vesting_contract, vs.protocol, vs.chain_id, vs.stream_id,
-             e.loan_id, e.amount, e.token_address, e.timestamp
-      FROM vesting_sources vs
-      LEFT JOIN events e ON LOWER(e.borrower) = ?
-      WHERE vs.id IS NOT NULL
-      LIMIT 50
-    `).all(normalizedWallet);
+        const assets = [];
 
-        return rows.filter((r) => r.vesting_contract).map((row) => ({
-            chain: 'evm',
+        // 1. Vesting Sources
+        const vestingRows = db.prepare(`
+            SELECT id, chain_id, vesting_contract, protocol, stream_id, last_synced_at
+            FROM vesting_sources
+            WHERE LOWER(lockup_address) = ?
+        `).all(normalizedWallet);
+
+        assets.push(...vestingRows.map((row) => ({
+            chain: row.chain_id || 'evm',
             category: 'vested',
             protocol: row.protocol || 'Vestra',
             contractAddress: row.vesting_contract,
             streamId: row.stream_id,
-            loanId: row.loan_id,
             symbol: 'VEST',
             name: `${row.protocol || 'Vestra'} Vesting Stream`,
             balance: 0,
             valueUsd: 0,
-            tokenAddress: row.token_address,
-            timestamp: row.timestamp,
-            description: `Locked vesting stream via ${row.protocol} (Stream #${row.stream_id || row.loan_id})`
-        }));
+            lastSynced: row.last_synced_at,
+            description: `Sovereign tracked vesting via ${row.protocol}`
+        })));
+
+        // 2. Staked Sources
+        const stakedRows = db.prepare(`
+            SELECT id, chain_id, staking_contract, protocol, amount, last_synced_at
+            FROM staked_sources
+            WHERE LOWER(wallet_address) = ?
+        `).all(normalizedWallet);
+
+        assets.push(...stakedRows.map((row) => ({
+            chain: row.chain_id || 'evm',
+            category: 'staked',
+            protocol: row.protocol,
+            contractAddress: row.staking_contract,
+            amount: row.amount || '0',
+            symbol: 'STAKE',
+            name: `${row.protocol} Staked Position`,
+            balance: row.amount || 0,
+            valueUsd: 0, // Calculated downstream or mirrored
+            lastSynced: row.last_synced_at
+        })));
+
+        return assets;
     } catch (err) {
-        console.warn('[scanner] vested positions query failed:', err.message);
+        console.warn('[scanner] sovereign assets query failed:', err.message);
         return [];
     }
 }
@@ -722,11 +743,27 @@ router.get('/portfolio/:wallet', async (req, res) => {
             }
         }
 
-        // 4. Vested positions from indexer DB
+        // 4. Sovereign Discovery & Mirroring
+        const sovereignTasks = [];
+        if (chain === 'all' || chain === 'evm') {
+            targetWallets.evm.forEach(w => sovereignTasks.push(SovereignDataService.discoverAndMirror(w, 'evm')));
+        }
+        if (chain === 'all' || chain === 'solana') {
+            targetWallets.solana.forEach(w => sovereignTasks.push(SovereignDataService.discoverAndMirror(w, 'solana')));
+        }
+        await Promise.allSettled(sovereignTasks);
+
+        // 5. Assets from mirrored Sovereign DB
         if (chain === 'all' || chain === 'evm') {
             for (const evmWallet of targetWallets.evm) {
-                const vested = getVestedPositions(db, evmWallet);
-                vestedPositions.push(...vested);
+                const assets = getSovereignAssets(db, evmWallet);
+                vestedPositions.push(...assets);
+            }
+        }
+        if (chain === 'all' || chain === 'solana') {
+            for (const solWallet of targetWallets.solana) {
+                const assets = getSovereignAssets(db, solWallet);
+                vestedPositions.push(...assets);
             }
         }
 
