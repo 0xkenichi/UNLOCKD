@@ -12,13 +12,15 @@ interface AssetTableProps<T> {
   columns: Column<T>[];
   onRowClick?: (item: T) => void;
   className?: string;
+  loading?: boolean;
 }
 
 export function AssetTable<T>({ 
   data, 
   columns, 
   onRowClick,
-  className = '' 
+  className = '',
+  loading = false
 }: AssetTableProps<T>) {
   return (
     <div className={`overflow-x-auto ${className}`}>
@@ -36,24 +38,42 @@ export function AssetTable<T>({
           </tr>
         </thead>
         <tbody>
-          {data.map((item, rowIndex) => (
-            <tr 
-              key={rowIndex}
-              onClick={() => onRowClick?.(item)}
-              className={`group border-b border-border-glass/50 hover:bg-surface-hover/50 transition-colors duration-200 ${onRowClick ? 'cursor-pointer' : ''}`}
-            >
-              {columns.map((column, colIndex) => (
-                <td 
-                  key={colIndex}
-                  className={`py-5 px-6 text-sm font-medium text-foreground/80 ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''} ${column.className || ''}`}
-                >
-                  {typeof column.accessorKey === 'function' 
-                    ? column.accessorKey(item) 
-                    : (item[column.accessorKey] as React.ReactNode)}
-                </td>
-              ))}
+          {loading ? (
+            [1, 2, 3].map((i) => (
+              <tr key={i} className="border-b border-border-glass/30 animate-pulse">
+                {columns.map((_, colIndex) => (
+                  <td key={colIndex} className="py-5 px-6">
+                    <div className="h-4 bg-white/5 rounded-md w-3/4" />
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : data.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="py-12 px-6 text-center text-secondary text-sm italic">
+                No data available.
+              </td>
             </tr>
-          ))}
+          ) : (
+            data.map((item, rowIndex) => (
+              <tr 
+                key={rowIndex}
+                onClick={() => onRowClick?.(item)}
+                className={`group border-b border-border-glass/50 hover:bg-surface-hover/50 transition-colors duration-200 ${onRowClick ? 'cursor-pointer' : ''}`}
+              >
+                {columns.map((column, colIndex) => (
+                  <td 
+                    key={colIndex}
+                    className={`py-5 px-6 text-sm font-medium text-foreground/80 ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : ''} ${column.className || ''}`}
+                  >
+                    {typeof column.accessorKey === 'function' 
+                      ? column.accessorKey(item) 
+                      : (item[column.accessorKey] as React.ReactNode)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

@@ -34,16 +34,9 @@ import { useAccount, useChainId, useReadContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { getContract, loanManagerAbi, usdcAbi } from "@/config/contracts";
 import { api } from "@/utils/api";
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
+import { DemoCenter } from "@/components/demo/DemoCenter";
 
-const chartData = [
-  { name: "Jan", tvl: 4000 },
-  { name: "Feb", tvl: 7500 },
-  { name: "Mar", tvl: 12000 },
-  { name: "Apr", tvl: 18500 },
-  { name: "May", tvl: 24000 },
-  { name: "Jun", tvl: 28400 },
-];
 
 export default function Dashboard() {
   const { address } = useAccount();
@@ -86,11 +79,29 @@ export default function Dashboard() {
     enabled: !!address
   });
 
-  const { data: portfolio, isLoading: portfolioLoading } = useQuery({
+  const { data: portfolio, isLoading: portfolioLoading, refetch: refetchPortfolio } = useQuery({
     queryKey: ['portfolio', address],
     queryFn: () => api.fetchPortfolio(address!),
     enabled: !!address
   });
+
+  const { data: chartData, isLoading: chartLoading } = useQuery({
+    queryKey: ['tvlHistory'],
+    queryFn: () => api.fetchTvlHistory()
+  });
+
+  const { data: marketQuotes, isLoading: marketLoading } = useQuery({
+    queryKey: ['marketQuotes'],
+    queryFn: () => api.fetchMarketQuotes()
+  });
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      refetchPortfolio();
+    };
+    window.addEventListener('refresh-portfolio', handleRefresh);
+    return () => window.removeEventListener('refresh-portfolio', handleRefresh);
+  }, [refetchPortfolio]);
 
   const totalDebt = useMemo(() => {
     const items = userLoans?.items || [];
@@ -112,11 +123,10 @@ export default function Dashboard() {
     }));
   }, [activity]);
 
-  const marketData = useMemo(() => [
-    { asset: "USDC", price: "$1.00", volume: "$1.2M", apy: "4.2%", trend: "up" },
-    { asset: "VSTR", price: "$0.84", volume: "$450K", apy: "12.5%", trend: "up" },
-    { asset: "ETH", price: "$2,840", volume: "$8.4M", apy: "3.1%", trend: "down" },
-  ], []);
+  const marketData = useMemo(() => {
+    if (!marketQuotes?.items) return [];
+    return marketQuotes.items;
+  }, [marketQuotes]);
 
   const primaryMetrics = useMemo(() => [
     {
@@ -226,6 +236,8 @@ export default function Dashboard() {
         ))}
       </div>
 
+      <DemoCenter />
+
       {/* 3D Timeline Section */}
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 40 }}
@@ -268,7 +280,10 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <ChartContainer>
-                <AreaChart data={chartData}>
+                {chartLoading ? (
+                  <div className="h-[300px] flex items-center justify-center text-secondary redaction-text">Loading historical data...</div>
+                ) : (
+                  <AreaChart data={chartData?.data || []}>
                   <defs>
                     <linearGradient id="colorTvl" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#2EBEB5" stopOpacity={0.3}/>
@@ -281,6 +296,7 @@ export default function Dashboard() {
                   <Tooltip />
                   <Area type="monotone" dataKey="tvl" stroke="#2EBEB5" strokeWidth={2} fillOpacity={1} fill="url(#colorTvl)" />
                 </AreaChart>
+                )}
               </ChartContainer>
             </CardContent>
           </Card>
@@ -389,6 +405,7 @@ export default function Dashboard() {
                 { header: "Trend", accessorKey: "trend", align: "right" }
               ]}
               data={marketData}
+              loading={marketLoading}
             />
           </CardContent>
         </Card>

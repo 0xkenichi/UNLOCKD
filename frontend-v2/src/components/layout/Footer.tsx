@@ -18,7 +18,7 @@ export const Footer = () => {
                         </div>
                         <p className="text-secondary text-sm leading-relaxed mb-8 max-w-xs">
                             Institutional-grade credit infrastructure for the next generation of on-chain assets. 
-                            Built for the ASI Chain Ecosystem.
+                            Built for the Vestra Protocol Ecosystem.
                         </p>
                         <div className="flex gap-4">
                             <Link href="#" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-secondary hover:text-foreground transition-all">
@@ -71,7 +71,7 @@ export const Footer = () => {
                     </div>
                     <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/5">
                         <Globe size={12} className="text-accent-teal" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-secondary">ASI Chain Mainnet Ready</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-secondary">Vestra Protocol Mainnet Ready</span>
                     </div>
                 </div>
             </div>

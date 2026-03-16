@@ -40,8 +40,12 @@ export const api = {
   post: (endpoint: string, body: any) => fetchApi(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   
   // Protocol specific
-  fetchKpi: (windowHours = 24) => fetchApi(`/api/kpi/dashboard?windowHours=${windowHours}`),
+  fetchKpi: (windowHours = 24) => fetchApi(`/api/platform/snapshot?hours=${windowHours}`),
   fetchActivity: () => fetchApi('/api/activity'),
+  fetchTvlHistory: () => fetchApi('/api/analytics/tvl-history'),
+  fetchMarketQuotes: () => fetchApi('/api/market/quotes'),
+  fetchPerformance: (wallet: string) => fetchApi(`/api/analytics/performance?wallet=${wallet}`),
+  fetchYieldHistory: () => fetchApi('/api/analytics/yield-history'),
   fetchVestedContracts: (params: { walletAddress?: string; chain?: string; privacyMode?: boolean } = {}) => {
     const query = new URLSearchParams();
     if (params.walletAddress) query.set('wallet', params.walletAddress);
@@ -55,6 +59,10 @@ export const api = {
     if (params.status) query.set('status', params.status);
     return fetchApi(`/api/pools?${query.toString()}`);
   },
+  faucetUsdc: (address: string) => fetchApi('/api/faucet/usdc', {
+    method: 'POST',
+    body: JSON.stringify({ address })
+  }),
 
   // AI Agent specific
   askAgent: async (message: string, history: Message[] = [], captchaToken?: string, context: Record<string, any> | null = null) => {
@@ -74,7 +82,15 @@ export const api = {
   }),
   fetchIdentity: (walletAddress: string) => fetchApi(`/api/identity/${walletAddress}`),
   fetchLoans: (walletAddress: string) => fetchApi(`/api/loans?wallet=${walletAddress}`),
-  fetchPortfolio: (walletAddress: string, chain = 'all') => fetchApi(`/api/scanner/portfolio/${walletAddress}?chain=${chain}`)
+  fetchPortfolio: (walletAddress: string, chain = 'all') => fetchApi(`/api/scanner/portfolio/${walletAddress}?chain=${chain}`),
+  warpTime: (seconds: number) => fetchApi('/api/faucet/warp', {
+    method: 'POST',
+    body: JSON.stringify({ seconds })
+  }),
+  generateVesting: (payload: { wallet: string, symbol: string, amount: string }) => fetchApi('/api/faucet/generate-vesting', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 };
 
 export interface Message {

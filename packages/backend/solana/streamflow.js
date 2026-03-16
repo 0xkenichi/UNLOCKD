@@ -168,18 +168,17 @@ const fetchStreamflowVestingContracts = async (wallets = []) => {
     return [];
   }
 
-  if (!wallets || wallets.length === 0) {
-    // If no wallets provided, we don't fetch globally anymore to avoid RPC offset limits and timeouts.
-    return [];
-  }
-
   const client = createClient();
   const includeClosed = process.env.SOLANA_STREAMFLOW_INCLUDE_CLOSED === 'true';
   const vesting = [];
+  const targets = (wallets && wallets.length > 0) ? wallets : [null];
 
-  for (const wallet of wallets) {
+  for (const wallet of targets) {
     try {
-      const searchParams = { recipient: wallet };
+      const searchParams = {};
+      if (wallet) {
+        searchParams.recipient = wallet;
+      }
       if (!includeClosed) {
         searchParams.closed = false;
       }

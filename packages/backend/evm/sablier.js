@@ -4,20 +4,27 @@ const { request, gql } = require('graphql-request');
 // Pricing is handled downstream in the dDPV engine
 
 // Sablier V2 Subgraph for Sepolia (or replace with mainnet as needed)
-const SABLIER_SUBGRAPH_URL = 'https://api.thegraph.com/subgraphs/name/sablier-labs/sablier-v2-sepolia';
+const SABLIER_SUBGRAPH_URL = 'https://gateway.thegraph.com/api/deploy-key/subgraphs/id/CsDNYv8qL6m8CZZbrx8X9B9Y6pQ';
 
 const SABLIER_ENABLED = process.env.EVM_SABLIER_ENABLED === 'true';
 
 const fetchSablierStreams = async (wallets = []) => {
-    if (!SABLIER_ENABLED || !wallets || wallets.length === 0) {
+    if (!SABLIER_ENABLED) {
         return [];
     }
 
     const normalizedWallets = wallets.map(w => w.toLowerCase());
+    const hasWallets = normalizedWallets.length > 0;
 
     const query = gql`
-    query GetStreams($recipients: [Bytes!]) {
-      streams(where: { recipient_in: $recipients, status_not: "DEPLETED" }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
+    query GetStreams($recipients: [Bytes!], $hasWallets: Boolean!) {
+      streams(where: { 
+        OR: [
+          { recipient_in: $recipients },
+          { recipient_not: "0x0000000000000000000000000000000000000000" } 
+        ]
+        status_not: "DEPLETED" 
+      }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
         id
         contract
         recipient
@@ -36,7 +43,10 @@ const fetchSablierStreams = async (wallets = []) => {
   `;
 
     try {
-        const data = await request(SABLIER_SUBGRAPH_URL, query, { recipients: normalizedWallets });
+        const data = await request(SABLIER_SUBGRAPH_URL, query, { 
+            recipients: normalizedWallets,
+            hasWallets
+        });
         if (!data || !data.streams) return [];
 
         const now = Math.floor(Date.now() / 1000);

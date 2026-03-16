@@ -32,15 +32,7 @@ import {
   Tooltip 
 } from "recharts";
 
-const yieldData = [
-  { name: "Mon", apy: 3.8 },
-  { name: "Tue", apy: 4.2 },
-  { name: "Wed", apy: 4.5 },
-  { name: "Thu", apy: 4.3 },
-  { name: "Fri", apy: 4.8 },
-  { name: "Sat", apy: 5.2 },
-  { name: "Sun", apy: 5.1 },
-];
+// Historical APY placeholder (can be expanded later with real historical data)
 
 export default function Lend() {
   const { address } = useAccount();
@@ -72,10 +64,42 @@ export default function Lend() {
     queryFn: () => api.fetchPools()
   });
 
+  const { data: yieldHistory, isLoading: yieldLoading } = useQuery({
+    queryKey: ['yieldHistory'],
+    queryFn: () => api.fetchYieldHistory()
+  });
+
+  const [faucetLoading, setFaucetLoading] = useState(false);
+
+  const handleFaucet = async () => {
+    if (!address) return;
+    setFaucetLoading(true);
+    try {
+      await api.faucetUsdc(address);
+      alert("Testnet USDC faucet transaction submitted!");
+    } catch (err: any) {
+      alert(err.message || "Faucet failed");
+    } finally {
+      setFaucetLoading(false);
+    }
+  };
+
   const formattedTotalSupplied = useMemo(() => {
     if (!totalDeposits) return "0.00";
-    return (Number(totalDeposits) / 1e6).toFixed(2);
+    return (Number(totalDeposits) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2 });
   }, [totalDeposits]);
+
+  const marketMetrics = useMemo(() => {
+    if (!poolsData?.items || poolsData.items.length === 0) return { apy: "0.00", activeLenders: 0, health: "100" };
+    const items = poolsData.items;
+    const avgApy = items.reduce((acc: number, p: any) => acc + parseFloat(p.apy || "0"), 0) / items.length;
+    const totalLenders = items.reduce((acc: number, p: any) => acc + (p.participantCount || 0), 0);
+    return {
+      apy: isNaN(avgApy) ? "0.00" : avgApy.toFixed(2),
+      activeLenders: totalLenders,
+      health: "99.9"
+    };
+  }, [poolsData]);
 
   const poolsList = useMemo(() => {
     if (!poolsData?.items) return [];
@@ -96,13 +120,23 @@ export default function Lend() {
           <h1 className="text-4xl font-display font-bold text-glow-teal">Capital Markets</h1>
           <p className="text-secondary mt-1">Supply liquidity to verified vesting-collateralized pools.</p>
         </div>
-        <button 
-          onClick={() => setIsStakeModalOpen(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-accent-teal text-background font-bold hover:opacity-90 transition-all shadow-[0_0_20px_rgba(46,190,181,0.2)]"
-        >
-          <Plus className="w-5 h-5" />
-          <span>New Stake</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleFaucet}
+            disabled={faucetLoading || !address}
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-secondary font-bold hover:bg-white/10 transition-all disabled:opacity-50"
+          >
+            {faucetLoading ? <Activity className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+            <span>Get Testnet USDC</span>
+          </button>
+          <button 
+            onClick={() => setIsStakeModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-accent-teal text-background font-bold hover:opacity-90 transition-all shadow-[0_0_20px_rgba(46,190,181,0.2)]"
+          >
+            <Plus className="w-5 h-5" />
+            <span>New Stake</span>
+          </button>
+        </div>
       </header>
 
       {/* Market Metrics */}
@@ -119,7 +153,7 @@ export default function Lend() {
         />
         <MetricCard
           label="Average Yield"
-          value={<ZKShield variant="blur">5.24%</ZKShield>}
+          value={<ZKShield variant="blur">{`${marketMetrics.apy}%`}</ZKShield>}
           subValue="Cross-protocol base APY"
           trend="up"
           change={0.15}
@@ -128,7 +162,7 @@ export default function Lend() {
         />
         <MetricCard
           label="Protocol Health"
-          value="99.8%"
+          value={`${marketMetrics.health}%`}
           subValue="Collateralization Ratio"
           trend="neutral"
           icon={<ShieldCheck className="w-5 h-5" />}
@@ -136,8 +170,8 @@ export default function Lend() {
         />
         <MetricCard
           label="Active Lenders"
-          value="428"
-          subValue="Across 12 verified pools"
+          value={marketMetrics.activeLenders.toString()}
+          subValue={`Across ${poolsData?.items?.length || 0} pools`}
           trend="neutral"
           icon={<Activity className="w-5 h-5" />}
           className="bg-white/5 border-white/10"
@@ -154,12 +188,15 @@ export default function Lend() {
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-white/10 text-xs">
               <span className="text-secondary">Market Avg:</span>
-              <span className="text-accent-teal font-bold">5.1%</span>
+              <span className="text-accent-teal font-bold">{marketMetrics.apy}%</span>
             </div>
           </CardHeader>
           <CardContent>
             <ChartContainer height={260}>
-              <AreaChart data={yieldData}>
+              {yieldLoading ? (
+                <div className="h-full flex items-center justify-center text-secondary text-xs">Loading performance data...</div>
+              ) : (
+                <AreaChart data={yieldHistory?.data || []}>
                 <defs>
                   <linearGradient id="yieldGlow" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2EBEB5" stopOpacity={0.2}/>
@@ -172,6 +209,7 @@ export default function Lend() {
                 <Tooltip />
                 <Area type="monotone" dataKey="apy" stroke="#2EBEB5" strokeWidth={2} fill="url(#yieldGlow)" />
               </AreaChart>
+              )}
             </ChartContainer>
           </CardContent>
         </Card>
@@ -191,7 +229,7 @@ export default function Lend() {
               </div>
               <div>
                 <h4 className="font-bold">Aggressive Yield</h4>
-                <p className="text-xs text-secondary mt-1">Currently optimizing for maximum return across ASI & VSTR pools.</p>
+                <p className="text-xs text-secondary mt-1">Currently optimizing for maximum return across global VESTRA pools.</p>
               </div>
             </div>
             
@@ -292,11 +330,7 @@ export default function Lend() {
                 )
               }
             ] as any}
-            data={poolsList.length > 0 ? poolsList : [
-              { name: "Vestra Core USDC", capacity: "$2.5M", utilization: "62%", apy: "4.8%", risk: "Low", action: "Supply" },
-              { name: "ASI Ecosystem Growth", capacity: "$1.2M", utilization: "24%", apy: "8.2%", risk: "Medium", action: "Supply" },
-              { name: "Global Fintech Alpha", capacity: "$850K", utilization: "92%", apy: "5.4%", risk: "Low", action: "Supply" },
-            ]}
+            data={poolsList}
           />
         </CardContent>
       </Card>

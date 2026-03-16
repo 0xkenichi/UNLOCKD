@@ -6,14 +6,14 @@ const persistence = require('../persistence');
 class SovereignRelayer {
   constructor() {
     this.isRunning = false;
-    this.pollIntervalSeconds = 30; // Polling window for global sync
+    this.pollIntervalSeconds = 120; // Polling window for global sync (~10-15 blocks)
   }
 
   async start() {
     if (this.isRunning) return;
     this.isRunning = true;
     console.log('[SovereignRelayer] Activated for Sovereign Liquidity.');
-    
+
     // Start periodic polling in the background
     this.runPolling();
   }
@@ -28,9 +28,13 @@ class SovereignRelayer {
       try {
         await this.pulse();
       } catch (err) {
-        console.error('[SovereignRelayer] Pulse cycle failed:', err.message);
+        console.error('[SovereignRelayer] CRITICAL PULSE ERROR:', err.message);
+        if (err.message.includes('user_loans')) {
+          console.warn('[SovereignRelayer] Table "user_loans" still missing. Please apply migrations/0011_user_loans_and_collateral.sql');
+        }
       }
       // Wait for next block window (simulated)
+      console.log(`[SovereignRelayer] Waiting ${this.pollIntervalSeconds}s for next pulse...`);
       await new Promise(resolve => setTimeout(resolve, this.pollIntervalSeconds * 1000));
     }
   }
@@ -41,22 +45,25 @@ class SovereignRelayer {
   async pulse() {
     const startTime = Date.now();
     console.log(`[SovereignRelayer] Initiating sovereign data acquisition pulse...`);
-    
+
     // 1. Get all wallets that have used the protocol recently
     const activeWallets = await persistence.getRecentWallets();
     const sovereignWallets = await persistence.getActiveSovereignWallets();
-    
+
     // Combine and unique
     const targetWallets = [...new Set([...activeWallets, ...sovereignWallets])];
-    
+
     console.log(`[SovereignRelayer] Scanning ${targetWallets.length} active wallets for sovereign assets.`);
 
-    // 2. Poll data for each wallet (batched)
+    // 2. Global Protocol Sync (Proactive Discovery)
+    await SovereignDataService.syncGlobalProtocols();
+
+    // 3. Poll data for each wallet (batched)
     const BATCH_SIZE = 5;
     for (let i = 0; i < targetWallets.length; i += BATCH_SIZE) {
       if (!this.isRunning) break;
       const batch = targetWallets.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(batch.map(wallet => 
+      await Promise.allSettled(batch.map(wallet =>
         SovereignDataService.discoverAndMirror(wallet, 'all')
       ));
     }
@@ -72,17 +79,17 @@ class SovereignRelayer {
    * Cross-verify Pyth, Chainlink, DIA, and Mobula for top collateral assets
    */
   async updateGlobalConsensus() {
-    const assets = ['VSTR', 'SOL', 'ETH', 'USDC'];
+    const assets = ['SOL', 'ETH', 'USDC', 'BIO', 'SPINE'];
     try {
       for (const asset of assets) {
         const consensusPrice = await SovereignDataService.getConsensusPrice(asset);
         if (consensusPrice > 0) {
           console.log(`[SovereignRelayer] Verified Global Consensus for ${asset}: $${consensusPrice.toFixed(4)}`);
-          
+
           // If RedStone is the source, log that the Pull Model payload is ready
           const providers = await SovereignDataService.getConsensusPrice(asset, true); // Future: return provider details
           console.log(`[SovereignRelayer] RedStone Pull Model payload ready for ${asset}`);
-          
+
           await persistence.setMeta(`consensus_price_${asset}`, consensusPrice);
         }
       }

@@ -743,15 +743,23 @@ router.get('/portfolio/:wallet', async (req, res) => {
             }
         }
 
-        // 4. Sovereign Discovery & Mirroring
+        // 4. Sovereign Discovery & Mirroring (Fire and forget if needed, but we await settled for completeness)
         const sovereignTasks = [];
+        const wrapDiscovery = (w, c) => SovereignDataService.discoverAndMirror(w, c)
+            .catch(e => console.error(`[scanner] discovery failed for ${w}:`, e.message));
+
         if (chain === 'all' || chain === 'evm') {
-            targetWallets.evm.forEach(w => sovereignTasks.push(SovereignDataService.discoverAndMirror(w, 'evm')));
+            targetWallets.evm.forEach(w => sovereignTasks.push(wrapDiscovery(w, 'evm')));
         }
         if (chain === 'all' || chain === 'solana') {
-            targetWallets.solana.forEach(w => sovereignTasks.push(SovereignDataService.discoverAndMirror(w, 'solana')));
+            targetWallets.solana.forEach(w => sovereignTasks.push(wrapDiscovery(w, 'solana')));
         }
-        await Promise.allSettled(sovereignTasks);
+        
+        // We set a hard timeout for sovereign discovery to prevent hanging the whole scanner
+        await Promise.race([
+            Promise.allSettled(sovereignTasks),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Sovereign discovery timeout')), 10000))
+        ]).catch(e => console.warn('[scanner] sovereign discovery timed out or failed partially:', e.message));
 
         // 5. Assets from mirrored Sovereign DB
         if (chain === 'all' || chain === 'evm') {

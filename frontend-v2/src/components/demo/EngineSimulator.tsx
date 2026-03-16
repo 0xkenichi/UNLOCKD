@@ -57,9 +57,13 @@ interface Agent {
   balance: number;
 }
 
-const NETWORKS = ['Ethereum', 'Solana', 'Base', 'ASI Chain', 'Arbitrum'];
+const NETWORKS = ['Ethereum', 'Solana', 'Base', 'Vestra Protocol', 'Arbitrum'];
+
+import { useAccount } from 'wagmi';
+import { api } from '@/utils/api';
 
 export default function AdvancedSimulator() {
+  const { address } = useAccount();
   const [allocations, setAllocations] = useState<Allocation[]>([
     { id: '1', name: 'Seed Founder', amount: 1000000, cliffMonths: 6, totalDurationMonths: 48, network: 'Ethereum', custodyMode: 'self' }
   ]);
@@ -126,9 +130,36 @@ export default function AdvancedSimulator() {
     return () => clearInterval(interval);
   }, [isSimulating, agents]);
 
-  const generateContract = () => {
-    setGenerationHash('0x' + Math.random().toString(16).slice(2, 42));
-    setTimeout(() => setGenerationHash(null), 3000);
+  const generateContract = async () => {
+    if (!address) {
+      alert("Please connect your wallet to deploy mock vesting.");
+      return;
+    }
+    
+    const hash = '0x' + Math.random().toString(16).slice(2, 42);
+    setGenerationHash(hash);
+    
+    try {
+      // Map network to a symbol for the demo
+      const symbol = activeAlloc.network === 'Solana' ? 'SOL' : 
+                     (activeAlloc.network === 'Ethereum' ? 'ETH' : 
+                     (activeAlloc.network === 'Base' ? 'USDC' : 'VESTRA'));
+                     
+      await api.generateVesting({
+        wallet: address,
+        symbol: symbol,
+        amount: activeAlloc.amount.toString()
+      });
+      
+      // Dispatch event to refresh portfolio and other pages
+      window.dispatchEvent(new CustomEvent('refresh-portfolio'));
+      window.dispatchEvent(new CustomEvent('refresh-loans'));
+    } catch (err: any) {
+      console.error("Failed to generate vesting:", err);
+      alert(err.message || "Failed to persist vesting to backend");
+    }
+    
+    setTimeout(() => setGenerationHash(null), 5000);
   };
 
   return (

@@ -102,10 +102,21 @@ async function getPriceBehavior(tokenOrSymbol, chainId) {
   out.price = spot.price;
   out.source = spot.source;
 
-  const { ath, atl, source: athAtlSource } = getAthAtlFromEnv(symbol || 'UNKNOWN');
-  out.ath = ath;
-  out.atl = atl;
+  const { ath: envAth, atl: envAtl, source: athAtlSource } = getAthAtlFromEnv(symbol || 'UNKNOWN');
+  out.ath = envAth;
+  out.atl = envAtl;
   out.athAtlSource = athAtlSource;
+
+  // Fallback to Mobula if env is missing
+  if (out.ath === null || out.atl === null) {
+    const mobulaData = await require('./SovereignDataService').fetchMobulaMarketData(symbol || tokenOrSymbol);
+    if (mobulaData) {
+      out.ath = mobulaData.ath || out.ath;
+      out.atl = mobulaData.atl || out.atl;
+      out.price = mobulaData.price || out.price;
+      out.athAtlSource = 'Mobula';
+    }
+  }
 
   if (out.price != null && out.price > 0 && out.ath != null && out.atl != null && out.ath >= out.atl && out.atl > 0) {
     const { drawdownBps, rangeRatioBps } = computeMetrics(out.price, out.ath, out.atl);

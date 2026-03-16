@@ -27,13 +27,12 @@ export function usePassportSnapshot(address: string | undefined): PassportSummar
     api.fetchIdentity(address)
       .then((profile: any) => {
         if (!active) return;
-        const snapshot = getPassportSnapshotFromAttestations(profile?.attestations);
+        const snapshot = getPassportSnapshotFromAttestations(profile?.attestations, profile);
         setPassportSummary({
           loading: false,
-          score: snapshot.score,
-          stamps: snapshot.stamps,
+          ...snapshot,
           error: null
-        });
+        } as PassportSummary);
       })
       .catch((err) => {
         if (!active) return;

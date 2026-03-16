@@ -320,6 +320,7 @@ const initSqlite = () => {
       stream_id TEXT,
       last_synced_at TEXT,
       consensus_score REAL DEFAULT 1.0,
+      metadata TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS staked_sources (
@@ -484,6 +485,60 @@ const initSqlite = () => {
     );
     CREATE INDEX IF NOT EXISTS idx_relayer_nonces_user ON relayer_nonces (user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_relayer_nonces_expires ON relayer_nonces (expires_at) WHERE expires_at IS NOT NULL;
+
+    -- Tokenomics Master Archive Tables
+    CREATE TABLE IF NOT EXISTS token_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      symbol TEXT,
+      description TEXT,
+      category TEXT,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS token_allocations (
+      id TEXT PRIMARY KEY,
+      token_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount_percentage REAL,
+      is_locked INTEGER,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(token_id) REFERENCES token_projects(id)
+    );
+    CREATE TABLE IF NOT EXISTS token_investors (
+      id TEXT PRIMARY KEY,
+      token_id TEXT NOT NULL,
+      investor_name TEXT,
+      investor_type TEXT,
+      amount TEXT,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(token_id) REFERENCES token_projects(id)
+    );
+    CREATE TABLE IF NOT EXISTS token_fundraising (
+      id TEXT PRIMARY KEY,
+      token_id TEXT NOT NULL,
+      round_name TEXT,
+      amount_raised TEXT,
+      valuation TEXT,
+      token_price TEXT,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(token_id) REFERENCES token_projects(id)
+    );
+    CREATE TABLE IF NOT EXISTS token_unlock_events (
+      id TEXT PRIMARY KEY,
+      token_id TEXT NOT NULL,
+      event_type TEXT,
+      occurrence_date TEXT,
+      amount TEXT,
+      percentage REAL,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(token_id) REFERENCES token_projects(id)
+    );
   `);
   try {
     const vCols = sqlite.prepare('PRAGMA table_info(vesting_sources)').all();
@@ -492,6 +547,9 @@ const initSqlite = () => {
     }
     if (vCols.every((c) => c.name !== 'consensus_score')) {
       sqlite.exec('ALTER TABLE vesting_sources ADD COLUMN consensus_score REAL DEFAULT 1.0');
+    }
+    if (vCols.every((c) => c.name !== 'metadata')) {
+      sqlite.exec('ALTER TABLE vesting_sources ADD COLUMN metadata TEXT');
     }
 
     const cols = sqlite.prepare('PRAGMA table_info(events)').all();
@@ -2687,7 +2745,8 @@ const saveVestingSource = async ({
   lockupAddress = null,
   streamId = null,
   lastSyncedAt = null,
-  consensusScore = 1.0
+  consensusScore = 1.0,
+  metadata = null
 }) => {
   const finalId = id || createId();
   const createdAt = new Date().toISOString();
@@ -2702,6 +2761,7 @@ const saveVestingSource = async ({
         stream_id: streamId || null,
         last_synced_at: lastSyncedAt || null,
         consensus_score: consensusScore,
+        metadata: metadata ? (typeof metadata === 'string' ? JSON.parse(metadata) : metadata) : null,
         created_at: createdAt
       },
       { onConflict: 'id' }
@@ -2709,15 +2769,16 @@ const saveVestingSource = async ({
     if (error) throw new Error(`[supabase] saveVestingSource failed: ${error.message}`);
     return { id: finalId, createdAt };
   }
-  sqlite
+    sqlite
     .prepare(
-      `INSERT INTO vesting_sources (id, chain_id, vesting_contract, protocol, lockup_address, stream_id, last_synced_at, consensus_score, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO vesting_sources (id, chain_id, vesting_contract, protocol, lockup_address, stream_id, last_synced_at, consensus_score, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          last_synced_at = excluded.last_synced_at,
-         consensus_score = excluded.consensus_score`
+         consensus_score = excluded.consensus_score,
+         metadata = excluded.metadata`
     )
-    .run(finalId, String(chainId), String(vestingContract), String(protocol), lockupAddress || null, streamId || null, lastSyncedAt || null, consensusScore, createdAt);
+    .run(finalId, String(chainId), String(vestingContract), String(protocol), lockupAddress || null, streamId || null, lastSyncedAt || null, consensusScore, metadata ? JSON.stringify(metadata) : null, createdAt);
   return { id: finalId, createdAt };
 };
 
@@ -3341,7 +3402,7 @@ const listVestingSources = async ({ chainId, protocol, limit = 100 } = {}) => {
   if (useSupabase) {
     let q = supabaseClient()
       .from('vesting_sources')
-      .select('id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at')
+      .select('id, chain_id, vesting_contract, protocol, lockup_address, stream_id, last_synced_at, consensus_score, metadata, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (chainId) q = q.eq('chain_id', String(chainId));
@@ -3355,10 +3416,13 @@ const listVestingSources = async ({ chainId, protocol, limit = 100 } = {}) => {
       protocol: r.protocol,
       lockupAddress: r.lockup_address,
       streamId: r.stream_id,
+      lastSyncedAt: r.last_synced_at,
+      consensusScore: r.consensus_score,
+      metadata: r.metadata,
       createdAt: r.created_at
     }));
   }
-  let sql = 'SELECT id, chain_id, vesting_contract, protocol, lockup_address, stream_id, created_at FROM vesting_sources WHERE 1=1';
+  let sql = 'SELECT id, chain_id, vesting_contract, protocol, lockup_address, stream_id, last_synced_at, consensus_score, metadata, created_at FROM vesting_sources WHERE 1=1';
   const params = [];
   if (chainId) { sql += ' AND chain_id = ?'; params.push(String(chainId)); }
   if (protocol) { sql += ' AND protocol = ?'; params.push(String(protocol)); }
@@ -3372,6 +3436,9 @@ const listVestingSources = async ({ chainId, protocol, limit = 100 } = {}) => {
     protocol: r.protocol,
     lockupAddress: r.lockup_address,
     streamId: r.stream_id,
+    lastSyncedAt: r.last_synced_at,
+    consensusScore: r.consensus_score,
+    metadata: r.metadata ? JSON.parse(r.metadata) : null,
     createdAt: r.created_at
   }));
 };
@@ -3587,6 +3654,133 @@ const getRecentWallets = async () => {
   return rows.map(r => r.wallet_address);
 };
 
+const saveTokenProject = async ({ id, name, symbol, description, category, metadata }) => {
+  const updatedAt = new Date().toISOString();
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('token_projects').upsert({
+      id, name, symbol, description, category, metadata, updated_at: updatedAt
+    });
+    if (error) throw new Error(`[supabase] saveTokenProject failed: ${error.message}`);
+    return true;
+  }
+  sqlite.prepare(`
+    INSERT INTO token_projects (id, name, symbol, description, category, metadata, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      symbol = excluded.symbol,
+      description = excluded.description,
+      category = excluded.category,
+      metadata = excluded.metadata,
+      updated_at = excluded.updated_at
+  `).run(id, name, symbol, description, category, metadata ? JSON.stringify(metadata) : null, updatedAt);
+  return true;
+};
+
+const saveTokenAllocation = async ({ id, tokenId, category, amountPercentage, isLocked, metadata }) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('token_allocations').upsert({
+      id: id || createId(),
+      token_id: tokenId,
+      category,
+      amount_percentage: amountPercentage,
+      is_locked: isLocked ? 1 : 0,
+      metadata
+    });
+    if (error) throw new Error(`[supabase] saveTokenAllocation failed: ${error.message}`);
+    return true;
+  }
+  sqlite.prepare(`
+    INSERT INTO token_allocations (id, token_id, category, amount_percentage, is_locked, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      category = excluded.category,
+      amount_percentage = excluded.amount_percentage,
+      is_locked = excluded.is_locked,
+      metadata = excluded.metadata
+  `).run(id || createId(), tokenId, category, amountPercentage, isLocked ? 1 : 0, metadata ? JSON.stringify(metadata) : null);
+  return true;
+};
+
+const saveTokenInvestor = async ({ id, tokenId, investorName, investorType, amount, metadata }) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('token_investors').upsert({
+      id: id || createId(),
+      token_id: tokenId,
+      investor_name: investorName,
+      investor_type: investorType,
+      amount,
+      metadata
+    });
+    if (error) throw new Error(`[supabase] saveTokenInvestor failed: ${error.message}`);
+    return true;
+  }
+  sqlite.prepare(`
+    INSERT INTO token_investors (id, token_id, investor_name, investor_type, amount, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      investor_name = excluded.investor_name,
+      investor_type = excluded.investor_type,
+      amount = excluded.amount,
+      metadata = excluded.metadata
+  `).run(id || createId(), tokenId, investorName, investorType, amount, metadata ? JSON.stringify(metadata) : null);
+  return true;
+};
+
+const saveTokenFundraising = async ({ id, tokenId, roundName, amountRaised, valuation, tokenPrice, metadata }) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('token_fundraising').upsert({
+      id: id || createId(),
+      token_id: tokenId,
+      round_name: roundName,
+      amount_raised: amountRaised,
+      valuation,
+      token_price: tokenPrice,
+      metadata
+    });
+    if (error) throw new Error(`[supabase] saveTokenFundraising failed: ${error.message}`);
+    return true;
+  }
+  sqlite.prepare(`
+    INSERT INTO token_fundraising (id, token_id, round_name, amount_raised, valuation, token_price, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      round_name = excluded.round_name,
+      amount_raised = excluded.amount_raised,
+      valuation = excluded.valuation,
+      token_price = excluded.token_price,
+      metadata = excluded.metadata
+  `).run(id || createId(), tokenId, roundName, amountRaised, valuation, tokenPrice, metadata ? JSON.stringify(metadata) : null);
+  return true;
+};
+
+const saveTokenUnlockEvent = async ({ id, tokenId, eventType, occurrenceDate, amount, percentage, metadata }) => {
+  if (useSupabase) {
+    const { error } = await supabaseClient().from('token_unlock_events').upsert({
+      id: id || createId(),
+      token_id: tokenId,
+      event_type: eventType,
+      occurrence_date: occurrenceDate,
+      amount,
+      percentage,
+      metadata
+    });
+    if (error) throw new Error(`[supabase] saveTokenUnlockEvent failed: ${error.message}`);
+    return true;
+  }
+  sqlite.prepare(`
+    INSERT INTO token_unlock_events (id, token_id, event_type, occurrence_date, amount, percentage, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      event_type = excluded.event_type,
+      occurrence_date = excluded.occurrence_date,
+      amount = excluded.amount,
+      percentage = excluded.percentage,
+      metadata = excluded.metadata
+  `).run(id || createId(), tokenId, eventType, occurrenceDate, amount, percentage, metadata ? JSON.stringify(metadata) : null);
+  return true;
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -3634,6 +3828,11 @@ module.exports = {
   upsertIdentityProfile,
   listIdentityAttestations,
   upsertIdentityAttestation,
+  saveTokenProject,
+  saveTokenAllocation,
+  saveTokenInvestor,
+  saveTokenFundraising,
+  saveTokenUnlockEvent,
   saveVestingSource,
   saveStakedSource,
   saveLockedSource,

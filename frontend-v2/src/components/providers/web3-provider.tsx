@@ -11,6 +11,7 @@ import {
   sepolia, 
   mainnet, 
   base, 
+  baseSepolia,
   arbitrum, 
   avalanche 
 } from 'wagmi/chains';
@@ -53,6 +54,7 @@ const config = getDefaultConfig({
     sepolia, 
     mainnet, 
     base, 
+    baseSepolia,
     arbitrum, 
     avalanche, 
     flowEvm as any, 
@@ -81,8 +83,7 @@ const config = getDefaultConfig({
 const queryClient = new QueryClient();
 
 import { StealthProvider } from './stealth-provider';
-
-// ... (rest of imports)
+import { SolanaProvider } from './solana-provider';
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
@@ -98,9 +99,11 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
           })}
           modalSize="compact"
         >
-          <StealthProvider>
-            {children}
-          </StealthProvider>
+          <SolanaProvider>
+            <StealthProvider>
+              {children}
+            </StealthProvider>
+          </SolanaProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

@@ -35,31 +35,6 @@ import { useQuery } from "@tanstack/react-query";
 import { getContract, loanManagerAbi, usdcAbi } from "@/config/contracts";
 import { api } from "@/utils/api";
 
-const performanceData = [
-  { name: "Mon", value: 45000 },
-  { name: "Tue", value: 52000 },
-  { name: "Wed", value: 48000 },
-  { name: "Thu", value: 61000 },
-  { name: "Fri", value: 59000 },
-  { name: "Sat", value: 68000 },
-  { name: "Sun", value: 72400 },
-];
-
-const allocationData = [
-  { name: "Locked VSTR", value: 45, color: "#2EBEB5" },
-  { name: "Vested USDC", value: 25, color: "#40E0FF" },
-  { name: "Liquidity Pools", value: 20, color: "#1E2A44" },
-  { name: "Staked Assets", value: 10, color: "#ffffff20" },
-];
-
-const unlockData = [
-  { month: "Jul", amount: 12000 },
-  { month: "Aug", amount: 15000 },
-  { month: "Sep", amount: 8000 },
-  { month: "Oct", amount: 22000 },
-  { month: "Nov", amount: 18000 },
-  { month: "Dec", amount: 12000 },
-];
 
 export default function Portfolio() {
   const { address } = useAccount();
@@ -98,6 +73,18 @@ export default function Portfolio() {
     enabled: !!address
   });
 
+  const { data: performance, isLoading: performanceLoading } = useQuery({
+    queryKey: ['performance', address],
+    queryFn: () => api.fetchPerformance(address!),
+    enabled: !!address
+  });
+
+  const { data: profile } = useQuery({
+    queryKey: ['identity', address],
+    queryFn: () => api.fetchIdentity(address!),
+    enabled: !!address
+  });
+
   const formattedUsdc = useMemo(() => {
     if (!usdcBalance) return "0.00";
     return (Number(usdcBalance) / 1e6).toFixed(2);
@@ -123,12 +110,48 @@ export default function Portfolio() {
     return items.map((loan: any) => ({
       id: loan.id,
       amount: `$${Number(loan.amount).toLocaleString()}`,
-      apr: `${(loan.apr_bps / 100).toFixed(2)}%`,
+      apr: `${(loan.aprBps / 100).toFixed(2)}%`,
       status: loan.status,
-      date: new Date(loan.created_at).toLocaleDateString(),
-      collateral: loan.collateral?.[0]?.source_id || "Vested Stream"
+      date: new Date(loan.createdAt).toLocaleDateString(),
+      collateral: loan.collateral?.[0]?.sourceId || "Vested Stream"
     }));
   }, [userLoans]);
+
+  const allocationData = useMemo(() => {
+    const contracts = Array.isArray(vestedContracts) ? vestedContracts : (vestedContracts as any)?.items || [];
+    if (contracts.length === 0) return [
+      { name: "No Assets Discovered", value: 100, color: "#ffffff10" }
+    ];
+    
+    const totalsByAsset: Record<string, number> = {};
+    contracts.forEach((c: any) => {
+      const sym = c.symbol || "UNKNOWN";
+      totalsByAsset[sym] = (totalsByAsset[sym] || 0) + (Number(c.pv) / 1e6);
+    });
+
+    const total = Object.values(totalsByAsset).reduce((a, b) => a + b, 0);
+    const colors = ["#2EBEB5", "#40E0FF", "#1E2A44", "#ffffff50"];
+    
+    return Object.entries(totalsByAsset).map(([name, value], i) => ({
+      name,
+      value: Math.round((value / total) * 100),
+      color: colors[i % colors.length]
+    }));
+  }, [vestedContracts]);
+
+  const unlockData = useMemo(() => {
+    // Generate projection based on active vesting
+    const months = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const contracts = Array.isArray(vestedContracts) ? vestedContracts : (vestedContracts as any)?.items || [];
+    
+    return months.map((m, i) => {
+       const amount = contracts.reduce((acc: number, c: any) => {
+         // Mock distribution for the trial
+         return acc + (Number(c.pv || 0) / 6) * (0.8 + Math.random() * 0.4);
+       }, 0);
+       return { month: m, amount: Math.round(amount / 1e6) };
+    });
+  }, [vestedContracts]);
 
   const totalDebt = useMemo(() => {
     const items = userLoans?.items || [];
@@ -174,8 +197,8 @@ export default function Portfolio() {
         />
         <MetricCard
           label="Trust Score"
-          value="742"
-          subValue="Vestra Protocol Health"
+          value={profile?.compositeScore || "---"}
+          subValue={profile?.tierName || "Calculating..."}
           trend="neutral"
           icon={<ShieldCheck className="w-5 h-5 font-bold" />}
           className="bg-white/5 border-white/10"
@@ -190,7 +213,10 @@ export default function Portfolio() {
           </CardHeader>
           <CardContent>
             <ChartContainer>
-              <AreaChart data={performanceData}>
+              {performanceLoading ? (
+                <div className="h-full flex items-center justify-center text-secondary text-xs">Loading performance...</div>
+              ) : (
+                <AreaChart data={performance?.data || []}>
                 <defs>
                   <linearGradient id="performanceGlow" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#40E0FF" stopOpacity={0.3}/>
@@ -203,6 +229,7 @@ export default function Portfolio() {
                 <Tooltip />
                 <Area type="monotone" dataKey="value" stroke="#40E0FF" strokeWidth={2} fill="url(#performanceGlow)" />
               </AreaChart>
+              )}
             </ChartContainer>
           </CardContent>
         </Card>
@@ -264,7 +291,7 @@ export default function Portfolio() {
                 },
               ]}
               data={activeVesting.length > 0 ? activeVesting : [
-                { asset: "VSTR-LP", protocol: "Vestra", quantity: "12,500", value: "$10,500", unlock: "Dec 12, 2026", status: "Active" },
+                { asset: "VESTRA-LP", protocol: "Vestra", quantity: "12,500", value: "$10,500", unlock: "Dec 12, 2026", status: "Active" },
               ]}
             />
           </CardContent>
@@ -325,7 +352,7 @@ export default function Portfolio() {
             <p className="text-secondary text-sm mt-1">Prepare your liquidity strategy.</p>
           </div>
           <div className="text-3xl font-display font-bold text-glow-cyan">July 14, 2026</div>
-          <p className="text-xs text-secondary">VSTR Global TGE Cliff End</p>
+          <p className="text-xs text-secondary">VESTRA Global TGE Cliff End</p>
           <button className="w-full py-3 rounded-xl bg-accent-teal text-background font-bold text-sm hover:opacity-90 transition-all mt-4">
             Optimize Strategy
           </button>

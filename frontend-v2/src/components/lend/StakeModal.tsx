@@ -6,6 +6,8 @@ import { parseUnits, formatUnits } from "viem";
 import { Modal } from "@/components/ui/Modal";
 import { DollarSign, Clock, TrendingUp, Shield, AlertTriangle } from "lucide-react";
 import { getContract, lendingPoolAbi, usdcAbi } from "@/config/contracts";
+import { api } from "@/utils/api";
+import { toast } from "react-hot-toast";
 
 interface StakeModalProps {
   isOpen: boolean;
@@ -23,6 +25,7 @@ export function StakeModal({ isOpen, onClose, chainId }: StakeModalProps) {
   const { address } = useAccount();
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState(30);
+  const [isFauceting, setIsFauceting] = useState(false);
   
   const lendingPool = getContract(chainId, 'lendingPool');
   const usdc = getContract(chainId, 'usdc');
@@ -60,10 +63,27 @@ export function StakeModal({ isOpen, onClose, chainId }: StakeModalProps) {
 
     writeApprove({
       address: usdc,
-      abi: usdcAbi as any, // usdcAbi might need more fields but usually approve is same
+      abi: usdcAbi as any,
       functionName: 'approve',
       args: [lendingPool, parsedAmount],
     });
+  };
+
+  const handleFaucet = async () => {
+    if (!address) return;
+    setIsFauceting(true);
+    try {
+      const res = await api.post('/api/faucet/usdc', { address });
+      if (res.ok) {
+        toast.success(`Received ${res.amount} Testnet USDC!`);
+      } else {
+        toast.error(res.error || "Faucet failed");
+      }
+    } catch (err) {
+      toast.error("Endpoint not reachable");
+    } finally {
+      setIsFauceting(false);
+    }
   };
 
   return (
@@ -90,6 +110,13 @@ export function StakeModal({ isOpen, onClose, chainId }: StakeModalProps) {
           </div>
           <div className="flex justify-between text-xs text-secondary px-2">
             <span>Balance: {usdcBalance !== undefined ? `${formatUnits(usdcBalance, 6)} USDC` : "0.00"}</span>
+            <button 
+              onClick={handleFaucet}
+              disabled={isFauceting}
+              className="text-accent-cyan hover:underline font-bold disabled:opacity-50"
+            >
+              {isFauceting ? "Requesting..." : "Get Testnet USDC"}
+            </button>
           </div>
         </div>
 

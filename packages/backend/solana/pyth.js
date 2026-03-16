@@ -135,6 +135,21 @@ const getPriceForMint = async (mint, symbol) => {
   }
 };
 
+const getPriceForSymbol = async (symbol) => {
+  if (!symbol) return null;
+  try {
+    const feedId = await resolveFeedIdForSymbol(symbol);
+    if (!feedId) {
+      console.warn(`[pyth] could not resolve feedId for symbol: ${symbol}`);
+      return null;
+    }
+    return await fetchHermesPrice(feedId);
+  } catch (error) {
+    console.error(`[pyth] getPriceForSymbol failed for ${symbol}:`, error.message);
+    return null;
+  }
+};
+
 const getFeedMetadata = (mint) => {
   const feedMap = buildFeedMap();
   return feedMap[mint] || null;
@@ -142,5 +157,7 @@ const getFeedMetadata = (mint) => {
 
 module.exports = {
   getPriceForMint,
-  getFeedMetadata
+  getPriceForSymbol,
+  getFeedMetadata,
+  resolveFeedIdForSymbol
 };

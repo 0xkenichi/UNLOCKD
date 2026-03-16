@@ -11,25 +11,18 @@ async function verifyIdentityScoring() {
   const baseResult = computeScore(baseInput);
   console.log(`Base Score: ${baseResult.compositeScore}`);
 
-  // Test 2: ASI Migrated
-  const migratedInput = {
-    identity: { asiMigrated: true },
+  // Test 2: Multi-chain enrichment (Mocked)
+  const enrichmentInput = {
+    identity: { walletAgeMonths: 6 },
     creditHistory: { onChainVolume: 100000, activeMonths: 24 }
   };
-  const migratedResult = computeScore(migratedInput);
-  console.log(`Migrated Score: ${migratedResult.compositeScore}`);
+  const enrichmentResult = computeScore(enrichmentInput);
+  console.log(`Enriched Score: ${enrichmentResult.compositeScore}`);
   
-  if (migratedResult.compositeScore > baseResult.compositeScore) {
-    console.log('✅ ASI Bonus successfully applied (+150 VCS)');
+  if (enrichmentResult.compositeScore >= 500) {
+    console.log('✅ Base identity tier achieved');
   } else {
-    console.log('❌ ASI Bonus failed');
-  }
-
-  // Test 3: Reasons
-  if (migratedResult.reasonCodes.includes('asi_reputation_migrated')) {
-    console.log('✅ Reason code "asi_reputation_migrated" present');
-  } else {
-    console.log('❌ Reason code missing');
+    console.log('❌ Identity scoring below threshold');
   }
 }
 

@@ -61,7 +61,7 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#06080A] text-foreground overflow-x-hidden selection:bg-accent-teal/30">
+    <div className="min-h-screen flex flex-col bg-[#06080A] text-foreground overflow-x-hidden selection:bg-accent-teal/30">
       {/* Header */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-8 py-6 ${scrolled ? 'bg-black/60 backdrop-blur-xl border-b border-white/5' : ''}`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -112,7 +112,7 @@ export default function LandingPage() {
         />
       </div>
 
-      <main className="relative z-10">
+      <main className="relative z-10 flex-grow">
         {/* Hero Section */}
         <section className="min-h-screen flex flex-col items-center justify-center px-6 relative">
           <motion.div

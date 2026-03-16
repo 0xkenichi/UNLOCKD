@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Montserrat, JetBrains_Mono } from "next/font/google";
+import "@solana/wallet-adapter-react-ui/styles.css";
 import "./globals.css";
 import { Web3Provider } from "@/components/providers/web3-provider";
 import AIBubble from "@/components/common/AIBubble";
@@ -30,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="antialiased bg-background text-foreground selection:bg-accent-teal/30">
         <Web3Provider>
           {children}

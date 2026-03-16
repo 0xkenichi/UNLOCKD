@@ -5,15 +5,8 @@ async function test() {
   console.log('--- Starting Sovereign Relayer Verification ---');
   await persistence.init();
   
-  const testWallet = '0x1234567890123456789012345678901234567890';
-  console.log(`--- Seeding Test Data for ${testWallet} ---`);
-  
-  // Insert a test loan to make the wallet "active"
-  const db = persistence.getSqlite();
-  db.prepare(`
-    INSERT OR IGNORE INTO user_loans (id, wallet_address, amount, status)
-    VALUES (?, ?, ?, ?)
-  `).run('test-loan-1', testWallet, '1000', 'active');
+  // No dummy wallet seeding. The relayer should pulse based on existing data in the DB.
+  console.log('--- Scanning DB for existing active wallets ---');
 
   // Start the relayer
   await relayer.start();

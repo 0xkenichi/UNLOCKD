@@ -16,61 +16,42 @@ import { MatrixReveal } from "@/components/stealth/MatrixReveal";
 import { useStealthMode } from "@/components/providers/stealth-provider";
 import { useAccount } from "wagmi";
 import { usePassportSnapshot } from "@/hooks/usePassportSnapshot";
-import { calculateVCS, VCSInputs } from "@/utils/vcs";
-import { fetchASIReputation, ASIReputation, migrateASIReputation } from "@/utils/asiBridge";
 import { generatePOAProof } from "@/utils/zkProof";
 import Link from "next/link";
 import { toast } from "react-hot-toast";
 
 export default function IdentityPage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const { isStealthMode, toggleStealthMode } = useStealthMode();
   const { address, isConnected } = useAccount();
   const passport = usePassportSnapshot(address);
   
-  const [asiRep, setAsiRep] = useState<ASIReputation | null>(null);
-  const [isMigrating, setIsMigrating] = useState(false);
   const [isGeneratingZK, setIsGeneratingZK] = useState(false);
 
-  // ASI Reputation Fetching
-  useEffect(() => {
-    if (isConnected && address) {
-      fetchASIReputation(address).then(setAsiRep);
-    }
-  }, [isConnected, address]);
-
-  // Mocked on-chain data for VCS calculation until we have real multi-chain scanner
-  // Phase 5: Integrating live unlock risk data (mocked for frontend demo until API key injected)
-  const isUnlockRiskActive = true; 
-  const unlockRiskMultiplier = isUnlockRiskActive ? 0.85 : 1.0;
-
-  const vcsInputs: VCSInputs = useMemo(() => ({
-    gitcoinScore: passport.score || 0,
-    gitcoinStamps: passport.stamps || 0,
-    walletAgeDays: isConnected ? 180 : 0, 
-    txCount: isConnected ? 45 : 0, 
-    repaymentCount: 0, 
-    isCexFunded: false,
-    unlockRiskMultiplier
-  }), [passport.score, passport.stamps, isConnected, unlockRiskMultiplier]);
-
-  const rawVcs = useMemo(() => calculateVCS(vcsInputs), [vcsInputs]);
-  const vcs = useMemo(() => {
-    const migratedBonus = asiRep?.verified ? 150 : 0;
-    return { ...rawVcs, score: rawVcs.score + migratedBonus };
-  }, [rawVcs, asiRep]);
-
-  const handleAsiMigration = async () => {
-    if (!address) return;
-    setIsMigrating(true);
-    try {
-      const res = await migrateASIReputation(address);
-      if (res.success) {
-        toast.success("ASI Reputation Migrated!");
-      }
-    } finally {
-      setIsMigrating(false);
-    }
-  };
+  const stats = useMemo(() => [
+    { 
+      label: "Vestra Credit Score", 
+      value: isConnected ? (passport.compositeScore?.toString() || "0") : "000", 
+      delta: "VCS Algorithm", 
+      color: "accent-teal" 
+    },
+    { 
+      label: "Risk Multiplier", 
+      value: isConnected ? `${(passport.multiplier || 1.0).toFixed(2)}x` : "1.00x", 
+      delta: (passport.multiplier || 1.0) < 1.0 ? "Market Risk Applied" : "No Unlock Risk", 
+      color: (passport.multiplier || 1.0) < 1.0 ? "red-400" : "accent-cyan" 
+    },
+    { 
+      label: "Trust Tier", 
+      value: isConnected ? (passport.tierName || "Anonymous") : "Locked", 
+      delta: isConnected ? "Verified Account" : "Connect Wallet", 
+      color: passport.identityTier && passport.identityTier >= 4 ? "accent-teal" : passport.identityTier && passport.identityTier <= 1 ? "red-500" : "gray-400" 
+    },
+  ], [passport, isConnected]);
 
   const handleZKGeneration = async () => {
     if (!address) return;
@@ -83,11 +64,7 @@ export default function IdentityPage() {
     }
   };
 
-  const stats = [
-    { label: "Vestra Credit Score", value: isConnected ? vcs.score.toString() : "000", delta: "VCS Algorithm", color: "accent-teal" },
-    { label: "Risk Multiplier", value: isConnected ? `${vcs.unlockRiskMultiplier.toFixed(2)}x` : "1.00x", delta: isUnlockRiskActive ? "Market Overflow" : "No Unlock Risk", color: isUnlockRiskActive ? "red-400" : "accent-cyan" },
-    { label: "Trust Tier", value: isConnected ? vcs.tier : "Locked", delta: isConnected ? "Institutional" : "Connect Wallet", color: vcs.tier === 'Premium' ? "accent-teal" : vcs.tier === 'At Risk' ? "red-500" : "gray-400" },
-  ];
+  if (!mounted) return null;
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-12">
@@ -142,35 +119,49 @@ export default function IdentityPage() {
           <div className="space-y-6">
             {[
               { label: "Connect Primary Wallet (EVM)", status: isConnected ? "Completed" : "Pending", icon: UserCheck, completed: isConnected },
-              { label: "Gitcoin Passport Score", status: isConnected ? (passport.loading ? "Loading..." : `${passport.score?.toFixed(1) || 0} Score`) : "0.0 Score", icon: Globe, completed: (passport.score || 0) > 0 },
+              { 
+                label: "Gitcoin Passport Score", 
+                status: isConnected ? (passport.loading ? "Loading..." : `${passport.score?.toFixed(1) || 0} Score`) : "0.0 Score", 
+                icon: Globe, 
+                completed: (passport.score || 0) > 0,
+                link: "https://passport.gitcoin.co"
+              },
               { label: "VCS On-Chain History", status: isConnected ? "Active" : "Pending", icon: Shield, completed: isConnected },
-              { label: "ASI Native Rep", status: asiRep ? `Score: ${asiRep.score}` : "Link ASI", icon: Activity, completed: !!asiRep },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between p-6 rounded-2xl bg-black/40 border border-white/5 group hover:border-white/10 transition-all">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.completed ? 'bg-accent-teal/10' : 'bg-white/5'}`}>
-                    <item.icon size={20} className={item.completed ? 'text-accent-teal' : 'text-gray-500'} />
+            ].map((item) => {
+              const statusColor = item.completed ? 'text-accent-teal' : 'text-secondary/40';
+              return (
+                <div key={item.label} className="flex items-center justify-between p-6 rounded-2xl bg-black/40 border border-white/5 group hover:border-white/10 transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.completed ? 'bg-accent-teal/10' : 'bg-white/5'}`}>
+                      <item.icon size={20} className={item.completed ? 'text-accent-teal' : 'text-gray-500'} />
+                    </div>
+                    <div>
+                      <span className="text-sm font-bold block">{item.label}</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-secondary/60">{item.status}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-sm font-bold block">{item.label}</span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-secondary/60">{item.status}</span>
-                  </div>
+                  
+                  {item.completed ? (
+                    <div className="w-6 h-6 rounded-full bg-accent-teal/20 flex items-center justify-center">
+                      <div className="w-2 h-2 rounded-full bg-accent-teal" />
+                    </div>
+                  ) : item.link ? (
+                    <a 
+                      href={item.link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[8px] font-black uppercase tracking-widest text-secondary hover:bg-white/10 transition-all"
+                    >
+                      Get Passport <ExternalLink size={10} />
+                    </a>
+                  ) : (
+                    <div className={`text-[10px] font-black uppercase tracking-widest ${statusColor}`}>
+                      Required
+                    </div>
+                  )}
                 </div>
-                {item.label === "ASI Native Rep" && item.completed ? (
-                  <button 
-                    onClick={handleAsiMigration}
-                    disabled={isMigrating}
-                    className="px-3 py-1.5 rounded-lg bg-accent-teal/20 text-accent-teal text-[8px] font-black uppercase hover:bg-accent-teal/30 transition-all"
-                  >
-                    {isMigrating ? "Migrating..." : "Migrate"}
-                  </button>
-                ) : (
-                  <div className={`text-[10px] font-black uppercase tracking-widest ${item.completed ? 'text-accent-teal' : 'text-secondary/40'}`}>
-                    {item.completed ? 'Verified' : 'Required'}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <button 
@@ -188,9 +179,9 @@ export default function IdentityPage() {
             
             <div className="space-y-8">
               {[
-                { label: "Identity (Gitcoin)", score: vcs.breakdown.identity, max: 400, icon: Fingerprint, color: "accent-teal" },
-                { label: "Financial History", score: vcs.breakdown.history, max: 300, icon: Activity, color: "accent-cyan" },
-                { label: "On-Chain Behavior", score: vcs.breakdown.behavior, max: 300, icon: Shield, color: "accent-teal" },
+                { label: "Identity (Gitcoin)", score: passport.ias || 0, max: 500, icon: Fingerprint, color: "accent-teal" },
+                { label: "Financial History", score: passport.fbs || 0, max: 500, icon: Activity, color: "accent-cyan" },
+                { label: "On-Chain Behavior", score: passport.walletAgeBaseScore || 0, max: 200, icon: Shield, color: "accent-teal" },
               ].map((module) => (
                 <div key={module.label} className="space-y-3">
                   <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
@@ -214,7 +205,7 @@ export default function IdentityPage() {
             <div className="mt-12 p-6 rounded-2xl bg-accent-teal/5 border border-accent-teal/10 flex gap-4">
                <Info className="text-accent-teal shrink-0" size={18} />
                <p className="text-xs text-secondary font-medium leading-relaxed">
-                 {asiRep?.verified ? "ASI Reputation Bridge active: +150 Points applied." : "Sync ASI Reputation to claim loyalty bonuses."}
+                 Sync Gitcoin Passport to improve your Vestra Credit Score and unlock premium borrowing rates.
                </p>
             </div>
           </div>

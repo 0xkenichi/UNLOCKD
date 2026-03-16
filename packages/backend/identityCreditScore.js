@@ -139,21 +139,33 @@ const computeScore = (input = {}) => {
     identity: input.identity || null,
     attestations: input.attestations || []
   });
+  
+  // Wallet Age Base Score (requested by user)
+  // > 6 months = 200, > 3 months = 100, else 0
+  let walletAgeBaseScore = 0;
+  const walletAgeMonths = Number(input.identity?.walletAgeMonths || 0);
+  if (walletAgeMonths >= 6) {
+    walletAgeBaseScore = 200;
+  } else if (walletAgeMonths >= 3) {
+    walletAgeBaseScore = 100;
+  }
+  
   const { fbs, reasonCodes: fbsReasons } = computeFBS({
     creditHistory: input.creditHistory || null
   });
 
-  const compositeScoreRaw = ias + fbs;
-  const migratedBonus = input.identity?.asiMigrated ? 150 : 0;
+  const compositeScoreRaw = ias + fbs + walletAgeBaseScore;
   
   // Apply Unlock Risk Multiplier (Phase 5 Intelligence)
   const multiplier = getUnlockRiskMultiplier(input.marketData?.unlocks);
   
-  const compositeScore = clamp(Math.round((compositeScoreRaw + migratedBonus) * multiplier), 0, 1000);
+  const compositeScore = clamp(Math.round(compositeScoreRaw * multiplier), 0, 1000);
   
   const identityTier = scoreToTier({ ias, fbs, compositeScore });
   const reasonCodes = [...iasReasons, ...fbsReasons];
-  if (migratedBonus > 0) reasonCodes.push('asi_reputation_migrated');
+  if (walletAgeBaseScore > 0) {
+    reasonCodes.push(`wallet_age_bonus:${walletAgeMonths}mo`);
+  }
   if (multiplier < 1.0) reasonCodes.push('upcoming_unlock_risk_adjustment');
 
   return {
@@ -161,6 +173,7 @@ const computeScore = (input = {}) => {
     compositeScore,
     ias,
     fbs,
+    walletAgeBaseScore,
     reasonCodes,
     multiplier,
     modelVersion: MODEL_VERSION

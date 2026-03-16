@@ -15,9 +15,9 @@ export default function AppLayout({
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 lg:ml-64 flex flex-col">
+      <div className="flex-1 lg:ml-64 flex flex-col h-screen overflow-hidden">
         <Header />
-        <main className="flex-1 p-4 lg:p-8 pt-24 lg:pt-28 relative">
+        <main className="flex-1 p-4 lg:p-8 pt-24 lg:pt-28 relative overflow-y-auto overflow-x-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={pathname}
