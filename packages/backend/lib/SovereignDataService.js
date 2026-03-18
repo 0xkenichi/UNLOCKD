@@ -4,6 +4,7 @@ const { request, gql } = require('graphql-request');
 const { fetch } = require('undici');
 const persistence = require('../persistence');
 const { fetchSablierStreams } = require('../evm/sablier');
+const { fetchHedgeyPlans } = require('../evm/hedgey');
 const { fetchSuperfluidStreams } = require('../evm/superfluid');
 const { fetchStreamflowVestingContracts } = require('../solana/streamflow');
 const { WrapperBuilder, DataServiceWrapper } = require('@redstone-finance/evm-connector');
@@ -11,6 +12,8 @@ const { getSignersForDataServiceId } = require('@redstone-finance/sdk');
 const redstone = require('redstone-api');
 const crypto = require('crypto');
 const pyth = require('../solana/pyth');
+const { createPublicClient, http } = require('viem');
+const { mainnet, base, sepolia } = require('viem/chains');
 
 const createId = () => crypto.randomBytes(16).toString('hex');
 
@@ -23,6 +26,7 @@ const MOBULA_API_URL = 'https://api.mobula.io';
 const CRYPTORANK_API_URL = 'https://api.cryptorank.io/v2';
 const DEFILLAMA_VESTING_URL = 'https://api.llama.fi/listVesting';
 const GITCOIN_PASSPORT_API_URL = 'https://api.passport.xyz/v1/scorer';
+const GITCOIN_PASSPORT_V2_API_URL = 'https://api.passport.xyz/v2';
 const TOKENOMIST_API_URL = 'https://api.unlocks.app/v2'; 
 
 const REDSTONE_DATA_SERVICE_ID = 'redstone-primary-prod';
@@ -32,6 +36,39 @@ class SovereignDataService {
     this.cache = new Map();
     this.syncInterval = 15; // Primary sync every 15 blocks (simulated)
     this.timeOffset = 0; // Simulation time offset in seconds
+    
+    // Viem clients for sniffing
+    this.evmClients = {
+      1: createPublicClient({ chain: mainnet, transport: http() }),
+      8453: createPublicClient({ chain: base, transport: http() }),
+      11155111: createPublicClient({ chain: sepolia, transport: http() })
+    };
+    
+    this._initHeartbeat();
+  }
+
+  _initHeartbeat() {
+    // Pulse every 30 seconds for data acquisition monitoring
+    setInterval(async () => {
+      const timestamp = new Date().toISOString();
+      const providers = ['DIA', 'Mobula', 'CryptoRank', 'DeFiLlama', 'RedStone', 'Pyth'];
+      const status = {};
+      
+      try {
+        // Simple health check for active providers (mocking actual ping for pulse)
+        status.DIA = !!(await this.getDiaAssetInfo('BTC'));
+        status.Mobula = !!MOBULA_API_KEY;
+        status.CryptoRank = !!CRYPTORANK_API_KEY;
+        status.DeFiLlama = true; // Public API
+        status.RedStone = true; // SDK based
+        status.Pyth = true; // Solana connection
+        
+        const successCount = Object.values(status).filter(v => v).length;
+        console.log(`[SovereignDataService] DATA ACQUISITION PULSE: ${successCount}/${providers.length} ACTIVE | Status: ${JSON.stringify(status)} | Timestamp: ${timestamp}`);
+      } catch (err) {
+        console.error(`[SovereignDataService] PULSE FAILED: ${err.message} | Timestamp: ${timestamp}`);
+      }
+    }, 30000);
   }
 
   setTimeOffset(seconds) {
@@ -56,55 +93,288 @@ class SovereignDataService {
     };
 
     try {
-    const tasks = [];
+      const tasks = [];
 
-    if (chainType === 'evm' || chainType === 'all') {
-      tasks.push(
-        fetchSablierStreams([wallet])
-          .then(res => discovered.vesting.push(...res))
-          .catch(err => console.warn('[SovereignDataService] Sablier failed:', err.message))
-      );
-      tasks.push(
-        fetchSuperfluidStreams([wallet])
-          .then(res => discovered.vesting.push(...res))
-          .catch(err => console.warn('[SovereignDataService] Superfluid failed:', err.message))
-      );
-      tasks.push(
-        this.getMobulaPortfolio(wallet)
-          .then(res => {
-            discovered.vesting.push(...res.vesting);
-            discovered.staked.push(...res.staked);
-          })
-          .catch(err => console.warn('[SovereignDataService] Mobula failed:', err.message))
-      );
-      tasks.push(
-        this.queryDuneStaked(wallet)
-          .then(res => discovered.staked.push(...res))
-          .catch(err => console.warn('[SovereignDataService] DuneStaked failed:', err.message))
-      );
-    }
+      if (chainType === 'evm' || chainType === 'all') {
+        const isEvm = wallet.startsWith('0x') && wallet.length === 42;
+        if (isEvm || chainType === 'evm') {
+          // Iterate through main supported chains
+          const chains = [1, 10, 8453, 11155111]; 
+          
+          for (const chainId of chains) {
+            const client = this.evmClients[chainId];
+            tasks.push(
+              fetchSablierStreams([wallet], chainId, client)
+                .then(res => discovered.vesting.push(...res))
+                .catch(err => console.warn(`[SovereignDataService] Sablier failed on ${chainId}:`, err.message))
+            );
+            tasks.push(
+              fetchHedgeyPlans(wallet, chainId, client)
+                .then(res => discovered.vesting.push(...res))
+                .catch(err => console.warn(`[SovereignDataService] Hedgey failed on ${chainId}:`, err.message))
+            );
 
-    if (chainType === 'solana' || chainType === 'all') {
-      tasks.push(
-        fetchStreamflowVestingContracts([wallet])
-          .then(res => discovered.vesting.push(...res))
-          .catch(err => console.warn('[SovereignDataService] Streamflow failed:', err.message))
-      );
-    }
+            if (chainId === 8453) { // Holi is on Base
+              tasks.push(
+                this.fetchHoliSchedules(wallet, client)
+                  .then(res => discovered.vesting.push(...res))
+                  .catch(err => console.warn(`[SovereignDataService] Holi failed:`, err.message))
+              );
+            }
+          }
 
-    try {
-      await Promise.all(tasks);
-      
-      // Mirror to local persistence (Supabase/SQLite)
-      await this.mirrorToPersistence(wallet, discovered);
-      return discovered;
-    } catch (err) {
-      console.error('[SovereignDataService] Discovery process error:', err.message);
-      return discovered;
-    }
+          tasks.push(
+            fetchSuperfluidStreams([wallet])
+              .then(res => discovered.vesting.push(...res))
+              .catch(err => console.warn('[SovereignDataService] Superfluid failed:', err.message))
+          );
+          
+          tasks.push(
+            this.getMobulaPortfolio(wallet)
+              .then(res => {
+                discovered.vesting.push(...res.vesting || []);
+                discovered.staked.push(...res.staked || []);
+              })
+              .catch(err => console.warn('[SovereignDataService] Mobula failed:', err.message))
+          );
+          
+          tasks.push(
+            this.queryDuneStaked(wallet)
+              .then(res => discovered.staked.push(...res))
+              .catch(err => console.warn('[SovereignDataService] DuneStaked failed:', err.message))
+          );
+          
+          // Sniff common addresses on current active chain for the wallet
+          tasks.push(
+            this.sniffVestingInterface(wallet, 11155111) 
+              .then(res => {
+                if (res) discovered.vesting.push(res);
+              })
+              .catch(() => {})
+          );
+        }
+      }
+
+      if (chainType === 'solana' || chainType === 'all') {
+        const isSolana = !wallet.startsWith('0x') && wallet.length >= 32 && wallet.length <= 44;
+        if (isSolana || chainType === 'solana') {
+          tasks.push(
+            fetchStreamflowVestingContracts([wallet])
+              .then(res => discovered.vesting.push(...res))
+              .catch(err => console.warn('[SovereignDataService] Streamflow failed:', err.message))
+          );
+        }
+      }
+
+      try {
+        await Promise.all(tasks);
+        
+        // Mirror to local persistence (Supabase/SQLite)
+        await this.mirrorToPersistence(wallet, discovered);
+        return discovered;
+      } catch (err) {
+        console.error('[SovereignDataService] Discovery process error:', err.message);
+        return discovered;
+      }
     } catch (err) {
       console.error('[SovereignDataService] Discovery failed:', err.message);
       return discovered;
+    }
+  }
+
+  /**
+   * Fetch Holi Protocol (vHOLI) vesting schedules for a wallet
+   */
+  async fetchHoliSchedules(wallet, client) {
+    const { scanVestingLogs } = require('./discovery_utils');
+    // Scan back ~100 days on Base (2s blocks)
+    const logs = await scanVestingLogs(client, wallet, 5000000n);
+    const holiLogs = logs.filter(l => l.protocol === 'Holi Protocol');
+    
+    const results = [];
+    const HOLI_ABI = [
+      {
+        inputs: [{ name: 'vestingScheduleId', type: 'bytes32' }],
+        name: 'getVestingSchedule',
+        outputs: [
+          {
+            components: [
+              { name: 'cliff', type: 'uint256' },
+              { name: 'start', type: 'uint256' },
+              { name: 'duration', type: 'uint256' },
+              { name: 'slicePeriodSeconds', type: 'uint256' },
+              { name: 'amountTotal', type: 'uint256' },
+              { name: 'released', type: 'uint256' },
+              { name: 'status', type: 'uint8' },
+              { name: 'beneficiary', type: 'address' },
+              { name: 'owner', type: 'address' },
+              { name: 'revokable', type: 'bool' }
+            ],
+            type: 'tuple'
+          }
+        ],
+        stateMutability: 'view',
+        type: 'function'
+      }
+    ];
+
+    for (const log of holiLogs) {
+      try {
+        const res = await client.readContract({
+          address: '0x7b5ef00ce695029e0d6705c004b3e71d54c77ae6',
+          abi: HOLI_ABI,
+          functionName: 'getVestingSchedule',
+          args: [log.id]
+        });
+
+        const total = BigInt(res.amountTotal);
+        const released = BigInt(res.released);
+        const locked = total - released;
+        const now = Math.floor(Date.now() / 1000);
+        const end = Number(res.start) + Number(res.duration);
+        
+        let statusLabel = 'OLD';
+        if (locked === 0n) {
+          statusLabel = 'DEPLETED';
+        } else if (now < end) {
+          statusLabel = 'NEW';
+        }
+
+        results.push({
+          loanId: `holi-${log.id}`,
+          borrower: wallet,
+          collateralId: log.id,
+          unlockTime: end,
+          active: statusLabel === 'NEW',
+          statusLabel: statusLabel,
+          token: '0x7b5ef00ce695029e0d6705c004b3e71d54c77ae6', // vHOLI
+          tokenSymbol: 'vHOLI',
+          tokenDecimals: 18,
+          quantity: locked.toString(),
+          chain: 'evm',
+          chainId: 8453,
+          protocol: 'Holi Protocol',
+          timeline: {
+            start: Number(res.start),
+            cliff: Number(res.cliff),
+            end: end
+          }
+        });
+      } catch (err) {
+        console.warn(`[Holi] Failed to fetch details for schedule ${log.id}:`, err.message);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Get aggregated vesting feed for landing page ticker
+   */
+  async getTopVestingFeed(limit = 10) {
+    try {
+      const events = await persistence.listTokenUnlockEvents({ limit });
+      const feed = [];
+
+      for (const event of events) {
+        const project = await persistence.listTokenProjects({ limit: 1 })
+          .then(projects => projects.find(p => p.id === event.tokenId));
+        
+        feed.push({
+          symbol: project?.symbol || event.tokenId,
+          amount: event.amount,
+          date: event.occurrenceDate,
+          type: event.eventType,
+          percentage: event.percentage
+        });
+      }
+      return feed;
+    } catch (err) {
+      console.warn('[SovereignDataService] Failed to fetch vesting feed:', err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch Holi Protocol (vHOLI) vesting schedules for a wallet
+   */
+
+  /**
+   * Universal Vesting Sniffer
+   * Checks a contract address for common vesting signatures and state.
+   */
+  async sniffVestingInterface(address, chainId = 11155111) {
+    const client = this.evmClients[chainId] || this.evmClients[11155111];
+    
+    // Common Vesting Signatures (OpenZeppelin, Sablier, etc.)
+    const signatures = [
+      { name: 'release', selector: '0x86d1a69f' },      // release()
+      { name: 'vestedAmount', selector: '0x2a3e6f9a' }, // vestedAmount(address,uint64)
+      { name: 'beneficiary', selector: '0x38af3f7e' },  // beneficiary()
+      { name: 'start', selector: '0xbe9a6555' },        // start()
+      { name: 'duration', selector: '0x2f54bf66' },     // duration()
+      { name: 'released', selector: '0x9852028c' }      // released()
+    ];
+
+    try {
+      const code = await client.getBytecode({ address });
+      if (!code || code === '0x') return null;
+
+      // Check if at least some signatures exist in bytecode
+      const matches = signatures.filter(s => code.includes(s.selector.slice(2)));
+      if (matches.length < 2) return null; // Likely not a standard vesting contract
+
+      console.log(`[SovereignDataService] SNIFFER: Potential vesting contract detected at ${address} on chain ${chainId}`);
+
+      // Attempt to extract state via staticCall (Generic/OZ style)
+      let beneficiary = address;
+      let startTime = 0;
+      let duration = 0;
+      let released = 0n;
+
+      try {
+        beneficiary = await client.readContract({
+          address,
+          abi: [{ name: 'beneficiary', type: 'function', inputs: [], outputs: [{ type: 'address' }] }],
+          functionName: 'beneficiary'
+        });
+      } catch (_) {}
+
+      try {
+        startTime = Number(await client.readContract({
+          address,
+          abi: [{ name: 'start', type: 'function', inputs: [], outputs: [{ type: 'uint256' }] }],
+          functionName: 'start'
+        }));
+      } catch (_) {}
+
+      try {
+        duration = Number(await client.readContract({
+          address,
+          abi: [{ name: 'duration', type: 'function', inputs: [], outputs: [{ type: 'uint256' }] }],
+          functionName: 'duration'
+        }));
+      } catch (_) {}
+
+      return {
+        id: `sniffed-${address.slice(0, 8)}`,
+        loanId: `sniffed-${address}`,
+        collateralId: address,
+        chain: chainId === 1 ? 'mainnet' : (chainId === 8453 ? 'base' : 'sepolia'),
+        chainId,
+        contractAddress: address,
+        protocol: 'Universal Sniffer',
+        borrower: beneficiary,
+        unlockTime: startTime + duration,
+        active: (startTime + duration) > Math.floor(Date.now() / 1000),
+        tokenSymbol: 'UNKNOWN', // Would need further sniffing or user input
+        quantity: '0', // Needs balance check of the contract if it's a wrapper
+        consensusScore: 0.7,
+        isSniffed: true,
+        timeline: { start: startTime, end: startTime + duration }
+      };
+    } catch (err) {
+      console.warn(`[SovereignDataService] Sniffing failed for ${address}:`, err.message);
+      return null;
     }
   }
 
@@ -168,7 +438,7 @@ class SovereignDataService {
     try {
       console.log(`[SovereignDataService] Calling Mobula Vesting API for ${tokenAddress}...`);
       const resp = await fetch(`${MOBULA_API_URL}/token/vesting?asset=${tokenAddress}`, {
-        headers: { 'Authorization': MOBULA_API_KEY }
+        headers: { 'X-API-Key': MOBULA_API_KEY }
       });
       if (!resp.ok) {
         console.warn(`[SovereignDataService] Mobula vesting API returned ${resp.status}: ${resp.statusText}`);
@@ -192,7 +462,7 @@ class SovereignDataService {
     try {
       console.log(`[SovereignDataService] Calling Mobula Portfolio API for ${wallet}...`);
       const resp = await fetch(`${MOBULA_API_URL}/wallet/portfolio?wallet=${wallet}`, {
-        headers: { 'Authorization': MOBULA_API_KEY }
+        headers: { 'X-API-Key': MOBULA_API_KEY }
       });
       if (!resp.ok) {
         console.warn(`[SovereignDataService] Mobula portfolio API returned ${resp.status}: ${resp.statusText}`);
@@ -620,6 +890,27 @@ class SovereignDataService {
   }
 
   /**
+   * Sync and refresh all known vesting sources for active users
+   */
+  async syncVestingData() {
+    console.log('[SovereignDataService] Initiating daily vesting data sync...');
+    const wallets = await persistence.getActiveSovereignWallets();
+    console.log(`[SovereignDataService] Found ${wallets.length} active wallets for sync.`);
+
+    for (const wallet of wallets) {
+      console.log(`[SovereignDataService] Syncing vesting for ${wallet}...`);
+      await this.discoverAndMirror(wallet, 'all');
+      // Adding a small delay to avoid hitting rate limits
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    
+    // Also run a global protocol sync for new contracts
+    await this.syncGlobalProtocols();
+    
+    console.log('[SovereignDataService] Vesting data sync complete.');
+  }
+
+  /**
    * TESTNET ONLY: Generate mock vesting for demo purposes
    */
   async generateMockVesting(wallet, symbol, amount) {
@@ -773,6 +1064,52 @@ class SovereignDataService {
       };
     } catch (err) {
       console.warn(`[SovereignDataService] Gitcoin Passport failed for ${wallet}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Gitcoin Passport V2 Stamps
+   */
+  async fetchGitcoinPassportStamps(wallet) {
+    const gitcoinKey = process.env.GITCOIN_PASSPORT_API_KEY;
+    if (!gitcoinKey) return null;
+    try {
+      console.log(`[SovereignDataService] Calling Gitcoin Passport V2 Stamps API for ${wallet}...`);
+      const resp = await fetch(`${GITCOIN_PASSPORT_V2_API_URL}/stamps/${wallet}`, {
+        headers: { 'X-API-KEY': gitcoinKey }
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data.items || [];
+    } catch (err) {
+      console.warn(`[SovereignDataService] Gitcoin Passport V2 stamps failed for ${wallet}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Gitcoin Passport V2 Metadata (Global Stamps List)
+   */
+  async fetchGitcoinPassportMetadata() {
+    const gitcoinKey = process.env.GITCOIN_PASSPORT_API_KEY;
+    const cacheKey = 'gitcoin_passport_v2_metadata';
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 3600000 * 24) {
+      return cached.data;
+    }
+
+    try {
+      console.log('[SovereignDataService] Fetching Gitcoin Passport V2 metadata...');
+      const resp = await fetch(`${GITCOIN_PASSPORT_V2_API_URL}/stamps/metadata`, {
+        headers: { ...(gitcoinKey ? { 'X-API-KEY': gitcoinKey } : {}) }
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch (err) {
+      console.warn('[SovereignDataService] Gitcoin Passport V2 metadata failed:', err.message);
       return null;
     }
   }

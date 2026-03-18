@@ -1,112 +1,140 @@
-// Copyright (c) 2026 Vestra Protocol. All rights reserved.
-// Licensed under the Business Source License 1.1 (BSL-1.1).
 const { request, gql } = require('graphql-request');
-// Pricing is handled downstream in the dDPV engine
 
-// Sablier V2 Subgraph for Sepolia (or replace with mainnet as needed)
-const SABLIER_SUBGRAPH_URL = 'https://gateway.thegraph.com/api/deploy-key/subgraphs/id/CsDNYv8qL6m8CZZbrx8X9B9Y6pQ';
+const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || '';
+
+// Sablier V2 Subgraph Mapping (Separate Lockup and Flow)
+const SABLIER_SUBGRAPHS = {
+    1: { // Mainnet
+        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/AvDAMYYHGaEwn9F9585uqq6MM5CfvRtYcb7KjK7LKPCt`,
+        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/ECxBJhKceBGaVvK6vqmK3VQAncKwPeAQutEb8TeiUiod`
+    },
+    10: { // Optimism
+        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/NZHzd2JNFKhHP5EWUiDxa5TaxGCFbSD4g6YnYr8JGi6`,
+        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/AygPgsehNGSB4K7DYYtvBPhTpEiU4dCu3nt95bh9FhRf`
+    },
+    8453: { // Base
+        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/778GfecD9tsyB4xNnz4wfuAyfHU6rqGr79VCPZKu3t2F`,
+        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/4XSxXh8ZgkzaA35nrbQG9Ry3FYz3ZFD8QBdWwVg5pF9W`
+    },
+    11155111: { // Sepolia
+        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/5yDtFSxyRuqyjvGJyyuQhMEW3Uah7Ddy2KFSKVhy9VMa`,
+        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/EU9AWmJjrjMRkjxcdHfuWPZvPTNAL3hiXfNGN5MwUpvm`
+    }
+};
 
 const SABLIER_ENABLED = process.env.EVM_SABLIER_ENABLED === 'true';
 
-const fetchSablierStreams = async (wallets = []) => {
-    if (!SABLIER_ENABLED) {
+const LOCKUP_QUERY = gql`
+  query GetLockupPositions($recipients: [Bytes!]) {
+    streams(where: { 
+      recipient_in: $recipients,
+      status_not: "DEPLETED" 
+    }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
+      id
+      contract
+      recipient
+      asset { id symbol decimals }
+      depositedAmount
+      withdrawnAmount
+      cliffTime
+      endTime
+    }
+  }
+`;
+
+const FLOW_QUERY = gql`
+  query GetFlowPositions($recipients: [Bytes!]) {
+    flows(where: {
+      recipient_in: $recipients,
+      status_not: "VOIDED"
+    }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
+      id
+      contract
+      recipient
+      asset { id symbol decimals }
+      ratePerSecond
+      accumulatedAmount
+      withdrawnAmount
+    }
+  }
+`;
+
+const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
+    if (!SABLIER_ENABLED || !wallets.length) {
         return [];
     }
 
-    const normalizedWallets = wallets.map(w => w.toLowerCase());
-    const hasWallets = normalizedWallets.length > 0;
+    const config = SABLIER_SUBGRAPHS[chainId] || SABLIER_SUBGRAPHS[11155111];
+    const recipients = wallets.map(w => w.toLowerCase());
+    const now = Math.floor(Date.now() / 1000);
 
-    const query = gql`
-    query GetStreams($recipients: [Bytes!], $hasWallets: Boolean!) {
-      streams(where: { 
-        OR: [
-          { recipient_in: $recipients },
-          { recipient_not: "0x0000000000000000000000000000000000000000" } 
-        ]
-        status_not: "DEPLETED" 
-      }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
-        id
-        contract
-        recipient
-        asset {
-          id
-          symbol
-          decimals
-        }
-        depositedAmount
-        withdrawnAmount
-        cliffTime
-        endTime
-        isCancelable
-      }
-    }
-  `;
+    let lockupRes = { streams: [] };
+    let flowRes = { flows: [] };
 
     try {
-        const data = await request(SABLIER_SUBGRAPH_URL, query, { 
-            recipients: normalizedWallets,
-            hasWallets
-        });
-        if (!data || !data.streams) return [];
-
-        const now = Math.floor(Date.now() / 1000);
-
-        const streams = await Promise.all(data.streams.map(async (stream) => {
-            // Basic Sablier Lockup Linear calculation approximation from subgraph
-            const deposited = BigInt(stream.depositedAmount || '0');
-            const withdrawn = BigInt(stream.withdrawnAmount || '0');
-
-            const endTime = Number(stream.endTime || 0);
-            const cliffTime = Number(stream.cliffTime || 0);
-
-            // If we are before the cliff, everything is locked.
-            // We don't have the exact streamedAmountOf via subgraph instantly without RPC calls, 
-            // but for portfolio dashboarding we can approximate the locked vs vested based on time.
-            const locked = deposited - withdrawn; // The total remaining in the contract
-
-            let tokenSymbol = stream.asset.symbol || 'SAB';
-            let tokenDecimals = Number(stream.asset.decimals || 18);
-
-            let pv = '0'; // PV is calculated by the dDPV engine downstream
-
-            const active = endTime > now && locked > 0n;
-            const daysToUnlock = endTime > now ? Math.max(0, Math.round((endTime * 1000 - Date.now()) / 86400000)) : null;
-
-            return {
-                loanId: `sablier-${stream.id}`,
-                borrower: stream.recipient,
-                principal: '0',
-                interest: '0',
-                collateralId: stream.id,
-                unlockTime: endTime,
-                active,
-                token: stream.asset.id,
-                tokenSymbol,
-                tokenDecimals,
-                quantity: locked.toString(),
-                pv,
-                ltvBps: '0',
-                daysToUnlock,
-                chain: 'evm',
-                protocol: 'Sablier',
-                timeline: {
-                    cliff: cliffTime,
-                    start: cliffTime, // Simplified
-                    end: endTime
-                },
-                evidence: {
-                    escrowTx: '',
-                    wallet: '',
-                    token: ''
-                }
-            };
-        }));
-
-        return streams.filter(Boolean);
+        [lockupRes, flowRes] = await Promise.all([
+            request(config.lockup, LOCKUP_QUERY, { recipients }),
+            request(config.flow, FLOW_QUERY, { recipients })
+        ]);
     } catch (error) {
-        console.warn('[evm] sablier search failed', error?.message || error);
-        return [];
+        console.error(`[sablier] subgraph fetch error on chain ${chainId}:`, error.message);
     }
+
+    // Process Lockup Streams
+    const lockupPositions = (lockupRes.streams || []).map(stream => {
+        const deposited = BigInt(stream.depositedAmount || '0');
+        const withdrawn = BigInt(stream.withdrawnAmount || '0');
+        const locked = deposited - withdrawn;
+        const endTime = Number(stream.endTime || 0);
+
+        return {
+            loanId: `sablier-lockup-${stream.id}`,
+            borrower: stream.recipient,
+            collateralId: stream.id,
+            unlockTime: endTime,
+            active: endTime > now && locked > 0n,
+            token: stream.asset.id,
+            tokenSymbol: stream.asset.symbol || 'SAB',
+            tokenDecimals: Number(stream.asset.decimals || 18),
+            quantity: locked.toString(),
+            chain: 'evm',
+            chainId,
+            protocol: 'Sablier Lockup',
+            timeline: {
+                cliff: Number(stream.cliffTime || 0),
+                end: endTime
+            }
+        };
+    });
+
+    // Process Flow Streams
+    const flowPositions = (flowRes.flows || []).map(flow => {
+        const withdrawn = BigInt(flow.withdrawnAmount || '0');
+        const accumulated = BigInt(flow.accumulatedAmount || '0');
+        const locked = accumulated - withdrawn;
+
+        return {
+            loanId: `sablier-flow-${flow.id}`,
+            borrower: flow.recipient,
+            collateralId: flow.id,
+            unlockTime: 0, 
+            active: true,
+            token: flow.asset.id,
+            tokenSymbol: flow.asset.symbol || 'SAB',
+            tokenDecimals: Number(flow.asset.decimals || 18),
+            quantity: locked.toString(),
+            ratePerSecond: flow.ratePerSecond,
+            chain: 'evm',
+            chainId,
+            protocol: 'Sablier Flow',
+            timeline: {
+                start: 0,
+                end: 0 
+            }
+        };
+    });
+
+    return [...lockupPositions, ...flowPositions];
 };
 
 module.exports = { fetchSablierStreams };

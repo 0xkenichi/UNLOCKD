@@ -128,6 +128,19 @@ export const CONTRACTS = {
   }
 };
 
+export const sablierV2FlowWrapperAbi = [
+  "constructor(address _flowContract, bytes32 _flowId, address _beneficiary)",
+  "function flowContract() view returns (address)",
+  "function flowId() view returns (bytes32)",
+  "function beneficiary() view returns (address)",
+  "function operator() view returns (address)",
+  "function ratePerSecond() view returns (uint128)",
+  "function token() view returns (address)",
+  "function setOperator(address newOperator)",
+  "function releaseTo(address to, uint256 amount)",
+  "event OperatorUpdated(address indexed operator)"
+];
+
 export const valuationEngineAbi = [
   {
     "inputs": [

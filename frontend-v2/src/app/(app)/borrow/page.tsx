@@ -44,11 +44,13 @@ export default function Borrow() {
       ? vestedContracts 
       : (vestedContracts as any)?.items || [];
       
-    return items.filter((item: any) => item.active).map((item: any) => ({
+    return items.map((item: any) => ({
       id: item.loanId || item.collateralId,
       asset: item.protocol || "Vested Token",
       value: Number(item.pv || 0) / 1e6,
       unlock: item.unlockTime ? new Date(item.unlockTime * 1000).toLocaleDateString() : "--",
+      status: item.statusLabel || (item.active ? "NEW" : "OLD"),
+      active: item.active,
       raw: item
     }));
   }, [vestedContracts]);
@@ -185,7 +187,16 @@ export default function Borrow() {
                           <Sparkles size={24} className={selectedCollateral?.id === option.id ? 'text-accent-teal' : 'text-secondary/40'} />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold tracking-tight">{option.asset}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold tracking-tight">{option.asset}</h3>
+                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border ${
+                              option.status === 'NEW' ? 'bg-accent-teal/10 text-accent-teal border-accent-teal/20' :
+                              option.status === 'DEPLETED' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                              'bg-white/5 text-secondary/60 border-white/10'
+                            }`}>
+                              {option.status}
+                            </span>
+                          </div>
                           <p className="text-xs font-black uppercase tracking-widest text-secondary/60">Unlock: {option.unlock}</p>
                         </div>
                       </div>

@@ -4,7 +4,8 @@ const { request, gql } = require('graphql-request');
 // Pricing is handled downstream in the dDPV engine
 
 // Superfluid Subgraph for Polygon (or change based on deployment chain)
-const SUPERFLUID_SUBGRAPH_URL = 'https://gateway.thegraph.com/api/deploy-key/subgraphs/id/5xS8X9B9Y6pQ8X9B9Y6pQ8X9B9Y6pQ';
+const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || '';
+const SUPERFLUID_SUBGRAPH_URL = `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/5xS8X9B9Y6pQ8X9B9Y6pQ8X9B9Y6pQ`;
 const SUPERFLUID_ENABLED = process.env.EVM_SUPERFLUID_ENABLED === 'true';
 
 const fetchSuperfluidStreams = async (wallets = []) => {

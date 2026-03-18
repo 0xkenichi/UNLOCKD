@@ -2782,6 +2782,30 @@ const saveVestingSource = async ({
   return { id: finalId, createdAt };
 };
 
+/**
+ * Update the consensus score (rank) for a vesting source
+ */
+const updateVestingRank = async (vestingContract, rank) => {
+  const score = Number(rank) / 100; // Assuming rank 0-100 maps to 0-1 score
+  const updatedAt = new Date().toISOString();
+  
+  if (useSupabase) {
+    const { error } = await supabaseClient()
+      .from('vesting_sources')
+      .update({ consensus_score: score, last_synced_at: updatedAt })
+      .eq('vesting_contract', String(vestingContract).toLowerCase());
+    if (error) throw new Error(`[supabase] updateVestingRank failed: ${error.message}`);
+    return true;
+  }
+  
+  sqlite.prepare(`
+    UPDATE vesting_sources 
+    SET consensus_score = ?, last_synced_at = ?
+    WHERE LOWER(vesting_contract) = LOWER(?)
+  `).run(score, updatedAt, String(vestingContract));
+  return true;
+};
+
 const saveStakedSource = async ({
   id,
   chainId,
@@ -3781,6 +3805,56 @@ const saveTokenUnlockEvent = async ({ id, tokenId, eventType, occurrenceDate, am
   return true;
 };
 
+const listTokenProjects = async ({ limit = 50 } = {}) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('token_projects')
+      .select('id, name, symbol, description, category, metadata, created_at, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(`[supabase] listTokenProjects failed: ${error.message}`);
+    return (data || []).map(r => ({ ...r, metadata: r.metadata }));
+  }
+  const rows = sqlite.prepare('SELECT id, name, symbol, description, category, metadata, created_at, updated_at FROM token_projects ORDER BY updated_at DESC LIMIT ?').all(limit);
+  return rows.map(r => ({ ...r, metadata: r.metadata ? JSON.parse(r.metadata) : null }));
+};
+
+const listTokenUnlockEvents = async ({ tokenId, limit = 100 } = {}) => {
+  if (useSupabase) {
+    let q = supabaseClient()
+      .from('token_unlock_events')
+      .select('id, token_id, event_type, occurrence_date, amount, percentage, metadata, created_at')
+      .order('occurrence_date', { ascending: true })
+      .limit(limit);
+    if (tokenId) q = q.eq('token_id', tokenId);
+    const { data, error } = await q;
+    if (error) throw new Error(`[supabase] listTokenUnlockEvents failed: ${error.message}`);
+    return (data || []).map(r => ({ 
+      ...r, 
+      tokenId: r.token_id, 
+      eventType: r.event_type, 
+      occurrenceDate: r.occurrence_date, 
+      metadata: r.metadata 
+    }));
+  }
+  let sql = 'SELECT id, token_id, event_type, occurrence_date, amount, percentage, metadata, created_at FROM token_unlock_events WHERE 1=1';
+  const params = [];
+  if (tokenId) { sql += ' AND token_id = ?'; params.push(tokenId); }
+  sql += ' ORDER BY occurrence_date ASC LIMIT ?';
+  params.push(limit);
+  const rows = sqlite.prepare(sql).all(...params);
+  return rows.map(r => ({
+    id: r.id,
+    tokenId: r.token_id,
+    eventType: r.event_type,
+    occurrenceDate: r.occurrence_date,
+    amount: r.amount,
+    percentage: r.percentage,
+    metadata: r.metadata ? JSON.parse(r.metadata) : null,
+    createdAt: r.created_at
+  }));
+};
+
 module.exports = {
   init,
   useSupabase,
@@ -3833,7 +3907,10 @@ module.exports = {
   saveTokenInvestor,
   saveTokenFundraising,
   saveTokenUnlockEvent,
+  listTokenProjects,
+  listTokenUnlockEvents,
   saveVestingSource,
+  updateVestingRank,
   saveStakedSource,
   saveLockedSource,
   getActiveSovereignWallets,

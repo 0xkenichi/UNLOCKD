@@ -31,10 +31,10 @@ function TimelineNode({ position, title, amount, delay }: TimelineNodeProps) {
       <Sphere args={[0.25, 32, 32]}>
         <meshStandardMaterial color="#2EBEB5" emissive="#001F3F" emissiveIntensity={0.8} />
       </Sphere>
-      <Text position={[0, 0.6, 0]} fontSize={0.2} color="#ffffff" anchorX="center" anchorY="bottom" font="/fonts/Inter-Bold.woff">
+      <Text position={[0, 0.6, 0]} fontSize={0.2} color="#ffffff" anchorX="center" anchorY="bottom" font="/fonts/Redaction-Bold.woff2">
         {title}
       </Text>
-      <Text position={[0, -0.6, 0]} fontSize={0.15} color="#A0A0A0" anchorX="center" anchorY="top" font="/fonts/Inter-Regular.woff">
+      <Text position={[0, -0.6, 0]} fontSize={0.15} color="#A0A0A0" anchorX="center" anchorY="top" font="/fonts/Redaction-Regular.woff2">
         {amount}
       </Text>
     </group>

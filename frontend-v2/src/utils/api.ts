@@ -24,9 +24,15 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     }
 
     return await response.json();
-  } catch (error) {
+  } catch (error: any) {
     console.error('API Fetch Error:', error);
-    // Provide a more descriptive error message for the user
+    
+    // If it's already an Error with a message we set (like "API error: ..."), rethrow it
+    if (error.message && error.message.startsWith('API error:')) {
+      throw error;
+    }
+
+    // Provide a more descriptive error message for network errors on localhost
     if (API_URL.includes('localhost')) {
       throw new Error('Cannot reach backend API. Ensure backend is running locally on port 4000.');
     } else {
@@ -90,7 +96,8 @@ export const api = {
   generateVesting: (payload: { wallet: string, symbol: string, amount: string }) => fetchApi('/api/faucet/generate-vesting', {
     method: 'POST',
     body: JSON.stringify(payload)
-  })
+  }),
+  fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`)
 };
 
 export interface Message {

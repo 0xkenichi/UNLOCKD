@@ -318,8 +318,51 @@ export default function Identity() {
             />
             <div className="pill">Current tier: {tierLabel}</div>
           </div>
+
+          {passportResult?.stamps && passportResult?.stampsMetadata && (
+            <div style={{ marginTop: 24 }}>
+              <h4 style={{ fontSize: 13, textTransform: 'uppercase', marginBottom: 12, color: 'var(--text-secondary)' }}>Verified Humanity Stamps</h4>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', 
+                gap: 8,
+                maxHeight: 300,
+                overflowY: 'auto',
+                paddingRight: 8
+              }}>
+                {passportResult.stamps.map((stamp) => {
+                  const stampMeta = passportResult.stampsMetadata.find(m => m.id === stamp.credential?.type?.[stamp.credential.type.length - 1]);
+                  const name = stampMeta?.name || stamp.provider || 'Verified Stamp';
+                  const description = stampMeta?.description || '';
+                  return (
+                    <div key={stamp.id || stamp.provider} className="glass-card" style={{ 
+                      padding: '10px', 
+                      borderRadius: 8, 
+                      fontSize: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      border: '1px solid var(--success-900)',
+                      background: 'rgba(5, 150, 105, 0.05)'
+                    }}>
+                      <div style={{ fontWeight: 600, color: 'var(--success-400)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 10 }}>✓</span> {name}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11, lineHeight: 1.3 }}>{description}</div>
+                    </div>
+                  );
+                })}
+                {passportResult.stamps.length === 0 && (
+                  <div className="muted" style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', background: 'var(--bg-layer-2)', borderRadius: 8 }}>
+                    No verified humanity stamps found for this address.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {hasAttestations ? (
-            <ul className="identity-attestations__list" aria-labelledby="attestations-heading">
+            <ul className="identity-attestations__list" style={{ marginTop: 24 }} aria-labelledby="attestations-heading">
               {attestations.map((item) => (
                 <li className="identity-attestations__item" key={item.id || item.provider}>
                   <div className="identity-attestations__provider">{formatProviderLabel(item.provider)}</div>
@@ -331,7 +374,7 @@ export default function Identity() {
               ))}
             </ul>
           ) : (
-            <div className="muted">Run a passport check to create your first attestation.</div>
+            <div className="muted" style={{ marginTop: 16 }}>Run a passport check to create your first attestation.</div>
           )}
           <div className="identity-attestations__actions">
             <a

@@ -177,7 +177,15 @@ const fetchStreamflowVestingContracts = async (wallets = []) => {
     try {
       const searchParams = {};
       if (wallet) {
-        searchParams.recipient = wallet;
+        // Validate it's a likely Solana address (base58, roughly 32-44 chars)
+        // This avoids passing EVM hex addresses which cause Base58DecodeError
+        try {
+          new PublicKey(wallet);
+          searchParams.recipient = wallet;
+        } catch (e) {
+          console.warn(`[solana] skipping invalid solana wallet: ${wallet}`);
+          continue;
+        }
       }
       if (!includeClosed) {
         searchParams.closed = false;

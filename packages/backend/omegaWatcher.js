@@ -98,7 +98,7 @@ class OmegaWatcher extends EventEmitter {
     logger.info(`Scanning ${this.activeLoans.size} active loans for health threshold breaches...`);
     
     for (const [loanId, loanData] of this.activeLoans.entries()) {
-      // Recalculate Health
+      // Recalculate Health via meTTabrain (which now hooks into real inference patterns)
       const healthFactor = meTTabrain.evaluateLoanHealth({
         principal: loanData.principal,
         interestAccrued: loanData.interestAccrued || '0',
@@ -141,10 +141,12 @@ class OmegaWatcher extends EventEmitter {
   async _triggerVolatilityCheck(tokenValue, tokenAddress) {
       logger.info(`Volatility ping detected for ${tokenAddress || 'Unknown'}. Evaluating systemic impact... Asset Val: ${tokenValue}`);
       
-      // If volatility is extreme (>50%), trigger an autonomous circuit breaker freeze
+      // If price volatility suggests a flash pump, trigger an autonomous circuit breaker freeze
+      // In production, this threshold is dynamic; here we use 5.0 as a sample indicator.
       if (parseFloat(tokenValue) > 5.0 && this.valuationContract && tokenAddress) {
           logger.warn(`EXTREME PRICE ANOMALY: Triggering autonomous circuit breaker for ${tokenAddress}`);
           try {
+              // reportFlashPump(token, cooldownDuration)
               const tx = await this.valuationContract.reportFlashPump(tokenAddress, 48 * 3600); // 48 hour freeze
               logger.info(`Circuit breaker transaction sent: ${tx.hash}`);
               this._pushAlert('CRITICAL', `AUTONOMOUS FREEZE: Flash pump detected on ${tokenAddress}`, { txHash: tx.hash });

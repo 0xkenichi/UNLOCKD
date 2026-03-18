@@ -47,7 +47,7 @@ const customFetch = async (url) => {
   }
 };
 
-const fetchHermesPrice = async (feedId) => {
+const fetchHermesPrice = async (feedId, retries = 3) => {
   if (!feedId) return null;
   const cached = feedCache.get(feedId);
   if (cached && Date.now() - cached.fetchedAt < DEFAULT_FEED_TTL_MS) {
@@ -55,22 +55,41 @@ const fetchHermesPrice = async (feedId) => {
   }
   const baseUrl = process.env.SOLANA_PYTH_HERMES_URL || DEFAULT_HERMES_URL;
   const url = `${baseUrl}/v2/updates/price/latest?ids[]=${feedId}&parsed=true`;
-  const response = await customFetch(url);
-  if (!response.ok) {
-    throw new Error(`Hermes error ${response.status}`);
-  }
-  const data = await response.json();
-  const parsed = Array.isArray(data?.parsed) ? data.parsed[0] : null;
-  const price = parsed?.price || null;
-  const value = price
-    ? {
-      price: price.price,
-      expo: price.expo,
-      publishTime: price.publish_time
+
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await customFetch(url);
+      if (response.status === 429 && i < retries) {
+        const waitTime = Math.pow(2, i) * 1000;
+        console.warn(`[pyth] rate limited (429). Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      if (!response.ok) {
+        throw new Error(`Hermes error ${response.status}`);
+      }
+      const data = await response.json();
+      const parsed = Array.isArray(data?.parsed) ? data.parsed[0] : null;
+      const price = parsed?.price || null;
+      const value = price
+        ? {
+          price: price.price,
+          expo: price.expo,
+          publishTime: price.publish_time
+        }
+        : null;
+      feedCache.set(feedId, { value, fetchedAt: Date.now() });
+      return value;
+    } catch (error) {
+      if (i === retries) {
+        console.warn(`[pyth] price fetch failed for feed ${feedId} after ${retries} retries:`, error.message);
+        throw error;
+      }
+      const waitTime = Math.pow(2, i) * 1000;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-    : null;
-  feedCache.set(feedId, { value, fetchedAt: Date.now() });
-  return value;
+  }
+  return null;
 };
 
 const normalizeSymbol = (symbol) => {

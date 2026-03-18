@@ -40,6 +40,7 @@ const {
   execViaVault,
   getRelayerWallet,
   deploySablierV2OperatorWrapper,
+  deploySablierV2FlowWrapper,
   deployOZVestingClaimWrapper,
   deployTokenTimelockClaimWrapper,
   deploySuperfluidClaimWrapper
@@ -323,6 +324,12 @@ const globalRiskModule = {
   iface: new ethers.Interface(globalRiskModuleDeployment.abi)
 };
 
+const vestingRegistryDeployment = loadDeployment('VestingRegistry');
+const vestingRegistry = {
+  address: vestingRegistryDeployment.address,
+  iface: new ethers.Interface(vestingRegistryDeployment.abi)
+};
+
 const erc20Abi = [
   'function symbol() view returns (string)',
   'function decimals() view returns (uint8)'
@@ -458,15 +465,21 @@ const normalizeEvent = async (log) => {
   } catch (_) { }
 
   try {
-    const riskParsed = globalRiskModule.iface.parseLog(log);
-    if (riskParsed?.name === 'BadDebtThresholdBreached') {
+    const factoryParsed = vestingRegistry.iface.parseLog(log);
+    if (factoryParsed?.name === 'ContractSubmitted') {
       return {
         ...base,
-        type: 'BadDebtThresholdBreached',
-        payload: {
-          currentBadDebt: riskParsed.args.currentBadDebt.toString(),
-          ceiling: riskParsed.args.ceiling.toString()
-        }
+        type: 'ContractSubmitted',
+        vestingContract: factoryParsed.args.wrapper,
+        submitter: factoryParsed.args.submitter
+      };
+    }
+    if (factoryParsed?.name === 'ContractRanked') {
+      return {
+        ...base,
+        type: 'ContractRanked',
+        vestingContract: factoryParsed.args.wrapper,
+        payload: { rank: factoryParsed.args.rank.toString() }
       };
     }
   } catch (_) { }
@@ -570,7 +583,9 @@ const pollEvents = async () => {
         getEventTopic(openClawLighthouse.iface, 'VoteSubmitted'),
         getEventTopic(globalRiskModule.iface, 'BadDebtThresholdBreached'),
         getEventTopic(lendingPool.iface, 'CommunityPoolCreated'),
-        getEventTopic(lendingPool.iface, 'CommunityPoolContribution')
+        getEventTopic(lendingPool.iface, 'CommunityPoolContribution'),
+        getEventTopic(vestingRegistry.iface, 'ContractSubmitted'),
+        getEventTopic(vestingRegistry.iface, 'ContractRanked')
       ].filter(Boolean);
 
       // Batch fetch all topics in one RPC call per chunk
@@ -580,7 +595,8 @@ const pollEvents = async () => {
           loanNFT.address,
           openClawLighthouse.address,
           globalRiskModule.address,
-          lendingPool.address
+          lendingPool.address,
+          vestingRegistry.address
         ],
         fromBlock: from,
         toBlock: to,
@@ -607,6 +623,8 @@ const pollEvents = async () => {
                 const amountUsd = parseFloat(ethers.formatUnits(e.amount || '0', 6));
                 const lendPoints = Math.floor(amountUsd / 6.66); // ~150 points per $1000 liquidity
                 await persistence.updatePoints(e.contributor, { lend: lendPoints });
+            } else if (e.type === 'ContractRanked') {
+                await persistence.updateVestingRank(e.vestingContract, e.payload.rank);
             }
 
             if (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated') return e;
@@ -1609,9 +1627,12 @@ app.get(
       let stampsCount = 0;
 
       const liveScore = await SovereignDataService.fetchGitcoinPassportScore(identityWallet);
+      const liveStamps = await SovereignDataService.fetchGitcoinPassportStamps(identityWallet);
+      const stampsMetadata = await SovereignDataService.fetchGitcoinPassportMetadata();
+
       if (liveScore && liveScore.score !== undefined) {
         score = liveScore.score;
-        stampsCount = 0; 
+        stampsCount = Array.isArray(liveStamps) ? liveStamps.length : 0;
       } else {
         console.warn(`[server] Live Gitcoin fetch failed for ${identityWallet}, using 0.`);
       }
@@ -1624,7 +1645,11 @@ app.get(
           stampsCount,
           verifiedAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 180 * ONE_DAY * 1000).toISOString(),
-          metadata: liveScore || { source: 'failed_fetch' }
+          metadata: {
+            ...(liveScore || {}),
+            stamps: liveStamps || [],
+            source: liveScore ? 'Gitcoin' : 'failed_fetch'
+          }
         });
         attestationCreated = true;
       }
@@ -1648,6 +1673,8 @@ app.get(
         mock: false,
         score,
         stampsCount,
+        stamps: liveStamps || [],
+        stampsMetadata: stampsMetadata || {},
         attestationCreated,
         identityTier: profile.identityTier,
         tierName: profile.tierName,
@@ -3074,39 +3101,53 @@ app.post(
       if (!existing?.vaultAddress) {
         return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
       }
-      const lockupAddress = normalizeWalletAddress(req.body.lockupAddress);
+      const streamType = req.body.type || 'lockup'; // 'lockup' or 'flow'
+      const lockupAddress = normalizeWalletAddress(req.body.lockupAddress || req.body.flowContract);
       if (!lockupAddress) {
-        return res.status(400).json({ ok: false, error: 'Invalid lockup address' });
+        return res.status(400).json({ ok: false, error: 'Invalid contract address' });
       }
-      const streamId = BigInt(req.body.streamId);
-      if (streamId <= 0n) {
-        return res.status(400).json({ ok: false, error: 'streamId must be > 0' });
+      const streamId = req.body.streamId || req.body.flowId;
+      if (!streamId) {
+        return res.status(400).json({ ok: false, error: 'streamId/flowId required' });
       }
 
       await verifyRelayerAuth({
         req,
         action: 'deploy-sablier-wrapper',
-        payload: { lockupAddress, streamId: streamId.toString() },
+        payload: { lockupAddress, streamId: streamId.toString(), streamType },
         vaultAddress: existing.vaultAddress
       });
 
-      const deployed = await deploySablierV2OperatorWrapper({
-        lockupAddress,
-        streamId,
-        beneficiary: existing.vaultAddress
-      });
+      let deployed;
+      if (streamType === 'flow') {
+        deployed = await deploySablierV2FlowWrapper({
+          flowContract: lockupAddress,
+          flowId: streamId,
+          beneficiary: existing.vaultAddress
+        });
+      } else {
+        deployed = await deploySablierV2OperatorWrapper({
+          lockupAddress,
+          streamId: BigInt(streamId),
+          beneficiary: existing.vaultAddress
+        });
+      }
 
       // Set operator to VestingAdapter so the protocol can release collateral at unlock.
       const relayer = getRelayerWallet();
-      const wrapperContract = new ethers.Contract(
-        deployed.wrapperAddress,
-        [
+      const wrapperAbi = streamType === 'flow' 
+        ? ['function setOperator(address newOperator)', 'function operator() view returns (address)']
+        : [
           'function setOperator(address newOperator)',
           'function operator() view returns (address)',
           'function beneficiary() view returns (address)',
           'function lockup() view returns (address)',
           'function streamId() view returns (uint256)'
-        ],
+        ];
+        
+      const wrapperContract = new ethers.Contract(
+        deployed.wrapperAddress,
+        wrapperAbi,
         relayer
       );
       try {
@@ -3122,6 +3163,7 @@ app.post(
         vaultAddress: existing.vaultAddress,
         wrapperAddress: deployed.wrapperAddress,
         deployTxHash: deployed.deployTxHash,
+        type: streamType,
         operator: vestingAdapter.address,
         notes:
           'Next step: approve the wrapper as operator in your Sablier lockup so it can withdraw to the VestingAdapter.'
@@ -5344,6 +5386,8 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     });
   };
 
+  const queryChainId = req.query?.chainId ? Number(req.query.chainId) : 11155111;
+
   const fetchDynamicStreams = async () => {
     const solWallets = new Set(sessionWallets.solana);
     const evmWallets = new Set(sessionWallets.evm);
@@ -5368,7 +5412,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       try {
         const evmArray = Array.from(evmWallets);
         const [sab, sup] = await Promise.all([
-          withTimeout(fetchSablierStreams(evmArray), 5000, []),
+          withTimeout(fetchSablierStreams(evmArray, queryChainId), 5000, []),
           withTimeout(fetchSuperfluidStreams(evmArray), 5000, [])
         ]);
         streams = streams.concat(sab || [], sup || []);
@@ -5948,6 +5992,7 @@ app.post('/api/loans/ipfs-metadata', async (req, res) => {
 // ─── Scanner: Multi-chain wallet portfolio aggregator ─────────────────────────
 const scannerRouter = require('./routes/scanner');
 const faucetRouter = require('./routes/faucet');
+const vestingRouter = require('./routes/vesting');
 
 // Expose the SQLite/Supabase db handle to the scanner router via app.locals
 app.use('/api/scanner', (req, _res, next) => {
@@ -5957,6 +6002,7 @@ app.use('/api/scanner', (req, _res, next) => {
 }, scannerRouter);
 
 app.use('/api/faucet', faucetRouter);
+app.use('/api/vesting', vestingRouter);
 
 const start = async () => {
   try {

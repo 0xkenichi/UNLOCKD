@@ -22,6 +22,18 @@ contract USDCFaucet is ERC20, Ownable {
         _mint(msg.sender, MINT_AMOUNT);
     }
 
+    /**
+     * @notice Lock USDC to simulate yield accrual (e.g., auto-hedge via Aave mocks).
+     */
+    function lockForYield(uint256 amount) external {
+        _burn(msg.sender, amount);
+        // Simulate yield accrual; in a real testnet, this would interact with a mock Aave Pool
+        // For MVP, we emit an event to be picked up by the risk engine / analytics
+        emit YieldLocked(msg.sender, amount, block.timestamp);
+    }
+
+    event YieldLocked(address indexed user, uint256 amount, uint256 timestamp);
+
     function decimals() public view virtual override returns (uint8) {
         return 6;
     }

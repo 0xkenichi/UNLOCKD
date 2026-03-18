@@ -70,6 +70,31 @@ const execViaVault = async ({ vaultAddress, target, value = 0n, data }) => {
   return { txHash: tx.hash };
 };
 
+const deploySablierV2FlowWrapper = async ({ flowContract, flowId, beneficiary } = {}) => {
+  if (!ethers.isAddress(flowContract)) throw new Error('Invalid flow contract address');
+  if (!beneficiary || !ethers.isAddress(beneficiary)) throw new Error('Invalid beneficiary address');
+  if (!flowId) throw new Error('flowId required');
+
+  const relayer = getRelayerWallet();
+  // Hardhat artifact path: artifacts/contracts/wrappers/SablierV2FlowWrapper.sol/SablierV2FlowWrapper.json
+  const factory = getFactoryFromArtifact({
+    artifactPathParts: [
+      'artifacts',
+      'contracts',
+      'wrappers',
+      'SablierV2FlowWrapper.sol',
+      'SablierV2FlowWrapper.json'
+    ],
+    wallet: relayer
+  });
+  const contract = await factory.deploy(ethers.getAddress(flowContract), flowId, ethers.getAddress(beneficiary));
+  const receipt = await contract.deploymentTransaction().wait(1);
+  return {
+    wrapperAddress: await contract.getAddress(),
+    deployTxHash: receipt?.hash || contract.deploymentTransaction().hash
+  };
+};
+
 const deploySablierV2OperatorWrapper = async ({ lockupAddress, streamId, beneficiary } = {}) => {
   if (!ethers.isAddress(lockupAddress)) throw new Error('Invalid lockup address');
   if (!beneficiary || !ethers.isAddress(beneficiary)) throw new Error('Invalid beneficiary address');
@@ -197,6 +222,7 @@ module.exports = {
   deployVestraVault,
   execViaVault,
   deploySablierV2OperatorWrapper,
+  deploySablierV2FlowWrapper,
   deployOZVestingClaimWrapper,
   deployTokenTimelockClaimWrapper,
   deploySuperfluidClaimWrapper

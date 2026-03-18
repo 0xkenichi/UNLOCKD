@@ -49,7 +49,13 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
 
     // Group positions by Protocol
     const grouped = positions.reduce((acc, pos) => {
-        const protocol = pos.chain === 'solana' ? 'Streamflow' : 'Sablier / Vestra';
+        let protocol = 'Other';
+        if (pos.chain === 'solana') protocol = 'Streamflow';
+        else if (pos.protocol === 'Sablier Lockup') protocol = 'Sablier (Vesting)';
+        else if (pos.protocol === 'Sablier Flow') protocol = 'Sablier (Flow)';
+        else if (pos.protocol === 'Sablier') protocol = 'Sablier';
+        else protocol = pos.protocol || 'Vestra / Other';
+
         if (!acc[protocol]) acc[protocol] = [];
         acc[protocol].push(pos);
         return acc;
@@ -60,9 +66,9 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
             <div className="section-head">
                 <div>
                     <h3 className="section-title">Vesting Portfolio</h3>
-                    <div className="section-subtitle">Collateral grouped by protocol type.</div>
+                    <div className="section-subtitle">Collateral grouped by protocol and stream type.</div>
                 </div>
-                <span className="tag success">Live Discovery</span>
+                <span className="tag success">Multi-Chain Scan</span>
             </div>
 
             <div className="stack" style={{ gap: 20 }}>
@@ -75,7 +81,17 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                             marginBottom: 12,
                             padding: '0 8px'
                         }}>
-                            <div style={{ width: 20, height: 20, borderRadius: 4, background: protocol === 'Streamflow' ? '#3B82F6' : '#FFD700', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ 
+                                width: 20, 
+                                height: 20, 
+                                borderRadius: 4, 
+                                background: protocol.includes('Sablier') ? '#6B21A8' : '#3B82F6', 
+                                fontSize: 10, 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center',
+                                color: 'white'
+                            }}>
                                 {protocol[0]}
                             </div>
                             <span style={{ fontWeight: 600, fontSize: 14, opacity: 0.9 }}>{protocol}</span>
@@ -84,19 +100,26 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
 
                         <div className="holo-card" style={{ padding: 0, overflow: 'hidden' }}>
                             <div className="data-table">
-                                <div className="table-row header" style={{ gridTemplateColumns: '1fr 120px 140px 100px', padding: '12px 16px' }}>
-                                    <div>Name</div>
-                                    <div>Balance</div>
-                                    <div style={{ textAlign: 'right' }}>Unlock Date</div>
+                                <div className="table-row header" style={{ gridTemplateColumns: '1.2fr 1fr 1fr 100px', padding: '12px 16px' }}>
+                                    <div>Asset & Chain</div>
+                                    <div>Available / Rate</div>
+                                    <div style={{ textAlign: 'right' }}>Unlock / Status</div>
                                     <div style={{ textAlign: 'right' }}>Action</div>
                                 </div>
                                 <AnimatePresence>
                                     {items.map((item) => {
-                                        const uniqueId = `${item.collateralId}:${item.vestingContract}`;
+                                        const uniqueId = item.loanId || `${item.collateralId}:${item.vestingContract}`;
                                         const isSelected = selectedId === uniqueId;
-                                        const unlockDate = item.unlockTime
+                                        const isFlow = item.protocol === 'Sablier Flow';
+                                        
+                                        const unlockDate = item.unlockTime && item.unlockTime > 0
                                             ? new Date(Number(item.unlockTime) * 1000).toLocaleDateString()
-                                            : '--';
+                                            : isFlow ? 'Continuous' : '--';
+
+                                        const chainName = item.chainId === 11155111 ? 'Sepolia' : 
+                                                         item.chainId === 8453 ? 'Base' :
+                                                         item.chainId === 10 ? 'Optimism' : 
+                                                         item.chain === 'solana' ? 'Solana' : 'EVM';
 
                                         return (
                                             <motion.div
@@ -105,7 +128,7 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                                 animate={{ opacity: 1 }}
                                                 className={`table-row ${isSelected ? 'selected-row' : ''}`}
                                                 style={{
-                                                    gridTemplateColumns: '1fr 120px 140px 100px',
+                                                    gridTemplateColumns: '1.2fr 1fr 1fr 100px',
                                                     padding: '14px 16px',
                                                     cursor: 'pointer',
                                                     background: isSelected ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
@@ -125,18 +148,31 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                                         justifyContent: 'center',
                                                         fontSize: 14
                                                     }}>
-                                                        💰
+                                                        {isFlow ? '🌊' : '⏳'}
                                                     </div>
                                                     <div className="stack" style={{ gap: 2 }}>
                                                         <span style={{ fontWeight: 600 }}>{item.tokenSymbol || 'Token'}</span>
-                                                        <span className="muted" style={{ fontSize: 10 }}>ID: {item.collateralId?.slice(0, 8)}...</span>
+                                                        <span className="muted" style={{ fontSize: 9 }}>
+                                                            {chainName} • ID: {item.collateralId?.slice(0, 6)}...
+                                                        </span>
                                                     </div>
                                                 </div>
-                                                <div style={{ fontWeight: 500 }}>
-                                                    {parseFloat(item.quantity || 0).toLocaleString()}
+                                                <div className="stack" style={{ gap: 2 }}>
+                                                    <div style={{ fontWeight: 500 }}>
+                                                        {parseFloat(item.quantity || 0).toLocaleString()}
+                                                    </div>
+                                                    {isFlow && item.ratePerSecond && (
+                                                        <span className="muted" style={{ fontSize: 9 }}>
+                                                            {item.ratePerSecond} / sec
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div style={{ textAlign: 'right' }}>
-                                                    <span className="tag" style={{ fontSize: 10, background: 'rgba(59, 130, 246, 0.14)', color: 'var(--primary-300)' }}>
+                                                    <span className="tag" style={{ 
+                                                        fontSize: 10, 
+                                                        background: isFlow ? 'rgba(16, 185, 129, 0.14)' : 'rgba(59, 130, 246, 0.14)', 
+                                                        color: isFlow ? '#10B981' : 'var(--primary-300)' 
+                                                    }}>
                                                         {unlockDate}
                                                     </span>
                                                 </div>
