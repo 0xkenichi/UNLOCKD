@@ -59,8 +59,15 @@ const FLOW_QUERY = gql`
   }
 `;
 
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+
 const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
     if (!SABLIER_ENABLED || !wallets.length) {
+        return [];
+    }
+
+    // In demo mode, only fetch for Sepolia (11155111) and Base (8453) to avoid timeouts on other chains
+    if (DEMO_MODE && chainId !== 11155111 && chainId !== 8453) {
         return [];
     }
 
@@ -77,7 +84,9 @@ const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
             request(config.flow, FLOW_QUERY, { recipients })
         ]);
     } catch (error) {
-        console.error(`[sablier] subgraph fetch error on chain ${chainId}:`, error.message);
+        if (!DEMO_MODE) {
+            console.error(`[sablier] subgraph fetch error on chain ${chainId}:`, error.message);
+        }
     }
 
     // Process Lockup Streams

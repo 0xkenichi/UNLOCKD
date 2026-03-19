@@ -102,7 +102,7 @@ class VestraClient {
     }
 
     /**
-     * Migrate ASI reputation to Vestra VCS bonus
+     * Migrate ASI reputation to Vestra $CRDT bonus
      * @param {string} address - Wallet address
      * @returns {Promise<Object>}
      */
@@ -116,11 +116,11 @@ class VestraClient {
     }
 
     /**
-     * Fetch the Vestra Credit Score (VCS)
+     * Fetch the Vestra $CRDT Score
      * @param {string} address - Wallet address
      * @returns {Promise<Object>}
      */
-    async getVCS(address) {
+    async getCRDT(address) {
         const response = await fetch(`https://api.vestra.finance/api/identity/${address}`);
         const data = await response.json();
         return {

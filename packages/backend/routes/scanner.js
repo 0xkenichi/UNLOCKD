@@ -9,31 +9,24 @@ const SovereignDataService = require('../lib/SovereignDataService');
 
 const router = express.Router();
 
-// ─── Config ──────────────────────────────────────────────────────────────────
-// Alchemy: Both Sepolia (testnet) and Mainnet are supported.
-// If you want mainnet, set ALCHEMY_MAINNET_URL in your .env
-const ALCHEMY_SEPOLIA_URL = process.env.ALCHEMY_SEPOLIA_URL ||
-    (process.env.ALCHEMY_ACCOUNT_KIT_RPC_URL) || '';
-const ALCHEMY_MAINNET_URL = process.env.ALCHEMY_MAINNET_URL ||
-    (process.env.ALCHEMY_ACCOUNT_KIT_RPC_URL
-        ? process.env.ALCHEMY_ACCOUNT_KIT_RPC_URL.replace('sepolia', 'mainnet').replace('-sepolia', '')
-        : '');
-
-// Helius is the best free Solana API: https://helius.dev (sign up for free key)
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '';
-const HELIUS_BASE = 'https://mainnet.helius-rpc.com';
-const HELIUS_REST = 'https://api.helius.xyz/v0';
-
-// Dune Analytics: create an account at dune.com, get a free API key via Settings > API
-const DUNE_API_KEY = process.env.DUNE_API_KEY || '';
-
-// Solana public RPC fallback (mainnet)
-const SOLANA_MAINNET_RPC = process.env.VITE_SOLANA_MAINNET_RPC ||
-    `${HELIUS_BASE}/?api-key=${HELIUS_API_KEY}` ||
-    'https://api.mainnet-beta.solana.com';
-
-// Use testnet for EVM when mainnet URL is unavailable
-const EVM_RPC = ALCHEMY_MAINNET_URL || ALCHEMY_SEPOLIA_URL;
+// Support multiple EVM chains for comprehensive portfolio scanning
+const EVM_CHAINS = [
+    { 
+        id: 11155111, 
+        name: 'Sepolia', 
+        rpc: process.env.ALCHEMY_SEPOLIA_URL || 'https://ethereum-sepolia-rpc.publicnode.com' 
+    },
+    { 
+        id: 84532, 
+        name: 'Base Sepolia', 
+        rpc: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org' 
+    },
+    { 
+        id: 1, 
+        name: 'Mainnet', 
+        rpc: process.env.ALCHEMY_MAINNET_URL || '' 
+    }
+].filter(c => c.rpc);
 
 const FETCH_TIMEOUT_MS = 12_000;
 
@@ -56,11 +49,11 @@ async function safeFetch(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 // ─── EVM: Alchemy Token Balances (real Alchemy API) ───────────────────────────
-async function getEvmTokenBalances(wallet) {
-    if (!EVM_RPC) return [];
+async function getEvmTokenBalances(wallet, rpcUrl) {
+    if (!rpcUrl) return [];
     try {
         // 1. Get all ERC-20 token balances
-        const res = await safeFetch(EVM_RPC, {
+        const res = await safeFetch(rpcUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -71,11 +64,20 @@ async function getEvmTokenBalances(wallet) {
             })
         });
         if (!res.ok) {
-            console.warn(`[scanner] Alchemy token balances HTTP ${res.status}`);
+            console.warn(`[scanner] Alchemy token balances HTTP ${res.status} for ${rpcUrl}`);
             return [];
         }
         const data = await res.json();
-        const rawBalances = (data?.result?.tokenBalances || []).filter(
+        const result = data?.result;
+        
+        // Handle standard RPC fallback if alchemy_getTokenBalances not supported
+        if (!result || !result.tokenBalances) {
+            // If it's not a real Alchemy RPC, this might fail. 
+            // We could add a generic ERC20 scanner here, but for now we rely on Alchemy.
+            return [];
+        }
+
+        const rawBalances = (result.tokenBalances || []).filter(
             (t) => t.tokenBalance && t.tokenBalance !== '0x0000000000000000000000000000000000000000000000000000000000000000'
         );
 
@@ -85,7 +87,7 @@ async function getEvmTokenBalances(wallet) {
         const enriched = await Promise.allSettled(
             rawBalances.map(async (token) => {
                 try {
-                    const metaRes = await safeFetch(EVM_RPC, {
+                    const metaRes = await safeFetch(rpcUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -104,8 +106,12 @@ async function getEvmTokenBalances(wallet) {
                         balance = Number(BigInt(token.tokenBalance)) / Math.pow(10, decimals);
                     } catch { balance = 0; }
                     if (balance === 0) return null;
+                    
+                    // Determine chain name from RPC URL
+                    const chainName = rpcUrl.includes('base') ? 'base' : (rpcUrl.includes('sepolia') ? 'sepolia' : 'ethereum');
+                    
                     return {
-                        chain: 'evm',
+                        chain: chainName,
                         category: 'liquid',
                         contractAddress: token.contractAddress.toLowerCase(),
                         symbol: meta.symbol || 'ERC20',
@@ -124,16 +130,16 @@ async function getEvmTokenBalances(wallet) {
             .filter((r) => r.status === 'fulfilled' && r.value)
             .map((r) => r.value);
     } catch (err) {
-        console.warn('[scanner] EVM token fetch failed:', err.message);
+        console.warn(`[scanner] EVM token fetch failed for ${rpcUrl}:`, err.message);
         return [];
     }
 }
 
 // ─── EVM: Native ETH balance ──────────────────────────────────────────────────
-async function getEvmNativeBalance(wallet) {
-    if (!EVM_RPC) return null;
+async function getEvmNativeBalance(wallet, rpcUrl) {
+    if (!rpcUrl) return null;
     try {
-        const res = await safeFetch(EVM_RPC, {
+        const res = await safeFetch(rpcUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -147,12 +153,16 @@ async function getEvmNativeBalance(wallet) {
         const rawWei = BigInt(data?.result || '0x0');
         const balance = Number(rawWei) / 1e18;
         if (balance < 0.0001) return null;
+        
+        // Determine chain name from RPC URL
+        const chainName = rpcUrl.includes('base') ? 'base' : (rpcUrl.includes('sepolia') ? 'sepolia' : 'ethereum');
+
         return {
-            chain: 'evm',
+            chain: chainName,
             category: 'liquid',
             contractAddress: 'native',
             symbol: 'ETH',
-            name: 'Ether',
+            name: rpcUrl.includes('base') ? 'Base ETH' : 'Ether',
             decimals: 18,
             balance,
             logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
@@ -160,7 +170,7 @@ async function getEvmNativeBalance(wallet) {
             valueUsd: 0
         };
     } catch (err) {
-        console.warn('[scanner] EVM native balance failed:', err.message);
+        console.warn(`[scanner] EVM native balance failed for ${rpcUrl}:`, err.message);
         return null;
     }
 }
@@ -697,16 +707,18 @@ router.get('/portfolio/:wallet', async (req, res) => {
         const liquidTokens = [];
         const scanTasks = [];
 
-        // 2. EVM scans
+        // 2. EVM scans (Iterate over all supported chains)
         if (chain === 'all' || chain === 'evm') {
             for (const evmWallet of targetWallets.evm) {
-                scanTasks.push(
-                    Promise.allSettled([
-                        getEvmTokenBalances(evmWallet),
-                        getEvmNativeBalance(evmWallet),
-                        getDuneDefiPositions(evmWallet)
-                    ])
-                );
+                for (const chainCfg of EVM_CHAINS) {
+                    scanTasks.push(
+                        Promise.allSettled([
+                            getEvmTokenBalances(evmWallet, chainCfg.rpc),
+                            getEvmNativeBalance(evmWallet, chainCfg.rpc),
+                            chainCfg.id === 1 ? getDuneDefiPositions(evmWallet) : Promise.resolve([]) // Only mainnet for Dune defi
+                        ])
+                    );
+                }
             }
         }
 
@@ -817,7 +829,7 @@ router.get('/portfolio/:wallet', async (req, res) => {
                 scannedAt: new Date().toISOString(),
                 hasDuneData: Boolean(DUNE_API_KEY),
                 hasHeliusData: Boolean(HELIUS_API_KEY),
-                evmRpc: EVM_RPC ? EVM_RPC.replace(/\/v2\/[^/]+/, '/v2/***') : null
+                evmRpc: EVM_CHAINS[0]?.rpc ? EVM_CHAINS[0].rpc.replace(/\/v2\/[^/]+/, '/v2/***') : null
             }
         });
     } catch (err) {

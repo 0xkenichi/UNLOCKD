@@ -17,6 +17,7 @@ export const CONTRACTS = {
     vestingAdapter: '0xA8743ABc6BCD80633171Af6AF7091Cf240e77910',
     usdc: '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
+    demoFaucet: '0x6EE0a9B7972f43100B9c0757D88BF5A8c7F0bF2E',
     zkShield: '0x0000000000000000000000000000000000000000', // To be deployed
   },
   [baseSepolia.id]: {
@@ -94,6 +95,16 @@ export const usdcAbi = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [
+      { internalType: 'address', name: 'to', type: 'address' },
+      { internalType: 'uint256', name: 'amount', type: 'uint256' }
+    ],
+    name: 'mint',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
 ] as const;
 
 export const lendingPoolAbi = [
@@ -156,6 +167,20 @@ export const lendingPoolAbi = [
     stateMutability: 'view',
     type: 'function',
   }
+] as const;
+
+export const demoFaucetAbi = [
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'allocation', type: 'uint256' },
+      { internalType: 'uint256', name: 'durationMonths', type: 'uint256' },
+      { internalType: 'uint256', name: 'cliffMonths', type: 'uint256' }
+    ],
+    name: 'mintDemoPosition',
+    outputs: [{ internalType: 'address', name: 'vestingWallet', type: 'address' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
 ] as const;
 
 // Helper to get contract info

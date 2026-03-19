@@ -23,6 +23,12 @@ const VESTING_REGISTRY = {
     event: parseAbiItem('event TokensReleased(bytes32 indexed scheduleId, address indexed beneficiary, uint256 amount)'),
     protocol: 'Holi Protocol',
     recipientField: 'beneficiary'
+  },
+  VESTRA_DEMO: {
+    address: '0x6EE0a9B7972f43100B9c0757D88BF5A8c7F0bF2E',
+    event: parseAbiItem('event DemoPositionMinted(address indexed user, address indexed vestingContract, uint256 collateralId)'),
+    protocol: 'Vestra Demo',
+    recipientField: 'user'
   }
 };
 
@@ -39,33 +45,39 @@ async function scanVestingLogs(client, walletAddress, customRange) {
       const chainId = await client.getChainId();
       
       // Some providers (Thirdweb/Merkle) have strict 1k limits
-      const totalRange = customRange || 25000n; 
-      const chunkSize = 1000n;
+      const DEMO_MODE = process.env.DEMO_MODE === 'true';
+      const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
       
+      // Drastically reduce range for public RPC stability
+      const rangeLimit = DEMO_MODE ? 2000n : 25000n;
+      const chunkSize = DEMO_MODE ? 500n : 1000n;
+
+      if (!DEMO_MODE) {
+        console.log(`[DiscoveryUtils] Scanning ${config.protocol} logs for ${wallet} in chunks (Total: ${rangeLimit} blocks)`);
+      }
+
       let toBlock = currentBlock;
       let fromBlock = toBlock - chunkSize;
-      const finalBlock = currentBlock - totalRange;
 
-      console.log(`[DiscoveryUtils] Scanning ${config.protocol} logs for ${wallet} in chunks (Total: ${totalRange} blocks)`);
-
-      while (toBlock > finalBlock) {
+      while (toBlock > currentBlock - rangeLimit) {
         try {
           const logs = await client.getLogs({
             address: config.address,
             event: config.event,
             args: { [config.recipientField]: wallet },
-            fromBlock: fromBlock > finalBlock ? fromBlock : finalBlock,
+            fromBlock: fromBlock > (currentBlock - rangeLimit) ? fromBlock : (currentBlock - rangeLimit),
             toBlock: toBlock
           });
 
           for (const log of logs) {
             const { args } = log;
-            const id = (args.id || args.scheduleId).toString();
+            const id = (args.id || args.scheduleId || args.collateralId || args.vestingContract || '0x').toString();
             results.push({
               id,
               protocol: config.protocol,
-              recipient: args.recipient || args.beneficiary,
-              token: args.token || config.address, // vHOLI is both token and manager
+              contractAddress: args.vestingContract || config.address,
+              recipient: args.recipient || args.beneficiary || args.user,
+              token: args.token || (config.protocol === 'Vestra Demo' ? '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d' : config.address),
               amount: (args.amount || args.deposit || '0').toString(),
               start: Number(args.start || args.startTime || 0),
               end: Number(args.end || args.stopTime || 0),
@@ -73,9 +85,12 @@ async function scanVestingLogs(client, walletAddress, customRange) {
               chainId
             });
           }
+          
+          // Respect rate limits on public RPCs
+          if (DEMO_MODE) await sleep(200); 
         } catch (chunkErr) {
-          // If a chunk fails, we logging but continue to next chunk
           console.warn(`[DiscoveryUtils] Chunk scan failed [${fromBlock} - ${toBlock}]:`, chunkErr.message);
+          if (chunkErr.message.includes('429')) await sleep(2000); // Back off on rate limit
         }
 
         toBlock = fromBlock - 1n;

@@ -7,11 +7,15 @@ const { request, gql } = require('graphql-request');
 const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || '';
 const SUPERFLUID_SUBGRAPH_URL = `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/5xS8X9B9Y6pQ8X9B9Y6pQ8X9B9Y6pQ`;
 const SUPERFLUID_ENABLED = process.env.EVM_SUPERFLUID_ENABLED === 'true';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 const fetchSuperfluidStreams = async (wallets = []) => {
   if (!SUPERFLUID_ENABLED || !wallets || wallets.length === 0) {
     return [];
   }
+
+  // In demo mode, superfluid might be non-essential if subgraphs are down
+  // We'll still try, but silence the error if it fails
 
   const normalizedWallets = wallets.map(w => w.toLowerCase());
 
@@ -95,7 +99,9 @@ const fetchSuperfluidStreams = async (wallets = []) => {
 
     return streams.filter(Boolean);
   } catch (error) {
-    console.warn('[evm] superfluid search failed', error?.message || error);
+    if (!DEMO_MODE) {
+      console.warn('[evm] superfluid search failed', error?.message || error);
+    }
     return [];
   }
 };

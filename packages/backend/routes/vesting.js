@@ -72,6 +72,50 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * @api {get} /api/vesting/feed Get top vesting feed for landing page ticker
+ */
+router.get('/feed', async (req, res) => {
+  console.log(`[vesting] GET /feed requested with limit=${req.query.limit || 10}`);
+  try {
+    const { limit = 10 } = req.query;
+    const feed = await SovereignDataService.getTopVestingFeed(limit);
+    res.json({
+      success: true,
+      data: feed
+    });
+  } catch (err) {
+    console.error('[API] /api/vesting/feed error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch vesting feed'
+    });
+  }
+});
+
+/**
+ * @api {get} /api/vesting/all Get all vesting projects and unlock events
+ */
+router.get('/all', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const projects = await persistence.listTokenProjects(limit);
+    const events = await persistence.listTokenUnlockEvents({ limit });
+    
+    res.json({
+      success: true,
+      projects,
+      events
+    });
+  } catch (err) {
+    console.error('[API] /api/vesting/all error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch all vesting data'
+    });
+  }
+});
+
+/**
  * @api {get} /api/vesting/:id Get specific vesting source details
  */
 router.get('/:id', async (req, res) => {
@@ -97,26 +141,6 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch vesting source'
-    });
-  }
-});
-
-/**
- * @api {get} /api/vesting/feed Get top vesting feed for landing page ticker
- */
-router.get('/feed', async (req, res) => {
-  try {
-    const { limit = 10 } = req.query;
-    const feed = await SovereignDataService.getTopVestingFeed(limit);
-    res.json({
-      success: true,
-      data: feed
-    });
-  } catch (err) {
-    console.error('[API] /api/vesting/feed error:', err.message);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch vesting feed'
     });
   }
 });

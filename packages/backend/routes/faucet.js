@@ -40,4 +40,18 @@ router.post('/generate-vesting', async (req, res) => {
     }
 });
 
+router.post('/associate-name', async (req, res) => {
+    const { contractAddress, name } = req.body;
+    if (!contractAddress || !name) {
+        return res.status(400).json({ ok: false, error: 'Missing parameters' });
+    }
+
+    try {
+        const success = await persistence.associateVestingName(contractAddress, name);
+        return res.json({ ok: success });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 module.exports = router;

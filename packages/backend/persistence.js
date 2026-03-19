@@ -2806,6 +2806,33 @@ const updateVestingRank = async (vestingContract, rank) => {
   return true;
 };
 
+const associateVestingName = async (contractAddress, name) => {
+  const addr = String(contractAddress || '').toLowerCase();
+  if (useSupabase) {
+    const { data: existing } = await supabaseClient()
+      .from('vesting_sources')
+      .select('metadata')
+      .eq('vesting_contract', addr)
+      .maybeSingle();
+    
+    const metadata = existing?.metadata || {};
+    metadata.name = name;
+
+    const { error } = await supabaseClient()
+      .from('vesting_sources')
+      .update({ metadata })
+      .eq('vesting_contract', addr);
+    if (error) throw new Error(`[supabase] associateVestingName failed: ${error.message}`);
+    return true;
+  }
+  const row = sqlite.prepare('SELECT metadata FROM vesting_sources WHERE LOWER(vesting_contract) = ?').get(addr);
+  if (!row) return false;
+  const metadata = row.metadata ? JSON.parse(row.metadata) : {};
+  metadata.name = name;
+  sqlite.prepare('UPDATE vesting_sources SET metadata = ? WHERE LOWER(vesting_contract) = ?').run(JSON.stringify(metadata), addr);
+  return true;
+};
+
 const saveStakedSource = async ({
   id,
   chainId,
@@ -3939,5 +3966,6 @@ module.exports = {
   updateRepayJob,
   createLoan,
   getLoansByWallet,
+  associateVestingName,
   getSqlite: () => sqlite
 };

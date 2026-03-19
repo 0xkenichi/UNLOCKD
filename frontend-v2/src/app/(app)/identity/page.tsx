@@ -34,7 +34,7 @@ export default function IdentityPage() {
 
   const stats = useMemo(() => [
     { 
-      label: "Vestra Credit Score", 
+      label: "VCS Score", 
       value: isConnected ? (passport.compositeScore?.toString() || "0") : "000", 
       delta: "VCS Algorithm", 
       color: "accent-teal" 
@@ -205,7 +205,7 @@ export default function IdentityPage() {
             <div className="mt-12 p-6 rounded-2xl bg-accent-teal/5 border border-accent-teal/10 flex gap-4">
                <Info className="text-accent-teal shrink-0" size={18} />
                <p className="text-xs text-secondary font-medium leading-relaxed">
-                 Sync Gitcoin Passport to improve your Vestra Credit Score and unlock premium borrowing rates.
+                 Sync Gitcoin Passport to improve your VCS Score and unlock premium borrowing rates.
                </p>
             </div>
           </div>

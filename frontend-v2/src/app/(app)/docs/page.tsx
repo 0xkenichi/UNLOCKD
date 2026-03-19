@@ -4,15 +4,15 @@ import { DocsClient } from "./DocsClient";
 
 // Define the docs mapping relative to the repo root
 const DOCS_CONFIG = [
-  { id: 'tokenomics', title: 'Tokenomics', path: 'docs/TOKENOMICS_FINAL.md' },
-  { id: 'whitepaper', title: 'Whitepaper', path: 'docs/WHITEPAPER.md' },
-  { id: 'overview', title: 'Protocol Overview', path: 'docs/OVERVIEW.md' },
-  { id: 'litepaper', title: 'Litepaper', path: 'docs/protocol-design/LITEPAPER.md' },
-  { id: 'faq', title: 'FAQ', path: 'docs/reference/FAQ.md' },
-  { id: 'technical-spec', title: 'Technical Spec', path: 'docs/protocol-design/TECHNICAL_SPEC.md' },
-  { id: 'risk-models', title: 'Risk Models', path: 'docs/RISK_MODELS.md' },
-  { id: 'testnet-faucet', title: 'Testnet Faucet', path: 'docs/build-and-deploy/TESTNET_FAUCET_DEMO_ONE_PAGER.md' },
-  { id: 'vesting-quickstart', title: 'Quickstart', path: 'docs/build-and-deploy/TESTNET_VESTING_CREATION_QUICKSTART.md' },
+  { id: 'tokenomics', title: 'Tokenomics', path: 'packages/docs/TOKENOMICS_FINAL.md' },
+  { id: 'whitepaper', title: 'Whitepaper', path: 'packages/docs/WHITEPAPER.md' },
+  { id: 'overview', title: 'Protocol Overview', path: 'packages/docs/OVERVIEW.md' },
+  { id: 'litepaper', title: 'Litepaper', path: 'packages/docs/protocol-design/LITEPAPER.md' },
+  { id: 'faq', title: 'FAQ', path: 'packages/docs/reference/FAQ.md' },
+  { id: 'technical-spec', title: 'Technical Spec', path: 'packages/docs/protocol-design/TECHNICAL_SPEC.md' },
+  { id: 'risk-models', title: 'Risk Models', path: 'packages/docs/RISK_MODELS.md' },
+  { id: 'testnet-faucet', title: 'Testnet Faucet', path: 'packages/docs/build-and-deploy/TESTNET_FAUCET_DEMO_ONE_PAGER.md' },
+  { id: 'vesting-quickstart', title: 'Quickstart', path: 'packages/docs/build-and-deploy/TESTNET_VESTING_CREATION_QUICKSTART.md' },
 ];
 
 export default async function DocsPage() {

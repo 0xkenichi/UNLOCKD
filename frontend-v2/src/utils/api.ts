@@ -53,8 +53,11 @@ export const api = {
   fetchPerformance: (wallet: string) => fetchApi(`/api/analytics/performance?wallet=${wallet}`),
   fetchYieldHistory: () => fetchApi('/api/analytics/yield-history'),
   fetchVestedContracts: (params: { walletAddress?: string; chain?: string; privacyMode?: boolean } = {}) => {
+    if (params.walletAddress) {
+      return api.fetchPortfolio(params.walletAddress, params.chain || 'all')
+        .then(data => data.assets?.vested || []);
+    }
     const query = new URLSearchParams();
-    if (params.walletAddress) query.set('wallet', params.walletAddress);
     if (params.chain) query.set('chain', params.chain);
     if (params.privacyMode) query.set('privacy', '1');
     return fetchApi(`/api/vested-contracts?${query.toString()}`);
@@ -97,7 +100,16 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
-  fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`)
+  fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`),
+  fetchVestingAll: (limit = 50) => fetchApi(`/api/vesting/all?limit=${limit}`),
+  verifyIdentity: (walletAddress: string) => fetchApi('/api/identity/verify', {
+    method: 'POST',
+    body: JSON.stringify({ walletAddress })
+  }),
+  associateVestingName: (contractAddress: string, name: string) => fetchApi('/api/faucet/associate-name', {
+    method: 'POST',
+    body: JSON.stringify({ contractAddress, name })
+  })
 };
 
 export interface Message {

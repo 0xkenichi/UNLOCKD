@@ -116,12 +116,12 @@ const computeFBS = ({ creditHistory }) => {
   return { fbs: clamp(Math.round(score), 0, 500), reasonCodes };
 };
 
-const scoreToTier = ({ ias, fbs, compositeScore }) => {
-  if (compositeScore >= 840 && ias >= 320 && fbs >= 380) return 5;
-  if (compositeScore >= 740 && ias >= 270 && fbs >= 320) return 4;
-  if (compositeScore >= 620 && ias >= 220 && fbs >= 260) return 3;
-  if (compositeScore >= 500 && ias >= 160 && fbs >= 220) return 2;
-  if (compositeScore >= 340 && ias >= 110) return 1;
+const scoreToTier = ({ ias, fbs, crdtScore }) => {
+  if (crdtScore >= 840 && ias >= 320 && fbs >= 380) return 5;
+  if (crdtScore >= 740 && ias >= 270 && fbs >= 320) return 4;
+  if (crdtScore >= 620 && ias >= 220 && fbs >= 260) return 3;
+  if (crdtScore >= 500 && ias >= 160 && fbs >= 220) return 2;
+  if (crdtScore >= 340 && ias >= 110) return 1;
   return 0;
 };
 
@@ -154,14 +154,14 @@ const computeScore = (input = {}) => {
     creditHistory: input.creditHistory || null
   });
 
-  const compositeScoreRaw = ias + fbs + walletAgeBaseScore;
+  const crdtScoreRaw = ias + fbs + walletAgeBaseScore;
   
   // Apply Unlock Risk Multiplier (Phase 5 Intelligence)
   const multiplier = getUnlockRiskMultiplier(input.marketData?.unlocks);
   
-  const compositeScore = clamp(Math.round(compositeScoreRaw * multiplier), 0, 1000);
+  const crdtScore = clamp(Math.round(crdtScoreRaw * multiplier), 0, 1000);
   
-  const identityTier = scoreToTier({ ias, fbs, compositeScore });
+  const crdtTier = scoreToTier({ ias, fbs, crdtScore });
   const reasonCodes = [...iasReasons, ...fbsReasons];
   if (walletAgeBaseScore > 0) {
     reasonCodes.push(`wallet_age_bonus:${walletAgeMonths}mo`);
@@ -169,8 +169,8 @@ const computeScore = (input = {}) => {
   if (multiplier < 1.0) reasonCodes.push('upcoming_unlock_risk_adjustment');
 
   return {
-    identityTier,
-    compositeScore,
+    crdtTier,
+    crdtScore,
     ias,
     fbs,
     walletAgeBaseScore,
@@ -186,10 +186,10 @@ const POLICY_RULES = {
   large: { requiredTier: 3, requiredScore: 620 }
 };
 
-const policyCheck = (identityTier = 0, compositeScore = 0, band = 'small') => {
+const policyCheck = (crdtTier = 0, crdtScore = 0, band = 'small') => {
   const rule = POLICY_RULES[band] || POLICY_RULES.small;
-  const tier = Number(identityTier || 0);
-  const score = Number(compositeScore || 0);
+  const tier = Number(crdtTier || 0);
+  const score = Number(crdtScore || 0);
   return {
     band,
     allowed: tier >= rule.requiredTier && score >= rule.requiredScore,

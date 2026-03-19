@@ -179,21 +179,21 @@ export const DocsClient = ({ initialDocs }: { initialDocs: Doc[] }) => {
             transition={{ duration: 0.4 }}
             className="space-y-10"
           >
-            {/* Visuals based on ID */}
-            {activeId === 'whitepaper' && <ArchitectureVisual />}
-            {activeId === 'tokenomics' && <TokenomicsVisual />}
+             <article className="prose prose-invert prose-vestra max-w-none bg-surface-soft border border-white/5 p-10 rounded-[32px] shadow-2xl relative overflow-hidden">
+                {/* Aesthetic overlays */}
+                <div className="absolute top-0 right-0 w-64 h-64 bg-accent-teal/5 blur-[100px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-0 left-0 w-64 h-64 bg-accent-cyan/5 blur-[100px] rounded-full pointer-events-none" />
 
-            <article className="prose prose-invert prose-vestra max-w-none bg-surface-soft border border-white/5 p-10 rounded-[32px] shadow-2xl relative overflow-hidden">
-               {/* Aesthetic overlays */}
-               <div className="absolute top-0 right-0 w-64 h-64 bg-accent-teal/5 blur-[100px] rounded-full pointer-events-none" />
-               <div className="absolute bottom-0 left-0 w-64 h-64 bg-accent-cyan/5 blur-[100px] rounded-full pointer-events-none" />
+                <div className="flex items-center gap-3 mb-10 text-[10px] font-bold text-secondary uppercase tracking-widest">
+                   <BookOpen size={14} className="text-accent-teal" />
+                   <span>Verified Specification</span>
+                   <span className="w-1 h-1 rounded-full bg-white/10" />
+                   <span>Vestra Core v2.0</span>
+                </div>
 
-               <div className="flex items-center gap-3 mb-10 text-[10px] font-bold text-secondary uppercase tracking-widest">
-                  <BookOpen size={14} className="text-accent-teal" />
-                  <span>Verified Specification</span>
-                  <span className="w-1 h-1 rounded-full bg-white/10" />
-                  <span>Vestra Core v2.0</span>
-               </div>
+                {/* Visuals based on ID - Moved inside article for better flow */}
+                {activeId === 'whitepaper' && <div className="mb-12"><ArchitectureVisual /></div>}
+                {activeId === 'tokenomics' && <div className="mb-12"><TokenomicsVisual /></div>}
 
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}

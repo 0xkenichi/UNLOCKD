@@ -113,6 +113,7 @@ const CONCENTRATION_MAX_USD_PER_TOKEN = process.env.CONCENTRATION_MAX_USD_PER_TO
   : null;
 const MIN_INTEREST_BPS = process.env.MIN_INTEREST_BPS ? Number(process.env.MIN_INTEREST_BPS) : null;
 const ONE_DAY = 24 * 60 * 60;
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
 // Always-on keepers (optional; disabled by default)
 const EVM_KEEPER_ENABLED = process.env.EVM_KEEPER_ENABLED === 'true';
@@ -927,11 +928,11 @@ const buildIdentityProfile = async (walletAddress) => {
   return {
     walletAddress: normalized,
     ...score,
-    tierName: TIER_NAMES[score.identityTier] || 'Anonymous',
+    tierName: TIER_NAMES[score.crdtTier] || 'Anonymous',
     policy: {
-      small: policyCheck(score.identityTier, score.compositeScore, 'small'),
-      medium: policyCheck(score.identityTier, score.compositeScore, 'medium'),
-      large: policyCheck(score.identityTier, score.compositeScore, 'large')
+      small: policyCheck(score.crdtTier, score.crdtScore, 'small'),
+      medium: policyCheck(score.crdtTier, score.crdtScore, 'medium'),
+      large: policyCheck(score.crdtTier, score.crdtScore, 'large')
     },
     attestations,
     creditHistory
@@ -1412,6 +1413,43 @@ app.get('/api/platform/snapshot', async (_req, res) => {
   }
 });
 
+app.post('/api/identity/verify', async (req, res) => {
+  const { walletAddress } = req.body;
+  const normalized = normalizeAnyWalletAddress(walletAddress || '');
+  if (!normalized) {
+    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+  }
+
+  try {
+    console.log(`[identity] Triggering manual Gitcoin Passport sync for ${normalized}`);
+    
+    // Fetch score and stamps in parallel
+    const [scoreResult, stampsResult] = await Promise.all([
+      SovereignDataService.fetchGitcoinPassportScore(normalized),
+      SovereignDataService.fetchGitcoinPassportStamps(normalized)
+    ]);
+
+    // Upsert to persistence
+    await persistence.upsertIdentityAttestation({
+      walletAddress: normalized,
+      provider: 'GitcoinPassport',
+      score: scoreResult?.score || 0,
+      stampsCount: stampsResult?.stamps?.length || 0,
+      metadata: JSON.stringify({
+        status: scoreResult?.status,
+        last_score_timestamp: scoreResult?.last_score_timestamp,
+        stamps: stampsResult?.stamps
+      })
+    });
+
+    const profile = await buildIdentityProfile(normalized);
+    return res.json({ ok: true, profile });
+  } catch (error) {
+    console.error('[identity] Verification failed:', error.message);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get('/api/identity/:walletAddress', async (req, res) => {
   const walletAddress = normalizeAnyWalletAddress(req.params.walletAddress || '');
   if (!walletAddress) {
@@ -1465,25 +1503,36 @@ app.post('/api/faucet/usdc', async (req, res) => {
 
     // Try to mint if the contract supports it, otherwise transfer from relayer (if it has funds)
     try {
-      const relayer = getRelayerWallet(); // Already has provider inside
+      const relayerBase = getRelayerWallet();
+      const relayer = relayerBase.connect(provider); // ENFORCE Sepolia provider for faucet
+      console.log(`[faucet] Attempting mint for ${address} using relayer ${relayer.address} on Sepolia`);
+      
       const connectedUsdc = usdcContract.connect(relayer);
       const tx = await connectedUsdc.mint(address, ethers.parseUnits('1000', 6));
       await tx.wait();
+      console.log(`[faucet] Mint success: ${tx.hash}`);
       res.json({ ok: true, amount: 1000, txHash: tx.hash });
     } catch (mintErr) {
-      console.warn('[faucet] mint failed, trying transfer:', mintErr.message);
+      console.warn('[faucet] mint failed:', mintErr.message);
+      if (mintErr.data) console.warn('[faucet] mint error data:', mintErr.data);
+      
       try {
-        const relayer = getRelayerWallet();
+        const relayerBase = getRelayerWallet();
+        const relayer = relayerBase.connect(provider);
         const connectedUsdc = usdcContract.connect(relayer);
+        console.log(`[faucet] Attempting transfer for ${address} from relayer ${relayer.address}`);
         const tx = await connectedUsdc.transfer(address, ethers.parseUnits('1000', 6));
         await tx.wait();
+        console.log(`[faucet] Transfer success: ${tx.hash}`);
         res.json({ ok: true, amount: 1000, txHash: tx.hash });
       } catch (transferErr) {
-        res.status(500).json({ ok: false, error: 'Faucet depleted or minting not allowed.' });
+        console.error('[faucet] Transfer failed:', transferErr.message);
+        if (transferErr.data) console.error('[faucet] transfer error data:', transferErr.data);
+        res.status(500).json({ ok: false, error: 'Faucet depleted or minting not allowed. ' + transferErr.message });
       }
     }
   } catch (err) {
-    console.error('[faucet] Internal Error:', err.message);
+    console.error('[faucet] Internal Error:', err.stack || err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -2276,7 +2325,7 @@ const getPoolInterestBps = async () => {
       baseRateBps: bps,
       utilizationRatio: 0.65, // Mocked for MVP demo responsiveness
       volatilityIndex: Math.min(1.0, simulationState.volatility / 100),
-      userCreditScore: 750
+      userCRDTScore: 750
     });
     // Convert percentage string back to BPS
     const oldBps = bps;
@@ -6042,7 +6091,7 @@ const start = async () => {
         pollEvents().catch((error) =>
           console.error('[indexer] poll error (interval)', error?.message || error)
         );
-      }, INDEXER_POLL_INTERVAL_MS);
+      }, DEMO_MODE ? Math.max(INDEXER_POLL_INTERVAL_MS * 4, 60000) : INDEXER_POLL_INTERVAL_MS);
       setInterval(() => {
         takeVestedSnapshot().catch((error) =>
           console.error('[indexer] snapshot error (interval)', error?.message || error)

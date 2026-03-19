@@ -1,6 +1,6 @@
 # Vestra Protocol - Sovereign Data Layer
 
-Production-grade Data Oracle & Vesting Feed Service for the Vestra credit primitive.
+Production-grade Data Oracle & Vesting Feed Service for the $CRDT protocol.
 
 ## One-Command Testnet Spin-Up
 

@@ -38,6 +38,7 @@ interface Allocation {
   totalDurationMonths: number;
   network: string;
   custodyMode: 'managed' | 'self';
+  projectName?: string;
 }
 
 // Global Market Constants
@@ -59,8 +60,11 @@ interface Agent {
 
 const NETWORKS = ['Ethereum', 'Solana', 'Base', 'Vestra Protocol', 'Arbitrum'];
 
-import { useAccount } from 'wagmi';
+import { useAccount, useWriteContract, useChainId, useWaitForTransactionReceipt } from 'wagmi';
 import { api } from '@/utils/api';
+import { demoFaucetAbi, getContract } from '@/config/contracts';
+import { sepolia } from 'viem/chains';
+import { toast } from 'react-hot-toast';
 
 export default function AdvancedSimulator() {
   const { address } = useAccount();
@@ -73,10 +77,31 @@ export default function AdvancedSimulator() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [currentPrice, setCurrentPrice] = useState(1.00);
   const [generationHash, setGenerationHash] = useState<string | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
+
+  const chainId = useChainId();
+  const { writeContractAsync } = useWriteContract();
 
   const activeAlloc = useMemo(() => 
     allocations.find(a => a.id === activeAllocId) || allocations[0]
   , [allocations, activeAllocId]);
+
+  const { data: receipt } = useWaitForTransactionReceipt({
+    hash: generationHash as `0x${string}`,
+  });
+
+  useEffect(() => {
+    if (receipt && activeAlloc.projectName && activeAlloc.network === 'Vestra Protocol') {
+      // Associate name in backend
+      // We use the tx hash as a reference if it's the first time
+      api.associateVestingName(receipt.transactionHash, activeAlloc.projectName)
+        .then(() => {
+            toast.success(`Project "${activeAlloc.projectName}" assigned!`);
+            window.dispatchEvent(new CustomEvent('refresh-portfolio'));
+        })
+        .catch(err => console.error("Naming failed:", err));
+    }
+  }, [receipt, activeAlloc.projectName, activeAlloc.network]);
 
   // Calculations based on modes
   const ltvRatio = activeAlloc.custodyMode === 'managed' ? 0.55 : 0.40;
@@ -143,7 +168,7 @@ export default function AdvancedSimulator() {
       // Map network to a symbol for the demo
       const symbol = activeAlloc.network === 'Solana' ? 'SOL' : 
                      (activeAlloc.network === 'Ethereum' ? 'ETH' : 
-                     (activeAlloc.network === 'Base' ? 'USDC' : 'VESTRA'));
+                     (activeAlloc.network === 'Base' ? 'USDC' : 'VCS'));
                      
       await api.generateVesting({
         wallet: address,
@@ -160,6 +185,53 @@ export default function AdvancedSimulator() {
     }
     
     setTimeout(() => setGenerationHash(null), 5000);
+  };
+
+  const handleOnChainDeploy = async () => {
+    if (!address) {
+        toast.error("Please connect your wallet first");
+        return;
+    }
+
+    setIsDeploying(true);
+    try {
+        const faucetAddress = getContract(chainId || sepolia.id, 'demoFaucet');
+        if (!faucetAddress || faucetAddress === '0x0000000000000000000000000000000000000000') {
+            throw new Error("DemoFaucet not configured for this chain.");
+        }
+
+        const tx = await writeContractAsync({
+            address: faucetAddress,
+            abi: demoFaucetAbi,
+            functionName: 'mintDemoPosition',
+            args: [
+                BigInt(activeAlloc.amount), 
+                BigInt(activeAlloc.totalDurationMonths),
+                BigInt(activeAlloc.cliffMonths)
+            ],
+        });
+
+        setGenerationHash(tx);
+        toast.success("Transaction submitted to Sepolia!");
+
+        // Associate name in backend if provided
+        if (activeAlloc.projectName) {
+            // We'll trust the discovery scanner to find the address, 
+            // but we can register the intent for this user.
+            // For now, we'll wait for confirmation UI-side.
+        }
+
+        // Trigger refresh
+        setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('refresh-portfolio'));
+        }, 5000);
+
+    } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || "Failed to deploy on-chain");
+    } finally {
+        setIsDeploying(false);
+    }
   };
 
   return (
@@ -192,10 +264,18 @@ export default function AdvancedSimulator() {
                 Run Full Simulation
              </button>
              <button 
+                onClick={handleOnChainDeploy}
+                disabled={isDeploying || !address}
+                className="px-6 py-3 bg-accent-cyan text-background font-black uppercase text-xs tracking-widest rounded-xl hover:bg-accent-teal transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(64,224,255,0.2)] disabled:opacity-50"
+             >
+                {isDeploying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                Deploy to Sepolia
+             </button>
+             <button 
                 onClick={generateContract}
                 className="px-6 py-3 bg-white/5 border border-white/10 text-white font-black uppercase text-xs tracking-widest rounded-xl hover:bg-white/10 transition-all"
              >
-                Deploy Immutable Alloc
+                Quick Mock
              </button>
           </div>
         </header>
@@ -257,6 +337,16 @@ export default function AdvancedSimulator() {
                     >
                         Managed
                     </button>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-secondary">Project Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Seed Funding A"
+                    value={activeAlloc.projectName || ''} 
+                    onChange={(e) => setAllocations(prev => prev.map(a => a.id === activeAllocId ? {...a, projectName: e.target.value} : a))}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent-teal/50"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase text-secondary">Token Amount</label>

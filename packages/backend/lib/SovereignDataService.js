@@ -13,7 +13,7 @@ const redstone = require('redstone-api');
 const crypto = require('crypto');
 const pyth = require('../solana/pyth');
 const { createPublicClient, http } = require('viem');
-const { mainnet, base, sepolia } = require('viem/chains');
+const { mainnet, base, sepolia, baseSepolia } = require('viem/chains');
 
 const createId = () => crypto.randomBytes(16).toString('hex');
 
@@ -31,6 +31,8 @@ const TOKENOMIST_API_URL = 'https://api.unlocks.app/v2';
 
 const REDSTONE_DATA_SERVICE_ID = 'redstone-primary-prod';
 
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+
 class SovereignDataService {
   constructor() {
     this.cache = new Map();
@@ -41,7 +43,8 @@ class SovereignDataService {
     this.evmClients = {
       1: createPublicClient({ chain: mainnet, transport: http() }),
       8453: createPublicClient({ chain: base, transport: http() }),
-      11155111: createPublicClient({ chain: sepolia, transport: http() })
+      11155111: createPublicClient({ chain: sepolia, transport: http() }),
+      84532: createPublicClient({ chain: baseSepolia, transport: http() })
     };
     
     this._initHeartbeat();
@@ -64,9 +67,13 @@ class SovereignDataService {
         status.Pyth = true; // Solana connection
         
         const successCount = Object.values(status).filter(v => v).length;
-        console.log(`[SovereignDataService] DATA ACQUISITION PULSE: ${successCount}/${providers.length} ACTIVE | Status: ${JSON.stringify(status)} | Timestamp: ${timestamp}`);
+        if (!DEMO_MODE) {
+          console.log(`[SovereignDataService] DATA ACQUISITION PULSE: ${successCount}/${providers.length} ACTIVE | Status: ${JSON.stringify(status)} | Timestamp: ${timestamp}`);
+        }
       } catch (err) {
-        console.error(`[SovereignDataService] PULSE FAILED: ${err.message} | Timestamp: ${timestamp}`);
+        if (!DEMO_MODE) {
+          console.error(`[SovereignDataService] PULSE FAILED: ${err.message} | Timestamp: ${timestamp}`);
+        }
       }
     }, 30000);
   }
@@ -99,7 +106,7 @@ class SovereignDataService {
         const isEvm = wallet.startsWith('0x') && wallet.length === 42;
         if (isEvm || chainType === 'evm') {
           // Iterate through main supported chains
-          const chains = [1, 10, 8453, 11155111]; 
+          const chains = DEMO_MODE ? [11155111, 84532] : [1, 10, 8453, 11155111, 84532];
           
           for (const chainId of chains) {
             const client = this.evmClients[chainId];
@@ -143,6 +150,15 @@ class SovereignDataService {
               .then(res => discovered.staked.push(...res))
               .catch(err => console.warn('[SovereignDataService] DuneStaked failed:', err.message))
           );
+
+          // Vestra Demo schedules (Sepolia only)
+          if (DEMO_MODE) {
+            tasks.push(
+              this.fetchVestraDemoSchedules(wallet, this.evmClients[11155111])
+                .then(res => discovered.vesting.push(...res))
+                .catch(err => console.warn('[SovereignDataService] Vestra Demo failed:', err.message))
+            );
+          }
           
           // Sniff common addresses on current active chain for the wallet
           tasks.push(
@@ -167,7 +183,10 @@ class SovereignDataService {
       }
 
       try {
-        await Promise.all(tasks);
+        const concurrencyLimit = 5;
+        for (let i = 0; i < tasks.length; i += concurrencyLimit) {
+          await Promise.allSettled(tasks.slice(i, i + concurrencyLimit));
+        }
         
         // Mirror to local persistence (Supabase/SQLite)
         await this.mirrorToPersistence(wallet, discovered);
@@ -187,8 +206,8 @@ class SovereignDataService {
    */
   async fetchHoliSchedules(wallet, client) {
     const { scanVestingLogs } = require('./discovery_utils');
-    // Scan back ~100 days on Base (2s blocks)
-    const logs = await scanVestingLogs(client, wallet, 5000000n);
+    const range = DEMO_MODE ? 50000n : 5000000n;
+    const logs = await scanVestingLogs(client, wallet, range);
     const holiLogs = logs.filter(l => l.protocol === 'Holi Protocol');
     
     const results = [];
@@ -241,28 +260,81 @@ class SovereignDataService {
         }
 
         results.push({
-          loanId: `holi-${log.id}`,
-          borrower: wallet,
+          id: `holi-${log.id}`,
+          loanId: log.id,
           collateralId: log.id,
-          unlockTime: end,
-          active: statusLabel === 'NEW',
-          statusLabel: statusLabel,
-          token: '0x7b5ef00ce695029e0d6705c004b3e71d54c77ae6', // vHOLI
-          tokenSymbol: 'vHOLI',
-          tokenDecimals: 18,
-          quantity: locked.toString(),
-          chain: 'evm',
-          chainId: 8453,
+          chain: 'base',
+          contractAddress: '0x7b5ef00ce695029e0d6705c004b3e71d54c77ae6',
           protocol: 'Holi Protocol',
-          timeline: {
-            start: Number(res.start),
-            cliff: Number(res.cliff),
-            end: end
-          }
+          symbol: 'vHOLI',
+          name: 'Holi Vesting Schedule',
+          amount: total.toString(),
+          quantity: locked.toString(),
+          pv: Number(locked) * 0.8,
+          unlockTime: end,
+          active: locked > 0n,
+          status: statusLabel
         });
       } catch (err) {
-        console.warn(`[Holi] Failed to fetch details for schedule ${log.id}:`, err.message);
+        console.warn(`[SovereignDataService] Holi fetch failed for ${log.id}:`, err.message);
       }
+    }
+    return results;
+  }
+
+  /**
+   * Fetch Vestra Demo (MockLinearVestingWallet) positions for a wallet
+   */
+  async fetchVestraDemoSchedules(wallet, client) {
+    if (!client) return [];
+    
+    const { scanVestingLogs } = require('./discovery_utils');
+    const range = 50000n; 
+    const logs = await scanVestingLogs(client, wallet, range);
+    const demoLogs = logs.filter(l => l.protocol === 'Vestra Demo');
+    
+    if (demoLogs.length === 0) return [];
+    
+    const VESTING_ABI = [
+      { name: 'start', type: 'function', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+      { name: 'duration', type: 'function', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+      { name: 'released', type: 'function', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' }
+    ];
+
+    const results = [];
+    for (const log of demoLogs) {
+        try {
+            const contractAddr = log.contractAddress;
+            
+            const [start, duration, released] = await Promise.all([
+                client.readContract({ address: contractAddr, abi: VESTING_ABI, functionName: 'start' }),
+                client.readContract({ address: contractAddr, abi: VESTING_ABI, functionName: 'duration' }),
+                client.readContract({ address: contractAddr, abi: VESTING_ABI, functionName: 'released', args: [] })
+            ]);
+
+            const totalAmount = BigInt(log.amount); 
+            const lockedValue = totalAmount - BigInt(released);
+            const end = Number(start) + Number(duration);
+
+            results.push({
+                id: log.id,
+                loanId: log.id,
+                collateralId: log.id,
+                chain: 'sepolia',
+                contractAddress: contractAddr,
+                protocol: 'Vestra Demo',
+                symbol: 'VESTRA',
+                name: 'Vestra Demo Wallet',
+                amount: log.amount,
+                quantity: log.amount,
+                pv: Number(totalAmount) * 0.9, 
+                unlockTime: end,
+                active: lockedValue > 0n,
+                isDemo: true
+            });
+        } catch (err) {
+            console.warn(`[SovereignDataService] Demo fetch failed for ${log.contractAddress}:`, err.message);
+        }
     }
     return results;
   }
@@ -551,11 +623,12 @@ class SovereignDataService {
    * Query DIA Oracle for detailed asset information
    */
   async getDiaAssetInfo(symbol) {
+    if (DEMO_MODE) return null; // Silence DIA 404s for demo
     try {
       console.log(`[SovereignDataService] Calling DIA Asset Info API for ${symbol}...`);
       const resp = await fetch(`${DIA_API_URL}/${symbol}`);
       if (!resp.ok) {
-        console.warn(`[SovereignDataService] DIA API returned ${resp.status}`);
+        if (!DEMO_MODE) console.warn(`[SovereignDataService] DIA API returned ${resp.status}`);
         return null;
       }
       const data = await resp.json();

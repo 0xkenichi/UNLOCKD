@@ -34,7 +34,7 @@ import { useAccount, useChainId, useReadContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { getContract, loanManagerAbi, usdcAbi } from "@/config/contracts";
 import { api } from "@/utils/api";
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { DemoCenter } from "@/components/demo/DemoCenter";
 
 
@@ -42,6 +42,9 @@ export default function Dashboard() {
   const { address } = useAccount();
   const chainId = useChainId();
   const { isStealthMode } = useStealthMode();
+  const [unlockFilter, setUnlockFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [valuationFilter, setValuationFilter] = useState("");
   
   // On-chain data
   const loanManager = getContract(chainId, 'loanManager');
@@ -95,6 +98,11 @@ export default function Dashboard() {
     queryFn: () => api.fetchMarketQuotes()
   });
 
+  const { data: vestingData, isLoading: vestingLoading } = useQuery({
+    queryKey: ['vestingAll'],
+    queryFn: () => api.fetchVestingAll()
+  });
+
   useEffect(() => {
     const handleRefresh = () => {
       refetchPortfolio();
@@ -124,9 +132,34 @@ export default function Dashboard() {
   }, [activity]);
 
   const marketData = useMemo(() => {
-    if (!marketQuotes?.items) return [];
-    return marketQuotes.items;
-  }, [marketQuotes]);
+    if (!vestingData?.projects) return [];
+    
+    // Merge projects with events for a unified view
+    const items = vestingData.projects.map((p: any) => {
+      const event = vestingData.events?.find((e: any) => e.token_id === p.id);
+      const metadata = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : (p.metadata || {});
+      const fundraising = metadata.fundraising || {};
+      
+      return {
+        id: p.id,
+        asset: p.symbol || p.name,
+        name: p.name,
+        price: fundraising.token_price || "$0.00",
+        quantity: event?.amount || "0",
+        unlockDate: event?.occurrence_date || "TBA",
+        valuation: fundraising.valuation || "N/A",
+        trend: "neutral",
+        category: p.category
+      };
+    });
+
+    return items.filter((item: any) => {
+      const matchesUnlock = !unlockFilter || item.unlockDate.includes(unlockFilter);
+      const matchesSize = !sizeFilter || parseFloat(item.quantity) >= parseFloat(sizeFilter);
+      const matchesValuation = !valuationFilter || item.valuation.includes(valuationFilter);
+      return matchesUnlock && matchesSize && matchesValuation;
+    });
+  }, [vestingData, unlockFilter, sizeFilter, valuationFilter]);
 
   const primaryMetrics = useMemo(() => [
     {
@@ -156,11 +189,11 @@ export default function Dashboard() {
       className: "redaction-text"
     },
     {
-      label: "Protocol Revenue",
+      label: "Asset Inflow",
       value: <MatrixReveal text={kpiLoading ? "..." : `$${(kpi?.revenue?.total || 142.5).toFixed(1)}K`}>
                {kpiLoading ? "..." : `$${(kpi?.revenue?.total || 142.5).toFixed(1)}K`}
              </MatrixReveal>,
-      subValue: "+5.2% yield agg",
+      subValue: "Net liquidity growth",
       trend: "up" as const,
       icon: <ShieldCheck className="w-5 h-5" />,
       glowColor: "cyan" as const,
@@ -391,21 +424,56 @@ export default function Dashboard() {
         transition={{ delay: 0.8, duration: 0.8 }}
       >
         <Card variant="solid" className="border border-white/5 shadow-2xl bg-surface/30 backdrop-blur-md">
-          <CardHeader>
-            <CardTitle className="text-2xl font-black uppercase italic tracking-tighter">Market Liquidity</CardTitle>
-            <p className="text-xs text-secondary mt-1 font-medium">Real-time asset depth across verified protocol pairs.</p>
+          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-2xl font-black uppercase italic tracking-tighter text-glow-cyan">Tokenomist Market Intelligence</CardTitle>
+              <p className="text-xs text-secondary mt-1 font-medium italic">Institutional-grade vesting data and unlock schedules.</p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-secondary ml-1">Unlock Date</span>
+                <input 
+                  type="text" 
+                  placeholder="2026-..." 
+                  className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:border-accent-teal outline-none transition-all w-32 font-mono"
+                  value={unlockFilter}
+                  onChange={(e) => setUnlockFilter(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-secondary ml-1">Min Size</span>
+                <input 
+                  type="number" 
+                  placeholder="0.00" 
+                  className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:border-accent-teal outline-none transition-all w-24 font-mono"
+                  value={sizeFilter}
+                  onChange={(e) => setSizeFilter(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-secondary ml-1">Valuation</span>
+                <input 
+                  type="text" 
+                  placeholder="Search..." 
+                  className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs focus:border-accent-teal outline-none transition-all w-32 font-mono"
+                  value={valuationFilter}
+                  onChange={(e) => setValuationFilter(e.target.value)}
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <AssetTable
               columns={[
                 { header: "Asset", accessorKey: "asset" },
-                { header: "Price", accessorKey: "price", align: "right" },
-                { header: "24h Volume", accessorKey: "volume", align: "right" },
-                { header: "Current APY", accessorKey: "apy", align: "right", className: "text-accent-teal font-medium" },
-                { header: "Trend", accessorKey: "trend", align: "right" }
+                { header: "Price", accessorKey: "price", align: "right", className: "font-mono" },
+                { header: "Quantity", accessorKey: "quantity", align: "right", className: "font-mono text-accent-cyan" },
+                { header: "Unlock Date", accessorKey: "unlockDate", align: "right", className: "font-mono" },
+                { header: "Valuation", accessorKey: "valuation", align: "right", className: "font-mono text-accent-teal" }
               ]}
               data={marketData}
-              loading={marketLoading}
+              loading={vestingLoading}
             />
           </CardContent>
         </Card>

@@ -150,7 +150,7 @@ export default function GenesisPortal() {
                 <div className="col-span-2 glass-card p-6">
                    <div className="flex items-center justify-between mb-8">
                         <div>
-                            <h3 className="text-sm font-black uppercase tracking-widest text-white">Credit Score (VCS) Analytics</h3>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-white">VCS Analytics</h3>
                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mt-1">Gitcoin Passport v2 Integrated</p>
                         </div>
                         <Users className="w-5 h-5 text-accent-teal" />

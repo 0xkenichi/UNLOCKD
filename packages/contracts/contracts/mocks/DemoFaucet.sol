@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 
 import "./MockLinearVestingWallet.sol";
 import "./MockVestraToken.sol";
-import "../VestingRegistry.sol";
+import "../../VestingRegistry.sol";
 
 contract DemoFaucet {
     MockVestraToken public vestToken;
@@ -17,9 +17,9 @@ contract DemoFaucet {
         vestToken = new MockVestraToken();
     }
 
-    function mintDemoPosition(uint256 allocation, uint256 durationMonths) external returns (address vestingWallet) {
+    function mintDemoPosition(uint256 allocation, uint256 durationMonths, uint256 cliffMonths) external returns (address vestingWallet) {
         uint256 durationSeconds = durationMonths * 30 days;
-        uint256 cliffSeconds = 1 days;
+        uint256 cliffSeconds = cliffMonths * 30 days;
         
         // 1. Deploy the vesting wallet
         MockLinearVestingWallet wallet = new MockLinearVestingWallet(
@@ -41,8 +41,7 @@ contract DemoFaucet {
         registry.vetContract(vestingWallet, 1);
 
         // Emit an event that the frontend can listen to to get the new setup
-        uint256 collateralId = block.timestamp;
-        
+        uint256 collateralId = uint256(uint160(vestingWallet));
         emit DemoPositionMinted(msg.sender, vestingWallet, collateralId);
     }
 }

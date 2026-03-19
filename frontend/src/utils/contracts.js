@@ -35,7 +35,10 @@ export const CONTRACTS = {
     usdc: '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8',
     testnetPriceFeed: '0x96e09de2bF0Eb5Cc26Fc332d2350FBE9c8c5A57F',
     insuranceVault: '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
+    demoFaucet: '0x6EE0a9B7972f43100B9c0757D88BF5A8c7F0bF2E',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
+    loanNFT: '0x82229adE4dd2Cf8c41b02cfA19EE7b812954602a',
+    vestingRegistry: '0x0090123bfa5dc5885c6b940D1ada3e908fF6c962',
     sampleVestingWallet: ''
   },
   [asiTestnet.id]: {
@@ -77,7 +80,7 @@ export const CONTRACTS = {
     lendingPool: '',
     termVault: '',
     vestingAdapter: '',
-    usdc: '',
+    usdc: '0x032ef137119E92e9A7091D57F0C850A2e30f1dEE',
     testnetPriceFeed: '',
     vestToken: '',
     sampleVestingWallet: ''
@@ -4634,6 +4637,16 @@ export const usdcAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint8' }]
+  },
+  {
+    name: 'mint',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: []
   }
 ];
 
