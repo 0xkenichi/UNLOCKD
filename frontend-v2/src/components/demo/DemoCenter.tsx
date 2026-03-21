@@ -4,10 +4,13 @@ import React, { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { useAccount } from 'wagmi';
 import { toast } from 'react-hot-toast';
-import { FastForward, Droplets, FlaskConical, History } from 'lucide-react';
+import { FastForward, Droplets, FlaskConical, History, Zap, Coins } from 'lucide-react';
+
+
 import { motion } from 'framer-motion';
 
-export const DemoCenter = () => {
+export const DemoCenter = ({ onOpenAsiWizard }: { onOpenAsiWizard?: () => void }) => {
+
     const { address } = useAccount();
     const [warpSeconds, setWarpSeconds] = useState(86400); // 1 day
     const [loading, setLoading] = useState(false);
@@ -110,7 +113,51 @@ export const DemoCenter = () => {
                             </button>
                             <p className="text-[10px] text-secondary font-medium italic opacity-50">Generate a mirrored Sablier-style stream.</p>
                         </div>
+
+                        <div className="space-y-3">
+                            <label className="text-[10px] uppercase text-secondary font-black tracking-widest opacity-70">ASI Chain Token Creator</label>
+                            <button 
+                                onClick={onOpenAsiWizard}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-accent-teal/20 hover:bg-accent-teal/10 text-accent-teal text-xs font-black uppercase tracking-widest transition-all"
+                            >
+                                <Zap className="w-4 h-4 shadow-glow-teal" />
+                                Create Token
+                            </button>
+                            <p className="text-[10px] text-secondary font-medium italic opacity-50">Deploy Rholang-based tokens & vesting contracts.</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <label className="text-[10px] uppercase text-secondary font-black tracking-widest opacity-70">ASI Chain Swap</label>
+                            <button 
+                                onClick={async () => {
+                                    setLoading(true);
+                                    try {
+                                        const res = await fetch('http://localhost:4000/api/asi/swap', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ fromAddress: address, amountAsi: '1000' })
+                                        });
+                                        const data = await res.json();
+                                        if (data.success) {
+                                            toast.success(data.message);
+                                            window.dispatchEvent(new Event('refresh-portfolio'));
+                                        }
+                                    } catch (err) {
+                                        toast.error('Swap failed');
+                                    } finally {
+                                        setLoading(false);
+                                    }
+                                }}
+                                disabled={loading}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-accent-cyan/20 hover:bg-accent-cyan/10 text-accent-cyan text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                            >
+                                <Coins className="w-4 h-4 shadow-glow-cyan" />
+                                Swap ASI for USDC
+                            </button>
+                            <p className="text-[10px] text-secondary font-medium italic opacity-50">Simulate DevNet liquidity exchange.</p>
+                        </div>
                     </div>
+
 
                     {timeOffset > 0 && (
                         <motion.div 

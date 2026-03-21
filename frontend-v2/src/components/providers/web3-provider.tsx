@@ -21,64 +21,7 @@ import {
 } from '@tanstack/react-query';
 import '@rainbow-me/rainbowkit/styles.css';
 
-// Vestra's custom chains (as defined in v1)
-const flowEvm = {
-  id: 747,
-  name: 'Flow EVM',
-  nativeCurrency: { name: 'Flow', symbol: 'FLOW', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://mainnet.evm.nodes.onflow.org'] },
-  },
-  blockExplorers: {
-    default: { name: 'Flowscan', url: 'https://evm.flowscan.io' }
-  }
-};
-
-const asiTestnet = {
-  id: 42000,
-  name: 'ASI Testnet',
-  nativeCurrency: { name: 'Artificial Superintelligence', symbol: 'ASI', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://rpc-testnet.asi.network'] },
-  },
-  blockExplorers: {
-    default: { name: 'ASIScan', url: 'https://explorer-testnet.asi.network' }
-  },
-  testnet: true
-};
-
-const config = getDefaultConfig({
-  appName: 'Vestra Protocol',
-  projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID || 'YOUR_PROJECT_ID',
-  chains: [
-    sepolia, 
-    mainnet, 
-    base, 
-    baseSepolia,
-    arbitrum, 
-    avalanche, 
-    flowEvm as any, 
-    asiTestnet as any
-  ],
-  transports: {
-    [sepolia.id]: fallback([
-      http(process.env.NEXT_PUBLIC_SEPOLIA_RPC || 'https://rpc.sepolia.org'),
-      http('https://sepolia.infura.io/v3/'),
-      http('https://eth-sepolia.g.alchemy.com/v2/'),
-    ]),
-    [mainnet.id]: http(),
-    [base.id]: http(),
-    [baseSepolia.id]: fallback([
-      http('https://sepolia.base.org'),
-      http('https://base-sepolia.g.alchemy.com/v2/'),
-    ]),
-    [arbitrum.id]: http(),
-    [avalanche.id]: http(),
-    [747]: http(),
-    [42000]: http(),
-  },
-  ssr: true,
-});
+import { config } from '@/lib/wagmi.config';
 
 const queryClient = new QueryClient();
 

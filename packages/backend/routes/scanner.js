@@ -6,29 +6,42 @@
 
 const express = require('express');
 const SovereignDataService = require('../lib/SovereignDataService');
+const { mapWithConcurrency } = require('../lib/concurrency');
 
 const router = express.Router();
 
-// Support multiple EVM chains for comprehensive portfolio scanning
+// Portfolio Cache Implementation (per-wallet, per-chain)
+const portfolioCache = new Map();
+const portfolioInFlight = new Map();
+const PORTFOLIO_TTL_MS = Number(process.env.PORTFOLIO_CACHE_TTL_MS || 120_000); // 2 minutes default
+
+function getPortfolioCacheKey(wallet, chain) {
+    return `${wallet.toLowerCase()}:${chain || 'all'}`;
+}
+
+const ALCHEMY_KEY = process.env.RPC_URL?.split('/v2/')[1] || 'vFg0i2LwT6-VD2bja4ZB3';
+
 const EVM_CHAINS = [
     { 
         id: 11155111, 
         name: 'Sepolia', 
-        rpc: process.env.ALCHEMY_SEPOLIA_URL || 'https://ethereum-sepolia-rpc.publicnode.com' 
+        rpc: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}`
     },
     { 
         id: 84532, 
         name: 'Base Sepolia', 
-        rpc: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org' 
+        rpc: `https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}`
     },
     { 
         id: 1, 
         name: 'Mainnet', 
-        rpc: process.env.ALCHEMY_MAINNET_URL || '' 
+        rpc: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`
     }
-].filter(c => c.rpc);
+];
 
 const FETCH_TIMEOUT_MS = 12_000;
+
+
 
 // ─── AbortController-wrapped fetch ───────────────────────────────────────────
 async function safeFetch(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -72,20 +85,28 @@ async function getEvmTokenBalances(wallet, rpcUrl) {
         
         // Handle standard RPC fallback if alchemy_getTokenBalances not supported
         if (!result || !result.tokenBalances) {
-            // If it's not a real Alchemy RPC, this might fail. 
-            // We could add a generic ERC20 scanner here, but for now we rely on Alchemy.
-            return [];
+            console.log(`[scanner] alchemy_getTokenBalances failed for ${rpcUrl}, falling back to standard scan.`);
+            return await getEvmTokenBalancesStandard(wallet, rpcUrl);
         }
 
-        const rawBalances = (result.tokenBalances || []).filter(
-            (t) => t.tokenBalance && t.tokenBalance !== '0x0000000000000000000000000000000000000000000000000000000000000000'
-        );
+        // 2. Limit to top 20 tokens by balance to save API calls
+        const sortedBalances = (result.tokenBalances || [])
+            .filter((t) => t.tokenBalance && t.tokenBalance !== '0x' && t.tokenBalance !== '0x0')
+            .sort((a, b) => {
+                try {
+                    const bA = BigInt(a.tokenBalance);
+                    const bB = BigInt(b.tokenBalance);
+                    return bA > bB ? -1 : (bA < bB ? 1 : 0);
+                } catch { return 0; }
+            })
+            .slice(0, 20); // TOP 20 ONLY
 
-        if (!rawBalances.length) return [];
+        if (!sortedBalances.length) return [];
 
-        // 2. Enrich with metadata via alchemy_getTokenMetadata (batched in parallel)
-        const enriched = await Promise.allSettled(
-            rawBalances.map(async (token) => {
+        // 3. Enrich with metadata via alchemy_getTokenMetadata (batched with low concurrency)
+        const enriched = await mapWithConcurrency(
+            sortedBalances,
+            async (token) => {
                 try {
                     const metaRes = await safeFetch(rpcUrl, {
                         method: 'POST',
@@ -123,16 +144,74 @@ async function getEvmTokenBalances(wallet, rpcUrl) {
                         valueUsd: 0
                     };
                 } catch { return null; }
-            })
+            },
+            2 // LOW CONCURRENCY: 2
         );
 
-        return enriched
-            .filter((r) => r.status === 'fulfilled' && r.value)
-            .map((r) => r.value);
+        return enriched.filter(Boolean);
     } catch (err) {
         console.warn(`[scanner] EVM token fetch failed for ${rpcUrl}:`, err.message);
         return [];
     }
+}
+
+async function getEvmTokenBalancesStandard(wallet, rpcUrl) {
+    // Standard ERC20 scanner for non-Alchemy RPCs (e.g. Base Sepolia public RPC)
+    // We check a list of "monitored" tokens that are critical for Vestra
+    const MONITORED_TOKENS = [
+        { address: '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8', symbol: 'USDC', name: 'USD Coin (Mock)', decimals: 6 }, // Sepolia
+        { address: '0x032ef137119E92e9A7091D57F0C850A2e30f1dEE', symbol: 'USDC', name: 'USDC', decimals: 6 }, // Base Sepolia
+        { address: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d', symbol: 'VEST', name: 'Vestra Token', decimals: 18 }, // Sepolia
+        { address: '0x963cBb0Ffd0d1DC9C2bA8e6Ab631E1a5d656c539', symbol: 'VCS', name: 'Vestra Credit Score', decimals: 18 }, // Sovereign ASI VCS (formerly $CRDT)
+        { address: '0x3A54192862D1c52C8175d4912f1f778d1E3C2449', symbol: 'ASI', name: 'ASI Token (Sepolia)', decimals: 18 }, // ASI Sepolia
+        { address: '0xaea46A60368A7bD060eec7DF8CBa43b7EF41Db85', symbol: 'ASI', name: 'Artificial Superintelligence Alliance', decimals: 18 } // ASI Mainnet (FET)
+    ];
+
+    const balances = [];
+    const chainName = rpcUrl.includes('base') ? 'base' : (rpcUrl.includes('sepolia') ? 'sepolia' : 'ethereum');
+
+    for (const token of MONITORED_TOKENS) {
+        try {
+            const res = await safeFetch(rpcUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0', id: 1,
+                    method: 'eth_call',
+                    params: [
+                        {
+                            to: token.address,
+                            data: `0x70a08231000000000000000000000000${wallet.toLowerCase().replace('0x', '')}` // balanceOf(address)
+                        },
+                        'latest'
+                    ]
+                })
+            }, 5000);
+
+            if (res.ok) {
+                const data = await res.json();
+                const rawBalance = BigInt(data?.result || '0x0');
+                if (rawBalance > 0n) {
+                    const balance = Number(rawBalance) / Math.pow(10, token.decimals);
+                    balances.push({
+                        chain: chainName,
+                        category: 'liquid',
+                        contractAddress: token.address.toLowerCase(),
+                        symbol: token.symbol,
+                        name: token.name,
+                        decimals: token.decimals,
+                        balance,
+                        logo: null,
+                        priceUsd: 0,
+                        valueUsd: 0
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn(`[scanner] standard balance check failed for ${token.symbol} on ${rpcUrl}:`, err.message);
+        }
+    }
+    return balances;
 }
 
 // ─── EVM: Native ETH balance ──────────────────────────────────────────────────
@@ -172,6 +251,47 @@ async function getEvmNativeBalance(wallet, rpcUrl) {
     } catch (err) {
         console.warn(`[scanner] EVM native balance failed for ${rpcUrl}:`, err.message);
         return null;
+    }
+}
+
+// ─── EVM: Alchemy NFTs (real Alchemy API) ───────────────────────────────────
+async function getEvmNfts(wallet, rpcUrl) {
+    if (!rpcUrl || !rpcUrl.includes('alchemy')) return [];
+    try {
+        const res = await safeFetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'alchemy_getNfts',
+                params: [wallet]
+            })
+        });
+        if (!res.ok) {
+            console.warn(`[scanner] Alchemy NFTs HTTP ${res.status} for ${rpcUrl}`);
+            return [];
+        }
+        const data = await res.json();
+        const nfts = data?.result?.ownedNfts || [];
+        
+        const chainName = rpcUrl.includes('base') ? 'base' : (rpcUrl.includes('sepolia') ? 'sepolia' : 'ethereum');
+
+        return nfts.map(nft => ({
+            chain: chainName,
+            category: 'nfts',
+            contractAddress: nft.contract?.address?.toLowerCase() || 'unknown',
+            tokenId: nft.id?.tokenId || '0',
+            name: nft.title || nft.metadata?.name || 'Vestra NFT',
+            symbol: nft.contract?.symbol || 'NFT',
+            description: nft.description || nft.metadata?.description || '',
+            image: nft.media?.[0]?.gateway || nft.metadata?.image || null,
+            collection: nft.contract?.name || 'Unknown Collection',
+            isSpam: nft.spamInfo?.isSpam === 'true'
+        })).filter(n => !n.isSpam);
+    } catch (err) {
+        console.warn(`[scanner] EVM NFT fetch failed for ${rpcUrl}:`, err.message);
+        return [];
     }
 }
 
@@ -480,13 +600,13 @@ const DUNE_QUERIES = {
 };
 
 async function executeDuneQuery(queryId, params = {}) {
-    if (!DUNE_API_KEY) return null;
+    if (!process.env.DUNE_API_KEY) return null;
     try {
         // Execute query
         const execRes = await safeFetch(`https://api.dune.com/api/v1/query/${queryId}/execute`, {
             method: 'POST',
             headers: {
-                'X-Dune-API-Key': DUNE_API_KEY,
+                'X-Dune-API-Key': process.env.DUNE_API_KEY,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ query_parameters: params, performance: 'medium' })
@@ -504,7 +624,7 @@ async function executeDuneQuery(queryId, params = {}) {
         while (Date.now() < deadline) {
             const statusRes = await safeFetch(
                 `https://api.dune.com/api/v1/execution/${executionId}/results`,
-                { headers: { 'X-Dune-API-Key': DUNE_API_KEY } },
+                { headers: { 'X-Dune-API-Key': process.env.DUNE_API_KEY } },
                 10_000
             );
             if (!statusRes.ok) break;
@@ -526,7 +646,7 @@ async function executeDuneQuery(queryId, params = {}) {
 }
 
 async function getDuneDefiPositions(wallet) {
-    if (!DUNE_API_KEY) return [];
+    if (!process.env.DUNE_API_KEY) return [];
 
     const defiPositions = [];
 
@@ -621,6 +741,33 @@ function getSovereignAssets(db, wallet) {
             valueUsd: 0, // Calculated downstream or mirrored
             lastSynced: row.last_synced_at
         })));
+        
+        // 3. Locked Sources
+        const lockedRows = db.prepare(`
+            SELECT id, chain_id, lock_contract, protocol, asset_address, amount, last_synced_at, metadata
+            FROM locked_sources
+            WHERE LOWER(lock_contract) = ? OR LOWER(asset_address) = ?
+        `).all(normalizedWallet, normalizedWallet);
+
+        assets.push(...lockedRows.map((row) => {
+            let metadata = {};
+            try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { /* noop */ }
+            
+            return {
+                chain: row.chain_id || 'evm',
+                category: 'locked',
+                protocol: row.protocol,
+                contractAddress: row.lock_contract,
+                assetAddress: row.asset_address,
+                amount: row.amount || '0',
+                symbol: metadata.symbol || 'LOCK',
+                name: metadata.name || `${row.protocol} Locked Asset`,
+                decimals: metadata.decimals || 18,
+                balance: row.amount || 0,
+                valueUsd: 0,
+                lastSynced: row.last_synced_at
+            };
+        }));
 
         return assets;
     } catch (err) {
@@ -680,9 +827,42 @@ function resolveLinkedWalletsDirect(wallet, chainType, db) {
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 router.get('/portfolio/:wallet', async (req, res) => {
+    // Apply expensiveLimiter if available on app.locals
+    const expensiveLimiter = req.app.get('expensiveLimiter');
+    if (expensiveLimiter) {
+        return expensiveLimiter(req, res, () => handlePortfolio(req, res));
+    }
+    return handlePortfolio(req, res);
+});
+
+async function handlePortfolio(req, res) {
     const { wallet } = req.params;
-    const { chain = 'all' } = req.query;
+    const { chain = 'all', refresh = 'false' } = req.query;
     const db = req.app.locals?.db || null;
+
+    const cacheKey = getPortfolioCacheKey(wallet, chain);
+    const cached = portfolioCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PORTFOLIO_TTL_MS && refresh !== 'true') {
+        return res.json({ ok: true, ...cached.data, cached: true });
+    }
+
+    // Deduplicate in-flight requests
+    if (portfolioInFlight.has(cacheKey)) {
+        try {
+            const result = await portfolioInFlight.get(cacheKey);
+            return res.json({ ok: true, ...result, cached: true });
+        } catch (err) {
+            return res.status(500).json({ ok: false, error: 'Scanner failed (in-flight)', detail: err.message });
+        }
+    }
+
+    let resolveInFlight, rejectInFlight;
+    const inFlightPromise = new Promise((resolve, reject) => {
+        resolveInFlight = resolve;
+        rejectInFlight = reject;
+    });
+    portfolioInFlight.set(cacheKey, inFlightPromise);
+
     // We lazy-require persistence so a DB outage doesn't crash the scanner import
     let persistence = null;
     try { persistence = require('../persistence'); } catch { /* noop */ }
@@ -715,7 +895,8 @@ router.get('/portfolio/:wallet', async (req, res) => {
                         Promise.allSettled([
                             getEvmTokenBalances(evmWallet, chainCfg.rpc),
                             getEvmNativeBalance(evmWallet, chainCfg.rpc),
-                            chainCfg.id === 1 ? getDuneDefiPositions(evmWallet) : Promise.resolve([]) // Only mainnet for Dune defi
+                            chainCfg.id === 1 ? getDuneDefiPositions(evmWallet) : Promise.resolve([]), // Only mainnet for Dune defi
+                            getEvmNfts(evmWallet, chainCfg.rpc)
                         ])
                     );
                 }
@@ -729,6 +910,7 @@ router.get('/portfolio/:wallet', async (req, res) => {
                     getSolanaBalancesHelius(solWallet).then((tokens) => [
                         { status: 'fulfilled', value: tokens },
                         { status: 'fulfilled', value: null },
+                        { status: 'fulfilled', value: [] },
                         { status: 'fulfilled', value: [] }
                     ])
                 );
@@ -739,10 +921,11 @@ router.get('/portfolio/:wallet', async (req, res) => {
 
         const defiPositions = [];
         const vestedPositions = [];
+        const nftPositions = [];
 
         for (const result of allResults) {
             if (result.status !== 'fulfilled') continue;
-            const [tokensResult, nativeResult, defiResult] = result.value || [];
+            const [tokensResult, nativeResult, defiResult, nftsResult] = result.value || [];
 
             if (tokensResult?.status === 'fulfilled' && Array.isArray(tokensResult.value)) {
                 liquidTokens.push(...tokensResult.value);
@@ -752,6 +935,9 @@ router.get('/portfolio/:wallet', async (req, res) => {
             }
             if (defiResult?.status === 'fulfilled' && Array.isArray(defiResult.value)) {
                 defiPositions.push(...defiResult.value);
+            }
+            if (nftsResult?.status === 'fulfilled' && Array.isArray(nftsResult.value)) {
+                nftPositions.push(...nftsResult.value);
             }
         }
 
@@ -810,8 +996,7 @@ router.get('/portfolio/:wallet', async (req, res) => {
             solana: [...targetWallets.solana]
         };
 
-        return res.json({
-            ok: true,
+        const result = {
             wallet,
             linkedWallets,
             summary: {
@@ -823,19 +1008,43 @@ router.get('/portfolio/:wallet', async (req, res) => {
             assets: {
                 liquid: enriched,
                 vested: vestedPositions,
-                defi: defiPositions
+                defi: defiPositions,
+                nfts: nftPositions
             },
             meta: {
                 scannedAt: new Date().toISOString(),
-                hasDuneData: Boolean(DUNE_API_KEY),
-                hasHeliusData: Boolean(HELIUS_API_KEY),
+                hasDuneData: Boolean(process.env.DUNE_API_KEY),
+                hasHeliusData: Boolean(process.env.HELIUS_API_KEY),
                 evmRpc: EVM_CHAINS[0]?.rpc ? EVM_CHAINS[0].rpc.replace(/\/v2\/[^/]+/, '/v2/***') : null
             }
+        };
+
+        // Store in cache
+        portfolioCache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+        });
+
+        // Resolve in-flight deduplication
+        if (resolveInFlight) resolveInFlight(result);
+        portfolioInFlight.delete(cacheKey);
+
+        // Trim cache if too large
+        if (portfolioCache.size > 1000) {
+            const oldest = portfolioCache.keys().next().value;
+            portfolioCache.delete(oldest);
+        }
+
+        return res.json({
+            ok: true,
+            ...result
         });
     } catch (err) {
+        if (rejectInFlight) rejectInFlight(err);
+        portfolioInFlight.delete(cacheKey);
         console.error('[scanner] portfolio error:', err.message, err.stack?.split('\n')[1]);
         return res.status(500).json({ ok: false, error: 'Scanner failed', detail: err.message });
     }
-});
+}
 
 module.exports = router;

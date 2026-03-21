@@ -20,15 +20,22 @@ export const ZKShield: React.FC<ZKShieldProps> = ({
 
   const glitchChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#%@&*";
   
-  const GlitchText = () => (
-    <motion.span
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="font-mono text-accent-teal/60 tracking-widest"
-    >
-      {Array(8).fill(0).map(() => glitchChars[Math.floor(Math.random() * glitchChars.length)]).join("")}
-    </motion.span>
-  );
+  const GlitchText = () => {
+    const [mounted, setMounted] = React.useState(false);
+    React.useEffect(() => setMounted(true), []);
+    
+    if (!mounted) return null;
+
+    return (
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="font-mono text-accent-teal/60 tracking-widest"
+      >
+        {Array(8).fill(0).map(() => glitchChars[Math.floor(Math.random() * glitchChars.length)]).join("")}
+      </motion.span>
+    );
+  };
 
   return (
     <div 

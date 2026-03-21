@@ -19,12 +19,20 @@ export interface PassportSnapshot {
   score: number | null;
   stamps: number | null;
   identityTier?: number;
+  crdtTier?: number;
   tierName?: string;
   compositeScore?: number;
   ias?: number;
   fbs?: number;
   walletAgeBaseScore?: number;
   multiplier?: number;
+  activityMetrics?: {
+    ageMonths: number;
+    txCount: number;
+    totalVolume: number;
+    currentBalance: number;
+    athBalance: number;
+  };
   policy?: {
     small: IdentityPolicy;
     medium: IdentityPolicy;
@@ -42,12 +50,14 @@ export function getPassportSnapshotFromAttestations(attestations: any[] = [], pr
     score: passportAttestation?.score ?? profile.score ?? null,
     stamps: passportAttestation?.stampsCount ?? profile.stampsCount ?? null,
     identityTier: profile.identityTier,
+    crdtTier: profile.crdtTier,
     tierName: profile.tierName,
     compositeScore: profile.compositeScore,
     ias: profile.ias,
     fbs: profile.fbs,
     walletAgeBaseScore: profile.walletAgeBaseScore,
     multiplier: profile.multiplier,
+    activityMetrics: profile.activityMetrics,
     policy: profile.policy
   };
 }

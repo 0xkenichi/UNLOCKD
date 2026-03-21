@@ -5,31 +5,25 @@ async function verifyIdentityScoring() {
   
   // Test 1: Base case
   const baseInput = {
-    identity: { asiMigrated: false },
-    creditHistory: { onChainVolume: 100000, activeMonths: 24 }
+    identity: { walletAgeMonths: 0 },
+    creditHistory: { repaidCount: 0, defaultedCount: 0 }
   };
   const baseResult = computeScore(baseInput);
-  console.log(`Base Score: ${baseResult.compositeScore}`);
+  console.log(`Base Score: ${baseResult.crdtScore} (Tier: ${baseResult.crdtTier})`);
 
-  // Test 2: Multi-chain enrichment (Mocked)
+  // Test 2: Enriched case
   const enrichmentInput = {
-    identity: { walletAgeMonths: 6 },
-    creditHistory: { onChainVolume: 100000, activeMonths: 24 }
+    identity: { walletAgeMonths: 6, linkedAt: new Date().toISOString() },
+    creditHistory: { repaidCount: 3, defaultedCount: 0 }
   };
   const enrichmentResult = computeScore(enrichmentInput);
-  console.log(`Enriched Score: ${enrichmentResult.compositeScore}`);
+  console.log(`Enriched Score: ${enrichmentResult.crdtScore} (Tier: ${enrichmentResult.crdtTier})`);
   
-  if (enrichmentResult.compositeScore >= 500) {
-    console.log('✅ Base identity tier achieved');
+  if (enrichmentResult.crdtTier >= 3) {
+    console.log('✅ High identity tier achieved');
   } else {
-    console.log('❌ Identity scoring below threshold');
+    console.log('❌ Identity scoring below institutional threshold');
   }
-}
-
-async function verifyLoanTerms() {
-  console.log('\n--- Verifying Loan Term Logic ---');
-  // This would normally test the computeLoanTerms function in server.js
-  // But for now we just check the scoring impact
 }
 
 verifyIdentityScoring().catch(console.error);

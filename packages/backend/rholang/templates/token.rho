@@ -1,0 +1,39 @@
+// Rholang Template: Standard Token (Vestra Protocol Demo)
+// Placeholders: TOKEN_NAME, TOKEN_SYMBOL, INITIAL_SUPPLY, OWNER_PUBKEY
+
+new token, stdout(`rho:io:stdout`), insertArbitrary(`rho:registry:insertArbitrary`) in {
+  new balanceCh, transfer in {
+    balanceCh!({"OWNER_PUBKEY": INITIAL_SUPPLY}) |
+    
+    contract token(@action, @args, return) = {
+      if (action == "balanceOf") {
+        for(@balances <- balanceCh) {
+          balanceCh!(balances) |
+          return!(balances.getOrElse(args, 0))
+        }
+      } else if (action == "transfer") {
+        match args {
+          [to, amount] => {
+            for(@balances <- balanceCh) {
+              new fromBal, toBal in {
+                fromBal!(balances.getOrElse(deployerId, 0)) |
+                toBal!(balances.getOrElse(to, 0)) |
+                if (balances.getOrElse(deployerId, 0) >= amount) {
+                  balanceCh!(balances.set(deployerId, balances.getOrElse(deployerId, 0) - amount).set(to, balances.getOrElse(to, 0) + amount)) |
+                  stdout!(["[TOKEN] Transferred", amount, "to", to]) |
+                  return!(true)
+                } else {
+                  balanceCh!(balances) |
+                  return!(false)
+                }
+              }
+            }
+          }
+        }
+      }
+    } |
+    
+    insertArbitrary!(*token, *stdout) |
+    stdout!(["[TOKEN] Created TOKEN_NAME (TOKEN_SYMBOL) with supply INITIAL_SUPPLY"])
+  }
+}

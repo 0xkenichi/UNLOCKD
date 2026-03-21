@@ -55,4 +55,6 @@ This is a step-by-step guide to test the full borrow flow on Sepolia testnet: co
 - “No funds”: add Sepolia ETH from a faucet.
 - “Oracle error”: check the price feed address for Sepolia.
 - “Insufficient approval”: increase USDC approval amount.
+- “Next.js / RainbowKit Load Error”: Run `npm install @walletconnect/ethereum-provider --legacy-peer-deps` in `frontend-v2`.
+- “Indexer Init Failure”: Check `IndexerService.js` for 10-block chunking (respects Alchemy free-tier limits).
 

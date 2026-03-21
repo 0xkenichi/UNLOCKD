@@ -9,12 +9,14 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   RefreshCcw,
-  Globe,
-  Fingerprint
+  Globe, 
+  Fingerprint,
+  TrendingDown
 } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { MatrixReveal } from "@/components/stealth/MatrixReveal";
 import { ZKShield } from "@/components/stealth/ZKShield";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { useStealthMode } from "@/components/providers/stealth-provider";
 import { DashboardHolo } from "@/components/dashboard/DashboardHolo";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
@@ -36,13 +38,18 @@ import { getContract, loanManagerAbi, usdcAbi } from "@/config/contracts";
 import { api } from "@/utils/api";
 import { useMemo, useEffect, useState } from "react";
 import { DemoCenter } from "@/components/demo/DemoCenter";
+import { LiquidVestingWizard } from "@/components/demo/LiquidVestingWizard";
+import { AsiVestingWizard } from "@/components/demo/AsiVestingWizard";
 
 
 export default function Dashboard() {
   const { address } = useAccount();
   const chainId = useChainId();
   const { isStealthMode } = useStealthMode();
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [isAsiWizardOpen, setIsAsiWizardOpen] = useState(false);
   const [unlockFilter, setUnlockFilter] = useState("");
+
   const [sizeFilter, setSizeFilter] = useState("");
   const [valuationFilter, setValuationFilter] = useState("");
   
@@ -235,11 +242,12 @@ export default function Dashboard() {
         <div>
           <h1 className="text-5xl font-black tracking-tighter uppercase italic text-glow-teal redaction-text">Protocol Overview</h1>
           <p className="text-secondary mt-2 font-medium redaction-text opacity-70">Global credit health and platform metrics.</p>
+          <ComingSoon label="Advanced Institutional Analytics" className="mt-4" />
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 rounded-full bg-surface/80 backdrop-blur-md border border-white/5 flex items-center gap-3 text-xs shadow-xl">
             <span className="w-2.5 h-2.5 rounded-full bg-accent-teal animate-pulse shadow-[0_0_10px_rgba(46,190,181,0.5)]" />
-            <span className="text-secondary font-black uppercase tracking-widest text-[10px]">Mainnet Online</span>
+            <span className="text-secondary font-black uppercase tracking-widest text-[10px]">Testnet Online</span>
           </div>
           <button className="p-3 rounded-2xl bg-surface/80 backdrop-blur-md border border-white/5 hover:border-accent-teal/50 hover:bg-accent-teal/10 transition-all group">
             <RefreshCcw className="w-4 h-4 text-secondary group-hover:text-accent-teal group-hover:rotate-180 transition-all duration-700" />
@@ -269,7 +277,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <DemoCenter />
+      <DemoCenter onOpenAsiWizard={() => setIsAsiWizardOpen(true)} />
 
       {/* 3D Timeline Section */}
       <motion.div 
@@ -402,14 +410,54 @@ export default function Dashboard() {
               [1, 2, 3].map(i => (
                 <div key={i} className="h-[200px] rounded-3xl bg-surface/20 animate-pulse border border-white/5" />
               ))
-            ) : portfolio?.vested?.length > 0 ? (
-              portfolio.vested.map((asset: any, i: number) => (
-                <SovereignAssetCard key={i} asset={asset} />
-              ))
             ) : (
+                <>
+                  {/* Vesting Assets */}
+                  {(portfolio?.assets?.vested || []).map((asset: any, i: number) => (
+                    <SovereignAssetCard key={`vested-${i}`} asset={{ ...asset, isIlliquid: true }} />
+                  ))}
+                  
+                  {/* Liquid Tokens (including ASI) */}
+                  {(portfolio?.assets?.liquid || []).map((asset: any, i: number) => (
+                    <SovereignAssetCard key={`liquid-${i}`} asset={{
+                      ...asset,
+                      category: 'Liquid Asset',
+                      protocol: asset.symbol === 'ASI' ? 'ASI Alliance' : 'Universal Mirror',
+                      amount: asset.balance?.toFixed(4) || "0.0000"
+                    }} />
+                  ))}
+
+                  {/* DeFi Positions */}
+                  {(portfolio?.assets?.defi || []).map((asset: any, i: number) => (
+                    <SovereignAssetCard key={`defi-${i}`} asset={{
+                      ...asset,
+                      category: 'DeFi LP',
+                      protocol: asset.protocol || 'Dune Analytics',
+                      symbol: asset.token0 ? `${asset.token0}/${asset.token1}` : (asset.symbol || 'LP'),
+                      amount: asset.balance?.toString() || asset.valueUsd?.toFixed(2)
+                    }} />
+                  ))}
+
+                  {/* NFTs / Collectibles */}
+                  {(portfolio?.assets?.nfts || []).map((asset: any, i: number) => (
+                    <SovereignAssetCard key={`nft-${i}`} asset={{
+                      ...asset,
+                      category: 'Collectible',
+                      protocol: 'NFT Discovery',
+                      amount: "1",
+                      description: `NFT detected: ${asset.name || asset.contractAddress}`
+                    }} />
+                  ))}
+                </>
+            )}
+            
+            {!portfolioLoading && 
+             !(portfolio?.assets?.vested?.length > 0 || 
+               portfolio?.assets?.liquid?.length > 0 || 
+               portfolio?.assets?.defi?.length > 0) && (
               <div className="lg:col-span-3 p-12 rounded-3xl border border-dashed border-white/10 flex flex-col items-center justify-center text-center">
                 <ShieldCheck className="w-12 h-12 text-secondary opacity-20 mb-4" />
-                <p className="text-sm text-secondary font-medium opacity-50">No sovereign vesting streams discovered for this wallet.</p>
+                <p className="text-sm text-secondary font-medium opacity-50">No sovereign assets discovered for this wallet.</p>
                 <button className="mt-4 text-[10px] font-black uppercase tracking-widest text-accent-teal hover:text-white transition-colors">Report Missing Contract</button>
               </div>
             )}
@@ -417,7 +465,6 @@ export default function Dashboard() {
         </motion.section>
       )}
 
-      {/* Market Overview Table */}
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -431,6 +478,12 @@ export default function Dashboard() {
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
+              <button 
+                onClick={() => setIsWizardOpen(true)}
+                className="px-6 py-2 bg-accent-teal text-background font-black uppercase tracking-[0.2em] rounded-xl hover:bg-accent-cyan transition-all flex items-center gap-2 text-[10px]"
+              >
+                <Zap className="w-4 h-4" /> Start Guided Demo
+              </button>
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-black uppercase tracking-widest text-secondary ml-1">Unlock Date</span>
                 <input 
@@ -477,7 +530,18 @@ export default function Dashboard() {
             />
           </CardContent>
         </Card>
+
       </motion.div>
+
+      <LiquidVestingWizard 
+        isOpen={isWizardOpen} 
+        onClose={() => setIsWizardOpen(false)} 
+      />
+
+      <AsiVestingWizard
+        isOpen={isAsiWizardOpen}
+        onClose={() => setIsAsiWizardOpen(false)}
+      />
     </div>
   );
 }

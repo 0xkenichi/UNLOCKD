@@ -47,9 +47,9 @@ export default function IdentityPage() {
     },
     { 
       label: "Trust Tier", 
-      value: isConnected ? (passport.tierName || "Anonymous") : "Locked", 
-      delta: isConnected ? "Verified Account" : "Connect Wallet", 
-      color: passport.identityTier && passport.identityTier >= 4 ? "accent-teal" : passport.identityTier && passport.identityTier <= 1 ? "red-500" : "gray-400" 
+      value: isConnected ? (passport.tierName || "Scout") : "Locked", 
+      delta: isConnected ? "Institutional Rank" : "Connect Wallet", 
+      color: passport.crdtTier && passport.crdtTier >= 4 ? "accent-teal" : passport.crdtTier && passport.crdtTier >= 2 ? "accent-cyan" : "gray-400" 
     },
   ], [passport, isConnected]);
 
@@ -179,23 +179,50 @@ export default function IdentityPage() {
             
             <div className="space-y-8">
               {[
-                { label: "Identity (Gitcoin)", score: passport.ias || 0, max: 500, icon: Fingerprint, color: "accent-teal" },
-                { label: "Financial History", score: passport.fbs || 0, max: 500, icon: Activity, color: "accent-cyan" },
-                { label: "On-Chain Behavior", score: passport.walletAgeBaseScore || 0, max: 200, icon: Shield, color: "accent-teal" },
+                { 
+                  label: "Identity (Gitcoin)", 
+                  score: passport.ias || 0, 
+                  max: 500, 
+                  icon: Fingerprint, 
+                  color: "accent-teal", 
+                  desc: "Linked attestations and stamps recorded on-chain." 
+                },
+                { 
+                  label: "Financial History", 
+                  score: passport.fbs || 0, 
+                  max: 500, 
+                  icon: Activity, 
+                  color: "accent-cyan", 
+                  desc: `Maturity: ${passport.activityMetrics?.ageMonths || 0}mo | Trx: ${passport.activityMetrics?.txCount || 0} | Vol: $${(passport.activityMetrics?.totalVolume || 0).toLocaleString()}` 
+                },
+                { 
+                  label: "On-Chain Behavior", 
+                  score: passport.walletAgeBaseScore || 0, 
+                  max: 200, 
+                  icon: Shield, 
+                  color: "accent-teal", 
+                  desc: "Wallet age and specific protocol interactions." 
+                },
               ].map((module) => (
-                <div key={module.label} className="space-y-3">
+                <div key={module.label} className="space-y-3 relative group/item">
                   <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 cursor-help">
                       <module.icon size={12} className={`text-${module.color}`} />
                       <span className="text-white">{module.label}</span>
                     </div>
-                    <span className={`text-${module.color}`}>{module.score} / {module.max}</span>
+                    <span className={`text-${module.color} font-mono`}>{module.score} / {module.max}</span>
                   </div>
-                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  
+                  {/* Granular Tooltip */}
+                  <div className="absolute left-0 -top-8 hidden group-hover/item:block bg-black/90 border border-white/10 px-3 py-1.5 rounded-lg text-[8px] z-50 normal-case tracking-normal whitespace-nowrap shadow-xl">
+                    {module.desc}
+                  </div>
+
+                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${(module.score / module.max) * 100}%` }}
-                      className={`h-full bg-${module.color}`}
+                      className={`h-full bg-${module.color} shadow-[0_0_10px_rgba(46,190,181,0.3)]`}
                     />
                   </div>
                 </div>
@@ -204,9 +231,25 @@ export default function IdentityPage() {
 
             <div className="mt-12 p-6 rounded-2xl bg-accent-teal/5 border border-accent-teal/10 flex gap-4">
                <Info className="text-accent-teal shrink-0" size={18} />
-               <p className="text-xs text-secondary font-medium leading-relaxed">
-                 Sync Gitcoin Passport to improve your VCS Score and unlock premium borrowing rates.
-               </p>
+               <div className="space-y-1">
+                 <p className="text-xs text-secondary font-medium leading-relaxed">
+                   VCS Score updates dynamically. Financial History is calculated using Wallet Age, Tx Count, Volume, and ATH Balance.
+                 </p>
+                 <div className="flex flex-wrap gap-4 mt-2">
+                    <div className="flex flex-col">
+                      <span className="text-[8px] text-secondary/50 uppercase font-black">Age Score</span>
+                      <span className="text-[10px] text-white font-black">{Math.min(100, (passport.activityMetrics?.ageMonths || 0) * 10)} / 100</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[8px] text-secondary/50 uppercase font-black">Volume Score</span>
+                      <span className="text-[10px] text-white font-black">{Math.min(100, Math.floor((passport.activityMetrics?.totalVolume || 0) / 1000))} / 100</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[8px] text-secondary/50 uppercase font-black">Wealth Score</span>
+                      <span className="text-[10px] text-white font-black">{Math.min(150, Math.floor((passport.activityMetrics?.currentBalance || 0) / 500))} / 150</span>
+                    </div>
+                 </div>
+               </div>
             </div>
           </div>
 

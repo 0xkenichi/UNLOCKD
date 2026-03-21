@@ -89,6 +89,7 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
 
     struct Loan {
         address borrower;
+        address token;
         uint256 principal;
         uint256 interest;
         uint256 collateralId;
@@ -101,6 +102,7 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
 
     struct PrivateLoan {
         address vault;
+        address token;
         uint256 principal;
         uint256 interest;
         uint256 collateralId;
@@ -128,6 +130,7 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
     mapping(uint256 => uint256) public otcBuybackDeadline;
 
     mapping(address => uint256) public currentGlobalExposure;
+    mapping(uint256 => bool) public inLiquidation;
 
     // V7.0 Facet Router Addresses
     address public originationFacet;

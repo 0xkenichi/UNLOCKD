@@ -10,7 +10,7 @@ contract DutchAuction is BaseAuction {
 
     constructor(address _adapter, address _usdc, address _initialGovernor) BaseAuction(_adapter, _usdc, _initialGovernor) {}
 
-    function bid(uint256 auctionId, uint256 amount) external override nonReentrant whenNotPaused {
+    function bid(uint256 auctionId, uint256 amount) external virtual override nonReentrant whenNotPaused {
         AuctionItem storage auction = auctions[auctionId];
         require(_isActive(auction), "ended");
         require(auction.startPrice >= auction.endPrice, "bad range");
@@ -25,7 +25,7 @@ contract DutchAuction is BaseAuction {
         _finalizeAuction(auctionId, msg.sender, amount);
     }
 
-    function endAuction(uint256 auctionId) external override nonReentrant whenNotPaused {
+    function endAuction(uint256 auctionId) external virtual override nonReentrant whenNotPaused {
         AuctionItem storage auction = auctions[auctionId];
         require(!_isActive(auction), "active");
 
@@ -34,7 +34,7 @@ contract DutchAuction is BaseAuction {
         _finalizeNoBid(auctionId);
     }
 
-    function getCurrentPrice(uint256 auctionId) public view override returns (uint256) {
+    function getCurrentPrice(uint256 auctionId) public view virtual override returns (uint256) {
         return _getCurrentPrice(auctions[auctionId]);
     }
 

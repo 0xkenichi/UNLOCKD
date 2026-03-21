@@ -1,0 +1,34 @@
+// Rholang Template: Vestra Vesting Contract (ASI Chain DevNet)
+// Placeholders: BENEFICIARY, AMOUNT, UNLOCK_BLOCK
+
+new vestraVesting, stdout(`rho:io:stdout`), 
+    insertArbitrary(`rho:registry:insertArbitrary`) in {
+  
+  contract vestraVesting(@beneficiary, @amount, @unlockBlock) = {
+    new state, release in {
+      state!(0) | // 0: Locked
+      
+      insertArbitrary!(*release, *stdout) |
+      stdout!(["[VESTRA] Vesting initialized for", beneficiary, "amount", amount]) |
+      
+      for(_ <- release) {
+        for(@s <- state) {
+          if (s == 0) {
+            stdout!(["[VESTRA] Releasing", amount, "to", beneficiary]) |
+            @beneficiary!(amount) |
+            state!(1)
+          } else {
+            stdout!("[VESTRA] Error: Already released.") |
+            state!(s)
+          }
+        }
+      }
+    }
+  } |
+  
+  // Create an initial instance with the provided parameters
+  vestraVesting!(BENEFICIARY, AMOUNT, UNLOCK_BLOCK) |
+  
+  insertArbitrary!(*vestraVesting, *stdout) |
+  stdout!("[VESTRA] Vesting Factory Registered.")
+}

@@ -46,9 +46,9 @@ async function fetchSablier(wallet: string) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { address: string } }
+  { params }: { params: Promise<{ address: string }> }
 ) {
-  const address = params.address;
+  const { address } = await params;
 
   if (!address) {
     return NextResponse.json({ error: 'Address required' }, { status: 400 });

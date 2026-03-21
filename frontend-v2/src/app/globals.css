@@ -58,22 +58,24 @@
 
 @theme {
   /* Colors */
-  --color-background: #0B0D10;
+  --color-background: #06080A;
   --color-foreground: #FFFFFF;
-  --color-surface: #161B22;
-  --color-surface-hover: #1E252E;
+  --color-surface: #0C1117;
+  --color-surface-hover: #161B22;
   
   --color-accent-teal: #2EBEB5;
   --color-accent-cyan: #40E0FF;
+  --color-accent-gold: #FFD700;
   --color-accent-glow: rgba(46, 190, 181, 0.15);
   --color-accent-cyan-glow: rgba(64, 224, 255, 0.15);
+  --color-accent-gold-glow: rgba(255, 215, 0, 0.15);
   
   --color-risk-low: #2EBEB5;
   --color-risk-medium: #F5A623;
   --color-risk-high: #FF4D4D;
 
-  --color-border-glass: rgba(255, 255, 255, 0.08);
-  --color-border-glass-bright: rgba(255, 255, 255, 0.15);
+  --color-border-glass: rgba(255, 255, 255, 0.05);
+  --color-border-glass-bright: rgba(255, 255, 255, 0.1);
 
   /* Fonts */
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;

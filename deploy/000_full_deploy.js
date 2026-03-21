@@ -124,6 +124,12 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     log: true,
   });
 
+  const liquidationAuction = await deploy("LiquidationAuction", {
+    from: deployer,
+    args: [adapter.address, usdcAddress, loanManager.address, deployer],
+    log: true,
+  });
+
   const dutchAuction = await deploy("DutchAuction", {
     from: deployer,
     args: [adapter.address, usdcAddress, deployer],
@@ -179,6 +185,17 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   await (await adapterInstance.setAuthorizedCaller(englishAuction.address, true)).wait();
   await (await adapterInstance.setAuthorizedCaller(sealedBidAuction.address, true)).wait();
 
+  const auctionFactoryInstance = await ethers.getContractAt(
+    "AuctionFactory",
+    auctionFactory.address,
+    await ethers.getSigner(deployer)
+  );
+  log("Registering auctions in AuctionFactory...");
+  await (await auctionFactoryInstance.registerAuction("LIQUIDATION", liquidationAuction.address)).wait();
+  await (await auctionFactoryInstance.registerAuction("DUTCH", dutchAuction.address)).wait();
+  await (await auctionFactoryInstance.registerAuction("ENGLISH", englishAuction.address)).wait();
+  await (await auctionFactoryInstance.registerAuction("SEALED_BID", sealedBidAuction.address)).wait();
+
   const poolDeployment = await deployments.get("LendingPool");
   const poolInstance = await ethers.getContractAt(
     "LendingPool",
@@ -217,8 +234,17 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     insuranceVault.address,
     await ethers.getSigner(deployer)
   );
-  await (await insuranceVaultInstance.setLoanManager(loanManager.address)).wait();
+  const GUARDIAN_ROLE = await insuranceVaultInstance.GUARDIAN_ROLE();
+  await (await insuranceVaultInstance.grantRole(GUARDIAN_ROLE, loanManager.address)).wait();
+  await (await insuranceVaultInstance.grantRole(GUARDIAN_ROLE, liquidationAuction.address)).wait();
   await (await loanManagerInstance.setInsuranceVault(insuranceVault.address, 500)).wait();
+
+  const liquidationAuctionInstance = await ethers.getContractAt(
+    "LiquidationAuction",
+    liquidationAuction.address,
+    await ethers.getSigner(deployer)
+  );
+  await (await liquidationAuctionInstance.setInsuranceVault(insuranceVault.address)).wait();
 
   // 13. Fund the pools/vaults with initial USDC for demo/testing
   if (isLocal) {
@@ -236,7 +262,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   // 14. Deploy DemoFaucet for UI
   const demoFaucet = await deploy("DemoFaucet", {
     from: deployer,
-    args: [registry.address],
+    args: [registry.address, usdcAddress],
     log: true,
   });
 

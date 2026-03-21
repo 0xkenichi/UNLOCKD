@@ -50,6 +50,98 @@ const { uploadJSONToIPFS } = require('./lib/ipfs');
 const meTTabrain = require('./meTTabrain');
 const omegaWatcher = require('./omegaWatcher');
 const sovereignRelayer = require('./relayer/SovereignRelayer');
+const rnodeService = require('./rholang/rnodeService');
+const SovereignDataService = require('./lib/SovereignDataService');
+
+// Service Imports
+const RelayerService = require('./services/RelayerService');
+const IndexerService = require('./services/IndexerService');
+const OmegaService = require('./services/OmegaService');
+const AirdropService = require('./services/AirdropService');
+
+// Contract ABIs
+const {
+  erc20Abi,
+  erc20ReadAbi,
+  communityPoolReadAbi,
+  vestingWalletReadAbi
+} = require('./contracts/abis');
+
+// Utilities
+const {
+  isPlainObject,
+  normalizeText,
+  normalizeEmail,
+  toNumber,
+  toBigIntSafe,
+  normalizeWalletAddress,
+  normalizeSolanaAddress,
+  normalizeAnyWalletAddress,
+  detectChainTypeForWallet,
+  hashIp,
+  isPrivateOrLocalIp
+} = require('./lib/utils');
+
+const {
+  lookupGeoByIp,
+  captureUserGeoPresence
+} = require('./lib/geo');
+
+const {
+  getSessionToken,
+  getClientIp,
+  buildSessionFingerprint,
+  secureEqual,
+  requireAdmin: requireAdminFactory,
+  attachSession,
+  requireSession: requireSessionFactory,
+  requireWalletOwnerParam: requireWalletOwnerParamFactory,
+  createLimiters
+} = require('./lib/auth');
+
+
+const {
+  vestingValidateSchema,
+  fundraisingLinkSchema,
+  poolPreferencesSchema,
+  createPoolSchema,
+  updatePoolSchema,
+  matchQuoteSchema,
+  matchAcceptSchema,
+  walletNonceSchema,
+  walletVerifySchema,
+  linkWalletSchema,
+  solanaNonceSchema,
+  solanaLinkWalletSchema,
+  privateLoanCreateSchema,
+  privateLoanRepaySchema,
+  privateLoanSettleSchema,
+  sablierUpgradeSchema,
+  ozUpgradeSchema,
+  timelockUpgradeSchema,
+  superfluidUpgradeSchema,
+  solanaRepaySchema,
+  chatSchema,
+  analyticsSchema,
+  chainRequestSchema,
+  notifySchema,
+  governanceSchema,
+  contactSchema,
+  writeSchema,
+  docsOpenSchema,
+  adminIdentityPatchSchema
+} = require('./lib/schemas');
+
+const {
+  toUsdFromUsdcUnits,
+  getDaysToUnlock,
+  buildWalletMessage,
+  buildSolanaLinkMessage,
+  verifySolanaDetachedSignature: verifySolanaDetachedSignatureFactory
+} = require('./lib/utils');
+
+const verifySolanaDetachedSignature = verifySolanaDetachedSignatureFactory(nacl, PublicKey);
+
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -158,10 +250,15 @@ let pollInFlight = false;
 
 // Real-time Simulation State (Guided by MeTTa/Omega Agent)
 let simulationState = {
-  volatility: 10, // Default agent count/intensity
-  interestRateBps: 800, // 8.0%
+  volatility: 10,
+  interestRateBps: 800,
   lastUpdate: Date.now()
 };
+
+let relayerService;
+let indexerService;
+let omegaService;
+let airdropService;
 let snapshotInFlight = false;
 let cachedRepaySchedule = [];
 let lastScheduleRefresh = 0;
@@ -179,6 +276,10 @@ const repayScheduleCache = {
   items: [],
   at: 0
 };
+
+// Faucet request lock (per-address)
+const faucetLock = new Map();
+const FAUCET_LOCK_TTL_MS = 60_000; // 1 minute lock
 
 const withTimeout = (promise, ms, fallback) =>
   Promise.race([
@@ -331,353 +432,9 @@ const vestingRegistry = {
   iface: new ethers.Interface(vestingRegistryDeployment.abi)
 };
 
-const erc20Abi = [
-  'function symbol() view returns (string)',
-  'function decimals() view returns (uint8)'
-];
+// Blockchain indexing and risk management are now handled by IndexerService and OmegaService.
 
-const communityPoolReadAbi = [
-  'function communityPoolCount() view returns (uint256)',
-  'function pendingCommunityPoolRewards(uint256 poolId, address user) view returns (uint256)',
-  'function communityPools(uint256) view returns (string name,address creator,uint256 targetAmount,uint256 maxAmount,uint256 deadline,uint256 totalContributed,uint256 totalBuildingUnits,uint256 participantCount,uint256 accRewardPerWeight,uint256 totalRewardFunded,bool rewardsByBuildingSize,uint8 state)'
-];
 
-const vestingWalletReadAbi = [
-  'function token() view returns (address)',
-  'function totalAllocation() view returns (uint256)',
-  'function start() view returns (uint256)',
-  'function duration() view returns (uint256)',
-  'function released(address) view returns (uint256)'
-];
-
-const getEventTopic = (iface, name) => {
-  try {
-    return iface.getEvent(name).topicHash;
-  } catch (error) {
-    return null;
-  }
-};
-
-const normalizeEvent = async (log) => {
-  const parsed = loanManager.iface.parseLog(log);
-  const blockNumber = Number(log.blockNumber);
-  let timestamp = blockCache.get(blockNumber);
-  if (!timestamp) {
-    const block = await provider.getBlock(blockNumber);
-    timestamp = block?.timestamp || 0;
-    blockCache.set(blockNumber, timestamp);
-    trimMapToLimit(blockCache, BLOCK_CACHE_MAX_ITEMS);
-  }
-  const base = {
-    txHash: log.transactionHash,
-    // ethers v6 uses `index` for log index (not `logIndex`)
-    logIndex: Number(log.index ?? log.logIndex ?? 0),
-    blockNumber,
-    timestamp
-  };
-  if (parsed.name === 'LoanCreated') {
-    return {
-      ...base,
-      type: 'LoanCreated',
-      loanId: parsed.args.loanId.toString(),
-      borrower: parsed.args.borrower,
-      amount: parsed.args.amount.toString()
-    };
-  }
-  if (parsed.name === 'PrivateLoanCreated') {
-    // Do not include vault address in public-facing activity payloads.
-    return {
-      ...base,
-      type: 'PrivateLoanCreated',
-      loanId: parsed.args.loanId.toString(),
-      amount: parsed.args.amount.toString()
-    };
-  }
-  if (parsed.name === 'LoanRepaid') {
-    return {
-      ...base,
-      type: 'LoanRepaid',
-      loanId: parsed.args.loanId.toString(),
-      amount: parsed.args.amount.toString()
-    };
-  }
-  if (parsed.name === 'PrivateLoanRepaid') {
-    return {
-      ...base,
-      type: 'PrivateLoanRepaid',
-      loanId: parsed.args.loanId.toString(),
-      amount: parsed.args.amount.toString()
-    };
-  }
-  if (parsed.name === 'LoanRepaidWithSwap') {
-    return {
-      ...base,
-      type: 'LoanRepaidWithSwap',
-      loanId: parsed.args.loanId.toString(),
-      amount: parsed.args.usdcReceived?.toString?.() || '0',
-      tokenIn: parsed.args.tokenIn,
-      amountIn: parsed.args.amountIn?.toString?.() || '0'
-    };
-  }
-  if (parsed.name === 'LoanSettled') {
-    return {
-      ...base,
-      type: 'LoanSettled',
-      loanId: parsed.args.loanId.toString(),
-      defaulted: Boolean(parsed.args.defaulted)
-    };
-  }
-  if (parsed.name === 'PrivateLoanSettled') {
-    return {
-      ...base,
-      type: 'PrivateLoanSettled',
-      loanId: parsed.args.loanId.toString(),
-      defaulted: Boolean(parsed.args.defaulted)
-    };
-  }
-
-  // --- V9.0 Sovereign Events ---
-  try {
-    const nftParsed = loanNFT.iface.parseLog(log);
-    if (nftParsed?.name === 'LoanProofMinted') {
-      return {
-        ...base,
-        type: 'LoanProofMinted',
-        loanId: nftParsed.args.loanId.toString(),
-        borrower: nftParsed.args.borrower,
-        payload: { tokenId: nftParsed.args.tokenId.toString() }
-      };
-    }
-  } catch (_) { }
-
-  try {
-    const clawParsed = openClawLighthouse.iface.parseLog(log);
-    if (clawParsed?.name === 'VoteSubmitted') {
-      return {
-        ...base,
-        type: 'VoteSubmitted',
-        tokenAddress: clawParsed.args.token,
-        payload: {
-          agent: clawParsed.args.agent,
-          omegaBps: clawParsed.args.omegaBps.toString()
-        }
-      };
-    }
-  } catch (_) { }
-
-  try {
-    const factoryParsed = vestingRegistry.iface.parseLog(log);
-    if (factoryParsed?.name === 'ContractSubmitted') {
-      return {
-        ...base,
-        type: 'ContractSubmitted',
-        vestingContract: factoryParsed.args.wrapper,
-        submitter: factoryParsed.args.submitter
-      };
-    }
-    if (factoryParsed?.name === 'ContractRanked') {
-      return {
-        ...base,
-        type: 'ContractRanked',
-        vestingContract: factoryParsed.args.wrapper,
-        payload: { rank: factoryParsed.args.rank.toString() }
-      };
-    }
-  } catch (_) { }
-
-  return null;
-};
-
-const pushEvents = async (events) => {
-  const newEvents = [];
-  events.forEach((event) => {
-    if (!event) return;
-    const key = `${event.txHash}-${event.logIndex}`;
-    if (seenEvents.has(key)) return;
-    seenEvents.add(key);
-    activityEvents.push(event);
-    newEvents.push(event);
-  });
-  if (newEvents.length) {
-    await persistence.saveEvents(newEvents);
-  }
-  activityEvents.sort((a, b) => {
-    if (a.blockNumber !== b.blockNumber) {
-      return b.blockNumber - a.blockNumber;
-    }
-    return b.logIndex - a.logIndex;
-  });
-  if (activityEvents.length > INDEXER_MAX_EVENTS) {
-    activityEvents.splice(INDEXER_MAX_EVENTS);
-  }
-  if (seenEvents.size > INDEXER_MAX_EVENTS * 2) {
-    seenEvents.clear();
-    activityEvents.forEach((event) => {
-      seenEvents.add(`${event.txHash}-${event.logIndex}`);
-    });
-  }
-};
-
-const is429 = (err) => {
-  const msg = String(err?.message || err || '').toLowerCase();
-  return (
-    msg.includes('429') ||
-    msg.includes('too many requests') ||
-    msg.includes('rate limit') ||
-    msg.includes('rate-limit') || // Added for robustness
-    msg.includes('throttled') || // Added for robustness
-    err?.info?.error?.code === 429 ||
-    err?.status === 429 ||
-    err?.response?.status === 429 // Added for robustness (e.g., axios errors)
-  );
-};
-
-const getLogsWithRetry = async (params) => {
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await withTimeoutReject(
-        provider.getLogs(params),
-        Number(process.env.RPC_GETLOGS_TIMEOUT_MS || 12000),
-        'eth_getLogs'
-      );
-    } catch (err) {
-      if (attempt < maxAttempts && is429(err)) {
-        const delay = Math.min(2000 * Math.pow(2, attempt - 1), 8000);
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-      throw err;
-    }
-  }
-};
-
-const pollEvents = async () => {
-  if (pollInFlight) return;
-  pollInFlight = true;
-  try {
-    const latestBlock = await provider.getBlockNumber();
-    latestChainBlock = latestBlock;
-    lastPollAt = Date.now();
-    if (lastIndexedBlock === null) {
-      lastIndexedBlock = Math.max(latestBlock - INDEXER_LOOKBACK_BLOCKS, 0);
-    }
-    const startBlock = lastIndexedBlock + 1;
-    if (startBlock > latestBlock) {
-      return;
-    }
-    const maxBlocks = Math.max(10, Math.min(INDEXER_MAX_BLOCKS_PER_POLL, 250000));
-    const endBlock = Math.min(latestBlock, startBlock + maxBlocks - 1);
-    const chunkSize = 10;
-    for (let from = startBlock; from <= endBlock; from += chunkSize) {
-      const to = Math.min(from + chunkSize - 1, endBlock);
-
-      const topics = [
-        getEventTopic(loanManager.iface, 'LoanCreated'),
-        getEventTopic(loanManager.iface, 'PrivateLoanCreated'),
-        getEventTopic(loanManager.iface, 'LoanRepaid'),
-        getEventTopic(loanManager.iface, 'PrivateLoanRepaid'),
-        getEventTopic(loanManager.iface, 'LoanRepaidWithSwap'),
-        getEventTopic(loanManager.iface, 'LoanSettled'),
-        getEventTopic(loanManager.iface, 'PrivateLoanSettled'),
-        getEventTopic(loanNFT.iface, 'LoanProofMinted'),
-        getEventTopic(openClawLighthouse.iface, 'VoteSubmitted'),
-        getEventTopic(globalRiskModule.iface, 'BadDebtThresholdBreached'),
-        getEventTopic(lendingPool.iface, 'CommunityPoolCreated'),
-        getEventTopic(lendingPool.iface, 'CommunityPoolContribution'),
-        getEventTopic(vestingRegistry.iface, 'ContractSubmitted'),
-        getEventTopic(vestingRegistry.iface, 'ContractRanked')
-      ].filter(Boolean);
-
-      // Batch fetch all topics in one RPC call per chunk
-      const allLogs = await getLogsWithRetry({
-        address: [
-          loanManager.address,
-          loanNFT.address,
-          openClawLighthouse.address,
-          globalRiskModule.address,
-          lendingPool.address,
-          vestingRegistry.address
-        ],
-        fromBlock: from,
-        toBlock: to,
-        topics: [topics]
-      });
-
-      const normalized = await mapWithConcurrency(
-        allLogs,
-        async (log) => {
-          try {
-            const e = await normalizeEvent(log);
-            if (!e) return null;
-            
-            // Phase 1 Points Allocation Logic
-            if (e.type === 'LoanCreated' || e.type === 'PrivateLoanCreated') {
-                const amountUsd = parseFloat(ethers.formatUnits(e.amount || '0', 6));
-                const borrowPoints = Math.floor(amountUsd / 10); // 100 points per $1000 PV
-                const privacyMultiplier = e.type === 'PrivateLoanCreated' ? 1.2 : 1.0;
-                await persistence.updatePoints(e.borrower, { 
-                    borrow: borrowPoints, 
-                    privacy: e.type === 'PrivateLoanCreated' ? Math.floor(borrowPoints * 0.2) : 0 
-                });
-            } else if (e.type === 'CommunityPoolContribution') {
-                const amountUsd = parseFloat(ethers.formatUnits(e.amount || '0', 6));
-                const lendPoints = Math.floor(amountUsd / 6.66); // ~150 points per $1000 liquidity
-                await persistence.updatePoints(e.contributor, { lend: lendPoints });
-            } else if (e.type === 'ContractRanked') {
-                await persistence.updateVestingRank(e.vestingContract, e.payload.rank);
-            }
-
-            if (e.type !== 'LoanCreated' && e.type !== 'PrivateLoanCreated') return e;
-
-            // Parallelize enrichment for individual loans
-            const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
-            const adapterContractForIndexer = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
-
-            const loan =
-              e.type === 'PrivateLoanCreated'
-                ? await loanManagerContract.privateLoans(e.loanId)
-                : await loanManagerContract.loans(e.loanId);
-
-            const collateralId = loan?.collateralId ?? loan?.[3];
-            if (collateralId != null) {
-              const details = await adapterContractForIndexer.getDetails(collateralId);
-              const token = details?.[1];
-              if (token) e.tokenAddress = typeof token === 'string' ? token : (token?.toString?.() ?? null);
-            }
-            return e;
-          } catch (err) {
-            return null;
-          }
-        },
-        RPC_CONCURRENCY_LIMIT
-      );
-
-      const validEvents = normalized.filter(Boolean);
-      for (const e of validEvents) {
-        if (e.type === 'LoanCreated' || e.type === 'PrivateLoanCreated') {
-          // Push initial lean state to the Omega Watcher grid
-          omegaWatcher.emit('loanCreated', {
-            id: e.loanId,
-            principal: e.amount || '0',
-            interestAccrued: '0',
-            collateralValueUsd: '0', // Will be enriched on next tick
-            durationDays: 30, // Default mock logic if unset
-            elapsedDays: 0
-          });
-        }
-      }
-
-      await pushEvents(validEvents);
-    }
-    lastIndexedBlock = endBlock;
-    await persistence.setMeta('lastIndexedBlock', lastIndexedBlock);
-  } catch (error) {
-    console.error('[indexer] poll error', error?.message || error);
-  } finally {
-    pollInFlight = false;
-  }
-};
 
 const corsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -711,160 +468,8 @@ app.use((_req, res, next) => {
 const jsonLimit = process.env.JSON_BODY_LIMIT || '200kb';
 app.use(express.json({ limit: jsonLimit }));
 
-const isPlainObject = (value) =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
-const normalizeText = (value, maxLen) => {
-  if (typeof value !== 'string') return '';
-  return value.trim().slice(0, maxLen);
-};
-
-const normalizeEmail = (value, maxLen) => {
-  if (typeof value !== 'string') return '';
-  return value.trim().toLowerCase().slice(0, maxLen);
-};
-
-const toNumber = (value, fallback = 0) => {
-  const num = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
-  return Number.isFinite(num) ? num : fallback;
-};
-
-const toBigIntSafe = (value) => {
-  try {
-    if (typeof value === 'bigint') return value;
-    if (typeof value === 'number') return BigInt(Math.floor(value));
-    return BigInt(value);
-  } catch {
-    return 0n;
-  }
-};
-
-const normalizeWalletAddress = (value) => {
-  if (!value || typeof value !== 'string') return '';
-  try {
-    return ethers.getAddress(value.trim());
-  } catch {
-    return '';
-  }
-};
-
-const normalizeSolanaAddress = (value) => {
-  if (!value || typeof value !== 'string') return '';
-  try {
-    return new PublicKey(value.trim()).toBase58();
-  } catch {
-    return '';
-  }
-};
-
-const normalizeAnyWalletAddress = (value) =>
-  normalizeWalletAddress(value) || normalizeSolanaAddress(value);
-
-const detectChainTypeForWallet = (value) =>
-  normalizeWalletAddress(value) ? 'evm' : normalizeSolanaAddress(value) ? 'solana' : '';
-
-// --- Relayer request auth (EIP-712, offchain only) ---
-
-const sortKeysDeep = (value) => {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
-  if (!value || typeof value !== 'object') return value;
-  const out = {};
-  Object.keys(value)
-    .sort()
-    .forEach((key) => {
-      out[key] = sortKeysDeep(value[key]);
-    });
-  return out;
-};
-
 const stableStringify = (value) => JSON.stringify(sortKeysDeep(value));
 
-const relayerTypes = {
-  RelayerRequest: [
-    { name: 'user', type: 'address' },
-    { name: 'vault', type: 'address' },
-    { name: 'action', type: 'string' },
-    { name: 'payloadHash', type: 'bytes32' },
-    { name: 'nonce', type: 'string' },
-    { name: 'issuedAt', type: 'uint256' },
-    { name: 'expiresAt', type: 'uint256' }
-  ]
-};
-
-let cachedEvmChainId = null;
-const getEvmChainId = async () => {
-  if (cachedEvmChainId != null) return cachedEvmChainId;
-  try {
-    const net = await provider.getNetwork();
-    cachedEvmChainId = Number(net?.chainId || 0);
-  } catch {
-    cachedEvmChainId = Number(process.env.EVM_CHAIN_ID || 0) || 0;
-  }
-  return cachedEvmChainId;
-};
-
-const hashRelayerPayload = (payload) =>
-  ethers.keccak256(ethers.toUtf8Bytes(stableStringify(payload || {})));
-
-const verifyRelayerAuth = async ({ req, action, payload, vaultAddress } = {}) => {
-  const sessionWallet = normalizeWalletAddress(req.user?.walletAddress || '');
-  if (!sessionWallet) throw new Error('Session wallet required');
-  if (!vaultAddress || !ethers.isAddress(vaultAddress)) throw new Error('Vault address required');
-
-  const signature = String(req.body?.signature || '').trim();
-  const nonce = String(req.body?.nonce || '').trim();
-  const issuedAt = Number(req.body?.issuedAt || 0);
-  const expiresAt = Number(req.body?.expiresAt || 0);
-  if (!signature || !nonce || !issuedAt || !expiresAt) throw new Error('Missing relayer auth');
-
-  const now = Math.floor(Date.now() / 1000);
-  if (issuedAt > now + 60) throw new Error('Relayer auth not yet valid');
-  if (expiresAt < now) throw new Error('Relayer auth expired');
-  if (expiresAt - issuedAt > 10 * 60) throw new Error('Relayer auth window too long');
-
-  const chainId = await getEvmChainId();
-  if (!chainId) throw new Error('Chain ID unavailable');
-
-  const payloadHash = hashRelayerPayload(payload);
-  const claimedHash = String(req.body?.payloadHash || '').trim();
-  if (claimedHash && claimedHash.toLowerCase() !== payloadHash.toLowerCase()) {
-    throw new Error('Relayer payload hash mismatch');
-  }
-
-  const domain = {
-    name: 'VestraRelayer',
-    version: '1',
-    chainId,
-    verifyingContract: loanManager.address
-  };
-  const message = {
-    user: sessionWallet,
-    vault: ethers.getAddress(vaultAddress),
-    action: String(action || ''),
-    payloadHash,
-    nonce,
-    issuedAt,
-    expiresAt
-  };
-  let recovered = '';
-  try {
-    recovered = ethers.verifyTypedData(domain, relayerTypes, message, signature);
-  } catch (_) {
-    throw new Error('Invalid relayer signature');
-  }
-  if (!recovered || recovered.toLowerCase() !== sessionWallet.toLowerCase()) {
-    throw new Error('Relayer signature wallet mismatch');
-  }
-
-  // Replay protection.
-  await persistence.consumeRelayerNonce({
-    userId: req.user?.id,
-    action,
-    nonce,
-    expiresAt
-  });
-  return { ok: true, payloadHash };
-};
 
 const isAdminWallet = (walletAddress) => {
   const normalized = normalizeWalletAddress(walletAddress);
@@ -875,6 +480,10 @@ const isAdminWallet = (walletAddress) => {
     .filter(Boolean);
   return allowlist.includes(normalized);
 };
+
+const requireAdmin = requireAdminFactory(ADMIN_API_KEY, isAdminWallet);
+const requireSession = requireSessionFactory(persistence);
+const requireWalletOwnerParam = (paramKey) => requireWalletOwnerParamFactory(paramKey, normalizeAnyWalletAddress);
 
 const getCreditHistoryForWallet = (walletAddress) => {
   const normalized = normalizeWalletAddress(walletAddress);
@@ -919,15 +528,20 @@ const buildIdentityProfile = async (walletAddress) => {
   const creditHistory = normalizedEvm
     ? getCreditHistoryForWallet(normalized)
     : { repaidCount: 0, defaultedCount: 0 };
+  const activityMetrics = await SovereignDataService.fetchWalletFinancialMetrics(normalized);
+
   const score = computeIdentityScore({
     identity,
     attestations,
-    creditHistory
+    creditHistory,
+    activityMetrics
   });
 
   return {
     walletAddress: normalized,
     ...score,
+    compositeScore: score.crdtScore,
+    score: score.crdtScore, // For checklist visibility
     tierName: TIER_NAMES[score.crdtTier] || 'Anonymous',
     policy: {
       small: policyCheck(score.crdtTier, score.crdtScore, 'small'),
@@ -935,7 +549,8 @@ const buildIdentityProfile = async (walletAddress) => {
       large: policyCheck(score.crdtTier, score.crdtScore, 'large')
     },
     attestations,
-    creditHistory
+    creditHistory,
+    activityMetrics
   };
 };
 
@@ -984,138 +599,13 @@ const validateBody = (schema) => (req, res, next) => {
   }
 };
 
-const getClientIp = (req) => {
-  const trustProxyEnabled = Boolean(app.get('trust proxy'));
-  const forwarded = req.headers['x-forwarded-for'];
-  if (trustProxyEnabled && typeof forwarded === 'string' && forwarded.length) {
-    return forwarded.split(',')[0].trim();
-  }
-  return typeof req.ip === 'string' ? req.ip : '';
-};
 
-const hashIp = (ip) => {
-  if (!ip) return '';
-  return crypto.createHash('sha256').update(ip).digest('hex');
-};
 
-const isPrivateOrLocalIp = (ip) => {
-  if (!ip) return true;
-  const normalized = ip.replace(/^::ffff:/, '');
-  if (
-    normalized === '::1' ||
-    normalized === '127.0.0.1' ||
-    normalized === 'localhost'
-  ) {
-    return true;
-  }
-  if (
-    normalized.startsWith('10.') ||
-    normalized.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized) ||
-    normalized.startsWith('fc') ||
-    normalized.startsWith('fd')
-  ) {
-    return true;
-  }
-  return false;
-};
 
-const readGeoFromProvider = async (ip) => {
-  const url = `${GEO_LOOKUP_URL.replace(/\/$/, '')}/${encodeURIComponent(ip)}/json/`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEO_LOOKUP_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) return null;
-    const data = await response.json();
-    const lat = Number(data?.latitude);
-    const lng = Number(data?.longitude);
-    const city = data?.city ? String(data.city).trim() : '';
-    const state = data?.region ? String(data.region).trim() : null;
-    const country = data?.country_name
-      ? String(data.country_name).trim()
-      : data?.country
-        ? String(data.country).trim()
-        : '';
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !city || !country) {
-      return null;
-    }
-    return { lat, lng, city, state, country };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
 
-const lookupGeoByIp = async (ip) => {
-  if (!ip || isPrivateOrLocalIp(ip)) return null;
-  const cacheKey = hashIp(ip);
-  const cached = geoLookupCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < GEO_CACHE_TTL_MS) {
-    return cached.value;
-  }
-  const value = await readGeoFromProvider(ip);
-  geoLookupCache.set(cacheKey, { at: Date.now(), value });
-  if (geoLookupCache.size > GEO_CACHE_MAX_ITEMS) {
-    const cutoff = Date.now() - GEO_CACHE_TTL_MS;
-    for (const [key, entry] of geoLookupCache.entries()) {
-      if (!entry || entry.at < cutoff) {
-        geoLookupCache.delete(key);
-      }
-    }
-    trimMapToLimit(geoLookupCache, GEO_CACHE_MAX_ITEMS);
-  }
-  return value;
-};
 
-const captureUserGeoPresence = async ({ userId, ip }) => {
-  if (!userId || !ip) return;
-  try {
-    const geo = await lookupGeoByIp(ip);
-    if (!geo) return;
-    await persistence.upsertUserGeoPresence({
-      userId,
-      lat: geo.lat,
-      lng: geo.lng,
-      city: geo.city,
-      state: geo.state,
-      country: geo.country
-    });
-  } catch (error) {
-    console.warn('[geo] capture failed', error?.message || error);
-  }
-};
 
-const buildSessionFingerprint = (req) => {
-  const token = getSessionToken(req);
-  if (token) {
-    return crypto.createHash('sha256').update(`token:${token}`).digest('hex');
-  }
-  const ip = getClientIp(req);
-  if (ip) {
-    return crypto.createHash('sha256').update(`ip:${ip}`).digest('hex');
-  }
-  return '';
-};
 
-const recordAdminAudit = async (req, action, details = {}) => {
-  try {
-    await persistence.saveAdminAuditLog({
-      action,
-      actorUserId: req.user?.id || null,
-      actorWallet: req.user?.walletAddress || null,
-      actorRole: req.user?.role || null,
-      targetType: details.targetType || null,
-      targetId: details.targetId || null,
-      ipHash: hashIp(getClientIp(req)),
-      sessionFingerprint: buildSessionFingerprint(req),
-      payload: details.payload || {}
-    });
-  } catch (error) {
-    console.warn('[admin] audit log persist failed', error?.message || error);
-  }
-};
 
 const verifyTurnstile = async (req, res, next) => {
   if (TURNSTILE_BYPASS) return next();
@@ -1158,159 +648,23 @@ const verifyTurnstile = async (req, res, next) => {
   }
 };
 
-const getSessionToken = (req) => {
-  const authHeader = req.headers.authorization || '';
-  if (authHeader.startsWith('Bearer ')) {
-    return authHeader.slice(7);
-  }
-  const tokenHeader = req.headers['x-session-token'];
-  if (typeof tokenHeader === 'string' && tokenHeader.trim()) {
-    return tokenHeader.trim();
-  }
-  return '';
-};
 
-const rateLimitKeyGenerator = (req) => {
-  const token = getSessionToken(req);
-  if (token) {
-    return `token:${crypto.createHash('sha256').update(token).digest('hex')}`;
-  }
-  const ip = getClientIp(req) || req.ip || '';
-  if (ip && typeof rateLimit.ipKeyGenerator === 'function') {
-    return `ip:${rateLimit.ipKeyGenerator(ip)}`;
-  }
-  const ipHash = hashIp(ip);
-  if (ipHash) return `ip:${ipHash}`;
-  return 'unknown';
-};
 
-const requireSession = async (req, res, next) => {
-  const token = getSessionToken(req);
-  if (!token) {
-    return res.status(401).json({ ok: false, error: 'Session required' });
-  }
-  try {
-    const session = await persistence.getSessionByToken(token);
-    if (!session) {
-      return res.status(401).json({ ok: false, error: 'Invalid session' });
-    }
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      return res.status(401).json({ ok: false, error: 'Session expired' });
-    }
-    const ipHash = hashIp(getClientIp(req));
-    if (session.ipHash && ipHash && session.ipHash !== ipHash) {
-      return res.status(401).json({ ok: false, error: 'Session mismatch' });
-    }
-    req.user = session.user || null;
-    return next();
-  } catch (error) {
-    console.error('[auth] session lookup failed', error?.message || error);
-    return res.status(500).json({ ok: false, error: 'Session lookup failed' });
-  }
-};
-
-const requireWalletOwnerParam = (paramKey) => (req, res, next) => {
-  const rawTargetWallet = String(req.params?.[paramKey] || '').trim();
-  const targetWallet = normalizeAnyWalletAddress(rawTargetWallet);
-  if (!targetWallet) {
-    return res.status(403).json({ ok: false, error: 'Wallet mismatch' });
-  }
-  const sessionWallet = normalizeAnyWalletAddress(req.user?.walletAddress || '');
-  if (sessionWallet && sessionWallet === targetWallet) {
-    return next();
-  }
-  const linkedWallets = Array.isArray(req.user?.linkedWallets) ? req.user.linkedWallets : [];
-  const linkedMatch = linkedWallets.some((wallet) => {
-    const candidate = normalizeAnyWalletAddress(wallet?.walletAddress || '');
-    return Boolean(candidate && candidate === targetWallet);
-  });
-  if (!linkedMatch) {
-    return res.status(403).json({ ok: false, error: 'Wallet mismatch' });
-  }
-  return next();
-};
-
-const secureEqual = (left, right) => {
-  if (!left || !right) return false;
-  const leftBuf = Buffer.from(String(left));
-  const rightBuf = Buffer.from(String(right));
-  if (leftBuf.length !== rightBuf.length) return false;
-  return crypto.timingSafeEqual(leftBuf, rightBuf);
-};
-
-const requireAdmin = (req, res, next) => {
-  const headerKey = String(req.headers['x-admin-key'] || '').trim();
-  if (ADMIN_API_KEY && secureEqual(headerKey, ADMIN_API_KEY)) {
-    return next();
-  }
-  const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'admin') {
-    return next();
-  }
-  if (isAdminWallet(req.user?.walletAddress)) {
-    return next();
-  }
-  return res.status(403).json({ ok: false, error: 'Admin access required' });
-};
-
-const attachSession = async (req, _res, next) => {
-  const token = getSessionToken(req);
-  if (!token) return next();
-  try {
-    const session = await persistence.getSessionByToken(token);
-    if (session && (!session.expiresAt || Date.now() <= session.expiresAt)) {
-      req.user = session.user || null;
-    }
-  } catch (error) {
-    console.warn('[auth] optional session failed', error?.message || error);
-  }
-  return next();
-};
-
-const defaultLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_MAX || 600),
-  keyGenerator: rateLimitKeyGenerator,
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-const strictLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_STRICT_MAX || 60),
-  keyGenerator: rateLimitKeyGenerator,
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-const chatLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_CHAT_MAX || 20),
-  keyGenerator: rateLimitKeyGenerator,
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-const expensiveLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_EXPENSIVE_MAX || 120),
-  keyGenerator: rateLimitKeyGenerator,
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-const adminLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_ADMIN_MAX || 30),
-  keyGenerator: rateLimitKeyGenerator,
-  standardHeaders: true,
-  legacyHeaders: false
-});
+const {
+  defaultLimiter,
+  strictLimiter,
+  chatLimiter,
+  expensiveLimiter,
+  adminLimiter
+} = createLimiters();
 
 app.use(defaultLimiter);
 app.use(requireJsonBody);
 app.use(honeypotCheck);
-app.use(attachSession);
+app.use(attachSession(persistence));
+
+// Expose expensiveLimiter for routers
+app.set('expensiveLimiter', expensiveLimiter);
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -1331,44 +685,36 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/simulation/state', (req, res) => {
   res.json({
     ok: true,
-    ...simulationState
+    ...omegaService.getSimulationState()
   });
 });
 
 app.post('/api/simulation/update', requireAdmin, (req, res) => {
   const { volatility, interestRateBps } = req.body;
-  if (volatility !== undefined) simulationState.volatility = Number(volatility);
-  if (interestRateBps !== undefined) simulationState.interestRateBps = Number(interestRateBps);
-  simulationState.lastUpdate = Date.now();
-  
-  // Inform Omega Watcher of changes
-  omegaWatcher.emit('simulationUpdate', simulationState);
-  
-  res.json({ ok: true, state: simulationState });
+  const state = omegaService.updateSimulation(volatility, interestRateBps);
+  res.json({ ok: true, state });
+});
+
+app.get('/api/omega/health', async (req, res) => {
+  const health = omegaService.getOmegaHealth();
+  const treasury = await relayerService.getTreasuryHealth();
+  res.json({ ok: true, ...health, treasury });
 });
 
 app.get('/api/omega/alerts', (req, res) => {
   res.json({
     ok: true,
-    alerts: omegaWatcher.alerts || []
+    alerts: omegaService.omegaWatcher.alerts || []
   });
 });
 
 
 app.get('/api/loan/:id/health', async (req, res) => {
   const { id } = req.params;
-  const loan = omegaWatcher.activeLoans.get(id);
-  if (!loan) {
+  const healthFactor = omegaService.evaluateLoanHealth(id);
+  if (healthFactor === null) {
     return res.status(404).json({ ok: false, error: 'Loan not tracked by sentinel' });
   }
-
-  const healthFactor = meTTabrain.evaluateLoanHealth({
-    principal: loan.principal,
-    interestAccrued: loan.interestAccrued || '0',
-    collateralValueUsd: loan.collateralValueUsd || '0',
-    durationDays: loan.durationDays || 30,
-    elapsedDays: loan.elapsedDays || 0
-  });
 
   res.json({
     ok: true,
@@ -1487,12 +833,24 @@ app.get('/api/identity/:walletAddress', async (req, res) => {
 });
 
 // Faucet for Testnet USDC (Dev ONLY)
-app.post('/api/faucet/usdc', async (req, res) => {
+app.post('/api/faucet/usdc', expensiveLimiter, async (req, res) => {
   try {
     const { address } = req.body;
     if (!address || !ethers.isAddress(address)) {
       return res.status(400).json({ ok: false, error: 'Valid EVM address required' });
     }
+
+    // Per-address Mutex
+    const normalized = address.toLowerCase();
+    const lockedAt = faucetLock.get(normalized);
+    if (lockedAt && Date.now() - lockedAt < FAUCET_LOCK_TTL_MS) {
+        return res.status(429).json({ 
+            ok: false, 
+            error: 'Faucet request for this address is already in progress. Please wait 1 minute.' 
+        });
+    }
+    faucetLock.set(normalized, Date.now());
+
 
     const usdcAddress = process.env.NEXT_USDC_ADDRESS || '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8';
     const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -1534,6 +892,12 @@ app.post('/api/faucet/usdc', async (req, res) => {
   } catch (err) {
     console.error('[faucet] Internal Error:', err.stack || err.message);
     res.status(500).json({ ok: false, error: err.message });
+  } finally {
+      // Release lock after small delay to protect against immediate retries
+      setTimeout(() => {
+          const { address } = req.body;
+          if (address) faucetLock.delete(address.toLowerCase());
+      }, 5000);
   }
 });
 
@@ -1550,24 +914,38 @@ app.get('/api/loans', async (req, res) => {
   }
 });
 
+app.get('/api/lend', async (req, res) => {
+  try {
+    const { wallet } = req.query;
+    if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
+    const deposits = await persistence.getDepositsByWallet(wallet);
+    res.json({ ok: true, items: deposits });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 const computeLoanTerms = (identityTier, score) => {
-  // Base APR starts at 1500 bps (15%)
-  // Base LTV starts at 3000 bps (30%)
-  let aprBps = 1500;
-  let ltvBps = 3000;
+  // Base APR (Anonymous - Tier 0) starts at 2200 bps (22%)
+  // Base LTV (Anonymous - Tier 0) starts at 2000 bps (20%)
+  let aprBps = 2200;
+  let ltvBps = 2000;
 
   if (identityTier >= 5) { // Institutional
     aprBps = 450; // 4.5%
-    ltvBps = 8500; // 85%
-  } else if (identityTier === 4) { // Trusted
-    aprBps = 750; // 7.5%
-    ltvBps = 7500; // 75%
-  } else if (identityTier === 3) { // Verified
-    aprBps = 1000; // 10%
-    ltvBps = 6500; // 65%
-  } else if (identityTier === 2) { // Standard
-    aprBps = 1200; // 12%
-    ltvBps = 5000; // 50%
+    ltvBps = 9000; // 90%
+  } else if (identityTier === 4) { // Trusted (KYC+)
+    aprBps = 650; // 6.5%
+    ltvBps = 8000; // 80%
+  } else if (identityTier === 3) { // Verified (Stamps/Score)
+    aprBps = 950; // 9.5%
+    ltvBps = 7000; // 70%
+  } else if (identityTier === 2) { // Standard (Score)
+    aprBps = 1400; // 14%
+    ltvBps = 5500; // 55%
+  } else if (identityTier === 1) { // Basic
+    aprBps = 1800; // 18%
+    ltvBps = 3500; // 35%
   }
 
   // Score bonus: reduce APR by up to 200 bps for high score within tier
@@ -1610,10 +988,29 @@ app.post('/api/loans/originate', async (req, res) => {
       amount,
       ltvBps,
       aprBps,
+      duration_days: req.body.duration_days || 30,
       collateralItems
     });
 
     res.json({ ok: true, loanId });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/lend/deposit', async (req, res) => {
+  try {
+    const { wallet, amount, apyBps, durationDays } = req.body;
+    if (!wallet || !amount) return res.status(400).json({ ok: false, error: 'missing fields' });
+
+    const depositId = await persistence.createDeposit({
+      walletAddress: wallet,
+      amount,
+      apyBps,
+      durationDays
+    });
+
+    res.json({ ok: true, depositId });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1624,7 +1021,7 @@ app.get('/api/testnet/points/:wallet', async (req, res) => {
   const wallet = normalizeAnyWalletAddress(req.params.wallet || '');
   if (!wallet) return res.status(400).json({ ok: false, error: 'Invalid wallet' });
   try {
-    const points = await persistence.getPoints(wallet);
+    const points = await airdropService.getWalletPoints(wallet);
     res.json({ ok: true, data: points });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1683,7 +1080,13 @@ app.get(
         score = liveScore.score;
         stampsCount = Array.isArray(liveStamps) ? liveStamps.length : 0;
       } else {
-        console.warn(`[server] Live Gitcoin fetch failed for ${identityWallet}, using 0.`);
+        console.warn(`[server] Live Gitcoin fetch failed for ${identityWallet}, trying persistence.`);
+        const existing = await persistence.listIdentityAttestations(identityWallet);
+        const existingGP = existing.find(a => a.provider === 'gitcoin_passport');
+        if (existingGP) {
+            score = existingGP.score || 0;
+            stampsCount = existingGP.stampsCount || 0;
+        }
       }
 
       if (!existingPassport || (liveScore && liveScore.score !== undefined)) {
@@ -1741,384 +1144,7 @@ app.get(
   }
 );
 
-const vestingValidateSchema = z
-  .object({
-    vestingContract: z.string().trim().refine(ethers.isAddress, 'Invalid address'),
-    protocol: z.enum(['manual', 'sablier']).optional(),
-    lockupAddress: z.string().trim().max(42).optional(),
-    streamId: z.string().trim().max(80).optional()
-  })
-  .strip();
 
-const fundraisingLinkSchema = z
-  .object({
-    projectId: z.string().trim().min(1).max(120),
-    token: z.string().trim().max(42).optional(),
-    treasury: z.string().trim().max(42).optional(),
-    chain: z.string().trim().min(1).max(32),
-    vestingPolicyRef: z.string().trim().max(200).optional()
-  })
-  .strip();
-
-app.post('/api/vesting/validate', validateBody(vestingValidateSchema), async (req, res) => {
-  try {
-    const { vestingContract, protocol, lockupAddress, streamId } = req.body;
-    const address = ethers.getAddress(vestingContract);
-    const contract = new ethers.Contract(address, vestingWalletReadAbi, provider);
-    const tokenAddr = await contract.token();
-    const [totalAllocation, start, duration, releasedAmount] = await Promise.all([
-      contract.totalAllocation(),
-      contract.start(),
-      contract.duration(),
-      contract.released(tokenAddr).catch(() => 0n)
-    ]);
-    const token = typeof tokenAddr === 'string' ? tokenAddr : tokenAddr;
-    const total = BigInt(totalAllocation ?? 0);
-    const released = BigInt(releasedAmount ?? 0);
-    const quantity = total - released;
-    const startNum = Number(start ?? 0);
-    const durationNum = Number(duration ?? 0);
-    const unlockTime = startNum + durationNum;
-    const valid = total > 0n && durationNum > 0 && unlockTime > Math.floor(Date.now() / 1000);
-    if (valid && (protocol === 'sablier' && (lockupAddress || streamId))) {
-      await persistence.saveVestingSource({
-        chainId: (await provider.getNetwork()).chainId.toString(),
-        vestingContract: address,
-        protocol: protocol || 'manual',
-        lockupAddress: lockupAddress || null,
-        streamId: streamId || null
-      });
-    }
-    res.json({
-      valid,
-      quantity: quantity.toString(),
-      token,
-      unlockTime,
-      totalAllocation: total.toString(),
-      released: released.toString()
-    });
-  } catch (err) {
-    res.status(400).json({
-      valid: false,
-      error: err.message || 'Failed to read vesting contract'
-    });
-  }
-});
-
-app.post('/api/fundraising/link', requireSession, validateBody(fundraisingLinkSchema), async (req, res) => {
-  try {
-    const source = await persistence.createFundraisingSource({
-      projectId: req.body.projectId,
-      token: req.body.token || null,
-      treasury: req.body.treasury || null,
-      chain: req.body.chain,
-      vestingPolicyRef: req.body.vestingPolicyRef || null
-    });
-    res.json({ ok: true, source });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message || 'Failed to link fundraising source' });
-  }
-});
-
-app.get('/api/fundraising/sources', requireSession, async (req, res) => {
-  try {
-    const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : null;
-    const chain = typeof req.query.chain === 'string' ? req.query.chain : null;
-    const limit = Math.min(Number(req.query.limit) || 50, 100);
-    const sources = await persistence.listFundraisingSources({ projectId, chain, limit });
-    res.json({ ok: true, sources });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message || 'Failed to list fundraising sources' });
-  }
-});
-
-app.get('/api/fundraising/sources/:id', requireSession, async (req, res) => {
-  try {
-    const source = await persistence.getFundraisingSource(req.params.id);
-    if (!source) return res.status(404).json({ ok: false, error: 'Not found' });
-    res.json({ ok: true, source });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message || 'Failed to get fundraising source' });
-  }
-});
-
-app.patch('/api/fundraising/sources/:id', requireSession, validateBody(z.object({
-  token: z.string().trim().max(42).optional(),
-  treasury: z.string().trim().max(42).optional(),
-  vestingPolicyRef: z.string().trim().max(200).optional()
-}).strip()), async (req, res) => {
-  try {
-    const updated = await persistence.updateFundraisingSource(req.params.id, {
-      token: req.body.token,
-      treasury: req.body.treasury,
-      vestingPolicyRef: req.body.vestingPolicyRef
-    });
-    if (!updated) return res.status(404).json({ ok: false, error: 'Not found' });
-    res.json({ ok: true, source: updated });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message || 'Failed to update fundraising source' });
-  }
-});
-
-app.get('/api/vesting/sources', strictLimiter, async (req, res) => {
-  try {
-    const chainId = (req.query?.chainId || req.query?.chain || '').trim() || null;
-    const protocol = (req.query?.protocol || '').trim() || null;
-    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
-    const sources = await persistence.listVestingSources({ chainId, protocol, limit });
-    res.json({ ok: true, sources });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err?.message || 'Failed to list vesting sources', sources: [] });
-  }
-});
-
-const stringField = (max) => z.string().trim().min(1).max(max);
-const optionalString = (max) => z.string().trim().max(max).optional();
-const optionalEmail = (max) =>
-  z
-    .preprocess(
-      (value) =>
-        typeof value === 'string' && value.trim() === '' ? undefined : value,
-      z.string().trim().max(max).email().optional()
-    )
-    .transform((value) => (value ? normalizeEmail(value, max) : undefined));
-const optionalAddress = z
-  .preprocess(
-    (value) =>
-      typeof value === 'string' && value.trim() === '' ? undefined : value,
-    z.string().trim().optional()
-  )
-  .refine((value) => !value || ethers.isAddress(value), 'Invalid wallet address')
-  .transform((value) => (value ? ethers.getAddress(value) : undefined));
-
-const poolPreferencesSchema = z
-  .object({
-    riskTier: z.enum(['conservative', 'balanced', 'aggressive']).optional(),
-    maxLtvBps: z.number().int().min(0).max(10000).optional(),
-    interestBps: z.number().int().min(0).max(5000).optional(),
-    minLiquidityUsd: z.number().min(0).optional(),
-    minWalletAgeDays: z.number().min(0).optional(),
-    minVolumeUsd: z.number().min(0).optional(),
-    unlockWindowDays: z
-      .object({
-        min: z.number().min(0).optional(),
-        max: z.number().min(0).optional()
-      })
-      .optional(),
-    tokenCategories: z.array(z.string().min(1).max(40)).max(20).optional(),
-    allowedTokens: z.array(z.string().min(1).max(120)).max(50).optional(),
-    allowedTokenTypes: z.array(z.string().min(1).max(60)).max(20).optional(),
-    vestPreferences: z
-      .object({
-        cliffMinDays: z.number().min(0).optional(),
-        cliffMaxDays: z.number().min(0).optional(),
-        durationMinDays: z.number().min(0).optional(),
-        durationMaxDays: z.number().min(0).optional(),
-        vestTypes: z.array(z.string().min(1).max(40)).max(10).optional()
-      })
-      .optional(),
-    chains: z.array(z.enum(['base', 'solana'])).max(2).optional(),
-    maxLoanUsd: z.number().min(0).optional(),
-    minLoanUsd: z.number().min(0).optional(),
-    accessType: z.enum(['open', 'premium', 'community']).optional(),
-    premiumToken: z.string().max(42).optional(),
-    communityToken: z.string().max(42).optional(),
-    description: z.string().max(500).optional()
-  })
-  .strip();
-
-const createPoolSchema = z
-  .object({
-    name: stringField(120),
-    chain: optionalString(40),
-    preferences: poolPreferencesSchema.optional(),
-    status: optionalString(40)
-  })
-  .strip();
-
-const updatePoolSchema = z
-  .object({
-    preferences: poolPreferencesSchema,
-    status: optionalString(40)
-  })
-  .strip();
-
-const matchQuoteSchema = z
-  .object({
-    chain: z.enum(['base', 'solana']),
-    desiredAmountUsd: z.number().positive(),
-    collateralId: optionalString(200),
-    vestingContract: optionalString(200),
-    token: optionalString(200),
-    tokenType: optionalString(60),
-    tokenCategory: optionalString(40),
-    quantity: z.union([z.string(), z.number()]).optional(),
-    unlockTime: z.number().int().positive().optional(),
-    streamId: optionalString(200),
-    maxOffers: z.number().int().min(1).max(10).optional(),
-    borrowerWallet: optionalAddress
-  })
-  .strip();
-
-const matchAcceptSchema = z
-  .object({
-    offerId: stringField(120),
-    poolId: stringField(120),
-    chain: z.enum(['base', 'solana']),
-    borrower: optionalAddress,
-    collateralId: optionalString(200),
-    desiredAmountUsd: z.number().positive(),
-    terms: z.record(z.unknown()).optional()
-  })
-  .strip();
-
-const walletNonceSchema = z
-  .object({
-    walletAddress: stringField(120)
-  })
-  .strip();
-
-const walletVerifySchema = z
-  .object({
-    walletAddress: stringField(120),
-    nonce: stringField(256),
-    signature: stringField(500)
-  })
-  .strip();
-
-const linkWalletSchema = z
-  .object({
-    chainType: z.enum(['evm', 'solana']),
-    walletAddress: stringField(120),
-    // For Solana wallet linking, require an offchain signature from the wallet being linked.
-    signature: optionalString(600),
-    issuedAt: optionalString(64)
-  })
-  .strip();
-
-const solanaNonceSchema = z
-  .object({
-    walletAddress: stringField(120)
-  })
-  .strip();
-
-const solanaLinkWalletSchema = z
-  .object({
-    walletAddress: stringField(120),
-    nonce: stringField(256),
-    signature: stringField(500)
-  })
-  .strip();
-
-const privateLoanCreateSchema = z
-  .object({
-    collateralId: z.union([
-      z.string().trim().regex(/^\d+$/, 'collateralId must be an integer'),
-      z.number().int().min(0)
-    ]),
-    vestingContract: stringField(120),
-    borrowAmount: z.union([
-      z.string().trim().regex(/^\d+$/, 'borrowAmount must be an integer'),
-      z.number().int().positive()
-    ]),
-    collateralAmount: z
-      .union([
-        z.string().trim().regex(/^\d+$/, 'collateralAmount must be an integer'),
-        z.number().int().positive()
-      ])
-      .optional()
-      .nullable(),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const privateLoanRepaySchema = z
-  .object({
-    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
-    amount: z.union([z.string().trim().regex(/^\d+$/, 'amount must be an integer'), z.number().int().positive()]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const privateLoanSettleSchema = z
-  .object({
-    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const sablierUpgradeSchema = z
-  .object({
-    lockupAddress: stringField(120),
-    streamId: z.union([z.string().trim().regex(/^\d+$/, 'streamId must be an integer'), z.number().int().positive()]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const ozUpgradeSchema = z
-  .object({
-    vestingAddress: stringField(120),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const timelockUpgradeSchema = z
-  .object({
-    timelockAddress: stringField(120),
-    durationSeconds: z.union([
-      z.string().trim().regex(/^\d+$/, 'durationSeconds must be an integer'),
-      z.number().int().positive()
-    ]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const superfluidUpgradeSchema = z
-  .object({
-    token: stringField(120),
-    totalAllocation: z.union([
-      z.string().trim().regex(/^\d+$/, 'totalAllocation must be an integer'),
-      z.number().int().positive()
-    ]),
-    startTime: z.union([
-      z.string().trim().regex(/^\d+$/, 'startTime must be an integer'),
-      z.number().int().nonnegative()
-    ]),
-    durationSeconds: z.union([
-      z.string().trim().regex(/^\d+$/, 'durationSeconds must be an integer'),
-      z.number().int().positive()
-    ]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
 
 const isValidSolanaPublicKey = (value) => {
   try {
@@ -2128,182 +1154,9 @@ const isValidSolanaPublicKey = (value) => {
   }
 };
 
-const solanaRepaySchema = z
-  .object({
-    owner: z
-      .string()
-      .trim()
-      .refine((value) => isValidSolanaPublicKey(value), 'Invalid owner public key'),
-    maxUsdc: z
-      .union([
-        z.string().trim().regex(/^\d+$/, 'maxUsdc must be a non-negative integer'),
-        z.number().int().min(0)
-      ])
-      .optional()
-  })
-  .strip()
-  .transform((value) => ({
-    ...value,
-    maxUsdc: value.maxUsdc === undefined ? undefined : String(value.maxUsdc)
-  }));
 
-const chatSchema = z
-  .object({
-    message: stringField(2000),
-    history: z
-      .array(
-        z.object({
-          role: stringField(32),
-          content: stringField(2000)
-        })
-      )
-      .max(10)
-      .optional(),
-    context: z
-      .object({
-        path: optionalString(160),
-        chainId: z.number().int().positive().optional(),
-        walletAddress: optionalAddress,
-        page: optionalString(80)
-      })
-      .optional(),
-    captchaToken: optionalString(2048)
-  })
-  .strip();
 
-const analyticsSchema = z
-  .object({
-    event: stringField(120),
-    page: optionalString(200),
-    walletAddress: optionalAddress,
-    properties: z.record(z.unknown()).optional()
-  })
-  .strip();
 
-const chainRequestSchema = z
-  .object({
-    chainId: z.number().int().positive().optional(),
-    chainName: optionalString(60),
-    feature: optionalString(60),
-    vestingStandard: optionalString(80),
-    message: optionalString(500),
-    walletAddress: optionalAddress.optional(),
-    page: optionalString(120)
-  })
-  .strip()
-  .refine(
-    (value) => Boolean(value.chainId || value.chainName),
-    'Provide chainId or chainName'
-  );
-
-const notifySchema = z
-  .object({
-    email: optionalEmail(320),
-    walletAddress: optionalAddress,
-    channel: optionalString(120),
-    payload: z.record(z.unknown()).optional(),
-    captchaToken: optionalString(2048)
-  })
-  .strip();
-
-const governanceSchema = z
-  .object({
-    email: optionalEmail(320),
-    walletAddress: optionalAddress,
-    message: optionalString(2000),
-    captchaToken: optionalString(2048)
-  })
-  .strip()
-  .refine(
-    (value) => Boolean(value.email || value.walletAddress || value.message),
-    'Provide email, wallet address, or message'
-  );
-
-const contactSchema = z
-  .object({
-    name: optionalString(120),
-    email: optionalEmail(320),
-    message: optionalString(2000),
-    company: optionalString(120),
-    walletAddress: optionalAddress,
-    context: optionalString(500),
-    captchaToken: optionalString(2048)
-  })
-  .strip()
-  .refine(
-    (value) => Boolean(value.email || value.message || value.walletAddress),
-    'Provide email, wallet address, or message'
-  );
-
-const writeSchema = z
-  .object({
-    action: optionalString(120),
-    payload: z.record(z.unknown()).optional()
-  })
-  .strip();
-
-const docsOpenSchema = z
-  .object({
-    document: optionalString(200),
-    section: optionalString(200)
-  })
-  .strip();
-
-const adminIdentityPatchSchema = z
-  .object({
-    linkedAt: z.string().datetime().optional(),
-    identityProofHash: z.string().trim().max(256).nullable().optional(),
-    sanctionsPass: z.boolean().nullable().optional()
-  })
-  .strip();
-
-const buildWalletMessage = (walletAddress, nonce, issuedAtIso) => {
-  const issuedAt = issuedAtIso || new Date().toISOString();
-  return [
-    'Vestra authentication request',
-    `Wallet: ${walletAddress}`,
-    `Nonce: ${nonce}`,
-    `Issued at: ${issuedAt}`,
-    'Only sign if you trust this request.'
-  ].join('\n');
-};
-
-const buildSolanaLinkMessage = (userId, walletAddress, nonce, issuedAtIso) => {
-  const issuedAt = issuedAtIso || new Date().toISOString();
-  return [
-    'Vestra Solana wallet link request',
-    `User: ${String(userId || '').slice(0, 36)}`,
-    `Wallet: ${walletAddress}`,
-    `Nonce: ${nonce}`,
-    `Issued at: ${issuedAt}`,
-    'Only sign if you trust this request.'
-  ].join('\n');
-};
-
-const verifySolanaDetachedSignature = ({ walletAddress, message, signatureBase64 }) => {
-  if (!walletAddress || !message || !signatureBase64) return false;
-  let pubkey = null;
-  try {
-    pubkey = new PublicKey(walletAddress);
-  } catch {
-    return false;
-  }
-  let sig = null;
-  try {
-    sig = Buffer.from(String(signatureBase64), 'base64');
-  } catch {
-    return false;
-  }
-  if (!sig || sig.length !== 64) return false;
-  const msgBytes = Buffer.from(String(message), 'utf8');
-  return nacl.sign.detached.verify(msgBytes, sig, pubkey.toBytes());
-};
-
-const getDaysToUnlock = (unlockTime) => {
-  if (!unlockTime) return null;
-  const millis = Number(unlockTime) * 1000 - Date.now();
-  return Math.max(0, Math.round(millis / 86400000));
-};
 
 const getPoolInterestBps = async () => {
   let bps = 1800;
@@ -2337,19 +1190,7 @@ const getPoolInterestBps = async () => {
   return bps;
 };
 
-const USDC_UNITS = 1_000_000n;
-const toUsdFromUsdcUnits = (value) => {
-  try {
-    const units = typeof value === 'bigint' ? value : BigInt(value || 0);
-    const whole = units / USDC_UNITS;
-    const frac = units % USDC_UNITS;
-    const out = Number(whole) + Number(frac) / 1e6;
-    return Number.isFinite(out) ? out : 0;
-  } catch {
-    const num = Number(value);
-    return Number.isFinite(num) ? num / 1e6 : 0;
-  }
-};
+
 
 const getAvailableLiquidityUsd = async () => {
   try {
@@ -2973,7 +1814,7 @@ app.post(
       if (!existing?.vaultAddress) {
         return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
       }
-      await verifyRelayerAuth({
+      await relayerService.verifyRelayerAuth({
         req,
         action: 'create-private-loan',
         payload: {
@@ -3033,7 +1874,7 @@ app.post(
       if (!existing?.vaultAddress) {
         return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
       }
-      await verifyRelayerAuth({
+      await relayerService.verifyRelayerAuth({
         req,
         action: 'repay-private-loan',
         payload: { loanId: String(req.body.loanId), amount: String(req.body.amount) },
@@ -3115,7 +1956,7 @@ app.post(
       if (!existing?.vaultAddress) {
         return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
       }
-      await verifyRelayerAuth({
+      await relayerService.verifyRelayerAuth({
         req,
         action: 'settle-private-loan',
         payload: { loanId: String(req.body.loanId) },
@@ -3160,7 +2001,7 @@ app.post(
         return res.status(400).json({ ok: false, error: 'streamId/flowId required' });
       }
 
-      await verifyRelayerAuth({
+      await relayerService.verifyRelayerAuth({
         req,
         action: 'deploy-sablier-wrapper',
         payload: { lockupAddress, streamId: streamId.toString(), streamType },
@@ -4439,7 +3280,7 @@ app.get(
       const windowDays = Math.min(Math.max(Number(req.query?.windowDays) || 30, 1), 365);
       const limit = Math.min(Math.max(Number(req.query?.limit) || 200, 1), 1000);
       const phase = String(req.query?.phase || 'all').trim().toLowerCase();
-      const leaderboard = await persistence.getAirdropLeaderboard({ windowDays, limit, phase });
+      const leaderboard = await airdropService.getLeaderboard({ windowDays, limit, phase });
       await recordAdminAudit(req, 'admin.airdrop.leaderboard.read', {
         targetType: 'airdrop_leaderboard',
         targetId: String(windowDays),
@@ -4772,137 +3613,6 @@ app.get('/api/exports/kpi.csv', expensiveLimiter, async (req, res) => {
       ok: false,
       error: error?.message || 'Unable to export KPI CSV'
     });
-  }
-});
-
-// --- Vestra Protocol: MVP Real Data Portfolio Scanning ---
-
-app.get('/api/portfolio/:wallet', strictLimiter, async (req, res) => {
-  const walletAddress = normalizeAnyWalletAddress(req.params.wallet || '');
-  if (!walletAddress) {
-    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
-  }
-
-  try {
-    const liquidTokens = [];
-    const vestedTokens = [];
-
-    // 1. Scan for Liquid ERC20s using Alchemy Token API (Sepolia)
-    const alchemyUrl = process.env.ALCHEMY_SEPOLIA_URL;
-    if (alchemyUrl) {
-      try {
-        const fetchRes = await fetch(alchemyUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'alchemy_getTokenBalances',
-            params: [walletAddress, 'erc20'],
-            id: 1
-          })
-        });
-        const alchemyData = await fetchRes.json();
-        const balances = alchemyData?.result?.tokenBalances || [];
-
-        // Fetch metadata concurrently for non-zero balances
-        const nonZeroTokenAddresses = balances
-          .filter((t) => t.tokenBalance && BigInt(t.tokenBalance) > 0n)
-          .map((t) => t.contractAddress);
-
-        if (nonZeroTokenAddresses.length > 0) {
-          const metadataRes = await fetch(alchemyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              method: 'alchemy_getTokenMetadataBatch',
-              params: nonZeroTokenAddresses.map(addr => [addr]),
-              id: 2
-            })
-          });
-          const metaDataBatch = await metadataRes.json();
-
-          nonZeroTokenAddresses.forEach((address, index) => {
-            const balanceHex = balances.find(b => b.contractAddress.toLowerCase() === address.toLowerCase())?.tokenBalance;
-            const rawBalance = BigInt(balanceHex || '0');
-            const meta = metaDataBatch?.result?.[index] || {};
-
-            liquidTokens.push({
-              type: 'liquid',
-              tokenAddress: address,
-              symbol: meta.symbol || 'UNKNOWN',
-              decimals: meta.decimals || 18,
-              logo: meta.logo || null,
-              rawBalance: rawBalance.toString(),
-              formattedBalance: (Number(rawBalance) / (10 ** (meta.decimals || 18))).toFixed(4)
-            });
-          });
-        }
-      } catch (e) {
-        console.error('[portfolio] alchemy liquid parsing failed', e);
-      }
-    }
-
-    // 2. Scan for Vested Contracts (Fallback to known tracking or DB records)
-    // For MVP, we query the `vesting/sources` to see if this user has matched vest contracts registered.
-    const knownVests = await persistence.listVestingSources({ chainId: '11155111', limit: 50 });
-
-    // In a real scenario, we'd check if the user is the beneficiary. We'll do a quick on-chain read for each known vest.
-    if (knownVests && knownVests.length > 0) {
-      await Promise.all(knownVests.map(async (vest) => {
-        try {
-          const vContract = new ethers.Contract(vest.vestingContract, vestingWalletReadAbi, provider);
-          // OpenZeppelin VestingWallet doesn't have a public `beneficiary()` by default in some older versions,
-          // but standard ones do. We'll try to read it.
-          let isOwner = false;
-          try {
-            const benIface = new ethers.Contract(vest.vestingContract, ['function beneficiary() view returns (address)', 'function owner() view returns (address)'], provider);
-            const ben = await benIface.beneficiary().catch(() => null);
-            const own = await benIface.owner().catch(() => null);
-            if (ben?.toLowerCase() === walletAddress.toLowerCase() || own?.toLowerCase() === walletAddress.toLowerCase()) {
-              isOwner = true;
-            }
-          } catch (e) { }
-
-          if (isOwner) {
-            const tokenAddr = await vContract.token().catch(() => null);
-            if (tokenAddr) {
-              const tContract = new ethers.Contract(tokenAddr, erc20Abi, provider);
-              const symbol = await tContract.symbol().catch(() => 'V-TKN');
-              const decimals = await tContract.decimals().catch(() => 18);
-              const totalAllocation = await vContract.totalAllocation().catch(() => 0n);
-              const released = await vContract.released(tokenAddr).catch(() => 0n);
-              const locked = totalAllocation - released;
-
-              if (locked > 0n) {
-                vestedTokens.push({
-                  type: 'vested',
-                  vestingContract: vest.vestingContract,
-                  tokenAddress: tokenAddr,
-                  symbol: symbol,
-                  decimals: decimals,
-                  lockedAmount: locked.toString(),
-                  formattedLocked: (Number(locked) / (10 ** decimals)).toFixed(4),
-                  protocol: vest.protocol || 'manual'
-                });
-              }
-            }
-          }
-        } catch (e) { }
-      }));
-    }
-
-    return res.json({
-      ok: true,
-      wallet: walletAddress,
-      liquid: liquidTokens,
-      vested: vestedTokens,
-      timestamp: Date.now()
-    });
-
-  } catch (error) {
-    console.error('[portfolio] error', error);
-    return res.status(500).json({ ok: false, error: 'Failed to scan portfolio' });
   }
 });
 
@@ -5876,11 +4586,7 @@ const runEvmSettlementKeeperTick = async () => {
   }
 };
 
-const erc20ReadAbi = [
-  'function balanceOf(address) view returns (uint256)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function decimals() view returns (uint8)'
-];
+
 
 const runEvmRepayKeeperTick = async () => {
   if (evmRepayKeeperInFlight) return;
@@ -6042,6 +4748,7 @@ app.post('/api/loans/ipfs-metadata', async (req, res) => {
 const scannerRouter = require('./routes/scanner');
 const faucetRouter = require('./routes/faucet');
 const vestingRouter = require('./routes/vesting');
+const portfolioRouter = require('./routes/portfolio');
 
 // Expose the SQLite/Supabase db handle to the scanner router via app.locals
 app.use('/api/scanner', (req, _res, next) => {
@@ -6052,6 +4759,7 @@ app.use('/api/scanner', (req, _res, next) => {
 
 app.use('/api/faucet', faucetRouter);
 app.use('/api/vesting', vestingRouter);
+app.use('/api/portfolio', portfolioRouter);
 
 const start = async () => {
   try {
@@ -6065,8 +4773,74 @@ const start = async () => {
     // This prevents Supabase timeouts from killing the process.
   }
 
-  app.listen(port, () => {
+  app.post('/api/asi/deploy-token', async (req, res) => {
+    const { name, symbol, supply, owner } = req.body;
+    if (!name || !symbol || !supply || !owner) return res.status(400).json({ error: 'Missing parameters' });
+    
+    const result = await rnodeService.deployToken({ name, symbol, supply, owner });
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  });
+
+  app.post('/api/asi/create-vesting', async (req, res) => {
+    const { beneficiary, amount, unlockBlock } = req.body;
+    if (!beneficiary || !amount || !unlockBlock) return res.status(400).json({ error: 'Missing parameters' });
+    
+    const result = await rnodeService.deployVesting({ beneficiary, amount, unlockBlock });
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  });
+
+  app.post('/api/asi/swap', async (req, res) => {
+    const { fromAddress, amountAsi } = req.body;
+    if (!fromAddress || !amountAsi) return res.status(400).json({ error: 'Missing parameters' });
+    
+    // Simulate a swap: User "burns/sends" ASI, and we credit them USDC on DevNet
+    // For the demo, we return a success with the amount of USDC received
+    const usdcEquivalent = Number(amountAsi) * 1.5; // Simulate a rate
+    
+    res.json({
+      success: true,
+      txHash: `rho:tx:${Math.random().toString(16).substring(2, 20)}`,
+      receivedUsdc: usdcEquivalent.toFixed(2),
+      message: `Swapped ${amountAsi} ASI for ${usdcEquivalent.toFixed(2)} test USDC on DevNet.`
+    });
+  });
+
+  // Initialize Services first
+  const relayer = getRelayerWallet();
+  const valuationContract = new ethers.Contract(valuationEngine.address, valuationDeployment.abi, relayer);
+  
+  relayerService = new RelayerService(persistence);
+  indexerService = new IndexerService(provider, persistence, {
+      valuation: valuationContract,
+      adapter: new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, relayer),
+      pool: new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, relayer),
+      loanManager: new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer)
+  }, {
+      lookbackBlocks: INDEXER_LOOKBACK_BLOCKS,
+      pollInterval: INDEXER_POLL_INTERVAL_MS,
+      maxBlocksPerPoll: INDEXER_MAX_BLOCKS_PER_POLL,
+      maxEvents: INDEXER_MAX_EVENTS
+  });
+  omegaService = new OmegaService({
+      defaultVolatility: 10,
+      defaultInterestRateBps: 800
+  });
+  airdropService = new AirdropService(persistence);
+
+  // await indexerService.init().catch(e => console.error('[indexer] init failed', e));
+  await omegaService.init(valuationContract).catch(e => console.error('[omega] init failed', e));
+
+  app.listen(port, async () => {
     console.log(`Vestra backend running on http://localhost:${port}`);
+    
     // Privacy hardening: periodically purge sensitive data (SQLite mode).
     try {
       persistence.purgeSensitiveData?.().catch?.(() => { });
@@ -6080,23 +4854,16 @@ const start = async () => {
         });
       }, intervalMs);
     } catch (_) { }
+
     if (INDEXER_ENABLED) {
-      pollEvents().catch((error) =>
+      indexerService.poll().catch((error) =>
         console.error('[indexer] initial poll error', error?.message || error)
       );
-      takeVestedSnapshot().catch((error) =>
-        console.error('[indexer] initial snapshot error', error?.message || error)
-      );
       setInterval(() => {
-        pollEvents().catch((error) =>
+        indexerService.poll().catch((error) =>
           console.error('[indexer] poll error (interval)', error?.message || error)
         );
       }, DEMO_MODE ? Math.max(INDEXER_POLL_INTERVAL_MS * 4, 60000) : INDEXER_POLL_INTERVAL_MS);
-      setInterval(() => {
-        takeVestedSnapshot().catch((error) =>
-          console.error('[indexer] snapshot error (interval)', error?.message || error)
-        );
-      }, INDEXER_SNAPSHOT_INTERVAL_MS);
     } else {
       console.log('[indexer] disabled via INDEXER_ENABLED=false');
     }
@@ -6137,18 +4904,12 @@ const start = async () => {
       console.log('[evm-repay-keeper] enabled');
     }
 
-    // V15.0 Autonomous Enforcement Injection
-    const relayer = getRelayerWallet();
-    const valuationContract = new ethers.Contract(valuationEngine.address, valuationDeployment.abi, relayer);
-    omegaWatcher.setContract(valuationContract);
-    
-    omegaWatcher.start();
-
     // Sovereign Mirror Relayer Activation
+    /*
     sovereignRelayer.start().catch((error) =>
       console.error('[sovereign-relayer] startup error', error?.message || error)
     );
-
+    */
   });
 };
 

@@ -163,13 +163,14 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         uint256 durationDays;
         uint256 lockEndTime;
         uint256 apyBps;
-        uint256 accumulatedYield;
         uint256 lastClaimTime;
         bool isActive;
+        bool flowEligible;
+        uint256 withdrawnFlow;
     }
 
     mapping(address => StakedPosition[]) public userStakes;
-    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 500; // 5%
+    uint256 public constant BASE_APY_BPS = 1000; // 10% Base
 
     event Staked(address indexed user, uint256 amount, uint256 durationDays, uint256 apyBps);
     event Unstaked(address indexed user, uint256 amount, uint256 yield, bool penaltyApplied);
@@ -461,16 +462,26 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     }
 
     function repay(uint256 amount, uint256 interestAmount) external nonReentrant onlyLoanManager whenNotPaused {
-        require(amount > 0, "amount=0");
-        require(totalBorrowed >= amount, "repay>debt");
-        totalBorrowed -= amount;
+        require(amount > 0 || interestAmount > 0, "nothing to repay");
+        if (amount > 0) {
+            require(totalBorrowed >= amount, "repay>debt");
+            totalBorrowed -= amount;
+        }
         
+        // Finalize transfer to pool treasury
+        require(issuanceTreasury != address(0), "issuance=0");
+        usdc.safeTransferFrom(msg.sender, issuanceTreasury, amount + interestAmount);
+
         // 20% of all interest goes to the Insurance Reserve to protect against illiquid defaults
         if (interestAmount > 0) {
             uint256 insuranceCut = (interestAmount * 2000) / BPS_DENOMINATOR;
             insuranceReserve += insuranceCut;
             totalDeposits += (interestAmount - insuranceCut); // 80% yields back to LPs
         }
+    }
+
+    function setTotalBorrowed(uint256 amount) external onlyGovernor {
+        totalBorrowed = amount;
     }
     
     function claimInsurance(address to, uint256 amount) external nonReentrant onlyLoanManager whenNotPaused {
@@ -784,13 +795,22 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
 
     function stake(uint256 amount, uint256 durationDays) external nonReentrant whenNotPaused {
         require(amount > 0, "amount=0");
-        require(durationDays == 30 || durationDays == 90 || durationDays == 180, "invalid duration");
+        require(
+            durationDays == 30 || durationDays == 90 || durationDays == 180 || 
+            durationDays == 365 || durationDays == 1825 || durationDays == 3650, 
+            "invalid duration"
+        );
         require(returnsTreasury != address(0), "returns=0");
 
-        uint256 apyBps;
-        if (durationDays == 30) apyBps = 1100;
-        else if (durationDays == 90) apyBps = 1200;
-        else apyBps = 1400;
+        uint256 multiplierBps;
+        if (durationDays == 30) multiplierBps = 10000;      // 1.0x
+        else if (durationDays == 90) multiplierBps = 12000; // 1.2x
+        else if (durationDays == 180) multiplierBps = 15000;// 1.5x
+        else if (durationDays == 365) multiplierBps = 20000;// 2.0x
+        else if (durationDays == 1825) multiplierBps = 35000;// 3.5x
+        else multiplierBps = 50000; // 5.0x (10 Years)
+
+        uint256 apyBps = (BASE_APY_BPS * multiplierBps) / BPS_DENOMINATOR;
 
         usdc.safeTransferFrom(msg.sender, returnsTreasury, amount);
         totalDeposits += amount;
@@ -800,9 +820,10 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
             durationDays: durationDays,
             lockEndTime: block.timestamp + (durationDays * 1 days),
             apyBps: apyBps,
-            accumulatedYield: 0,
             lastClaimTime: block.timestamp,
-            isActive: true
+            isActive: true,
+            flowEligible: durationDays == 3650,
+            withdrawnFlow: 0
         }));
 
         emit Staked(msg.sender, amount, durationDays, apyBps);
@@ -818,9 +839,10 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         bool penaltyApplied = false;
 
         if (block.timestamp < sp.lockEndTime) {
-            uint256 penalty = (principal * EARLY_WITHDRAWAL_PENALTY_BPS) / BPS_DENOMINATOR;
+            uint256 penaltyBps = getEarlyWithdrawalPenaltyBps(sp.durationDays);
+            uint256 penalty = (principal * penaltyBps) / BPS_DENOMINATOR;
             principal -= penalty;
-            yield = 0;
+            yield = 0; // Lose remaining yield if early
             penaltyApplied = true;
         }
 
@@ -828,7 +850,6 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         totalDeposits -= sp.amount;
 
         uint256 totalReturn = principal + yield;
-        // Check balance of returnsTreasury instead of availableLiquidity (which is pool-centric)
         require(usdc.balanceOf(returnsTreasury) >= totalReturn, "insufficient liquidity");
         
         usdc.safeTransferFrom(returnsTreasury, msg.sender, totalReturn);
@@ -841,15 +862,32 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         StakedPosition storage sp = userStakes[msg.sender][stakeId];
         require(sp.isActive, "not active");
 
+        // Non-flow lockers can only claim at end
+        if (!sp.flowEligible) {
+            require(block.timestamp >= sp.lockEndTime, "lock active");
+        }
+
         uint256 yield = calculateYield(msg.sender, stakeId);
         require(yield > 0, "no yield");
 
         sp.lastClaimTime = block.timestamp;
+        if (sp.flowEligible) {
+            sp.withdrawnFlow += yield;
+        }
         
         require(usdc.balanceOf(returnsTreasury) >= yield, "insufficient liquidity");
         usdc.safeTransferFrom(returnsTreasury, msg.sender, yield);
 
         emit YieldClaimed(msg.sender, yield);
+    }
+
+    function getEarlyWithdrawalPenaltyBps(uint256 durationDays) public pure returns (uint256) {
+        if (durationDays <= 30) return 500;    // 5%
+        if (durationDays <= 90) return 1000;   // 10%
+        if (durationDays <= 180) return 1500;  // 15%
+        if (durationDays <= 365) return 2000;  // 20%
+        if (durationDays <= 1825) return 2500; // 25%
+        return 3000; // 30% (10 Years)
     }
 
     function calculateYield(address user, uint256 stakeId) public view returns (uint256) {

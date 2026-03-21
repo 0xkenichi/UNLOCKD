@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 
 import "./LoanManagerStorage.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 
 /**
@@ -193,6 +194,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         if (params.isPrivate) {
             privateLoans[loanId] = PrivateLoan({
                 vault: msg.sender,
+                token: token,
                 principal: params.borrowAmount,
                 interest: interest,
                 collateralId: params.collateralId,
@@ -206,6 +208,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         } else {
             loans[loanId] = Loan({
                 borrower: msg.sender,
+                token: token,
                 principal: params.borrowAmount,
                 interest: interest,
                 collateralId: params.collateralId,

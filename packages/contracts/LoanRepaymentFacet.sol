@@ -5,6 +5,8 @@ pragma solidity ^0.8.20;
 import "./LoanManagerStorage.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./libraries/LoanLogicLib.sol";
+import "./IAuction.sol";
+import "./LiquidationAuction.sol";
 
 /**
  * @title LoanRepaymentFacet
@@ -20,6 +22,17 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         if (!loan.active) revert LoanInactive();
         if (msg.sender != loan.borrower) revert Unauthorized();
         if (loan.principal + loan.interest == 0) revert LoanAlreadyPaid();
+        if (amount == 0) revert ZeroAmount();
+
+        _repayUsdcFrom(loanId, msg.sender, amount);
+    }
+
+    function repayLiquidation(uint256 loanId, uint256 amount) external whenNotPaused nonReentrant {
+        address auctionAddr = auctionFactory.auctions("LIQUIDATION");
+        require(msg.sender == auctionAddr || msg.sender == address(insuranceVault), "Not authorized auction");
+        
+        Loan storage loan = loans[loanId];
+        if (!loan.active) revert LoanInactive();
         if (amount == 0) revert ZeroAmount();
 
         _repayUsdcFrom(loanId, msg.sender, amount);
@@ -100,77 +113,80 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         Loan storage loan = loans[loanId];
         if (!loan.active) revert LoanInactive();
 
-        (, address token, uint256 unlockTime) = adapter.getDetails(loan.collateralId);
+        // 1. Check if LTV is in "Extinction Zone" (Liquidation Threshold)
+        // For MVP, we use the simple temporal default or AI Omega-driven LTV check.
+        // In reality, ValuationEngine.computeDPV would be compared against the loan principal.
+        
+        bool canLiquidate = _checkLiquidationEligibility(loanId);
+        if (!canLiquidate) revert("Loan not eligible for liquidation");
 
-        bool isDefaulted = block.timestamp > loan.unlockTime ||
-                           block.timestamp > loan.unlockTime + loan.loanDuration ||
-                           block.timestamp > unlockTime;
+        // 2. Trigger UTC Dutch Auction instead of Uniswap Swap
+        address auctionAddr = auctionFactory.auctions("LIQUIDATION");
+        if (auctionAddr == address(0)) revert("Liquidation auction not registered");
 
-        if (!isDefaulted) revert("Loan not defaulted");
+        // Authorize auction to move the NFT
+        adapter.authorizeAuction(auctionAddr);
 
+        uint256 collateralId = loan.collateralId;
         uint256 debtUsdc = loan.principal + loan.interest;
-        uint256 collateralAvailable = loan.collateralAmount;
 
-        uint256 seizeAmount = LoanLogicLib.calculateSeizeAmount(valuation, token, address(usdc), debtUsdc);
+        // Start Price: 110% of Debt (or valuation)
+        // End Price: 80% of Debt (to attract OTC buyers)
+        uint256 startPrice = (debtUsdc * 11000) / BPS_DENOMINATOR;
+        uint256 endPrice = (debtUsdc * 8000) / BPS_DENOMINATOR;
+        uint256 duration = 24 hours;
 
-        if (seizeAmount == type(uint256).max && tokenTreasuries[token] != address(0)) {
-            // OTC Quarantine execution bypass
-            inOTCBuyback[loanId] = true;
-            otcBuybackDeadline[loanId] = block.timestamp + 7 days;
-            emit OTCBuybackInitiated(loanId, token, otcBuybackDeadline[loanId]);
-            return;
-        }
+        IAuction(auctionAddr).createAuction(
+            collateralId,
+            adapter.vestingContracts(collateralId),
+            startPrice,
+            endPrice,
+            duration
+        );
 
-        uint256 actualSeize = seizeAmount > collateralAvailable
-            ? collateralAvailable
-            : seizeAmount;
+        // Link Auction to Loan (using the LiquidationAuction interface)
+        uint256 auctionId = IAuction(auctionAddr).auctionCount() - 1;
+        LiquidationAuction(auctionAddr).setLoanId(auctionId, loanId);
 
-        adapter.releaseTo(loan.collateralId, address(this), actualSeize);
+        emit CollateralLiquidated(loanId, address(0), loan.collateralAmount, 0);
+        // Loan remains "active" but in liquidation state until auction settles.
+        inLiquidation[loanId] = true;
+    }
 
-        uint256 usdcReceived = 0;
-        if (token == address(usdc)) {
-            usdcReceived = actualSeize;
-        } else {
-            uint256 minUsdc = LoanLogicLib.minUsdcOut(valuation, token, address(usdc), actualSeize, liquidationSlippageBps);
+    function getRemainingDebt(uint256 loanId) external view returns (uint256) {
+        Loan storage loan = loans[loanId];
+        return loan.principal + loan.interest;
+    }
 
-            IERC20(token).forceApprove(address(uniswapRouter), actualSeize);
-            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter
-                .ExactInputSingleParams({
-                    tokenIn: token,
-                    tokenOut: address(usdc),
-                    fee: poolFee,
-                    recipient: address(this),
-                    deadline: block.timestamp + 300,
-                    amountIn: actualSeize,
-                    amountOutMinimum: minUsdc,
-                    sqrtPriceLimitX96: 0
-                });
-            usdcReceived = uniswapRouter.exactInputSingle(params);
-        }
+    function _checkLiquidationEligibility(uint256 loanId) internal view returns (bool) {
+        Loan storage loan = loans[loanId];
+        
+        // 1. Temporal Default (Unlock Time Passed)
+        if (block.timestamp > loan.unlockTime + 1 hours) return true;
 
-        // Tier-3 Default Handling: Distressed Debt Bonds
-        address vestingContract = adapter.vestingContracts(loan.collateralId);
-        uint8 rank = adapter.registry().getRank(vestingContract);
-        if (usdcReceived < debtUsdc && rank == 3) {
-            uint256 unrecoverableDeficit = debtUsdc - usdcReceived;
-            distressedDebtBond.mintBond(msg.sender, loanId, loan.borrower, unrecoverableDeficit);
-        } else if (usdcReceived < debtUsdc) {
-            loanDeficits[loanId] = debtUsdc - usdcReceived;
-        }
+        // 2. LTV Default (Collateral Value < Debt / Threshold)
+        (uint256 pv, ) = valuation.computeDPV(
+            loan.collateralAmount,
+            loan.token,
+            loan.unlockTime,
+            adapter.vestingContracts(loan.collateralId)
+        );
 
-        _applyUsdcToLoan(loanId, msg.sender, usdcReceived);
-        emit CollateralLiquidated(loanId, token, actualSeize, usdcReceived);
+        uint256 debt = loan.principal + loan.interest;
+        
+        // V7.0 Citadel - Rank Based Liquidation Thresholds
+        // Rank 1 (Flagship): 75% Liquidation Threshold
+        // Rank 2 (Premium): 65% Liquidation Threshold
+        // Rank 3 (Standard): 55% Liquidation Threshold
+        uint8 rank = adapter.registry().getRank(adapter.vestingContracts(loan.collateralId));
+        uint256 thresholdBps = rank == 1 ? 7500 : (rank == 2 ? 6500 : 5500);
+        
+        uint256 liquidationValue = (pv * thresholdBps) / BPS_DENOMINATOR;
+        
+        // If Debt >= Liquidation Value, it's time to sell.
+        if (debt >= liquidationValue) return true;
 
-        if (actualSeize < collateralAvailable) {
-            uint256 refundAmount = collateralAvailable - actualSeize;
-            adapter.releaseTo(loan.collateralId, loan.borrower, refundAmount);
-        }
-
-        loan.active = false;
-        if (address(loanNFT) != address(0)) {
-            loanNFT.settleProof(loanId);
-        }
-        emit LoanSettled(loanId, true);
+        return false;
     }
     
     function liquidatePrivateLoan(uint256 loanId) external whenNotPaused nonReentrant {
@@ -311,7 +327,9 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         }
 
         if (deficit > 0 && address(insuranceVault) != address(0)) {
-            insuranceVault.coverDeficit(loanId, address(pool), deficit);
+            insuranceVault.collectDeficit(deficit);
+            usdc.safeIncreaseAllowance(address(pool), deficit);
+            pool.repay(deficit, 0);
         } else if (deficit > 0) {
             loanDeficits[loanId] = deficit;
         }
@@ -321,26 +339,21 @@ contract LoanRepaymentFacet is LoanManagerStorage {
     }
 
     function _applyUsdcToLoan(uint256 loanId, address payer, uint256 usdcAmount) internal {
-        if (usdcAmount == 0) {
-            return;
-        }
+        if (usdcAmount == 0) return;
 
         Loan storage loan = loans[loanId];
         uint256 repayInterest = 0;
+        uint256 principalRepayment = 0;
 
         if (usdcAmount <= loan.interest) {
             loan.interest -= usdcAmount;
             repayInterest = usdcAmount;
-            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            usdc.safeTransfer(paymentTreasury, usdcAmount);
         } else {
-            uint256 remaining = usdcAmount - loan.interest;
             repayInterest = loan.interest;
+            uint256 remaining = usdcAmount - loan.interest;
             loan.interest = 0;
-            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            usdc.safeTransfer(paymentTreasury, repayInterest);
 
-            uint256 principalRepayment = remaining > loan.principal ? loan.principal : remaining;
+            principalRepayment = remaining > loan.principal ? loan.principal : remaining;
             loan.principal -= principalRepayment;
 
             if (principalRepayment > 0) {
@@ -351,30 +364,26 @@ contract LoanRepaymentFacet is LoanManagerStorage {
                     currentGlobalExposure[token] = 0;
                 }
             }
+        }
 
-            uint256 poolDebt = pool.totalBorrowed();
-            uint256 repayAmountToPool = principalRepayment + repayInterest;
-            if (repayAmountToPool > poolDebt) {
-                repayAmountToPool = poolDebt;
-            }
-            if (repayAmountToPool > 0) {
-                address vestingContract = adapter.vestingContracts(loan.collateralId);
-                uint8 rank = adapter.registry().getRank(vestingContract);
-                IsolatedLendingPool isolatedPool = isolatedPools[rank];
+        uint256 totalRepay = principalRepayment + repayInterest;
+        if (totalRepay > 0) {
+            address vestingContract = adapter.vestingContracts(loan.collateralId);
+            uint8 rank = adapter.registry().getRank(vestingContract);
+            IsolatedLendingPool isolatedPool = isolatedPools[rank];
 
-                if (address(isolatedPool) != address(0)) {
-                    usdc.forceApprove(address(isolatedPool), repayAmountToPool);
-                    isolatedPool.repay(principalRepayment, repayInterest);
-                } else {
-                    usdc.forceApprove(address(pool), repayAmountToPool);
-                    pool.repay(principalRepayment, repayInterest);
-                }
+            if (address(isolatedPool) != address(0)) {
+                usdc.forceApprove(address(isolatedPool), totalRepay);
+                isolatedPool.repay(principalRepayment, repayInterest);
+            } else {
+                usdc.forceApprove(address(pool), totalRepay);
+                pool.repay(principalRepayment, repayInterest);
             }
+        }
 
-            uint256 overpaid = remaining - principalRepayment;
-            if (overpaid > 0) {
-                usdc.safeTransfer(payer, overpaid);
-            }
+        uint256 overpaid = usdcAmount - totalRepay;
+        if (overpaid > 0) {
+            usdc.safeTransfer(payer, overpaid);
         }
 
         emit LoanRepaid(loanId, usdcAmount);
@@ -394,20 +403,17 @@ contract LoanRepaymentFacet is LoanManagerStorage {
 
         PrivateLoan storage loan = privateLoans[loanId];
         uint256 repayInterest = 0;
+        uint256 principalRepayment = 0;
 
         if (usdcAmount <= loan.interest) {
             loan.interest -= usdcAmount;
             repayInterest = usdcAmount;
-            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            usdc.safeTransfer(paymentTreasury, usdcAmount);
         } else {
-            uint256 remaining = usdcAmount - loan.interest;
             repayInterest = loan.interest;
+            uint256 remaining = usdcAmount - loan.interest;
             loan.interest = 0;
-            address paymentTreasury = returnsTreasury == address(0) ? address(pool) : returnsTreasury;
-            usdc.safeTransfer(paymentTreasury, repayInterest);
 
-            uint256 principalRepayment = remaining > loan.principal ? loan.principal : remaining;
+            principalRepayment = remaining > loan.principal ? loan.principal : remaining;
             loan.principal -= principalRepayment;
 
             if (principalRepayment > 0) {
@@ -418,30 +424,26 @@ contract LoanRepaymentFacet is LoanManagerStorage {
                     currentGlobalExposure[token] = 0;
                 }
             }
+        }
 
-            uint256 poolDebt = pool.totalBorrowed();
-            uint256 repayAmountToPool = principalRepayment + repayInterest;
-            if (repayAmountToPool > poolDebt) {
-                repayAmountToPool = poolDebt;
-            }
-            if (repayAmountToPool > 0) {
-                address vestingContract = adapter.vestingContracts(loan.collateralId);
-                uint8 rank = adapter.registry().getRank(vestingContract);
-                IsolatedLendingPool isolatedPool = isolatedPools[rank];
+        uint256 totalRepay = principalRepayment + repayInterest;
+        if (totalRepay > 0) {
+            address vestingContract = adapter.vestingContracts(loan.collateralId);
+            uint8 rank = adapter.registry().getRank(vestingContract);
+            IsolatedLendingPool isolatedPool = isolatedPools[rank];
 
-                if (address(isolatedPool) != address(0)) {
-                    usdc.forceApprove(address(isolatedPool), repayAmountToPool);
-                    isolatedPool.repay(principalRepayment, repayInterest);
-                } else {
-                    usdc.forceApprove(address(pool), repayAmountToPool);
-                    pool.repay(principalRepayment, repayInterest);
-                }
+            if (address(isolatedPool) != address(0)) {
+                usdc.forceApprove(address(isolatedPool), totalRepay);
+                isolatedPool.repay(principalRepayment, repayInterest);
+            } else {
+                usdc.forceApprove(address(pool), totalRepay);
+                pool.repay(principalRepayment, repayInterest);
             }
+        }
 
-            uint256 overpaid = remaining - principalRepayment;
-            if (overpaid > 0) {
-                usdc.safeTransfer(payer, overpaid);
-            }
+        uint256 overpaid = usdcAmount - totalRepay;
+        if (overpaid > 0) {
+            usdc.safeTransfer(payer, overpaid);
         }
 
         emit PrivateLoanRepaid(loanId, usdcAmount);
@@ -450,6 +452,56 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             loan.active = false;
             adapter.transferCollateral(loan.collateralId, loan.vault);
             emit PrivateLoanSettled(loanId, false);
+        }
+    }
+
+    // --- TEST HELPERS & GOVERNANCE SETTERS ---
+    function setValuation(address _valuation) external onlyGovernor {
+        valuation = ValuationEngine(_valuation);
+    }
+    function setAdapter(address _adapter) external onlyGovernor {
+        adapter = VestingAdapter(_adapter);
+    }
+    function setPool(address _pool) external onlyGovernor {
+        pool = LendingPool(_pool);
+    }
+    function setAuctionFactory(address _factory) external onlyGovernor {
+        auctionFactory = AuctionFactory(_factory);
+    }
+    function setUsdc(address _usdc) external onlyGovernor {
+        usdc = IERC20(_usdc);
+    }
+    function setInsuranceVault(address _vault) external onlyGovernor {
+        insuranceVault = InsuranceVault(_vault);
+    }
+
+    /**
+     * @notice Manually inject a loan for stress testing state.
+     */
+    function injectLoan(
+        uint256 loanId,
+        address borrower,
+        address token,
+        uint256 principal,
+        uint256 interest,
+        uint256 collateralId,
+        uint256 collateralAmount,
+        uint256 unlockTime
+    ) external onlyGovernor {
+        loans[loanId] = Loan({
+            borrower: borrower,
+            token: token,
+            principal: principal,
+            interest: interest,
+            collateralId: collateralId,
+            collateralAmount: collateralAmount,
+            loanDuration: 365 days,
+            unlockTime: unlockTime,
+            hedgeAmount: 0,
+            active: true
+        });
+        if (loanId >= loanCount) {
+            loanCount = loanId + 1;
         }
     }
 }

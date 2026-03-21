@@ -332,6 +332,7 @@ const initSqlite = () => {
       amount TEXT,
       last_synced_at TEXT,
       consensus_score REAL DEFAULT 1.0,
+      metadata TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       UNIQUE(chain_id, staking_contract, wallet_address)
     );
@@ -345,6 +346,7 @@ const initSqlite = () => {
       unlock_time INTEGER,
       last_synced_at TEXT,
       consensus_score REAL DEFAULT 1.0,
+      metadata TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS fundraising_sources (
@@ -374,6 +376,7 @@ const initSqlite = () => {
       linked_at TEXT,
       identity_proof_hash TEXT,
       sanctions_pass INTEGER,
+      last_synced_score INTEGER DEFAULT 0,
       updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS user_loans (
@@ -385,6 +388,7 @@ const initSqlite = () => {
       apr_bps INTEGER,
       status TEXT DEFAULT 'pending',
       repaid_amount TEXT DEFAULT '0',
+      duration_days INTEGER DEFAULT 30,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -395,8 +399,18 @@ const initSqlite = () => {
       collateral_amount TEXT,
       raw_data TEXT,
       created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY(loan_id) REFERENCES user_loans(id),
       FOREIGN KEY(source_id) REFERENCES vesting_sources(id)
+    );
+    CREATE TABLE IF NOT EXISTS user_deposits (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      amount TEXT NOT NULL,
+      asset TEXT DEFAULT 'USDC',
+      apy_bps INTEGER,
+      duration_days INTEGER DEFAULT 30,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS identity_attestations (
       id TEXT PRIMARY KEY,
@@ -552,6 +566,16 @@ const initSqlite = () => {
       sqlite.exec('ALTER TABLE vesting_sources ADD COLUMN metadata TEXT');
     }
 
+    const sCols = sqlite.prepare('PRAGMA table_info(staked_sources)').all();
+    if (sCols.every((c) => c.name !== 'metadata')) {
+      sqlite.exec('ALTER TABLE staked_sources ADD COLUMN metadata TEXT');
+    }
+
+    const lCols = sqlite.prepare('PRAGMA table_info(locked_sources)').all();
+    if (lCols.every((c) => c.name !== 'metadata')) {
+      sqlite.exec('ALTER TABLE locked_sources ADD COLUMN metadata TEXT');
+    }
+
     const cols = sqlite.prepare('PRAGMA table_info(events)').all();
     if (cols.every((c) => c.name !== 'token_address')) {
       sqlite.exec('ALTER TABLE events ADD COLUMN token_address TEXT');
@@ -606,6 +630,13 @@ const loadEvents = async (limit) => {
   }));
 };
 
+/**
+ * Interface compatible with IndexerService (SovereignDataService parity)
+ */
+const getActivityEvents = async ({ limit = 100 } = {}) => {
+  return loadEvents(limit);
+};
+
 const saveEvents = async (events) => {
   if (!events?.length) return;
   if (useSupabase) {
@@ -652,6 +683,10 @@ const saveEvents = async (events) => {
     );
   });
   tx(events);
+};
+
+const saveActivityEvent = async (event) => {
+  return saveEvents([event]);
 };
 
 const loadSnapshots = async (limit) => {
@@ -2431,17 +2466,51 @@ const createLoan = async ({
   amount,
   ltvBps,
   aprBps,
+  duration_days,
   collateralItems
 }) => {
   const loanId = createId();
   const now = new Date().toISOString();
+  const durationValue = Number(duration_days || 30);
+
+  if (useSupabase) {
+    const { error: loanError } = await supabaseClient()
+      .from('user_loans')
+      .insert({
+        id: loanId,
+        wallet_address: walletAddress,
+        amount: String(amount),
+        ltv_bps: ltvBps,
+        apr_bps: aprBps,
+        duration_days: durationValue,
+        created_at: now,
+        updated_at: now
+      });
+
+    if (loanError) throw loanError;
+
+    if (collateralItems && collateralItems.length > 0) {
+      const { error: collError } = await supabaseClient()
+        .from('loan_collateral')
+        .insert(collateralItems.map(item => ({
+          id: createId(),
+          loan_id: loanId,
+          source_id: item.sourceId,
+          collateral_amount: String(item.amount || '0'),
+          raw_data: JSON.stringify(item.rawData || {}),
+          created_at: now
+        })));
+      if (collError) throw collError;
+    }
+    return loanId;
+  }
 
   const stmt = sqlite.prepare(`
-    INSERT INTO user_loans (id, wallet_address, amount, ltv_bps, apr_bps, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO user_loans (id, wallet_address, amount, ltv_bps, apr_bps, duration_days, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-
-  stmt.run(loanId, walletAddress, String(amount), ltvBps, aprBps, now, now);
+  
+  stmt.run(loanId, walletAddress, String(amount), ltvBps, aprBps, durationValue, now, now);
 
   if (collateralItems && collateralItems.length > 0) {
     const collateralStmt = sqlite.prepare(`
@@ -2465,6 +2534,16 @@ const createLoan = async ({
 };
 
 const getLoansByWallet = async (walletAddress) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('user_loans')
+      .select('*, collateral:loan_collateral(*)')
+      .eq('wallet_address', walletAddress)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  }
   const rows = sqlite.prepare(`
     SELECT * FROM user_loans WHERE wallet_address = ? ORDER BY created_at DESC
   `).all(walletAddress);
@@ -2476,6 +2555,55 @@ const getLoansByWallet = async (walletAddress) => {
   }
 
   return rows;
+};
+
+const createDeposit = async ({
+  walletAddress,
+  amount,
+  apyBps,
+  durationDays = 30
+}) => {
+  const depositId = createId();
+  const now = new Date().toISOString();
+
+  if (useSupabase) {
+    const { error } = await supabaseClient()
+      .from('user_deposits')
+      .insert({
+        id: depositId,
+        wallet_address: walletAddress,
+        amount: String(amount),
+        apy_bps: apyBps,
+        duration_days: durationDays,
+        created_at: now,
+        updated_at: now
+      });
+    if (error) throw error;
+    return depositId;
+  }
+
+  const stmt = sqlite.prepare(`
+    INSERT INTO user_deposits (id, wallet_address, amount, apy_bps, duration_days, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(depositId, walletAddress, String(amount), apyBps, durationDays, now, now);
+  return depositId;
+};
+
+const getDepositsByWallet = async (walletAddress) => {
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('user_deposits')
+      .select('*')
+      .eq('wallet_address', walletAddress)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  }
+  return sqlite.prepare(`
+    SELECT * FROM user_deposits WHERE wallet_address = ? ORDER BY created_at DESC
+  `).all(walletAddress);
 };
 
 const getIdentityProfileByWallet = async (walletAddress) => {
@@ -2841,7 +2969,8 @@ const saveStakedSource = async ({
   walletAddress,
   amount = null,
   lastSyncedAt = null,
-  consensusScore = 1.0
+  consensusScore = 1.0,
+  metadata = null
 }) => {
   const finalId = id || createId();
   const createdAt = new Date().toISOString();
@@ -2856,6 +2985,7 @@ const saveStakedSource = async ({
         amount: amount ? String(amount) : null,
         last_synced_at: lastSyncedAt || null,
         consensus_score: consensusScore,
+        metadata: metadata ? (typeof metadata === 'string' ? JSON.parse(metadata) : metadata) : null,
         created_at: createdAt
       },
       { onConflict: 'id' }
@@ -2865,14 +2995,15 @@ const saveStakedSource = async ({
   }
   sqlite
     .prepare(
-      `INSERT INTO staked_sources (id, chain_id, staking_contract, protocol, wallet_address, amount, last_synced_at, consensus_score, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO staked_sources (id, chain_id, staking_contract, protocol, wallet_address, amount, last_synced_at, consensus_score, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          amount = excluded.amount,
          last_synced_at = excluded.last_synced_at,
-         consensus_score = excluded.consensus_score`
+         consensus_score = excluded.consensus_score,
+         metadata = excluded.metadata`
     )
-    .run(finalId, String(chainId), String(stakingContract), String(protocol), String(walletAddress).toLowerCase(), amount ? String(amount) : null, lastSyncedAt || null, consensusScore, createdAt);
+    .run(finalId, String(chainId), String(stakingContract), String(protocol), String(walletAddress).toLowerCase(), amount ? String(amount) : null, lastSyncedAt || null, consensusScore, metadata ? JSON.stringify(metadata) : null, createdAt);
   return { id: finalId, createdAt };
 };
 
@@ -2885,7 +3016,8 @@ const saveLockedSource = async ({
   amount = null,
   unlockTime = null,
   lastSyncedAt = null,
-  consensusScore = 1.0
+  consensusScore = 1.0,
+  metadata = null
 }) => {
   const finalId = id || createId();
   const createdAt = new Date().toISOString();
@@ -2901,6 +3033,7 @@ const saveLockedSource = async ({
         unlock_time: unlockTime || null,
         last_synced_at: lastSyncedAt || null,
         consensus_score: consensusScore,
+        metadata: metadata ? JSON.stringify(metadata) : null,
         created_at: createdAt
       },
       { onConflict: 'id' }
@@ -2910,15 +3043,16 @@ const saveLockedSource = async ({
   }
   sqlite
     .prepare(
-      `INSERT INTO locked_sources (id, chain_id, lock_contract, protocol, asset_address, amount, unlock_time, last_synced_at, consensus_score, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO locked_sources (id, chain_id, lock_contract, protocol, asset_address, amount, unlock_time, last_synced_at, consensus_score, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          amount = excluded.amount,
          unlock_time = excluded.unlock_time,
          last_synced_at = excluded.last_synced_at,
-         consensus_score = excluded.consensus_score`
+         consensus_score = excluded.consensus_score,
+         metadata = excluded.metadata`
     )
-    .run(finalId, String(chainId), String(lockContract), String(protocol), assetAddress, amount ? String(amount) : null, unlockTime, lastSyncedAt || null, consensusScore, createdAt);
+    .run(finalId, String(chainId), String(lockContract), String(protocol), assetAddress, amount ? String(amount) : null, unlockTime, lastSyncedAt || null, consensusScore, metadata ? JSON.stringify(metadata) : null, createdAt);
   return { id: finalId, createdAt };
 };
 
@@ -3966,6 +4100,10 @@ module.exports = {
   updateRepayJob,
   createLoan,
   getLoansByWallet,
+  createDeposit,
+  getDepositsByWallet,
   associateVestingName,
+  getActivityEvents,
+  saveActivityEvent,
   getSqlite: () => sqlite
 };

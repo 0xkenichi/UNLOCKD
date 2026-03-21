@@ -6,7 +6,7 @@ const persistence = require('../persistence');
 class SovereignRelayer {
   constructor() {
     this.isRunning = false;
-    this.pollIntervalSeconds = 120; // Polling window for global sync (~10-15 blocks)
+    this.pollIntervalSeconds = 600; // Polling window for global sync (~50-80 blocks)
   }
 
   async start() {
@@ -68,9 +68,6 @@ class SovereignRelayer {
       ));
     }
 
-    // 3. Update global consensus metrics (DIA, Pyth, Chainlink)
-    await this.updateGlobalConsensus();
-
     const duration = (Date.now() - startTime) / 1000;
     console.log(`[SovereignRelayer] Pulse complete. Cycle duration: ${duration.toFixed(2)}s`);
   }
@@ -79,23 +76,7 @@ class SovereignRelayer {
    * Cross-verify Pyth, Chainlink, DIA, and Mobula for top collateral assets
    */
   async updateGlobalConsensus() {
-    const assets = ['SOL', 'ETH', 'USDC', 'BIO', 'SPINE'];
-    try {
-      for (const asset of assets) {
-        const consensusPrice = await SovereignDataService.getConsensusPrice(asset);
-        if (consensusPrice > 0) {
-          console.log(`[SovereignRelayer] Verified Global Consensus for ${asset}: $${consensusPrice.toFixed(4)}`);
-
-          // If RedStone is the source, log that the Pull Model payload is ready
-          const providers = await SovereignDataService.getConsensusPrice(asset, true); // Future: return provider details
-          console.log(`[SovereignRelayer] RedStone Pull Model payload ready for ${asset}`);
-
-          await persistence.setMeta(`consensus_price_${asset}`, consensusPrice);
-        }
-      }
-    } catch (err) {
-      console.warn('[SovereignRelayer] Global consensus update failed:', err.message);
-    }
+     // Removed as per user request — focusing only on real-time price feeds in SovereignDataService
   }
 }
 

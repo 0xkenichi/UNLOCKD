@@ -9,7 +9,7 @@ interface MetricCardProps {
   changeLabel?: string;
   icon?: React.ReactNode;
   trend?: 'up' | 'down' | 'neutral';
-  glowColor?: 'teal' | 'cyan' | 'red' | 'none';
+  glowColor?: 'teal' | 'cyan' | 'gold' | 'red' | 'none';
   className?: string;
 }
 
@@ -27,6 +27,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   const glowStyles = {
     teal: 'border-accent-teal/30 shadow-[0_0_15px_rgba(46,190,181,0.1)]',
     cyan: 'border-accent-cyan/30 shadow-[0_0_15px_rgba(64,224,255,0.1)]',
+    gold: 'border-accent-gold/30 shadow-[0_0_15px_rgba(255,215,0,0.1)]',
     red: 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]',
     none: ''
   };
@@ -48,9 +49,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         </div>
         
         <div className="flex flex-col">
-          <h3 className={`text-3xl font-bold tracking-tight ${glowColor !== 'none' ? (glowColor === 'teal' ? 'text-glow-teal' : 'text-glow-cyan') : ''}`}>
+          <div className={`text-3xl font-bold tracking-tight ${glowColor !== 'none' ? (glowColor === 'teal' ? 'text-glow-teal' : glowColor === 'cyan' ? 'text-glow-cyan' : 'text-glow-gold') : ''}`}>
             {value}
-          </h3>
+          </div>
           {subValue && (
             <span className="text-sm text-foreground/40 font-mono mt-1">
               {subValue}
@@ -80,6 +81,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         <div className={`absolute -right-4 -bottom-4 w-24 h-24 blur-[40px] opacity-20 rounded-full ${
           glowColor === 'teal' ? 'bg-accent-teal' : 
           glowColor === 'cyan' ? 'bg-accent-cyan' : 
+          glowColor === 'gold' ? 'bg-accent-gold' :
           'bg-red-500'
         }`} />
       )}

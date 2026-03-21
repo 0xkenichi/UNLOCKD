@@ -3,12 +3,12 @@
 const MODEL_VERSION = 'v1.0.0';
 
 const TIER_NAMES = {
-  0: 'Anonymous',
-  1: 'Basic',
-  2: 'Standard',
-  3: 'Verified',
-  4: 'Trusted',
-  5: 'Institutional'
+  0: 'Scout',
+  1: 'Initiate',
+  2: 'Sovereign',
+  3: 'Vanguard',
+  4: 'Archon',
+  5: 'Sovereign Archon'
 };
 
 const PROVIDER_WEIGHTS = {
@@ -81,11 +81,46 @@ const computeIAS = ({ identity, attestations }) => {
   return { ias: clamp(Math.round(score), 0, 500), reasonCodes };
 };
 
-const computeFBS = ({ creditHistory }) => {
+const computeActivityScore = (metrics = {}) => {
+  let score = 0;
+  const reasonCodes = [];
+
+  // Wallet Age: +10 pts per month (max 100)
+  const agePts = Math.min(100, (metrics.ageMonths || 0) * 10);
+  score += agePts;
+  if (agePts > 0) reasonCodes.push(`wallet_age_pts:${agePts}`);
+
+  // Tx Count: +2 pts per tx (max 100)
+  const txPts = Math.min(100, (metrics.txCount || 0) * 2);
+  score += txPts;
+  if (txPts > 0) reasonCodes.push(`tx_count_pts:${txPts}`);
+
+  // Total Volume: +1 pt per $1000 USD (max 100)
+  const volPts = Math.min(100, Math.floor((metrics.totalVolume || 0) / 1000));
+  score += volPts;
+  if (volPts > 0) reasonCodes.push(`volume_pts:${volPts}`);
+
+  // Current Balance: +1 pt per $500 USD (max 150)
+  const balPts = Math.min(150, Math.floor((metrics.currentBalance || 0) / 500));
+  score += balPts;
+  if (balPts > 0) reasonCodes.push(`balance_pts:${balPts}`);
+
+  // ATH Balance: +1 pt per $500 USD (max 50)
+  const athPts = Math.min(50, Math.floor((metrics.athBalance || 0) / 500));
+  score += athPts;
+  if (athPts > 0) reasonCodes.push(`ath_pts:${athPts}`);
+
+  return { score: Math.round(score), reasonCodes };
+};
+
+const computeFBS = ({ creditHistory, activityMetrics }) => {
   const repaidCount = Number(creditHistory?.repaidCount || 0);
   const defaultedCount = Number(creditHistory?.defaultedCount || 0);
-  let score = 250;
-  const reasonCodes = [];
+  
+  const { score: activityScore, reasonCodes: activityReasons } = computeActivityScore(activityMetrics);
+  
+  let score = 150 + activityScore; // Base lowered to 150 because activity adds up to 500
+  const reasonCodes = [...activityReasons];
 
   if (repaidCount > 0) {
     const repayBoost = Math.min(220, repaidCount * 35);
@@ -117,12 +152,12 @@ const computeFBS = ({ creditHistory }) => {
 };
 
 const scoreToTier = ({ ias, fbs, crdtScore }) => {
-  if (crdtScore >= 840 && ias >= 320 && fbs >= 380) return 5;
-  if (crdtScore >= 740 && ias >= 270 && fbs >= 320) return 4;
-  if (crdtScore >= 620 && ias >= 220 && fbs >= 260) return 3;
-  if (crdtScore >= 500 && ias >= 160 && fbs >= 220) return 2;
-  if (crdtScore >= 340 && ias >= 110) return 1;
-  return 0;
+  if (crdtScore >= 800) return 5; // Sovereign Archon
+  if (crdtScore >= 600) return 4; // Archon
+  if (crdtScore >= 450) return 3; // Vanguard
+  if (crdtScore >= 300) return 2; // Sovereign
+  if (crdtScore >= 150) return 1; // Initiate
+  return 0; // Scout
 };
 
 const getUnlockRiskMultiplier = (unlockData) => {
@@ -151,7 +186,8 @@ const computeScore = (input = {}) => {
   }
   
   const { fbs, reasonCodes: fbsReasons } = computeFBS({
-    creditHistory: input.creditHistory || null
+    creditHistory: input.creditHistory || null,
+    activityMetrics: input.activityMetrics || {}
   });
 
   const crdtScoreRaw = ias + fbs + walletAgeBaseScore;
@@ -171,6 +207,8 @@ const computeScore = (input = {}) => {
   return {
     crdtTier,
     crdtScore,
+    compositeScore: crdtScore, // Frontend compatibility
+    score: crdtScore,         // Generic fallback
     ias,
     fbs,
     walletAgeBaseScore,

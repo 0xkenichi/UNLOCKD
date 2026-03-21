@@ -98,7 +98,7 @@ abstract contract BaseAuction is VestraAccessControl, IAuction, ReentrancyGuard,
         state.finalized = true;
 
         if (amount > 0) {
-            _distributeProceeds(auctions[auctionId].seller, amount);
+            _distributeProceeds(auctionId, auctions[auctionId].seller, amount);
         }
 
         emit AuctionFinalized(auctionId, winner, amount);
@@ -109,7 +109,7 @@ abstract contract BaseAuction is VestraAccessControl, IAuction, ReentrancyGuard,
         _finalizeAuction(auctionId, auctions[auctionId].seller, 0);
     }
 
-    function _distributeProceeds(address seller, uint256 amount) internal {
+    function _distributeProceeds(uint256 auctionId, address seller, uint256 amount) internal virtual {
         uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
         if (fee > 0) {
             usdc.safeTransfer(msg.sender, fee); // Or designated treasury

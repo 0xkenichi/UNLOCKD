@@ -30,4 +30,5 @@ interface IAuction {
     function endAuction(uint256 auctionId) external;
     function claim(uint256 auctionId) external;
     function getCurrentPrice(uint256 auctionId) external view returns (uint256);
+    function auctionCount() external view returns (uint256);
 }

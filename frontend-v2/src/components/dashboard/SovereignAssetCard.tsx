@@ -15,6 +15,7 @@ interface SovereignAsset {
   lastSynced?: string;
   description?: string;
   consensusScore?: number;
+  isIlliquid?: boolean;
 }
 
 export function SovereignAssetCard({ asset }: { asset: SovereignAsset }) {
@@ -32,7 +33,14 @@ export function SovereignAssetCard({ asset }: { asset: SovereignAsset }) {
           </div>
           <div>
             <h3 className="text-lg font-black uppercase tracking-tighter italic text-glow-teal">{asset.protocol}</h3>
-            <p className="text-[10px] font-black uppercase tracking-widest text-secondary opacity-60">{asset.category} Acquisition</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-secondary opacity-60">{asset.category} Acquisition</p>
+              {asset.isIlliquid && (
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-accent-gold/20 text-accent-gold border border-accent-gold/30 uppercase tracking-widest animate-pulse">
+                  Illiquid
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -192,11 +192,11 @@ module.exports = {
     },
   },
   paths: {
-    sources: "./packages/contracts/contracts",
+    sources: "./packages/contracts",
     tests: "./packages/contracts/test",
     cache: "./packages/contracts/cache",
     artifacts: "./packages/contracts/artifacts",
-    deploy: "./packages/contracts/deploy",
-    deployments: "./packages/contracts/deployments",
+    deploy: "./deploy",
+    deployments: "./deployments",
   },
 };

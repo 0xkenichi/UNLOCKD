@@ -58,6 +58,7 @@ async function deployFixture() {
   const poolAddress = await pool.getAddress();
   const issuanceTreasury = await pool.issuanceTreasury();
   const issuanceSigner = await ethers.getSigner(issuanceTreasury);
+  await usdc.mint(issuanceTreasury, ethers.parseUnits("1000000", 6));
   await usdc.connect(issuanceSigner).approve(poolAddress, ethers.MaxUint256);
 
   const adapterDeployment = await deployments.get("VestingAdapter");
@@ -134,12 +135,15 @@ describe("Full MVP Flow", () => {
       .connect(borrower)
       .createLoan(1, vestingAddress, 25_000e6, 29, "ipfs://test");
 
+    console.log("Borrower balance after createLoan:", (await usdc.balanceOf(borrower.address)).toString());
+
     const loan = await loanManager.loans(0);
     expect(loan.borrower).to.equal(borrower.address);
     expect(loan.principal).to.equal(25_000e6);
 
     // Repay part
     await usdc.connect(borrower).mint(borrower.address, 10_000e6);
+    console.log("Borrower balance before repayLoan:", (await usdc.balanceOf(borrower.address)).toString());
     await usdc.connect(borrower).approve(loanManagerAddress, 10_000e6);
     await loanManagerRepayment.connect(borrower).repayLoan(0, 10_000e6);
 
@@ -155,6 +159,16 @@ describe("Full MVP Flow", () => {
     await freshPriceFeed.addHistoricalRound(1e8, newBlockTime1 - 3600);
     await freshPriceFeed.setPrice(1e8);
     await loanManagerRepayment.liquidateCollateral(0);
+
+    const fact1 = await ethers.getContractAt("AuctionFactory", await loanManager.auctionFactory());
+    const auctionAddr1 = await fact1.auctions("LIQUIDATION");
+    const liquidationAuction1 = await ethers.getContractAt("LiquidationAuction", auctionAddr1);
+    const auctionId1 = (await liquidationAuction1.auctionCount()) - 1n;
+
+    const currentPrice1 = await liquidationAuction1.getCurrentPrice(auctionId1);
+    await usdc.mint(lender.address, currentPrice1);
+    await usdc.connect(lender).approve(auctionAddr1, currentPrice1);
+    await liquidationAuction1.connect(lender).bid(auctionId1, currentPrice1);
 
     const settled = await loanManager.loans(0);
     expect(settled.active).to.equal(false);
@@ -296,9 +310,16 @@ describe("Full MVP Flow", () => {
     await priceFeed.addHistoricalRound(1e8, newBlockTime3 - 3600);
     await priceFeed.setPrice(1e8);
 
-    await expect(loanManagerRepayment.liquidateCollateral(0))
-      .to.emit(loanManagerRepayment, "LoanSettled")
-      .withArgs(0, true);
+    await loanManagerRepayment.liquidateCollateral(0);
+    const auctionAddr = await (await ethers.getContractAt("AuctionFactory", await loanManager.auctionFactory())).auctions("LIQUIDATION");
+    const liquidationAuction = await ethers.getContractAt("LiquidationAuction", auctionAddr);
+    const auctionId = (await liquidationAuction.auctionCount()) - 1n;
+    
+    // Fast forward to end of auction or just bid
+    const currentPrice = await liquidationAuction.getCurrentPrice(auctionId);
+    await usdc.mint(lender.address, currentPrice);
+    await usdc.connect(lender).approve(auctionAddr, currentPrice);
+    await liquidationAuction.connect(lender).bid(auctionId, currentPrice);
 
     const loan = await loanManager.loans(0);
     expect(loan.active).to.equal(false);
@@ -559,6 +580,15 @@ describe("Full MVP Flow", () => {
     await adapterAuction.connect(deployer).setAuthorizedCaller(dutchDeployment.address, true);
 
     await loanManagerRepayment.liquidateCollateral(0);
+    const auctionAddrFac = await (await ethers.getContractAt("AuctionFactory", await loanManager.auctionFactory())).auctions("LIQUIDATION");
+    const liquidationAuctionFac = await ethers.getContractAt("LiquidationAuction", auctionAddrFac);
+    const auctionIdFac = (await liquidationAuctionFac.auctionCount()) - 1n;
+
+    const currentPriceFac = await liquidationAuctionFac.getCurrentPrice(auctionIdFac);
+    await usdc.mint(lender.address, currentPriceFac);
+    await usdc.connect(lender).approve(auctionAddrFac, currentPriceFac);
+    await liquidationAuctionFac.connect(lender).bid(auctionIdFac, currentPriceFac);
+
     const settled = await loanManager.loans(0);
     expect(settled.active).to.equal(false);
   });

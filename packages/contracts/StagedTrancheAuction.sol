@@ -80,7 +80,7 @@ contract StagedTrancheAuction is BaseAuction {
              _finalizeAuction(auctionId, msg.sender, amount);
         } else {
             // Partial send of funds (tranche portion) to the seller immediately.
-            _distributeProceeds(auction.seller, amount);
+            _distributeProceeds(auctionId, auction.seller, amount);
         }
     }
 
