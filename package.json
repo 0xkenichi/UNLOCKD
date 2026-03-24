@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "npm run dev:services",
     "demo": "packages/scripts/demo-local.sh",
-    "dev:services": "concurrently --kill-others-on-fail -n backend,frontend,docs -c green,blue,magenta \"npm run dev -w packages/backend\" \"npm run dev --prefix frontend-v2\" \"npm run dev --prefix docs-site\"",
+    "dev:services": "concurrently --kill-others-on-fail -n redis,backend,frontend,docs -c red,green,blue,magenta \"redis-server\" \"npm run dev -w packages/backend\" \"npm run dev --prefix frontend-v2\" \"npm run dev --prefix docs-site\"",
     "build": "npm run build --prefix frontend-v2",
     "lint": "eslint .",
     "security:scan": "packages/scripts/security-scan.sh",

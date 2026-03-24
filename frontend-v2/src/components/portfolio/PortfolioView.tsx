@@ -69,7 +69,7 @@ export const PortfolioView: React.FC = () => {
             <Card variant="solid" className="bg-surface/20 border-white/5">
                 <CardHeader className="flex flex-row items-center gap-2 p-6">
                     <Zap className="w-5 h-5 text-accent-teal" />
-                    <CardTitle className="text-xl font-bold uppercase italic tracking-tighter">Liquid Positions</CardTitle>
+                    <CardTitle className="text-xl font-bold uppercase italic tracking-tighter redaction-text">Liquid Positions</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0 border-t border-white/5">
                     <AssetTable
@@ -109,7 +109,7 @@ export const PortfolioView: React.FC = () => {
             <Card variant="solid" className="bg-surface/20 border-white/5">
                 <CardHeader className="flex flex-row items-center gap-2 p-6">
                     <Layers className="w-5 h-5 text-accent-gold" />
-                    <CardTitle className="text-xl font-bold uppercase italic tracking-tighter">Vesting & Illiquid Assets</CardTitle>
+                    <CardTitle className="text-xl font-bold uppercase italic tracking-tighter redaction-text">Vesting & Illiquid Assets</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0 border-t border-white/5">
                     <AssetTable

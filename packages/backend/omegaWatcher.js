@@ -11,6 +11,7 @@ const cron = require('node-cron');
 const EventEmitter = require('events');
 const winston = require('winston');
 const meTTabrain = require('./meTTabrain');
+const SovereignDataService = require('./lib/SovereignDataService');
 
 // Configure Winston Logger
 const logger = winston.createLogger({
@@ -57,9 +58,14 @@ class OmegaWatcher extends EventEmitter {
     this.isActive = true;
     logger.info('Omega Watcher Initialized. Sentinels online.');
 
-    // Cron job running every 1 minute
     this.job = cron.schedule('* * * * *', () => {
       this._scanLoans();
+    });
+
+    // Identity Sync: Every 12 hours, check for stale VCS profiles (3+ days old)
+    this.identitySyncJob = cron.schedule('0 */12 * * *', () => {
+      logger.info('Omega Watcher: Starting scheduled Identity/VCS sync...');
+      SovereignDataService.syncAllStaleIdentities(3);
     });
 
     // Listen for external indexing events
@@ -78,6 +84,7 @@ class OmegaWatcher extends EventEmitter {
 
   stop() {
     if (this.job) this.job.stop();
+    if (this.identitySyncJob) this.identitySyncJob.stop();
     this.isActive = false;
     logger.info('Omega Watcher Deactivated.');
   }

@@ -107,7 +107,9 @@ export default function Dashboard() {
 
   const { data: vestingData, isLoading: vestingLoading } = useQuery({
     queryKey: ['vestingAll'],
-    queryFn: () => api.fetchVestingAll()
+    queryFn: () => api.fetchVestingAll(),
+    retry: false,
+    refetchOnWindowFocus: false
   });
 
   useEffect(() => {

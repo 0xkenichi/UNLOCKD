@@ -97,6 +97,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload)
     }),
+  withdrawDeposit: (id: string, wallet: string) => fetchApi('/api/lend/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({ id, walletAddress: wallet })
+  }),
   fetchPortfolio: (walletAddress: string, _chain = 'all') => fetchApi(`/api/portfolio/${walletAddress}`),
   warpTime: (seconds: number) => fetchApi('/api/faucet/warp', {
     method: 'POST',
@@ -108,6 +112,7 @@ export const api = {
   }),
   fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`),
   fetchVestingAll: (limit = 50) => fetchApi(`/api/vesting/all?limit=${limit}`),
+  fetchOpenVestingClaims: () => fetchApi('/api/vesting/open-claims'),
   verifyIdentity: (walletAddress: string) => fetchApi('/api/identity/verify', {
     method: 'POST',
     body: JSON.stringify({ walletAddress })

@@ -18,9 +18,13 @@ interface StakeModalProps {
 }
 
 const DURATIONS = [
-  { days: 30, apy: "11%" },
-  { days: 90, apy: "12%" },
-  { days: 180, apy: "14%" },
+  { days: 30, apy: "11%", label: "30D" },
+  { days: 60, apy: "11.5%", label: "60D" },
+  { days: 90, apy: "12%", label: "90D" },
+  { days: 180, apy: "14%", label: "180D" },
+  { days: 365, apy: "18%", label: "1Y" },
+  { days: 730, apy: "22%", label: "2Y" },
+  { days: 1095, apy: "25%", label: "3Y" },
 ];
 
 export function StakeModal({ isOpen, onClose, chainId, onSuccess }: StakeModalProps) {
@@ -95,6 +99,25 @@ export function StakeModal({ isOpen, onClose, chainId, onSuccess }: StakeModalPr
       if (onSuccess) onSuccess();
     }
   }, [isStakeSuccess, address, amount, duration, refetch, onSuccess]);
+
+  const forceSuccessSync = () => {
+    if (address && stakeHash) {
+      setShowSuccess(true);
+      toast.success("Transaction manually verified!");
+      
+      const apyBps = Number(DURATIONS.find(d => d.days === duration)?.apy.replace('%', '') || 0) * 100;
+      api.depositCapital({
+        wallet: address,
+        amount: amount,
+        apyBps,
+        durationDays: duration
+      }).catch(err => console.error("Persistence Sync Failed:", err));
+
+      setAmount("");
+      refetch();
+      if (onSuccess) onSuccess();
+    }
+  };
 
   const handleStake = () => {
     if (!amount || isNaN(Number(amount))) return;
@@ -251,24 +274,54 @@ export function StakeModal({ isOpen, onClose, chainId, onSuccess }: StakeModalPr
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm text-secondary">Lock Duration</label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="flex justify-between items-center">
+                <label className="text-sm text-secondary">Lock Duration</label>
+                {duration >= 1095 && (
+                  <span className="text-[10px] font-black uppercase text-accent-teal animate-pulse">
+                    Flowing Interest Active
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
                 {DURATIONS.map((d) => (
                   <button
                     key={d.days}
                     onClick={() => setDuration(d.days)}
-                    className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-1 ${
+                    className={`p-3 rounded-xl border transition-all flex flex-col items-center gap-1 ${
                       duration === d.days
                         ? "bg-accent-teal/10 border-accent-teal text-accent-teal shadow-[0_0_15px_rgba(46,190,181,0.15)]"
                         : "bg-white/5 border-white/10 text-secondary hover:border-white/20"
                     }`}
                   >
-                    <Clock className="w-4 h-4" />
-                    <span className="text-lg font-bold">{d.days}D</span>
-                    <span className="text-[10px] font-medium opacity-80">{d.apy} APY</span>
+                    <span className="text-sm font-bold">{d.label}</span>
+                    <span className="text-[8px] font-medium opacity-80">{d.apy} APY</span>
                   </button>
                 ))}
+                <div className="relative group">
+                  <input 
+                    type="number"
+                    placeholder="MO"
+                    min="1"
+                    max="36"
+                    className="w-full h-full bg-white/5 border border-white/10 rounded-xl p-2 text-center text-xs font-bold focus:border-accent-teal outline-none transition-all"
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (val > 0) setDuration(Math.min(val, 36) * 30);
+                    }}
+                  />
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-surface border border-white/10 rounded text-[8px] font-bold opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
+                    CUSTOM MONTHS
+                  </div>
+                </div>
               </div>
+              {duration >= 1095 && (
+                <div className="p-3 rounded-xl bg-accent-teal/5 border border-accent-teal/20 flex items-center gap-3">
+                  <TrendingUp className="w-4 h-4 text-accent-teal" />
+                  <p className="text-[9px] text-secondary leading-tight">
+                    <span className="text-accent-teal font-bold uppercase">3Y Max Lock:</span> Flowing interest enabled. Yield accrues in real-time and is claimable at any time.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="p-4 rounded-2xl bg-risk-high/5 border border-risk-high/20 flex gap-3">
@@ -312,7 +365,7 @@ export function StakeModal({ isOpen, onClose, chainId, onSuccess }: StakeModalPr
               <div className="flex justify-between">
                 <span className="text-secondary">Expected APY</span>
                 <span className="font-bold text-accent-teal">
-                  {DURATIONS.find(d => d.days === duration)?.apy}
+                  {DURATIONS.find(d => d.days === duration)?.apy || `${duration >= 1095 ? '25%' : duration >= 730 ? '22%' : duration >= 365 ? '18%' : '11%'}*`}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -368,6 +421,15 @@ export function StakeModal({ isOpen, onClose, chainId, onSuccess }: StakeModalPr
                         Retry
                       </button>
                     </div>
+                  )}
+
+                  {isStakeConfirming && stakeHash && (
+                    <button 
+                      onClick={forceSuccessSync}
+                      className="w-full py-2 text-[10px] text-secondary hover:text-white uppercase tracking-widest font-bold opacity-60 hover:opacity-100 transition-opacity"
+                    >
+                      Stuck? Click to force sync receipt
+                    </button>
                   )}
                 </>
               )}

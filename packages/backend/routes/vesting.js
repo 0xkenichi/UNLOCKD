@@ -110,38 +110,56 @@ router.get('/all', async (req, res) => {
     console.error('[API] /api/vesting/all error:', err.message);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch all vesting data'
+      error: 'Failed to fetch all vesting data: ' + err.message
     });
   }
 });
 
 /**
- * @api {get} /api/vesting/:id Get specific vesting source details
+ * @api {get} /api/vesting/valuation/:id Get dDPV valuation and loan terms for a vesting source
  */
-router.get('/:id', async (req, res) => {
+router.get('/valuation/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    // Note: We'll use listVestingSources and filter locally if a single-get isn't explicitly in persistence.js
+    const { duration = 30 * 86400 } = req.query; // Default 30 days
+
+    // 1. Fetch source from DB
     const sources = await persistence.listVestingSources({ limit: 1000 });
     const source = sources.find(s => s.id === id);
+    if (!source) return res.status(404).json({ success: false, error: 'Source not found' });
+
+    // 2. Fetch dDPV from Redis or trigger immediate calc
+    // In production, we'd check cache. For the demo, we'll call dDPVService.computeDDPV_v2 locally
+    // but we need the RiskParamBundle.
     
-    if (!source) {
-      return res.status(404).json({
-        success: false,
-        error: 'Vesting source not found'
-      });
+    // For now, we'll use a simplified version for the UI or try to get from Redis
+    const dDPVService = require('../oracles/dDPVService').ddpvService;
+    const cacheKey = `ddpv:result:${source.chainId || 1}:${source.vestingContract}`;
+    const cached = await dDPVService.redis.get(cacheKey);
+    
+    if (cached) {
+      const data = JSON.parse(cached);
+      return res.json({ success: true, valuation: data });
     }
 
-    res.json({
-      success: true,
-      data: source
-    });
+    // Fallback: Trigger update and return "Processing"
+    // For the demo/MVP, we'll return a simulated but realistic dDPV if not cached
+    const mockValuation = {
+      dpvUsdc: (BigInt(source.quantity || 0) * 8n / 10n).toString(), // 80% LTV mock
+      ltvBps: 8000,
+      breakdown: {
+        grossValueUsd: 10000,
+        timeFactor: 0.95,
+        volFactor: 0.9,
+        omegaFactor: 0.95,
+        liquidityFactor: 1.0
+      }
+    };
+
+    res.json({ success: true, valuation: mockValuation, status: 'MOCK_FALLBACK' });
   } catch (err) {
-    console.error(`[API] /api/vesting/${req.params.id} error:`, err.message);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch vesting source'
-    });
+    console.error(`[API] /api/vesting/valuation/${req.params.id} error:`, err.message);
+    res.status(500).json({ success: false, error: 'Valuation failed' });
   }
 });
 

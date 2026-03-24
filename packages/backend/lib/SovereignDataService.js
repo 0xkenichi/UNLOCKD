@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const pyth = require('../solana/pyth');
 const { createPublicClient, http } = require('viem');
 const { mainnet, base, sepolia, baseSepolia } = require('viem/chains');
+const { calculateIdentityCreditScore } = require('../identityCreditScore');
 
 const createId = () => crypto.randomBytes(16).toString('hex');
 
@@ -23,8 +24,8 @@ const DIA_API_URL = 'https://api.diadata.org/v1/asset_information';
 const MOBULA_API_URL = 'https://api.mobula.io';
 const CRYPTORANK_API_URL = 'https://api.cryptorank.io/v2';
 const DEFILLAMA_VESTING_URL = 'https://api.llama.fi/listVesting';
-const GITCOIN_PASSPORT_API_URL = 'https://api.passport.xyz/v1/scorer';
-const GITCOIN_PASSPORT_V2_API_URL = 'https://api.passport.xyz/v2';
+const GITCOIN_PASSPORT_API_URL = 'https://api.scorer.gitcoin.co/registry/score';
+const COVALENT_API_URL = 'https://api.covalenthq.com/v1';
 const TOKENOMIST_API_URL = 'https://api.unlocks.app/v2'; 
 
 const REDSTONE_DATA_SERVICE_ID = 'redstone-primary-prod';
@@ -227,6 +228,18 @@ class SovereignDataService {
             fetchStreamflowVestingContracts([wallet])
               .then(res => discovered.vesting.push(...res))
               .catch(err => console.warn('[SovereignDataService] Streamflow failed:', err.message))
+          );
+        }
+      }
+
+      // NFT Discovery (Vesting NFTs)
+      if (chainType === 'evm' || chainType === 'all') {
+        const chains = [1, 137, 8453, 11155111]; 
+        for (const chainId of chains) {
+          tasks.push(
+            this.getAlchemyNFTs(wallet, chainId)
+              .then(nfts => discovered.vesting.push(...nfts))
+              .catch(err => console.warn(`[SovereignDataService] NFT discovery failed on ${chainId}:`, err.message))
           );
         }
       }
@@ -611,6 +624,45 @@ class SovereignDataService {
           consensusScore: 1.0
         });
       }
+    }
+  }
+
+  /**
+   * Alchemy NFT Discovery (for Vesting NFTs like Hedgey, etc.)
+   */
+  async getAlchemyNFTs(wallet, chainId) {
+    const client = this.evmClients[chainId];
+    if (!client) return [];
+    
+    try {
+      const url = client.transport.url.replace('/v2/', '/nft/v3/');
+      const res = await fetch(`${url}/getNFTsForOwner?owner=${wallet}&withMetadata=true`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      
+      const vestingNFTs = (data.ownedNfts || []).filter(nft => {
+        const name = (nft.name || '').toLowerCase();
+        const desc = (nft.description || '').toLowerCase();
+        return name.includes('vesting') || desc.includes('vesting') || name.includes('lockup') || name.includes('hedgey');
+      });
+
+      return vestingNFTs.map(nft => ({
+        id: `nft-${chainId}-${nft.contract.address}-${nft.tokenId}`,
+        chain: chainId === 1 ? 'mainnet' : (chainId === 137 ? 'polygon' : (chainId === 8453 ? 'base' : 'sepolia')),
+        chainId,
+        contractAddress: nft.contract.address,
+        protocol: 'Vesting NFT',
+        symbol: nft.contract.symbol || 'VNFT',
+        name: nft.name || 'Vesting NFT',
+        amount: '1',
+        quantity: '1',
+        unlockTime: 0, // Needs extraction from metadata if possible
+        active: true,
+        metadata: nft.raw?.metadata || {}
+      }));
+    } catch (err) {
+      console.warn(`[SovereignDataService] Alchemy NFT fetch failed for ${wallet} on ${chainId}:`, err.message);
+      return [];
     }
   }
 
@@ -1403,16 +1455,16 @@ class SovereignDataService {
     const scorerId = process.env.GITCOIN_PASSPORT_SCORER_ID;
     if (!gitcoinKey || !scorerId) {
       console.warn('[SovereignDataService] Gitcoin Passport config missing (key or scorerId).');
-      return null;
+      return { score: 0, status: 'ERROR' };
     }
     try {
       console.log(`[SovereignDataService] Calling Gitcoin Passport Scorer API for ${wallet}...`);
-      const resp = await fetch(`${GITCOIN_PASSPORT_API_URL}/${scorerId}/score/${wallet}`, {
+      const resp = await fetch(`${GITCOIN_PASSPORT_API_URL}/${scorerId}/${wallet}`, {
         headers: { 'X-API-KEY': gitcoinKey }
       });
       if (!resp.ok) {
         console.warn(`[SovereignDataService] Gitcoin Passport API returned ${resp.status}`);
-        return null;
+        return { score: 0, status: 'ERROR' };
       }
       const data = await resp.json();
       return {
@@ -1423,28 +1475,75 @@ class SovereignDataService {
       };
     } catch (err) {
       console.warn(`[SovereignDataService] Gitcoin Passport failed for ${wallet}:`, err.message);
-      return null;
+      return { score: 0, status: 'ERROR' };
     }
   }
 
   /**
-   * Gitcoin Passport V2 Stamps
+   * Covalent Multi-chain Financial History
    */
-  async fetchGitcoinPassportStamps(wallet) {
-    const gitcoinKey = process.env.GITCOIN_PASSPORT_API_KEY;
-    if (!gitcoinKey) return null;
-    try {
-      console.log(`[SovereignDataService] Calling Gitcoin Passport V2 Stamps API for ${wallet}...`);
-      const resp = await fetch(`${GITCOIN_PASSPORT_V2_API_URL}/stamps/${wallet}`, {
-        headers: { 'X-API-KEY': gitcoinKey }
-      });
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      return data.items || [];
-    } catch (err) {
-      console.warn(`[SovereignDataService] Gitcoin Passport V2 stamps failed for ${wallet}:`, err.message);
-      return null;
-    }
+  async fetchCovalentFinancials(wallet) {
+    const covalentKey = process.env.COVALENT_API_KEY || 'cqt_rQYjttT7Rm3HQcF7QfTbRxMyBggW';
+    const chains = [1, 137, 8453, 42161];
+    
+    let totalTxCount = 0;
+    let firstTxDate = Date.now();
+    const activeMonthsSet = new Set();
+    let peakUsdValue = 0;
+
+    const tasks = chains.map(async (chainId) => {
+      try {
+        // 1. Fetch Transactions for Count + Consistency + Age
+        const txResp = await fetch(`${COVALENT_API_URL}/${chainId}/address/${wallet}/transactions_v3/`, {
+          headers: { 'Authorization': `Bearer ${covalentKey}` }
+        });
+        if (txResp.ok) {
+          const txData = await txResp.json();
+          const txs = txData?.data?.items || [];
+          totalTxCount += txs.length;
+          
+          txs.forEach(tx => {
+            const date = new Date(tx.block_signed_at);
+            const ts = date.getTime();
+            if (ts < firstTxDate) firstTxDate = ts;
+            
+            // Consistency (last 12 months)
+            const now = new Date();
+            const twelveMonthsAgo = new Date();
+            twelveMonthsAgo.setMonth(now.getMonth() - 12);
+            
+            if (date >= twelveMonthsAgo) {
+              const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+              activeMonthsSet.add(monthKey);
+            }
+          });
+        }
+
+        // 2. Fetch Portfolio for Peak Value
+        const portResp = await fetch(`${COVALENT_API_URL}/${chainId}/address/${wallet}/portfolio_v2/`, {
+          headers: { 'Authorization': `Bearer ${covalentKey}` }
+        });
+        if (portResp.ok) {
+          const portData = await portResp.json();
+          const snapshots = portData?.data?.items || [];
+          snapshots.forEach(item => {
+            const totalValue = (item.holdings || []).reduce((acc, h) => acc + (h.close?.quote || 0), 0);
+            if (totalValue > peakUsdValue) peakUsdValue = totalValue;
+          });
+        }
+      } catch (err) {
+        console.warn(`[SovereignDataService] Covalent fetch failed for chain ${chainId}:`, err.message);
+      }
+    });
+
+    await Promise.all(tasks);
+
+    return {
+      totalTxCount,
+      ageMonths: Math.floor((Date.now() - firstTxDate) / (30 * 24 * 3600 * 1000)),
+      activeMonths: activeMonthsSet.size,
+      peakUsdValue
+    };
   }
 
   /**
@@ -1470,6 +1569,104 @@ class SovereignDataService {
     } catch (err) {
       console.warn('[SovereignDataService] Gitcoin Passport V2 metadata failed:', err.message);
       return null;
+    }
+  }
+
+  /**
+   * Refresh the VCS score and identity profile for a wallet
+   */
+  async refreshIdentityProfile(walletAddress) {
+    if (!walletAddress) return null;
+    console.log(`[SovereignDataService] Refreshing identity profile for ${walletAddress}...`);
+
+    try {
+      // 1. Fetch external identity data
+      const [scoreData, financialMetrics] = await Promise.all([
+        this.fetchGitcoinPassportScore(walletAddress),
+        this.fetchCovalentFinancials(walletAddress)
+      ]);
+
+      // 2. Fetch internal protocol data (repayments/defaults)
+      const events = await persistence.getActivityEvents({ limit: 1000 });
+      const repaidLoans = new Set();
+      let defaultedCount = 0;
+
+      const normalized = walletAddress.toLowerCase();
+      for (const event of events) {
+        const borrower = (event?.borrower || '').toLowerCase();
+        if (borrower !== normalized) continue;
+        if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
+          repaidLoans.add(String(event.loanId || ''));
+        }
+        if (event.type === 'LoanSettled' && event.defaulted) {
+          defaultedCount += 1;
+        }
+      }
+
+      // 3. Map status for VCS calculation
+      const gitcoinScore = scoreData?.score || 0;
+
+      // 4. Calculate new VCS score
+      const scoreInfo = calculateIdentityCreditScore({
+        gitcoinPassportScore: gitcoinScore,
+        txCount: financialMetrics.totalTxCount,
+        ageMonths: financialMetrics.ageMonths,
+        activeMonths: financialMetrics.activeMonths,
+        peakUsdValue: financialMetrics.peakUsdValue,
+        totalRepaidLoans: repaidLoans.size,
+        hasDefaults: defaultedCount > 0
+      });
+
+      // 5. Upsert to vcs_scores table
+      await persistence.upsertVcsScore({
+        wallet: normalized,
+        gitcoin_score: gitcoinScore,
+        financial_score: scoreInfo.breakdown.financialHistory,
+        credit_history_score: scoreInfo.breakdown.creditHistory,
+        total_vcs_score: scoreInfo.score,
+        tier: scoreInfo.tier,
+        total_repaid_loans: repaidLoans.size,
+        has_defaults: defaultedCount > 0
+      });
+
+      // 6. Return enriched profile
+      const fullProfile = {
+        walletAddress: normalized,
+        ...scoreInfo,
+        score: scoreInfo.score,
+        tierName: scoreInfo.tier,
+        creditHistory: { repaidCount: repaidLoans.size, defaultedCount },
+        activityMetrics: financialMetrics,
+        crdtScore: scoreInfo.score,
+        crdtTier: scoreInfo.tier === 'TITAN' ? 3 : scoreInfo.tier === 'PREMIUM' ? 2 : 1
+      };
+
+      console.log(`[SovereignDataService] Profile refreshed: ${walletAddress} | Score: ${scoreInfo.score} | Tier: ${scoreInfo.tier}`);
+      return fullProfile;
+    } catch (err) {
+      console.error(`[SovereignDataService] Failed to refresh profile for ${walletAddress}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Sync all stale identity profiles (older than 3 days)
+   */
+  async syncAllStaleIdentities(days = 3) {
+    console.log(`[SovereignDataService] Starting sync for stale identities (older than ${days} days)...`);
+    try {
+      const staleProfiles = await persistence.listStaleIdentityProfiles({ days, limit: 100 });
+      console.log(`[SovereignDataService] Found ${staleProfiles.length} stale profiles.`);
+
+      for (const profile of staleProfiles) {
+        await this.refreshIdentityProfile(profile.walletAddress);
+        // Rate limiting
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      console.log('[SovereignDataService] Stale identity sync complete.');
+    } catch (err) {
+      console.error('[SovereignDataService] Stale identity sync failed:', err.message);
     }
   }
 }

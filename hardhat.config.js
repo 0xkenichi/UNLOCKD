@@ -11,14 +11,22 @@ const accounts = PRIVATE_KEY ? [PRIVATE_KEY] : [];
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 1,
+    compilers: [
+      {
+        version: "0.8.20",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: true,
+        },
       },
-      viaIR: true,
-    },
+      {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: true,
+        },
+      },
+    ],
   },
   networks: {
     hardhat: {
@@ -192,7 +200,7 @@ module.exports = {
     },
   },
   paths: {
-    sources: "./packages/contracts",
+    sources: "./packages/contracts/src",
     tests: "./packages/contracts/test",
     cache: "./packages/contracts/cache",
     artifacts: "./packages/contracts/artifacts",

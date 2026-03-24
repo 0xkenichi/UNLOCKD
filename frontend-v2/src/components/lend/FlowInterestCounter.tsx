@@ -8,13 +8,15 @@ interface FlowInterestCounterProps {
   apyBps: number;
   lastClaimTime: number; // Unix timestamp
   precision?: number;
+  isFlowing?: boolean;
 }
 
 export function FlowInterestCounter({ 
   principal, 
   apyBps, 
   lastClaimTime,
-  precision = 6
+  precision = 6,
+  isFlowing = false
 }: FlowInterestCounterProps) {
   const [currentYield, setCurrentYield] = useState<number>(0);
 
@@ -37,18 +39,23 @@ export function FlowInterestCounter({
       setCurrentYield(accrued);
     };
 
+    if (!isFlowing) {
+      setCurrentYield(0);
+      return;
+    }
+
     updateYield();
     const interval = setInterval(updateYield, 1000); // Tick every second
 
     return () => clearInterval(interval);
-  }, [principal, apyBps, lastClaimTime]);
+  }, [principal, apyBps, lastClaimTime, isFlowing]);
 
   return (
-    <span className="font-mono tabular-nums text-accent-teal">
-      ${currentYield.toLocaleString(undefined, { 
+    <span className={`font-mono tabular-nums ${isFlowing ? 'text-accent-teal' : 'text-secondary/30'}`}>
+      {isFlowing ? `$${currentYield.toLocaleString(undefined, { 
         minimumFractionDigits: precision, 
         maximumFractionDigits: precision 
-      })}
+      })}` : '--'}
     </span>
   );
 }

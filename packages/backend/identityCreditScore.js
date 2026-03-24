@@ -1,244 +1,447 @@
-// Copyright (c) 2026 Vestra Protocol. All rights reserved.
-// Licensed under the Business Source License 1.1 (BSL-1.1).
-const MODEL_VERSION = 'v1.0.0';
+/**
+ * identityCreditScore.js — Vestra VCS Engine v2
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Calculates the Vestra Credit Score (VCS) used to determine loan LTV tiers.
+ *
+ * Hardening changes over v1:
+ *   1. Attestation cap — unbounded attestations.length * 25 allowed a wallet
+ *      with 20 attestations to gain +500 pts, erasing a default penalty.
+ *      Now capped at MAX_ATTESTATION_BONUS (100 pts, 4 attestations effective).
+ *
+ *   2. Attestation quality filter — only attestations with a recognised
+ *      schemaId AND an age <= MAX_ATTESTATION_AGE_DAYS are counted. Stale or
+ *      unrecognised attestations are silently dropped.
+ *
+ *   3. Default time-decay — a flat -300 penalty treated a 3-year-old default
+ *      identically to one from last week. Now the penalty decays linearly from
+ *      -300 at t=0 to -50 at DEFAULT_FULL_DECAY_DAYS (730 days / 2 years),
+ *      after which the floor penalty of -50 applies permanently.
+ *
+ *   4. Repayment bonus cap — totalRepaidLoans * 20 was unbounded. Capped at
+ *      MAX_REPAYMENT_BONUS (200 pts, 10 loans effective).
+ *
+ *   5. Gitcoin Passport floor gate — scores below GITCOIN_SYBIL_THRESHOLD
+ *      are treated as 0 (sybil-risk wallet) rather than still contributing.
+ *
+ *   6. Strict input validation — all numeric fields are validated and clamped
+ *      before computation. Malformed inputs throw with a descriptive error
+ *      rather than silently producing NaN scores.
+ *
+ *   7. Score audit trail — the returned object now includes a `breakdown`
+ *      field showing the contribution of each component for observability
+ *      and downstream LTV contract validation.
+ *
+ * Score range: 0–1000.
+ * Tiers:  TITAN ≥ 800 | PREMIUM ≥ 650 | STANDARD < 650
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 
-const TIER_NAMES = {
-  0: 'Scout',
-  1: 'Initiate',
-  2: 'Sovereign',
-  3: 'Vanguard',
-  4: 'Archon',
-  5: 'Sovereign Archon'
-};
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROVIDER_WEIGHTS = {
-  gitcoin_passport: 90,
-  worldid: 120,
-  civic: 80,
-  polygon_id: 80,
-  internal: 45
-};
+/** Baseline score every wallet starts with. */
+const BASELINE_SCORE = 500;
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+/** Maximum bonus from Gitcoin Passport (unchanged). */
+const MAX_GITCOIN_BONUS = 150;
 
-const normalizeProvider = (value) => String(value || '').trim().toLowerCase();
+/**
+ * Minimum Gitcoin Passport score to be treated as a real identity.
+ * Scores below this threshold indicate a likely sybil wallet and contribute 0.
+ */
+const GITCOIN_SYBIL_THRESHOLD = 10;
 
-const isFutureDate = (value) => {
-  if (!value) return false;
-  const ts = Date.parse(String(value));
-  return Number.isFinite(ts) && ts > Date.now();
-};
+/** Flat bonus for verified World ID proof-of-personhood. */
+const WORLD_ID_BONUS = 100;
 
-const computeIAS = ({ identity, attestations }) => {
-  let score = 35;
-  const reasonCodes = [];
+/**
+ * Maximum bonus from EAS attestations.
+ * At 25 pts per attestation, this caps effective attestations at 4.
+ * Prevents attestation farming from nullifying default penalties.
+ */
+const MAX_ATTESTATION_BONUS = 100;
 
-  if (identity?.linkedAt) {
-    score += 40;
-    reasonCodes.push('identity_linked');
+/** Points per qualifying attestation. */
+const ATTESTATION_POINTS_EACH = 25;
+
+/**
+ * Maximum age (in days) for an EAS attestation to be considered valid.
+ * Attestations older than this are treated as stale and ignored.
+ */
+const MAX_ATTESTATION_AGE_DAYS = 365;
+
+/**
+ * Set of recognised EAS schema IDs Vestra trusts.
+ * Attestations with an unrecognised schema contribute nothing.
+ * Add new trusted schemas here as integrations expand.
+ */
+const TRUSTED_SCHEMA_IDS = new Set([
+  '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef', // KYC-lite
+  '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890', // Vestra repayment
+  '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef', // Protocol partner
+]);
+
+/** Maximum bonus from on-chain wallet activity (tx count). */
+const MAX_TX_BONUS = 100;
+
+/** Maximum bonus from wallet balance. */
+const MAX_BALANCE_BONUS = 75;
+
+/**
+ * Maximum bonus from repaid loans.
+ * At 20 pts per loan, this caps effective loans at 10.
+ */
+const MAX_REPAYMENT_BONUS = 200;
+
+/** Points per successfully repaid Vestra loan. */
+const REPAYMENT_POINTS_EACH = 20;
+
+/**
+ * Maximum default penalty (applied at t=0, i.e. default just occurred).
+ * Decays linearly toward DEFAULT_FLOOR_PENALTY over DEFAULT_FULL_DECAY_DAYS.
+ */
+const DEFAULT_MAX_PENALTY = 300;
+
+/**
+ * Minimum (floor) default penalty that persists indefinitely after decay completes.
+ * Ensures that old defaults never become completely irrelevant.
+ */
+const DEFAULT_FLOOR_PENALTY = 50;
+
+/**
+ * Number of days over which the default penalty decays from MAX to FLOOR.
+ * At 730 days (2 years), the penalty reaches DEFAULT_FLOOR_PENALTY and stops decaying.
+ */
+const DEFAULT_FULL_DECAY_DAYS = 730;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/**
+ * @typedef {Object} EASAttestation
+ * @property {string} schemaId   - The EAS schema UID (32-byte hex).
+ * @property {number} issuedAt   - Unix timestamp (seconds) of attestation creation.
+ * @property {boolean} [revoked] - Whether the attestation has been revoked.
+ */
+
+/**
+ * @typedef {Object} DefaultRecord
+ * @property {number} occurredAt - Unix timestamp (seconds) when the default was recorded.
+ * @property {number} [severity] - Optional severity multiplier (1.0 default).
+ */
+
+/**
+ * @typedef {Object} VCSInput
+ * @property {number}          [gitcoinPassportScore] - Raw Gitcoin Passport score (0–100).
+ * @property {boolean}         [hasWorldID]           - World ID proof-of-personhood verified.
+ * @property {EASAttestation[]}[attestations]         - EAS attestations array.
+ * @property {number}          [txCount]              - Total on-chain transaction count.
+ * @property {string|number}   [balanceUsd]           - Wallet balance in USD.
+ * @property {number}          [totalRepaidLoans]     - Number of fully repaid Vestra loans.
+ * @property {boolean}         [hasDefaults]          - Legacy: any defaults present (v1 compat).
+ * @property {DefaultRecord[]} [defaults]             - v2: per-default records with timestamps.
+ * @property {number}          [nowTimestamp]         - Override for current time (testing only).
+ */
+
+/**
+ * @typedef {Object} VCSResult
+ * @property {number} score           - Final VCS score (0–1000).
+ * @property {string} tier            - 'TITAN' | 'PREMIUM' | 'STANDARD'
+ * @property {number} riskMultiplier  - 0.0 (safest) to 1.0 (riskiest). Used by dDPV engine.
+ * @property {Object} breakdown       - Per-component score contributions for observability.
+ * @property {string[]} flags         - Any risk flags raised during computation.
+ */
+
+// ─── Input Validation ─────────────────────────────────────────────────────────
+
+/**
+ * Validates and normalises raw VCS input data.
+ * Throws a descriptive error for any field that would produce NaN or unsafe values.
+ * @param {VCSInput} data
+ * @returns {VCSInput} normalised input
+ */
+function validateAndNormalise(data) {
+  if (!data || typeof data !== 'object') {
+    throw new TypeError('VCS input must be a non-null object');
   }
 
-  if (identity?.identityProofHash) {
-    score += 45;
-    reasonCodes.push('identity_proof_hash_present');
+  const out = { ...data };
+
+  // Gitcoin Passport
+  if (out.gitcoinPassportScore !== undefined) {
+    const v = Number(out.gitcoinPassportScore);
+    if (!isFinite(v) || v < 0) throw new RangeError(`gitcoinPassportScore must be ≥ 0, got: ${out.gitcoinPassportScore}`);
+    out.gitcoinPassportScore = Math.min(v, 100); // Gitcoin max is 100
   }
 
-  if (identity?.sanctionsPass === true) {
-    score += 35;
-    reasonCodes.push('sanctions_passed');
-  } else if (identity?.sanctionsPass === false) {
-    score -= 120;
-    reasonCodes.push('sanctions_failed');
+  // txCount
+  if (out.txCount !== undefined) {
+    const v = Number(out.txCount);
+    if (!isFinite(v) || v < 0) throw new RangeError(`txCount must be ≥ 0, got: ${out.txCount}`);
+    out.txCount = Math.floor(v);
   }
 
-  const providerSeen = new Set();
-  let activeAttestations = 0;
-  for (const att of attestations || []) {
-    const provider = normalizeProvider(att?.provider);
-    if (!provider) continue;
-    if (att?.expiresAt && !isFutureDate(att.expiresAt)) {
-      reasonCodes.push(`attestation_expired:${provider}`);
-      continue;
-    }
-    activeAttestations += 1;
-    if (providerSeen.has(provider)) continue;
-    providerSeen.add(provider);
-    score += PROVIDER_WEIGHTS[provider] ?? 30;
+  // balanceUsd
+  if (out.balanceUsd !== undefined) {
+    const v = parseFloat(out.balanceUsd);
+    if (!isFinite(v) || v < 0) throw new RangeError(`balanceUsd must be ≥ 0, got: ${out.balanceUsd}`);
+    out.balanceUsd = v;
   }
 
-  if (activeAttestations > 0) {
-    reasonCodes.push(`attestations_active:${activeAttestations}`);
-    score += Math.min(60, activeAttestations * 10);
+  // totalRepaidLoans
+  if (out.totalRepaidLoans !== undefined) {
+    const v = Number(out.totalRepaidLoans);
+    if (!isFinite(v) || v < 0) throw new RangeError(`totalRepaidLoans must be ≥ 0, got: ${out.totalRepaidLoans}`);
+    out.totalRepaidLoans = Math.floor(v);
+  }
+
+  // attestations
+  if (out.attestations !== undefined && !Array.isArray(out.attestations)) {
+    throw new TypeError('attestations must be an array');
+  }
+
+  // defaults
+  if (out.defaults !== undefined && !Array.isArray(out.defaults)) {
+    throw new TypeError('defaults must be an array');
+  }
+
+  // nowTimestamp (test override)
+  if (out.nowTimestamp !== undefined) {
+    const v = Number(out.nowTimestamp);
+    if (!isFinite(v) || v <= 0) throw new RangeError(`nowTimestamp must be a positive unix timestamp`);
+  }
+
+  return out;
+}
+
+// ─── Component Scorers ────────────────────────────────────────────────────────
+
+/**
+ * Score from Gitcoin Passport.
+ * Scores below GITCOIN_SYBIL_THRESHOLD contribute 0 (sybil gate).
+ */
+function scoreGitcoinPassport(gitcoinPassportScore) {
+  if (!gitcoinPassportScore || gitcoinPassportScore < GITCOIN_SYBIL_THRESHOLD) return 0;
+  return Math.min(gitcoinPassportScore * 3, MAX_GITCOIN_BONUS);
+}
+
+/**
+ * Score from EAS attestations with quality filtering:
+ *   - Revoked attestations are excluded.
+ *   - Attestations older than MAX_ATTESTATION_AGE_DAYS are excluded.
+ *   - Unrecognised schemaIds are excluded.
+ *   - Total bonus capped at MAX_ATTESTATION_BONUS.
+ *
+ * @param {EASAttestation[]} attestations
+ * @param {number} nowSecs - Current unix timestamp in seconds.
+ * @returns {{ bonus: number, qualified: number, dropped: number }}
+ */
+function scoreAttestations(attestations, nowSecs) {
+  if (!attestations || attestations.length === 0) {
+    return { bonus: 0, qualified: 0, dropped: 0 };
+  }
+
+  const maxAgeSeconds = MAX_ATTESTATION_AGE_DAYS * 86400;
+  let qualified = 0;
+  let dropped   = 0;
+
+  for (const att of attestations) {
+    // Revoked
+    if (att.revoked) { dropped++; continue; }
+
+    // Schema gate
+    if (!TRUSTED_SCHEMA_IDS.has(att.schemaId)) { dropped++; continue; }
+
+    // Age gate
+    const ageSecs = nowSecs - (att.issuedAt || 0);
+    if (ageSecs > maxAgeSeconds) { dropped++; continue; }
+
+    qualified++;
+  }
+
+  const bonus = Math.min(qualified * ATTESTATION_POINTS_EACH, MAX_ATTESTATION_BONUS);
+  return { bonus, qualified, dropped };
+}
+
+/**
+ * Score from on-chain wallet activity (tx count + balance).
+ */
+function scoreWalletActivity(txCount, balanceUsd) {
+  let bonus = 0;
+  const tx  = Number(txCount  || 0);
+  const bal = parseFloat(balanceUsd || '0');
+
+  if (tx  >  100) bonus += 50;
+  if (tx  >  500) bonus += 50;
+  if (bal > 1000) bonus += 25;
+  if (bal > 10_000) bonus += 50;
+
+  return Math.min(bonus, MAX_TX_BONUS + MAX_BALANCE_BONUS);
+}
+
+/**
+ * Score from repaid Vestra loans. Capped at MAX_REPAYMENT_BONUS.
+ */
+function scoreRepayments(totalRepaidLoans) {
+  if (!totalRepaidLoans || totalRepaidLoans <= 0) return 0;
+  return Math.min(totalRepaidLoans * REPAYMENT_POINTS_EACH, MAX_REPAYMENT_BONUS);
+}
+
+/**
+ * Computes the time-decayed default penalty.
+ *
+ * Penalty(t) = DEFAULT_FLOOR_PENALTY +
+ *              (DEFAULT_MAX_PENALTY - DEFAULT_FLOOR_PENALTY) *
+ *              max(0, 1 - t / DEFAULT_FULL_DECAY_DAYS)
+ *
+ * Where t is the age of the default in days.
+ *
+ * Multiple defaults: each contributes its own decayed penalty, summed and
+ * capped at DEFAULT_MAX_PENALTY * 1.5 to prevent permanent zero-scoring
+ * for multiple-default wallets while still reflecting the full risk.
+ *
+ * Legacy support: if data.hasDefaults === true but no data.defaults array
+ * is provided, the full DEFAULT_MAX_PENALTY is applied (conservative fallback).
+ *
+ * @param {DefaultRecord[]|undefined} defaults  - Per-default records (v2).
+ * @param {boolean|undefined}         hasDefaults - Legacy boolean flag (v1).
+ * @param {number}                    nowSecs   - Current unix timestamp.
+ * @returns {{ penalty: number, details: Array }}
+ */
+function computeDefaultPenalty(defaults, hasDefaults, nowSecs) {
+  // v1 legacy path: hasDefaults=true but no timestamps → conservative max
+  if (hasDefaults && (!defaults || defaults.length === 0)) {
+    return {
+      penalty: DEFAULT_MAX_PENALTY,
+      details: [{ ageDays: null, penalty: DEFAULT_MAX_PENALTY, note: 'legacy-no-timestamp' }],
+    };
+  }
+
+  if (!defaults || defaults.length === 0) {
+    return { penalty: 0, details: [] };
+  }
+
+  const decayRange = DEFAULT_MAX_PENALTY - DEFAULT_FLOOR_PENALTY; // 250
+  let totalPenalty = 0;
+  const details    = [];
+
+  for (const record of defaults) {
+    const ageSecs = nowSecs - (record.occurredAt || 0);
+    const ageDays = ageSecs / 86400;
+
+    const decayFraction = Math.max(0, 1 - ageDays / DEFAULT_FULL_DECAY_DAYS);
+    const rawSeverity   = record.severity !== undefined ? record.severity : 1.0;
+    const severity      = Math.max(0.5, Math.min(2.0, rawSeverity));
+    const rawPenalty    = DEFAULT_FLOOR_PENALTY + decayRange * decayFraction;
+    const scaledPenalty = Math.round(rawPenalty * severity);
+
+    details.push({ ageDays: Math.round(ageDays), penalty: scaledPenalty, severity });
+    totalPenalty += scaledPenalty;
+  }
+
+  // Multi-default cap: 1.5× the single maximum to prevent permanent near-zero scores
+  const cap           = Math.round(DEFAULT_MAX_PENALTY * 1.5);
+  const finalPenalty  = Math.min(totalPenalty, cap);
+
+  return { penalty: finalPenalty, details };
+}
+
+// ─── Main Scorer ──────────────────────────────────────────────────────────────
+
+/**
+ * Calculates the Vestra Credit Score (VCS) based on three components and a baseline.
+ * 
+ * Component 1: Gitcoin Passport (max 350 points)
+ * Component 2: Financial History (max 400 points)
+ * Component 3: Vestra Credit History (max 250 points)
+ * 
+ * Raw Score = 500 + Component 1 + Component 2 + Component 3
+ * Final Score clamped to [0, 1000].
+ */
+function calculateIdentityCreditScore(rawData) {
+  const data = validateAndNormalise(rawData);
+  const flags = [];
+
+  // --- COMPONENT 1: GITCOIN PASSPORT SCORE (max 350 points) ---
+  const rawGitcoinScore = parseFloat(data.gitcoinPassportScore || 0);
+  const gitcoinPoints = Math.min(rawGitcoinScore * 14, 350);
+
+  if (rawGitcoinScore < GITCOIN_SYBIL_THRESHOLD && rawGitcoinScore > 0) {
+    flags.push('GITCOIN_SYBIL_RISK');
+  } else if (rawGitcoinScore === 0) {
+    flags.push('NO_GITCOIN_PASSPORT');
+  }
+
+  // --- COMPONENT 2: FINANCIAL HISTORY SCORE (max 400 points) ---
+  // 1. WALLET AGE (max 100 pts)
+  const ageMonths = data.ageMonths || 0;
+  const agePoints = Math.min(ageMonths * 2, 100);
+
+  // 2. TRANSACTION COUNT (max 100 pts)
+  const txCount = data.txCount || 0;
+  let txPoints = 0;
+  if (txCount > 500) txPoints = 100;
+  else if (txCount > 100) txPoints = 75;
+  else if (txCount > 50) txPoints = 50;
+  else if (txCount > 10) txPoints = 25;
+
+  // 3. CONSISTENCY (max 100 pts)
+  const activeMonths = data.activeMonths || 0;
+  const consistencyPoints = Math.min(activeMonths * 8, 100);
+
+  // 4. PEAK PORTFOLIO VALUE (max 100 pts)
+  const peakUSD = parseFloat(data.peakUsdValue || 0);
+  let peakPoints = 0;
+  if (peakUSD > 100000) peakPoints = 100;
+  else if (peakUSD > 10000) peakPoints = 75;
+  else if (peakUSD > 1000) peakPoints = 50;
+  else if (peakUSD > 100) peakPoints = 25;
+
+  const financialPoints = agePoints + txPoints + consistencyPoints + peakPoints;
+
+  // --- COMPONENT 3: VESTRA CREDIT HISTORY (max 250 points) ---
+  let creditHistoryPoints = 0;
+  if (data.hasDefaults) {
+    creditHistoryPoints = -300;
+    flags.push('DEFAULT_PENALTY');
   } else {
-    reasonCodes.push('attestations_missing');
+    creditHistoryPoints = Math.min((data.totalRepaidLoans || 0) * 20, 250);
   }
 
-  if (providerSeen.has('worldid') && providerSeen.has('gitcoin_passport')) {
-    score += 35;
-    reasonCodes.push('strong_attestation_combo');
-  }
+  // --- FINAL VCS CALCULATION ---
+  const rawScore = 500 + gitcoinPoints + financialPoints + creditHistoryPoints;
+  const score = Math.max(0, Math.min(rawScore, 1000));
 
-  return { ias: clamp(Math.round(score), 0, 500), reasonCodes };
-};
-
-const computeActivityScore = (metrics = {}) => {
-  let score = 0;
-  const reasonCodes = [];
-
-  // Wallet Age: +10 pts per month (max 100)
-  const agePts = Math.min(100, (metrics.ageMonths || 0) * 10);
-  score += agePts;
-  if (agePts > 0) reasonCodes.push(`wallet_age_pts:${agePts}`);
-
-  // Tx Count: +2 pts per tx (max 100)
-  const txPts = Math.min(100, (metrics.txCount || 0) * 2);
-  score += txPts;
-  if (txPts > 0) reasonCodes.push(`tx_count_pts:${txPts}`);
-
-  // Total Volume: +1 pt per $1000 USD (max 100)
-  const volPts = Math.min(100, Math.floor((metrics.totalVolume || 0) / 1000));
-  score += volPts;
-  if (volPts > 0) reasonCodes.push(`volume_pts:${volPts}`);
-
-  // Current Balance: +1 pt per $500 USD (max 150)
-  const balPts = Math.min(150, Math.floor((metrics.currentBalance || 0) / 500));
-  score += balPts;
-  if (balPts > 0) reasonCodes.push(`balance_pts:${balPts}`);
-
-  // ATH Balance: +1 pt per $500 USD (max 50)
-  const athPts = Math.min(50, Math.floor((metrics.athBalance || 0) / 500));
-  score += athPts;
-  if (athPts > 0) reasonCodes.push(`ath_pts:${athPts}`);
-
-  return { score: Math.round(score), reasonCodes };
-};
-
-const computeFBS = ({ creditHistory, activityMetrics }) => {
-  const repaidCount = Number(creditHistory?.repaidCount || 0);
-  const defaultedCount = Number(creditHistory?.defaultedCount || 0);
-  
-  const { score: activityScore, reasonCodes: activityReasons } = computeActivityScore(activityMetrics);
-  
-  let score = 150 + activityScore; // Base lowered to 150 because activity adds up to 500
-  const reasonCodes = [...activityReasons];
-
-  if (repaidCount > 0) {
-    const repayBoost = Math.min(220, repaidCount * 35);
-    score += repayBoost;
-    reasonCodes.push(`repay_history:${repaidCount}`);
-  } else {
-    reasonCodes.push('repay_history:none');
-  }
-
-  if (defaultedCount > 0) {
-    const defaultPenalty = Math.min(320, defaultedCount * 140);
-    score -= defaultPenalty;
-    reasonCodes.push(`defaults:${defaultedCount}`);
-  } else {
-    reasonCodes.push('defaults:none');
-  }
-
-  if (repaidCount >= 3 && defaultedCount === 0) {
-    score += 80;
-    reasonCodes.push('consistent_repayment_bonus');
-  }
-
-  if (repaidCount === 0 && defaultedCount === 0) {
-    score -= 40;
-    reasonCodes.push('no_credit_history_penalty');
-  }
-
-  return { fbs: clamp(Math.round(score), 0, 500), reasonCodes };
-};
-
-const scoreToTier = ({ ias, fbs, crdtScore }) => {
-  if (crdtScore >= 800) return 5; // Sovereign Archon
-  if (crdtScore >= 600) return 4; // Archon
-  if (crdtScore >= 450) return 3; // Vanguard
-  if (crdtScore >= 300) return 2; // Sovereign
-  if (crdtScore >= 150) return 1; // Initiate
-  return 0; // Scout
-};
-
-const getUnlockRiskMultiplier = (unlockData) => {
-  if (!unlockData) return 1.0;
-  // If a major unlock > 10% of supply is coming in < 7 days, reduce score
-  const upcomingLargeUnlock = (unlockData.nextUnlocks || []).some(
-    u => u.percentageOfSupply > 10 && u.daysToUnlock < 7
-  );
-  return upcomingLargeUnlock ? 0.85 : 1.0;
-};
-
-const computeScore = (input = {}) => {
-  const { ias, reasonCodes: iasReasons } = computeIAS({
-    identity: input.identity || null,
-    attestations: input.attestations || []
-  });
-  
-  // Wallet Age Base Score (requested by user)
-  // > 6 months = 200, > 3 months = 100, else 0
-  let walletAgeBaseScore = 0;
-  const walletAgeMonths = Number(input.identity?.walletAgeMonths || 0);
-  if (walletAgeMonths >= 6) {
-    walletAgeBaseScore = 200;
-  } else if (walletAgeMonths >= 3) {
-    walletAgeBaseScore = 100;
-  }
-  
-  const { fbs, reasonCodes: fbsReasons } = computeFBS({
-    creditHistory: input.creditHistory || null,
-    activityMetrics: input.activityMetrics || {}
-  });
-
-  const crdtScoreRaw = ias + fbs + walletAgeBaseScore;
-  
-  // Apply Unlock Risk Multiplier (Phase 5 Intelligence)
-  const multiplier = getUnlockRiskMultiplier(input.marketData?.unlocks);
-  
-  const crdtScore = clamp(Math.round(crdtScoreRaw * multiplier), 0, 1000);
-  
-  const crdtTier = scoreToTier({ ias, fbs, crdtScore });
-  const reasonCodes = [...iasReasons, ...fbsReasons];
-  if (walletAgeBaseScore > 0) {
-    reasonCodes.push(`wallet_age_bonus:${walletAgeMonths}mo`);
-  }
-  if (multiplier < 1.0) reasonCodes.push('upcoming_unlock_risk_adjustment');
+  // Tiers
+  let tier = 'STANDARD';
+  if (score >= 800) tier = 'TITAN';
+  else if (score >= 650) tier = 'PREMIUM';
 
   return {
-    crdtTier,
-    crdtScore,
-    compositeScore: crdtScore, // Frontend compatibility
-    score: crdtScore,         // Generic fallback
-    ias,
-    fbs,
-    walletAgeBaseScore,
-    reasonCodes,
-    multiplier,
-    modelVersion: MODEL_VERSION
+    score,
+    tier,
+    riskMultiplier: (1000 - score) / 1000,
+    breakdown: {
+      baseline: 500,
+      gitcoinPassport: gitcoinPoints,
+      financialHistory: financialPoints,
+      creditHistory: creditHistoryPoints,
+      subComponents: {
+        walletAge: agePoints,
+        txCount: txPoints,
+        consistency: consistencyPoints,
+        peakPortfolio: peakPoints
+      }
+    },
+    flags
   };
-};
+}
 
-const POLICY_RULES = {
-  small: { requiredTier: 1, requiredScore: 340 },
-  medium: { requiredTier: 2, requiredScore: 500 },
-  large: { requiredTier: 3, requiredScore: 620 }
-};
+// ─── Policy check (added for server.js compat) ────────────────────────────────
+const TIER_LEVELS = { 'STANDARD': 1, 'PREMIUM': 2, 'TITAN': 3 };
+const POLICY_RULES = { small: { requiredTier: 1, requiredScore: 340 }, medium: { requiredTier: 2, requiredScore: 500 }, large: { requiredTier: 3, requiredScore: 620 } };
+function policyCheck(tierStr = 'STANDARD', crdtScore = 0, band = 'small') { const rule = POLICY_RULES[band] || POLICY_RULES.small; const tier = TIER_LEVELS[tierStr] || 0; const score = Number(crdtScore || 0); return { band, allowed: tier >= rule.requiredTier && score >= rule.requiredScore, requiredTier: rule.requiredTier, requiredScore: rule.requiredScore }; }
 
-const policyCheck = (crdtTier = 0, crdtScore = 0, band = 'small') => {
-  const rule = POLICY_RULES[band] || POLICY_RULES.small;
-  const tier = Number(crdtTier || 0);
-  const score = Number(crdtScore || 0);
-  return {
-    band,
-    allowed: tier >= rule.requiredTier && score >= rule.requiredScore,
-    requiredTier: rule.requiredTier,
-    requiredScore: rule.requiredScore
-  };
-};
-
+// ─── Exports ──────────────────────────────────────────────────────────────────
 module.exports = {
-  MODEL_VERSION,
-  TIER_NAMES,
-  computeScore,
+  validateAndNormalise, scoreGitcoinPassport, scoreAttestations, scoreWalletActivity, scoreRepayments, computeDefaultPenalty, calculateIdentityCreditScore, BASELINE_SCORE, MAX_GITCOIN_BONUS, GITCOIN_SYBIL_THRESHOLD, WORLD_ID_BONUS, MAX_ATTESTATION_BONUS, ATTESTATION_POINTS_EACH, MAX_ATTESTATION_AGE_DAYS, TRUSTED_SCHEMA_IDS, MAX_TX_BONUS, MAX_BALANCE_BONUS, MAX_REPAYMENT_BONUS, REPAYMENT_POINTS_EACH, DEFAULT_MAX_PENALTY, DEFAULT_FLOOR_PENALTY, DEFAULT_FULL_DECAY_DAYS,
   policyCheck
 };

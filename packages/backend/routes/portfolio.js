@@ -381,21 +381,53 @@ router.get('/:wallet', async (req, res) => {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Discovery timeout')), 5000))
       ]);
 
-      if (discoveryResult?.staked) {
-        discoveryResult.staked.forEach(s => {
-          if (!illiquidFound.find(i => i.id === s.id)) {
-            illiquidFound.push({
-              ...s,
-              type: 'vested',
-              isLiquid: false,
-              valueUsd: parseFloat(s.valueUsd || '0'),
-              chain: s.chain || 'ethereum',
-              displayName: s.chain === 'evm' ? 'Mainnet' : (s.chain || 'Mainnet')
-            });
-          }
-        });
+      if (discoveryResult) {
+        // VESTED (Illiquid)
+        if (discoveryResult.vesting) {
+          discoveryResult.vesting.forEach(v => {
+            if (!illiquidFound.find(i => i.id === v.id)) {
+              illiquidFound.push({
+                ...v,
+                type: 'vested',
+                isLiquid: false,
+                valueUsd: parseFloat(v.valueUsd || v.pv || '0'),
+                chain: v.chain || 'ethereum',
+                displayName: v.displayName || v.chain || 'Mainnet'
+              });
+            }
+          });
+        }
+        // STAKED (Illiquid)
+        if (discoveryResult.staked) {
+          discoveryResult.staked.forEach(s => {
+            if (!illiquidFound.find(i => i.id === s.id)) {
+              illiquidFound.push({
+                ...s,
+                type: 'vested',
+                isLiquid: false,
+                valueUsd: parseFloat(s.valueUsd || '0'),
+                chain: s.chain || 'ethereum',
+                displayName: s.chain || 'Mainnet'
+              });
+            }
+          });
+        }
+        // TOKENS (Liquid)
+        if (discoveryResult.tokens) {
+          discoveryResult.tokens.forEach(t => {
+            if (!allFoundAssets.find(a => a.tokenAddress?.toLowerCase() === t.contractAddress?.toLowerCase())) {
+              allFoundAssets.push({
+                ...t,
+                type: 'liquid',
+                isLiquid: true,
+                tokenAddress: t.contractAddress,
+                formattedBalance: t.amount,
+                valueUsd: parseFloat(t.value || '0')
+              });
+            }
+          });
+        }
       }
-      // ... same for vesting and tokens ...
     } catch (discoveryErr) {
       console.warn(`[portfolio] Safe discovery skipped: ${discoveryErr.message}`);
     }

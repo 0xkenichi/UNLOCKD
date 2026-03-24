@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+import "../../src/ValuationEngine.sol";
+
+contract ValuationEngineTest is Test {
+    ValuationEngine public engine;
+    address public admin = address(this);
+    address public relayer = address(0x123);
+    address public guardian = address(0x456);
+    address public dummyToken = address(0xABC);
+
+    uint256 constant WAD = 1e18;
+    uint256 constant BPS = 10_000;
+
+    function setUp() public {
+        engine = new ValuationEngine(admin);
+        engine.grantRole(engine.RELAYER_ROLE(), relayer);
+        engine.grantRole(engine.GUARDIAN_ROLE(), guardian);
+        
+        vm.prank(relayer);
+        engine.updateBaseRate(500); // 5% base rate
+    }
+
+    /// @notice Helper to setup base risk params
+    function _setupRiskParams(
+        uint256 ewmaPrice,
+        uint256 lambda,
+        uint256 v30d,
+        uint256 v90d,
+        uint256 vImplied,
+        uint256 dexLiq,
+        uint256 tokenPremium,
+        uint256 liqPremium
+    ) internal {
+        vm.prank(relayer);
+        engine.updateRiskParams(
+            dummyToken,
+            ewmaPrice,
+            lambda,
+            v30d,
+            v90d,
+            vImplied,
+            dexLiq,
+            tokenPremium,
+            liqPremium
+        );
+
+        // Bypass timelock for tests by proposing and warping
+        vm.prank(relayer);
+        engine.proposeOmega(dummyToken, 9000);
+        vm.warp(block.timestamp + engine.OMEGA_TIMELOCK() + 1);
+        engine.finalizeOmega(dummyToken);
+    }
+
+    function test_ComputeDPV_NormalConditions() public {
+        _setupRiskParams(
+            1e18,       // 1 USD EWMA
+            9400,       // 0.94 lambda
+            0.40e18,    // 40% vol 30d
+            0.40e18,    // 40% vol 90d
+            0,          // no implied
+            1_000_000e18, // 1m liquidity depth
+            1000,       // 10% token risk
+            500         // 5% liquidity risk
+        );
+
+        uint256 quantity = 10_000e18;
+        uint256 unlockTime = block.timestamp + 30 days;
+        uint256 loanDuration = 30 days;
+
+        (uint256 dpvUsdc, uint256 ltvBps) = engine.computeDPV(
+            quantity,
+            dummyToken,
+            unlockTime,
+            ValuationEngine.VestingSchedule.CLIFF,
+            loanDuration
+        );
+
+        assertTrue(dpvUsdc > 0, "DPV should be > 0");
+        assertTrue(ltvBps > 0, "LTV should be > 0");
+    }
+
+    // ─── Fuzzing V_regime and Out of bounds ────────────────────────────
+
+    /// @notice Fuzz extreme volatility to ensure it gracefully handles overflow/underflow
+    function testFuzz_ComputeDPV_VolRegime(
+        uint256 v30d,
+        uint256 v90d,
+        uint256 vImplied
+    ) public {
+        // Bound inputs to realistic 18-dec extremes (up to 500% vol)
+        v30d = bound(v30d, 0, 5e18);
+        v90d = bound(v90d, 0, 5e18);
+        vImplied = bound(vImplied, 0, 5e18);
+
+        _setupRiskParams(
+            1e18, 9400, v30d, v90d, vImplied, 1_000_000e18, 1000, 500
+        );
+
+        uint256 quantity = 10_000e18;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        (uint256 dpvUsdc, uint256 ltvBps) = engine.computeDPV(
+            quantity,
+            dummyToken,
+            unlockTime,
+            ValuationEngine.VestingSchedule.CLIFF,
+            30 days
+        );
+
+        // Vol penalty is capped at MAX_V_REGIME (0.95e18), so DPV > 0 always
+        assertTrue(dpvUsdc > 0, "DPV should never hit 0 purely from vol");
+        
+        // High vol should drop LTV to floor
+        if (v30d > 1e18 || vImplied > 1e18) {
+            assertEq(ltvBps, 500, "LTV should be floored at 5% in hyper-vol regime");
+        }
+    }
+
+    /// @notice Fuzz zero liquidity edge cases
+    function testFuzz_ZeroLiquidityGracefulFallback(uint256 quantityWad) public {
+        quantityWad = bound(quantityWad, 1e18, 1_000_000_000e18);
+
+        // Setup with ZERO liquidity depth
+        _setupRiskParams(
+            1e18, 9400, 0.40e18, 0.40e18, 0, 0 /* 0 liquidity! */, 1000, 500
+        );
+
+        uint256 unlockTime = block.timestamp + 30 days;
+
+        (uint256 dpvUsdc, ) = engine.computeDPV(
+            quantityWad,
+            dummyToken,
+            unlockTime,
+            ValuationEngine.VestingSchedule.CLIFF,
+            30 days
+        );
+
+        // Extract expected gross value in USDC (6-dec)
+        uint256 grossUsd = (quantityWad * 1e18) / WAD; // 18-dec
+        
+        // Zero liquidity implies a 0.40e18 multiplier
+        // Verify mathematically it returns ~40% of the normal factored amount
+        assertTrue(dpvUsdc > 0, "DPV should be > 0 due to 40% hard floor");
+    }
+
+    /// @notice Fuzz discount rate `r` extreme values to test exponential decay Taylor approximation
+    function testFuzz_ExponentialDecay_TaylorApproximation(
+        uint256 tDays,
+        uint256 rBase,
+        uint256 tokenPrem,
+        uint256 liqPrem
+    ) public {
+        tDays = bound(tDays, 1, 365 * 5); // Max 5 years
+        rBase = bound(rBase, 300, 5000); 
+        tokenPrem = bound(tokenPrem, 0, 5000);
+        liqPrem = bound(liqPrem, 0, 5000);
+
+        _setupRiskParams(
+            1e18, 9400, 0.20e18, 0.20e18, 0, 1_000_000e18, tokenPrem, liqPrem
+        );
+
+        uint256 unlockTime = block.timestamp + (tDays * 1 days);
+
+        // Should never revert
+        (uint256 dpvUsdc, ) = engine.computeDPV(
+            10_000e18,
+            dummyToken,
+            unlockTime,
+            ValuationEngine.VestingSchedule.CLIFF,
+            30 days
+        );
+        assertTrue(dpvUsdc > 0 || dpvUsdc == 0); // At extreme T and R, it might round to 0, but must not revert.
+    }
+}

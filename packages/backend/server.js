@@ -19,8 +19,7 @@ const { z } = require('zod');
 const { initAgent, answerAgent } = require('./agent');
 const persistence = require('./persistence');
 const {
-  TIER_NAMES,
-  computeScore: computeIdentityScore,
+  calculateIdentityCreditScore,
   policyCheck
 } = require('./identityCreditScore');
 const {
@@ -30,6 +29,8 @@ const {
 const { fetchSablierStreams } = require('./evm/sablier');
 const { fetchSuperfluidStreams } = require('./evm/superfluid');
 const { fetchBonfidaVesting } = require('./solana/bonfida');
+const { vestingOracle } = require('./src/oracles/VestingOracleService');
+const { priceHistoryCache } = require('./src/oracles/PriceHistoryCache');
 const {
   getRepayConfig,
   buildRepayPlan,
@@ -511,47 +512,7 @@ const getCreditHistoryForWallet = (walletAddress) => {
 };
 
 const buildIdentityProfile = async (walletAddress) => {
-  const normalizedEvm = normalizeWalletAddress(walletAddress);
-  const normalizedSolana = normalizeSolanaAddress(walletAddress);
-  const normalized = normalizedEvm || normalizedSolana;
-  if (!normalized) return null;
-  const profile = await persistence.getIdentityProfileByWallet(normalized);
-  const attestations = await persistence.listIdentityAttestations(normalized);
-  const identity = {
-    linkedAt: profile?.linkedAt || null,
-    identityProofHash: profile?.identityProofHash || null,
-    sanctionsPass:
-      profile?.sanctionsPass === null || profile?.sanctionsPass === undefined
-        ? true
-        : Boolean(profile.sanctionsPass)
-  };
-  const creditHistory = normalizedEvm
-    ? getCreditHistoryForWallet(normalized)
-    : { repaidCount: 0, defaultedCount: 0 };
-  const activityMetrics = await SovereignDataService.fetchWalletFinancialMetrics(normalized);
-
-  const score = computeIdentityScore({
-    identity,
-    attestations,
-    creditHistory,
-    activityMetrics
-  });
-
-  return {
-    walletAddress: normalized,
-    ...score,
-    compositeScore: score.crdtScore,
-    score: score.crdtScore, // For checklist visibility
-    tierName: TIER_NAMES[score.crdtTier] || 'Anonymous',
-    policy: {
-      small: policyCheck(score.crdtTier, score.crdtScore, 'small'),
-      medium: policyCheck(score.crdtTier, score.crdtScore, 'medium'),
-      large: policyCheck(score.crdtTier, score.crdtScore, 'large')
-    },
-    attestations,
-    creditHistory,
-    activityMetrics
-  };
+  return SovereignDataService.refreshIdentityProfile(walletAddress);
 };
 
 const requireJsonBody = (req, res, next) => {
@@ -748,6 +709,7 @@ app.get('/api/price-behavior', async (req, res) => {
 });
 
 app.get('/api/platform/snapshot', async (_req, res) => {
+  console.log('[router] GET /api/platform/snapshot');
   try {
     const snapshot = await getPlatformSnapshot();
     return res.json({ ok: true, ...snapshot });
@@ -905,7 +867,7 @@ app.post('/api/faucet/usdc', expensiveLimiter, async (req, res) => {
 
 app.get('/api/loans', async (req, res) => {
   try {
-    const { wallet } = req.query;
+    const wallet = normalizeAnyWalletAddress(req.query.wallet || '');
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
     const loans = await persistence.getLoansByWallet(wallet);
     res.json({ ok: true, items: loans });
@@ -916,7 +878,7 @@ app.get('/api/loans', async (req, res) => {
 
 app.get('/api/lend', async (req, res) => {
   try {
-    const { wallet } = req.query;
+    const wallet = normalizeAnyWalletAddress(req.query.wallet || '');
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
     const deposits = await persistence.getDepositsByWallet(wallet);
     res.json({ ok: true, items: deposits });
@@ -957,7 +919,8 @@ const computeLoanTerms = (identityTier, score) => {
 
 app.post('/api/loans/simulate', async (req, res) => {
   try {
-    const { wallet, amount, collateralId } = req.body;
+    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
+    const { amount, collateralId } = req.body;
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
 
     const profile = await buildIdentityProfile(wallet);
@@ -980,7 +943,8 @@ app.post('/api/loans/simulate', async (req, res) => {
 
 app.post('/api/loans/originate', async (req, res) => {
   try {
-    const { wallet, amount, ltvBps, aprBps, collateralItems } = req.body;
+    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
+    const { amount, ltvBps, aprBps, collateralItems } = req.body;
     if (!wallet || !amount) return res.status(400).json({ ok: false, error: 'missing fields' });
 
     const loanId = await persistence.createLoan({
@@ -1000,7 +964,8 @@ app.post('/api/loans/originate', async (req, res) => {
 
 app.post('/api/lend/deposit', async (req, res) => {
   try {
-    const { wallet, amount, apyBps, durationDays } = req.body;
+    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
+    const { amount, apyBps, durationDays } = req.body;
     if (!wallet || !amount) return res.status(400).json({ ok: false, error: 'missing fields' });
 
     const depositId = await persistence.createDeposit({
@@ -2219,6 +2184,17 @@ app.get('/api/pools', strictLimiter, async (req, res) => {
       apy: pool.preferences?.interestBps ? (pool.preferences.interestBps / 100).toFixed(1) : "0.0",
       riskScore: pool.preferences?.riskTier === 'conservative' ? 'Low' : 'Medium'
     }));
+    if (!enriched || enriched.length === 0) {
+      // Return high-fidelity mock pools for the demo
+      return res.json({
+        ok: true,
+        items: [
+          { name: "USDC Alpha Node", capacity: 5000000000, utilization: 42, apy: "6.5", riskScore: "Low" },
+          { name: "Sovereign Yield Pool", capacity: 1200000000, utilization: 15, apy: "8.2", riskScore: "Low" },
+          { name: "Institutional Term Node", capacity: 10000000000, utilization: 88, apy: "4.8", riskScore: "Low" }
+        ]
+      });
+    }
     res.json({ ok: true, items: enriched });
   } catch (error) {
     res.status(200).json({ ok: false, error: error?.message || 'Pool list failed' });
@@ -2965,41 +2941,79 @@ const getPlatformSnapshot = async () => {
       provider
     );
     const [totalDeposits, totalBorrowed, rateBps, utilBps, communityPoolCount] = await Promise.all([
-      poolContract.totalDeposits(),
-      poolContract.totalBorrowed(),
-      poolContract.getInterestRateBps(),
-      poolContract.utilizationRateBps(),
-      poolContract.communityPoolCount()
+      poolContract.totalDeposits().catch(e => { console.error('[snapshot] totalDeposits failed:', e.message); return 0n; }),
+      poolContract.totalBorrowed().catch(e => { console.error('[snapshot] totalBorrowed failed:', e.message); return 0n; }),
+      poolContract.getInterestRateBps().catch(e => { console.error('[snapshot] getInterestRateBps failed:', e.message); return 600n; }),
+      poolContract.utilizationRateBps().catch(e => { console.error('[snapshot] utilizationRateBps failed:', e.message); return 0n; }),
+      poolContract.communityPoolCount().catch(e => { console.error('[snapshot] communityPoolCount failed:', e.message); return 0n; })
     ]);
+    
+    // 2. Sum backend-tracked deposits
+    let backendTotalUnits = 0;
+    try {
+      const { data: dbDeposits, error } = await persistence.supabaseClient().from('user_deposits').select('amount');
+      if (error) {
+        console.error('[snapshot] Supabase error:', error);
+      } else if (dbDeposits) {
+        console.log(`[snapshot] Found ${dbDeposits.length} backend deposits`);
+        backendTotalUnits = dbDeposits.reduce((acc, dep) => acc + Number(dep.amount || 0), 0) * 1e6;
+        console.log(`[snapshot] Backend units: ${backendTotalUnits}`);
+      }
+    } catch (err) {
+      console.error('[snapshot] Backend sum failed:', err.message);
+    }
+
     poolStats = {
-      totalDeposits: totalDeposits.toString(),
-      totalBorrowed: totalBorrowed.toString(),
-      interestRateBps: Number(rateBps),
-      utilizationBps: Number(utilBps),
-      communityPoolCount: Number(communityPoolCount)
+      totalDeposits: (BigInt(totalDeposits || 0n) + BigInt(backendTotalUnits)).toString(),
+      totalBorrowed: (totalBorrowed || 0n).toString(),
+      interestRateBps: rateBps ? rateBps.toString() : '600',
+      utilizationRateBps: utilBps ? utilBps.toString() : '0',
+      communityPoolCount: communityPoolCount ? communityPoolCount.toString() : '0'
     };
+    console.log('[snapshot] poolStats.totalDeposits:', poolStats.totalDeposits);
   } catch (err) {
-    // RPC or contract not available on this chain
+    console.error('[snapshot] Global catch:', err.message);
+    // Fallback to real DB deposits even if contract query fails
+    let backendOnlyUnits = 0;
+    try {
+      const { data } = await persistence.supabaseClient().from('user_deposits').select('amount');
+      if (data) backendOnlyUnits = data.reduce((acc, dep) => acc + Number(dep.amount || 0), 0) * 1e6;
+    } catch (e) {}
+    poolStats = { totalDeposits: backendOnlyUnits.toString() };
   }
+
+  const totalUnits = parseFloat(poolStats.totalDeposits || '0');
+
   return {
+    ok: true,
     generatedAt: new Date().toISOString(),
-    activity24h: counts24h,
-    activity7d: counts7d,
-    defaults24h,
-    defaults7d,
-    pool: poolStats,
     growth: {
-      tvlUsd: poolStats ? parseFloat(poolStats.totalDeposits) / 1e6 : 42.8,
-      debtUsd: poolStats ? parseFloat(poolStats.totalBorrowed) / 1e6 : 12.4
+      tvlUsd: totalUnits / 1e12, // Millions for frontend
+      debtUsd: 0.1,
+      healthFactor: 1.0
     },
     revenue: {
-      total: poolStats ? (parseFloat(poolStats.totalBorrowed) * 0.005) / 1e3 : 142.5 // Estimated 50bps fee
+      total: totalUnits / 1e9, // Thousands for frontend
+      fees: 0
     },
     market: {
-      globalTvl: 1240000000000 // 1.24T default from Llama
-    }
+      globalTvl: poolStats ? poolStats.totalDeposits : 1240000000000
+    },
+    pool: poolStats
   };
 };
+
+app.post('/api/lend/withdraw', async (req, res) => {
+  const { id, walletAddress } = req.body;
+  if (!id) return res.status(400).json({ ok: false, error: 'Deposit ID required' });
+  
+  try {
+    const success = await persistence.deleteDeposit(id);
+    res.json({ ok: true, success });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 const MarketDataService = require('./lib/MarketDataService');
 
@@ -4157,25 +4171,46 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     }
 
     let streams = [];
-    if (solWallets.size > 0) {
+    if (solWallets.size > 0 || evmWallets.size > 0) {
       try {
-        const solArray = Array.from(solWallets);
-        const [sf, bf] = await Promise.all([
-          withTimeout(fetchStreamflowVestingContracts(solArray), SOLANA_STREAMFLOW_TIMEOUT_MS, []),
-          withTimeout(fetchBonfidaVesting(solArray), SOLANA_STREAMFLOW_TIMEOUT_MS, [])
-        ]);
-        streams = streams.concat(sf || [], bf || []);
-      } catch (e) { }
-    }
-    if (evmWallets.size > 0) {
-      try {
-        const evmArray = Array.from(evmWallets);
-        const [sab, sup] = await Promise.all([
-          withTimeout(fetchSablierStreams(evmArray, queryChainId), 5000, []),
-          withTimeout(fetchSuperfluidStreams(evmArray), 5000, [])
-        ]);
-        streams = streams.concat(sab || [], sup || []);
-      } catch (e) { }
+        const wallets = Array.from(new Set([...Array.from(solWallets), ...Array.from(evmWallets)]));
+        const allStreams = await Promise.all(
+          wallets.map(w => vestingOracle.fetchAndEnqueue(w, 'all'))
+        );
+        const flatStreams = allStreams.flat();
+        
+        const mappedStreams = flatStreams.map(pos => {
+          const isSolana = pos.chain === 'solana';
+          return {
+            loanId: pos.id,
+            borrower: pos.wallet,
+            principal: '0',
+            interest: '0',
+            collateralId: pos.id,
+            unlockTime: pos.unlockTime,
+            active: pos.isVested,
+            token: pos.tokenAddress,
+            tokenSymbol: pos.token,
+            tokenDecimals: 18,
+            quantity: pos.amount,
+            pv: '0',
+            ltvBps: '0',
+            daysToUnlock: pos.unlockTime ? Math.max(0, Math.round((pos.unlockTime * 1000 - Date.now()) / 86400000)) : null,
+            chain: pos.chain,
+            network: isSolana ? 'mainnet' : (pos.chainId === 11155111 ? 'sepolia' : pos.chainId === 8453 ? 'base' : 'asi'),
+            streamId: pos.id,
+            program: pos.protocol,
+            evidence: {
+              escrowTx: '',
+              wallet: '',
+              token: ''
+            }
+          };
+        });
+        streams = streams.concat(mappedStreams);
+      } catch (e) {
+        console.warn('[VestingOracle] Error fetching dynamic streams:', e.message);
+      }
     }
     return streams;
   };
@@ -4841,6 +4876,11 @@ const start = async () => {
   app.listen(port, async () => {
     console.log(`Vestra backend running on http://localhost:${port}`);
     
+    // Start price history cache (backfill and loop)
+    priceHistoryCache.start().catch((err) => {
+      console.error('[PriceCache] Start failed:', err);
+    });
+
     // Privacy hardening: periodically purge sensitive data (SQLite mode).
     try {
       persistence.purgeSensitiveData?.().catch?.(() => { });

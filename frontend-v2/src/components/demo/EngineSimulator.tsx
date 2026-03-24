@@ -249,9 +249,9 @@ export default function AdvancedSimulator() {
               <div className="w-10 h-10 bg-accent-teal/10 border border-accent-teal/20 rounded-xl flex items-center justify-center">
                 <Layers className="text-accent-teal w-5 h-5" />
               </div>
-              <h1 className="text-3xl font-black uppercase tracking-tighter italic">Vestra Engine V2</h1>
+              <h1 className="text-3xl font-black uppercase tracking-tighter italic redaction-text">Vestra Engine V2</h1>
             </div>
-            <p className="text-secondary tracking-[0.15em] uppercase text-[10px] font-black">Advanced Risk Modeling • ${GLOBAL_VESTED_TOTAL}T Locked Inventory</p>
+            <p className="text-secondary tracking-[0.15em] uppercase text-[10px] font-black redaction-text">Advanced Risk Modeling • ${GLOBAL_VESTED_TOTAL}T Locked Inventory</p>
           </div>
 
           <div className="flex items-center gap-3">

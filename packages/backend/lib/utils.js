@@ -33,7 +33,7 @@ const toBigIntSafe = (value) => {
 const normalizeWalletAddress = (value) => {
   if (!value || typeof value !== 'string') return '';
   try {
-    return ethers.getAddress(value.trim());
+    return ethers.getAddress(value.trim()).toLowerCase();
   } catch {
     return '';
   }

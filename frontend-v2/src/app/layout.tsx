@@ -12,7 +12,6 @@ const inter = Inter({
 
 const montserrat = Montserrat({
   subsets: ["latin"],
-  variable: "--font-heading",
 });
 
 const jetbrainsMono = JetBrains_Mono({

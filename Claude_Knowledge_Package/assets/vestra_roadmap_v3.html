@@ -1,0 +1,189 @@
+
+<style>
+  .phase { margin-bottom:20px; }
+  .phase-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .phase-label { font-size:11px; font-weight:500; color:var(--color-text-secondary); letter-spacing:.06em; text-transform:uppercase; }
+  .phase-pct { font-size:11px; color:var(--color-text-tertiary); margin-left:auto; min-width:32px; text-align:right; }
+  .track { height:5px; border-radius:3px; background:var(--color-border-tertiary); margin-bottom:10px; overflow:hidden; }
+  .fill { height:100%; border-radius:3px; }
+  .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .card { border-radius:8px; border:1px solid var(--color-border-tertiary); padding:9px 12px 9px 14px; position:relative; overflow:hidden; background:var(--color-background-secondary); cursor:pointer; transition:border-color .15s; }
+  .card:hover { border-color:var(--color-border-secondary); }
+  .accent { position:absolute; left:0; top:0; bottom:0; width:3px; }
+  .card-title { font-size:13px; font-weight:500; color:var(--color-text-primary); margin-bottom:1px; }
+  .card-sub { font-size:11px; color:var(--color-text-secondary); margin-bottom:5px; }
+  .badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:500; padding:2px 7px; border-radius:10px; }
+  .dot { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+  .b-done    { background:#E1F5EE; color:#085041; } .b-done    .dot { background:#1D9E75; }
+  .b-part    { background:#FAEEDA; color:#633806; } .b-part    .dot { background:#BA7517; }
+  .b-todo    { background:#FAECE7; color:#712B13; } .b-todo    .dot { background:#D85A30; }
+  @media(prefers-color-scheme:dark){
+    .b-done  { background:#04342C; color:#9FE1CB; }
+    .b-part  { background:#412402; color:#FAC775; }
+    .b-todo  { background:#4A1B0C; color:#F5C4B3; }
+  }
+  .overall { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:10px; border:1px solid var(--color-border-tertiary); background:var(--color-background-secondary); margin-bottom:20px; }
+  .ov-label { font-size:12px; color:var(--color-text-secondary); }
+  .ov-pct { font-size:20px; font-weight:500; color:var(--color-text-primary); margin-left:auto; }
+  .ov-track { flex:1; height:8px; border-radius:4px; background:var(--color-border-tertiary); overflow:hidden; }
+  .ov-fill { height:100%; border-radius:4px; background:#1D9E75; }
+</style>
+
+<div style="padding:4px 0">
+
+<!-- Overall -->
+<div class="overall">
+  <div>
+    <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:2px">Overall progress</div>
+    <div class="ov-label">7 of 15 items done or verified · 3 partial · 5 not started</div>
+  </div>
+  <div class="ov-track"><div class="ov-fill" style="width:46%"></div></div>
+  <div class="ov-pct">46%</div>
+</div>
+
+<!-- Phase 1 — 100% (all 3 now verified) -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-label">Phase 1 — Test &amp; harden</span>
+    <span class="phase-pct">100%</span>
+  </div>
+  <div class="track"><div class="fill" style="width:100%;background:#1D9E75"></div></div>
+  <div class="cards">
+    <div class="card" onclick="sendPrompt('Show me the ValuationEngine.t.sol Foundry fuzz tests')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">ValuationEngine tests</div>
+      <div class="card-sub">3 fuzz tests verified</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Show me the dDPVService integration tests')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">dDPVService tests</div>
+      <div class="card-sub">45 cases — Vitest</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Show me identityCreditScore v2 hardening')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">VCS hardening</div>
+      <div class="card-sub">Att. cap + decay + 56 tests</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 2 — 100% (all 3 complete) -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-label">Phase 2 — Wire up</span>
+    <span class="phase-pct">100%</span>
+  </div>
+  <div class="track"><div class="fill" style="width:100%;background:#1D9E75"></div></div>
+  <div class="cards">
+    <div class="card" onclick="sendPrompt('Wire VestingOracleService into dDPVService via scheduleUpdate hook')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">Oracle → dDPV wiring</div>
+      <div class="card-sub">Wired via scheduleUpdate() hook</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Add ASI Chain to CHAIN_CONFIG in dDPVService')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">Multi-chain resolver</div>
+      <div class="card-sub">Base + ASI Chain supported</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Replace Streamflow mock with real SDK in VestingOracleService')">
+      <div class="accent" style="background:#1D9E75"></div>
+      <div class="card-title">Solana real feed</div>
+      <div class="card-sub">Streamflow SDK v9+ live</div>
+      <span class="badge b-done"><span class="dot"></span>Done</span>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 3 — 17% (1 partial, 2 not started) -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-label">Phase 3 — Oracle infra</span>
+    <span class="phase-pct">17%</span>
+  </div>
+  <div class="track"><div class="fill" style="width:17%;background:#BA7517"></div></div>
+  <div class="cards">
+    <div class="card" onclick="sendPrompt('Build the PriceHistoryCache service that writes 90d candles to Redis')">
+      <div class="accent" style="background:#BA7517"></div>
+      <div class="card-title">Price history cache</div>
+      <div class="card-sub">Consumer built, no writer</div>
+      <span class="badge b-part"><span class="dot"></span>Partial</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Build the Superfluid CFAv1 FlowCreated indexer')">
+      <div class="accent" style="background:#D85A30"></div>
+      <div class="card-title">Superfluid indexer</div>
+      <div class="card-sub">Not started</div>
+      <span class="badge b-todo"><span class="dot"></span>Not started</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Build the AAVE USDC base rate oracle for dDPVService')">
+      <div class="accent" style="background:#D85A30"></div>
+      <div class="card-title">Base rate oracle</div>
+      <div class="card-sub">Not started</div>
+      <span class="badge b-todo"><span class="dot"></span>Not started</span>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 4 — 50% (3 partial) -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-label">Phase 4 — VCS complete</span>
+    <span class="phase-pct">50%</span>
+  </div>
+  <div class="track"><div class="fill" style="width:50%;background:#BA7517"></div></div>
+  <div class="cards">
+    <div class="card" onclick="sendPrompt('Implement Gitcoin Passport live API fetcher for VCS engine')">
+      <div class="accent" style="background:#BA7517"></div>
+      <div class="card-title">Gitcoin Passport feed</div>
+      <div class="card-sub">Scored, no live fetch</div>
+      <span class="badge b-part"><span class="dot"></span>Partial</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Implement World ID Semaphore proof verifier for VCS')">
+      <div class="accent" style="background:#BA7517"></div>
+      <div class="card-title">World ID verifier</div>
+      <div class="card-sub">Scored, no live fetch</div>
+      <span class="badge b-part"><span class="dot"></span>Partial</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Build EAS attestation resolver with live on-chain lookup')">
+      <div class="accent" style="background:#BA7517"></div>
+      <div class="card-title">EAS resolver</div>
+      <div class="card-sub">Schema model done, no RPC</div>
+      <span class="badge b-part"><span class="dot"></span>Partial</span>
+    </div>
+  </div>
+</div>
+
+<!-- Phase 5 — 0% -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-label">Phase 5 — Deploy &amp; monitor</span>
+    <span class="phase-pct">0%</span>
+  </div>
+  <div class="track"><div class="fill" style="width:0%;background:#888780"></div></div>
+  <div class="cards">
+    <div class="card" onclick="sendPrompt('Write deploy_multichain.ts for ValuationEngine v2 on Base and ASI Chain')">
+      <div class="accent" style="background:#D85A30"></div>
+      <div class="card-title">Mainnet deploy scripts</div>
+      <div class="card-sub">Addresses still 0x...</div>
+      <span class="badge b-todo"><span class="dot"></span>Not started</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Build the Omega AI Watcher monitoring dashboard')">
+      <div class="accent" style="background:#D85A30"></div>
+      <div class="card-title">Omega dashboard</div>
+      <div class="card-sub">Not started</div>
+      <span class="badge b-todo"><span class="dot"></span>Not started</span>
+    </div>
+    <div class="card" onclick="sendPrompt('Set up Citadel circuit breaker alerts')">
+      <div class="accent" style="background:#D85A30"></div>
+      <div class="card-title">Citadel alerts</div>
+      <div class="card-sub">Not started</div>
+      <span class="badge b-todo"><span class="dot"></span>Not started</span>
+    </div>
+  </div>
+</div>
+
+</div>
