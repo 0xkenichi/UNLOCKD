@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useGasPrice, useEstimateGas } from 'wagmi';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { parseUnits, formatUnits } from 'viem';
+import { parseUnits, formatUnits, formatEther } from 'viem';
 import { useContracts } from '@/hooks/useVestraContracts';
 import { LENDING_POOL_ABI } from '@/abis/LendingPool';
 import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
@@ -33,6 +33,7 @@ export default function LendPage() {
   const [amount,   setAmount]   = useState('');
   const [depositType, setDepositType] = useState<'VARIABLE' | 'FIXED'>('VARIABLE');
   const [duration, setDuration] = useState(DURATION_OPTIONS[0]);
+  const [gasSpeed, setGasSpeed] = useState<'LOW' | 'STANDARD'>('STANDARD');
 
   // ─── Direct Lending Data ───────────────────────────────────────────────────
   const { data: openClaims } = useQuery({
@@ -68,6 +69,27 @@ export default function LendPage() {
     args:         [address!],
     query:        { enabled: !!address },
   });
+
+  // ─── Gas Estimation ────────────────────────────────────────────────────────
+  const { data: gasPriceData } = useGasPrice();
+  const { data: estimatedGas } = useEstimateGas({
+    account: address,
+    address:      contracts.lendingPool as `0x${string}`,
+    abi:          LENDING_POOL_ABI,
+    functionName: 'deposit',
+    args:         [
+      parseUnits(amount || '0', 6), 
+      depositType === 'VARIABLE' ? 0 : 1, 
+      depositType === 'VARIABLE' ? 0n : BigInt(duration.seconds / 86400)
+    ],
+    query: { enabled: !!address && Number(amount) > 0 },
+  });
+
+  const MOCK_ETH_PRICE = 3200; // For demo display
+  const gasTotalFixed = (BigInt(estimatedGas || 0) * BigInt(gasPriceData || 0));
+  const gasCostUsd = estimatedGas ? Number(formatEther(gasTotalFixed)) * MOCK_ETH_PRICE : 0.42; // Fallback to 0.42 for demo feel
+  const lowGasUsd = gasCostUsd * 0.8;
+  const standardGasUsd = gasCostUsd;
 
   // ─── Derived Stats ──────────────────────────────────────────────────────────
   const displayVariableApy = variableApyBps ? Number(variableApyBps) : 450;
@@ -175,6 +197,35 @@ export default function LendPage() {
                 />
               </div>
 
+              {/* Gas Fee Selection */}
+              <div>
+                <label className="text-xs text-[#9C9A92] mb-2 block uppercase tracking-tighter">Gas Speed (Network Fee)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setGasSpeed('LOW')}
+                    className={cn(
+                      "py-2 rounded-lg border transition-all text-xs font-medium",
+                      gasSpeed === 'LOW' 
+                        ? "bg-[#1D9E75]/20 border-[#1D9E75] text-[#5DCAA5]" 
+                        : "bg-white/5 border-white/10 text-[#9C9A92] hover:border-white/20"
+                    )}
+                  >
+                    Low (${lowGasUsd.toFixed(2)})
+                  </button>
+                  <button
+                    onClick={() => setGasSpeed('STANDARD')}
+                    className={cn(
+                      "py-2 rounded-lg border transition-all text-xs font-medium",
+                      gasSpeed === 'STANDARD' 
+                        ? "bg-[#1D9E75]/20 border-[#1D9E75] text-[#5DCAA5]" 
+                        : "bg-white/5 border-white/10 text-[#9C9A92] hover:border-white/20"
+                    )}
+                  >
+                    Standard (${standardGasUsd.toFixed(2)})
+                  </button>
+                </div>
+              </div>
+
               {depositType === 'FIXED' && (
                 <div>
                   <label className="text-xs text-[#9C9A92] mb-2 block uppercase tracking-tighter">Choose Lock Period</label>
@@ -208,19 +259,31 @@ export default function LendPage() {
                   <span className="text-[#5DCAA5] font-bold">{(effectiveApy / 100).toFixed(2)}%</span>
                 </div>
                 <div className="flex justify-between text-sm">
+                  <span className="text-[#9C9A92]">Protocol Fee (0.2%)</span>
+                  <span className="text-[#E8E6DF]">{amount ? formatUsd(Number(amount) * 0.002) : '$0.00'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
                   <span className="text-[#9C9A92]">Lock Status</span>
                   <span className={depositType === 'VARIABLE' ? "text-[#5DCAA5]" : "text-amber-500"}>
                     {depositType === 'VARIABLE' ? 'Instant Exit' : `${duration.seconds / 86400} Days Locked`}
                   </span>
                 </div>
+                <div className="pt-2 border-t border-white/5 flex justify-between text-sm font-bold">
+                  <span className="text-[#E8E6DF]">Total Cost</span>
+                  <span className="text-[#E8E6DF]">
+                    {amount ? formatUsd(Number(amount) + (gasSpeed === 'LOW' ? lowGasUsd : standardGasUsd) + (Number(amount) * 0.002)) : '-'}
+                  </span>
+                </div>
               </div>
 
-              {depositType === 'FIXED' && (
-                <div className="flex gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-500 leading-relaxed">
-                  <span className="text-xl">⚠️</span>
-                  <span>Early withdrawal burns 10% of principal to the insurance fund. Only for committed lenders.</span>
-                </div>
-              )}
+              <div className="flex gap-3 p-3 rounded-lg bg-[#1D9E75]/10 border border-[#1D9E75]/20 text-[10px] text-[#5DCAA5] leading-relaxed">
+                <span className="text-lg">🛡️</span>
+                <span>
+                  {depositType === 'FIXED' 
+                    ? `Fixed penalty of 2.0% applies if withdrawn before ${duration.label}.`
+                    : 'Variable penalty applies based on your active lock period and time remaining.'}
+                </span>
+              </div>
 
               <TxButton
                 onClick={handleDeposit}

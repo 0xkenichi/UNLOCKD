@@ -20,6 +20,7 @@ This roadmap defines the path from MVP security posture to production-grade read
 Deliverables:
 
 - Updated `docs/SECURITY.md`
+- **Technical Debt & Risk Dashboard (Internal)**
 - Privileged role matrix
 - Incident response runbook
 

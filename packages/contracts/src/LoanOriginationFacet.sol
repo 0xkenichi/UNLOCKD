@@ -168,12 +168,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         if (params.borrowAmount > maxBorrow) revert ExceedsLTV();
 
         // Rate: 8% base + 3% per concurrent slice
-        uint256 concurrentSlices = 0;
-        for (uint256 i = 0; i < loanCount; i++) {
-            if (loans[i].borrower == msg.sender && loans[i].active) {
-                concurrentSlices++;
-            }
-        }
+        uint256 concurrentSlices = activeLoansCount[msg.sender];
         uint256 interestRateBps = 800 + (concurrentSlices * 300);
 
         if (autoRepayEligible && autoRepayInterestDiscountBps > 0) {
@@ -249,6 +244,12 @@ contract LoanOriginationFacet is LoanManagerStorage {
             }
         }
         loanCount += 1;
+        // Optimization: O(1) active loan count
+        if (params.isPrivate) {
+            activeLoansCount[msg.sender] += 1;
+        } else {
+            activeLoansCount[msg.sender] += 1;
+        }
 
         if (address(isolatedPools[rank]) != address(0)) {
             isolatedPools[rank].lend(msg.sender, params.borrowAmount);

@@ -214,6 +214,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         }
 
         loan.active = false;
+        activeLoansCount[loan.borrower] -= 1;
         lenderNFT.burn(loanId);
         emit LoanSettled(loanId, true);
     }
@@ -318,6 +319,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         }
 
         loan.active = false;
+        activeLoansCount[loan.vault] -= 1;
         emit PrivateLoanSettled(loanId, true);
     }
 
@@ -366,6 +368,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         loan.interest -= repayInterest;
         inOTCBuyback[loanId] = false;
         loan.active = false;
+        activeLoansCount[loan.borrower] -= 1;
         if (address(loanNFT) != address(0)) {
             loanNFT.settleProof(loanId);
         }
@@ -455,6 +458,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
 
         if (loan.principal == 0 && loan.interest == 0) {
             loan.active = false;
+            activeLoansCount[loan.borrower] -= 1;
             if (address(loanNFT) != address(0)) {
                 loanNFT.settleProof(loanId);
             }
@@ -515,6 +519,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
 
         if (loan.principal == 0 && loan.interest == 0) {
             loan.active = false;
+            activeLoansCount[loan.vault] -= 1;
             adapter.transferCollateral(loan.collateralId, loan.vault);
             emit PrivateLoanSettled(loanId, false);
         }

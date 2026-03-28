@@ -1,0 +1,420 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans, Inter, sans-serif); }
+  .db { padding: 1.25rem 0; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 0.85rem 1rem; }
+  .metric-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
+  .metric-value { font-size: 22px; font-weight: 500; color: var(--color-text-primary); }
+  .metric-sub { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
+  .section-title { font-size: 13px; font-weight: 500; color: var(--color-text-secondary); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab { font-size: 13px; padding: 5px 14px; border-radius: 99px; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+  .tab.active { background: var(--color-background-secondary); color: var(--color-text-primary); border-color: var(--color-border-primary); }
+  .debt-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.5rem; }
+  .debt-item { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 0.9rem 1rem; cursor: pointer; transition: border-color 0.15s; }
+  .debt-item:hover { border-color: var(--color-border-secondary); }
+  .debt-item.expanded { border-color: var(--color-border-primary); }
+  .debt-row { display: flex; align-items: center; gap: 10px; }
+  .sev { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+  .sev-HIGH { background: #FAECE7; color: #993C1D; }
+  .sev-MEDIUM { background: #FAEEDA; color: #854F0B; }
+  .sev-LOW { background: #EAF3DE; color: #3B6D11; }
+  .sev-CRITICAL { background: #FCEBEB; color: #A32D2D; }
+  .debt-title { font-size: 14px; font-weight: 500; color: var(--color-text-primary); flex: 1; }
+  .debt-meta { display: flex; gap: 8px; align-items: center; }
+  .tag { font-size: 11px; color: var(--color-text-tertiary); background: var(--color-background-secondary); padding: 2px 7px; border-radius: 4px; }
+  .cost-badge { font-size: 12px; font-weight: 500; color: var(--color-text-info); }
+  .debt-detail { margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--color-border-tertiary); display: none; }
+  .debt-detail.open { display: block; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .detail-cell { font-size: 12px; }
+  .detail-cell .dl { color: var(--color-text-secondary); margin-bottom: 2px; }
+  .detail-cell .dv { color: var(--color-text-primary); font-weight: 500; }
+  .detail-desc { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; margin-bottom: 8px; }
+  .fix-btn { font-size: 12px; padding: 5px 12px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-info); cursor: pointer; }
+  .fix-btn:hover { background: var(--color-background-info); }
+  .progress-bar-wrap { height: 6px; background: var(--color-background-secondary); border-radius: 99px; overflow: hidden; flex: 1; }
+  .progress-bar { height: 100%; border-radius: 99px; }
+  .interest-section { background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 1rem 1.1rem; margin-bottom: 1.5rem; }
+  .interest-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .interest-row:last-child { margin-bottom: 0; }
+  .int-label { font-size: 13px; color: var(--color-text-secondary); width: 200px; flex-shrink: 0; }
+  .int-rate { font-size: 13px; font-weight: 500; color: var(--color-text-primary); width: 48px; text-align: right; flex-shrink: 0; }
+  .chart-wrap { position: relative; width: 100%; height: 220px; margin-bottom: 1.5rem; }
+  .chart-wrap2 { position: relative; width: 100%; height: 180px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; font-size: 12px; color: var(--color-text-secondary); }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+  .sort-row { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .sort-label { font-size: 12px; color: var(--color-text-secondary); }
+  .sort-btn { font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+  .sort-btn.active { background: var(--color-background-secondary); color: var(--color-text-primary); }
+  .phase-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: #E1F5EE; color: #0F6E56; margin-left: 4px; }
+</style>
+
+<div class="db">
+  <div class="metrics" id="metricCards"></div>
+
+  <div style="margin-bottom:1rem;">
+    <div class="section-title">interest accrual by category</div>
+    <div class="interest-section" id="interestSection"></div>
+  </div>
+
+  <div class="legend" id="chartLegend"></div>
+  <div class="section-title">accumulated debt cost over time (dev-days)</div>
+  <div class="chart-wrap"><canvas id="growthChart"></canvas></div>
+
+  <div class="sort-row">
+    <span class="sort-label">Sort by:</span>
+    <button class="sort-btn active" onclick="sortDebt('priority')">Priority score</button>
+    <button class="sort-btn" onclick="sortDebt('effort')">Effort</button>
+    <button class="sort-btn" onclick="sortDebt('severity')">Severity</button>
+    <button class="sort-btn" onclick="sortDebt('interest')">Interest rate</button>
+  </div>
+  <div class="tabs" id="filterTabs"></div>
+  <div class="debt-list" id="debtList"></div>
+
+  <div class="section-title">effort vs priority matrix</div>
+  <div class="chart-wrap2"><canvas id="matrixChart"></canvas></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const DEBTS = [
+  {
+    id: 1,
+    title: "Price history warm-start blocks updateRiskParams",
+    severity: "HIGH",
+    category: "Security",
+    phase: "2",
+    effort: 2,
+    priority: 95,
+    interest: 18,
+    status: "Open",
+    component: "dDPVService + ValuationEngine",
+    description: "If PriceHistoryCache hasn't back-filled a new token (llen < 7 days), EWMA defaults to spot price. A flash loan can spike spot to inflate dDPV and obtain an oversized loan.",
+    fix: "Block updateRiskParams submissions when Redis llen(prices:{chainId}:{token}) < 7. Requires guard in dDPVService worker before dispatching on-chain.",
+    repayment: "2 dev-days",
+    stakeholderImpact: "Pool funds at risk — LP capital exposure",
+  },
+  {
+    id: 2,
+    title: "Stale oracle acceptance in computeDPV()",
+    severity: "MEDIUM",
+    category: "Security",
+    phase: "2",
+    effort: 1,
+    priority: 88,
+    interest: 14,
+    status: "Open",
+    component: "ValuationEngine.sol",
+    description: "lastUpdatedAt is stored in TokenRiskParams but never checked inside computeDPV(). If the relayer is down 24+ hours, stale prices are used for loan origination silently.",
+    fix: "Add require(block.timestamp - p.lastUpdatedAt <= MAX_STALENESS, 'Stale oracle') inside computeDPV(). MAX_STALENESS = 2 hours (2 × OMEGA_TIMELOCK).",
+    repayment: "1 dev-day",
+    stakeholderImpact: "Borrowers get loans at wrong valuations during oracle downtime",
+  },
+  {
+    id: 3,
+    title: "Relayer is single EOA — no multi-sig for mainnet",
+    severity: "HIGH",
+    category: "Security",
+    phase: "5",
+    effort: 4,
+    priority: 92,
+    interest: 16,
+    status: "Open",
+    component: "ValuationEngine.sol + key mgmt",
+    description: "RELAYER_ROLE is held by a single externally-owned account. A key compromise lets an attacker walk Ω to 9500 in 17 cycles, draining the pool via inflated dDPV.",
+    fix: "Migrate RELAYER_ROLE to a 2-of-3 Gnosis Safe. Requires contract role grant + infra key rotation. Must complete before mainnet launch.",
+    repayment: "4 dev-days",
+    stakeholderImpact: "Total protocol compromise if private key leaked",
+  },
+  {
+    id: 4,
+    title: "No per-borrower position size cap in LoanManager",
+    severity: "MEDIUM",
+    category: "Economic",
+    phase: "3",
+    effort: 3,
+    priority: 72,
+    interest: 10,
+    status: "Design gap",
+    component: "LoanManager.sol (planned)",
+    description: "A single borrower can take unlimited loans across multiple vesting positions in the same token. Concentrated exposure creates systemic bad-debt risk in a market crash.",
+    fix: "Add mapping(address => mapping(address => uint256)) borrowerTokenExposure. Cap per-borrower, per-token at a % of pool TVL. Enforce in origination flow.",
+    repayment: "3 dev-days",
+    stakeholderImpact: "Bad-debt concentration risk; LP capital impairment",
+  },
+  {
+    id: 5,
+    title: "No cancelOmegaProposal() for Relayer",
+    severity: "LOW",
+    category: "Security",
+    phase: "2",
+    effort: 1,
+    priority: 40,
+    interest: 4,
+    status: "Open",
+    component: "ValuationEngine.sol",
+    description: "A pending Ω proposal can only be cleared by finalization or emergencySlashOmega (Guardian). The Relayer cannot retract a mistaken proposal without Guardian intervention.",
+    fix: "Add cancelOmegaProposal(address token) external onlyRole(RELAYER_ROLE) that clears pendingOmegaBps and emits OmegaProposalCancelled.",
+    repayment: "1 dev-day",
+    stakeholderImpact: "Operational friction — low financial risk due to delta guard",
+  },
+  {
+    id: 6,
+    title: "VestingAdapter, VestraWrapperNFT, LoanManager not built",
+    severity: "HIGH",
+    category: "Architecture",
+    phase: "3",
+    effort: 21,
+    priority: 85,
+    interest: 20,
+    status: "Planned",
+    component: "VestingAdapter / VestraWrapperNFT / LoanManager",
+    description: "3 of 6 core contracts are unbuilt. Without VestingAdapter the protocol cannot accept real collateral. Without LoanManager no loans can be originated. These block Phase 3–5.",
+    fix: "Prioritise VestingAdapter (Sablier/Superfluid interface) → LoanManager (origination + 80/20 split) → VestraWrapperNFT (ERC-721 position NFT). Use Foundry test suite from Phase 1 as baseline.",
+    repayment: "21 dev-days",
+    stakeholderImpact: "Protocol cannot go live — no path to revenue",
+  },
+  {
+    id: 7,
+    title: "ASI Chain missing from CHAIN_CONFIG",
+    severity: "MEDIUM",
+    category: "Architecture",
+    phase: "3",
+    effort: 2,
+    priority: 58,
+    interest: 8,
+    status: "Open",
+    component: "VestingRegistry + dDPVService",
+    description: "ASI Chain (chainId 192) is in the multi-chain roadmap but has no entry in CHAIN_CONFIG. The VestingOracleService will silently skip it.",
+    fix: "Add ASI Chain entry to CHAIN_CONFIG with RPC, contract addresses (post-deploy), and hook endpoint. Wire into VestingOracleService discovery loop.",
+    repayment: "2 dev-days",
+    stakeholderImpact: "Missing an entire chain of vesting collateral at launch",
+  },
+  {
+    id: 8,
+    title: "Interest rate model not parameterised in LoanManager",
+    severity: "MEDIUM",
+    category: "Economic",
+    phase: "3",
+    effort: 3,
+    priority: 70,
+    interest: 12,
+    status: "Design gap",
+    component: "LoanManager.sol (planned)",
+    description: "The dynamic discount rate formula (r = r_base + r_token_risk + r_liquidity) exists in the whitepaper and economist skill but has no on-chain implementation. Rate is hardcoded in tests.",
+    fix: "Implement InterestRateModel as a separate contract with governance-controlled parameters: r_base (tracks AAVE USDC APR), r_token_risk ((1 - Ω) × 20%), r_liquidity premium. Make upgradeable via Governor.",
+    repayment: "3 dev-days",
+    stakeholderImpact: "Protocol charges wrong rates — revenue leakage or borrower overcharge",
+  },
+  {
+    id: 9,
+    title: "LendingPool + VestingRegistry contracts not built",
+    severity: "HIGH",
+    category: "Architecture",
+    phase: "3",
+    effort: 14,
+    priority: 83,
+    interest: 18,
+    status: "Planned",
+    component: "LendingPool / VestingRegistry",
+    description: "LendingPool (USDC liquidity, LP yield, insurance reserve) and VestingRegistry (multi-chain contract address registry) are planned but unbuilt. No LP deposits possible.",
+    fix: "Build LendingPool with ERC-4626 vault, 20% insurance reserve auto-split, and yield accrual. Build VestingRegistry with ownable address mapping per chain. Both need Foundry invariant tests.",
+    repayment: "14 dev-days",
+    stakeholderImpact: "No LP liquidity possible — protocol cannot fund loans",
+  },
+  {
+    id: 10,
+    title: "Phase 2 wire-up only 33% complete",
+    severity: "MEDIUM",
+    category: "Progress",
+    phase: "2",
+    effort: 8,
+    priority: 76,
+    interest: 9,
+    status: "In progress",
+    component: "VestingOracleService + PriceHistoryCache",
+    description: "Phase 2 targets VestingOracleService (multi-chain discovery) and PriceHistoryCache (90-day candle store). Both are partially built but not integrated end-to-end.",
+    fix: "Complete PriceHistoryCache Redis writer with back-fill job. Wire VestingOracleService webhook into dDPVService trigger. Add integration test for full oracle → on-chain flow.",
+    repayment: "8 dev-days",
+    stakeholderImpact: "Oracle pipeline incomplete — no live price feeds for mainnet",
+  },
+];
+
+let currentFilter = "All";
+let currentSort = "priority";
+let expandedId = null;
+
+const CATEGORIES = ["All", "Security", "Architecture", "Economic", "Progress"];
+const CAT_COLORS = { Security: "#E24B4A", Architecture: "#378ADD", Economic: "#EF9F27", Progress: "#1D9E75" };
+const CAT_HEX = { Security: "#E24B4A", Architecture: "#378ADD", Economic: "#EF9F27", Progress: "#1D9E75" };
+
+function totalDebt() { return DEBTS.reduce((s, d) => s + d.effort, 0); }
+function avgInterest() { return (DEBTS.reduce((s, d) => s + d.interest, 0) / DEBTS.length).toFixed(1); }
+function criticalCount() { return DEBTS.filter(d => d.severity === "HIGH" || d.severity === "CRITICAL").length; }
+function openCount() { return DEBTS.filter(d => d.status === "Open" || d.status === "Design gap" || d.status === "Planned").length; }
+
+function renderMetrics() {
+  document.getElementById("metricCards").innerHTML = [
+    { label: "Total debt (dev-days)", value: totalDebt(), sub: "Estimated repayment cost" },
+    { label: "Open items", value: openCount(), sub: "Unresolved across all phases" },
+    { label: "High/critical items", value: criticalCount(), sub: "Require immediate attention" },
+    { label: "Avg interest rate", value: avgInterest() + "%", sub: "Compounding risk per cycle" },
+  ].map(m => `<div class="metric"><div class="metric-label">${m.label}</div><div class="metric-value">${m.value}</div><div class="metric-sub">${m.sub}</div></div>`).join("");
+}
+
+function renderInterest() {
+  const cats = ["Security", "Architecture", "Economic", "Progress"];
+  const rows = cats.map(cat => {
+    const items = DEBTS.filter(d => d.category === cat);
+    const avg = items.reduce((s, d) => s + d.interest, 0) / items.length;
+    const pct = Math.round(avg);
+    return `<div class="interest-row">
+      <span class="int-label" style="font-size:13px;color:var(--color-text-secondary)">${cat}</span>
+      <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct * 5}%;background:${CAT_HEX[cat]};"></div></div>
+      <span class="int-rate">${pct}%</span>
+    </div>`;
+  });
+  document.getElementById("interestSection").innerHTML = rows.join("");
+}
+
+function renderTabs() {
+  document.getElementById("filterTabs").innerHTML = CATEGORIES.map(c =>
+    `<button class="tab${c === currentFilter ? " active" : ""}" onclick="setFilter('${c}')">${c}</button>`
+  ).join("");
+}
+
+function setFilter(cat) {
+  currentFilter = cat;
+  renderTabs();
+  renderList();
+}
+
+function sortDebt(by) {
+  currentSort = by;
+  document.querySelectorAll(".sort-btn").forEach(b => {
+    b.classList.toggle("active", b.textContent.toLowerCase().includes(by) || (by === "priority" && b.textContent === "Priority score"));
+  });
+  renderList();
+}
+
+function getSorted() {
+  let items = currentFilter === "All" ? [...DEBTS] : DEBTS.filter(d => d.category === currentFilter);
+  if (currentSort === "priority") items.sort((a, b) => b.priority - a.priority);
+  else if (currentSort === "effort") items.sort((a, b) => b.effort - a.effort);
+  else if (currentSort === "severity") {
+    const sev = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+    items.sort((a, b) => sev[b.severity] - sev[a.severity]);
+  } else if (currentSort === "interest") items.sort((a, b) => b.interest - a.interest);
+  return items;
+}
+
+function renderList() {
+  const items = getSorted();
+  document.getElementById("debtList").innerHTML = items.map(d => `
+    <div class="debt-item${expandedId === d.id ? " expanded" : ""}" onclick="toggle(${d.id})">
+      <div class="debt-row">
+        <span class="sev sev-${d.severity}">${d.severity}</span>
+        <span class="debt-title">${d.title}</span>
+        <div class="debt-meta">
+          <span class="tag">${d.component.split(" ")[0]}</span>
+          <span class="tag">Phase ${d.phase}</span>
+          <span class="cost-badge">${d.effort}d</span>
+        </div>
+      </div>
+      <div class="debt-detail${expandedId === d.id ? " open" : ""}">
+        <p class="detail-desc">${d.description}</p>
+        <div class="detail-grid">
+          <div class="detail-cell"><div class="dl">Component</div><div class="dv">${d.component}</div></div>
+          <div class="detail-cell"><div class="dl">Status</div><div class="dv">${d.status}</div></div>
+          <div class="detail-cell"><div class="dl">Interest rate</div><div class="dv">${d.interest}% / cycle</div></div>
+          <div class="detail-cell"><div class="dl">Repayment</div><div class="dv">${d.repayment}</div></div>
+          <div class="detail-cell" style="grid-column:1/-1"><div class="dl">Stakeholder impact</div><div class="dv">${d.stakeholderImpact}</div></div>
+        </div>
+        <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.7rem 0.9rem;margin-bottom:8px;">
+          <div class="dl" style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">Recommended fix</div>
+          <div style="font-size:13px;color:var(--color-text-primary);line-height:1.6;">${d.fix}</div>
+        </div>
+        <button class="fix-btn" onclick="event.stopPropagation();sendPrompt('Help me implement the fix for: ${d.title.replace(/'/g,"\\'")} in Vestra Protocol')">Implement fix ↗</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function toggle(id) {
+  expandedId = expandedId === id ? null : id;
+  renderList();
+}
+
+function renderGrowthChart() {
+  const weeks = ["Now", "W2", "W4", "W6", "W8", "W10", "W12"];
+  const cats = ["Security", "Architecture", "Economic", "Progress"];
+  const base = { Security: 5, Architecture: 35, Economic: 6, Progress: 8 };
+  const rates = { Security: 1.18, Architecture: 1.2, Economic: 1.1, Progress: 1.09 };
+  const datasets = cats.map(cat => {
+    const data = weeks.map((_, i) => parseFloat((base[cat] * Math.pow(rates[cat], i)).toFixed(1)));
+    return { label: cat, data, borderColor: CAT_HEX[cat], backgroundColor: "transparent", tension: 0.4, pointRadius: 3, borderWidth: 2 };
+  });
+  document.getElementById("chartLegend").innerHTML = cats.map(c =>
+    `<span><span class="legend-dot" style="background:${CAT_HEX[c]}"></span>${c}</span>`
+  ).join("");
+  new Chart(document.getElementById("growthChart"), {
+    type: "line",
+    data: { labels: weeks, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#888780", font: { size: 11 } }, grid: { color: "rgba(136,135,128,0.12)" } },
+        y: { ticks: { color: "#888780", font: { size: 11 } }, grid: { color: "rgba(136,135,128,0.12)" }, title: { display: true, text: "dev-days", color: "#888780", font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+function renderMatrixChart() {
+  const data = DEBTS.map(d => ({ x: d.effort, y: d.priority, label: d.title.substring(0, 28) + "…", cat: d.category, sev: d.severity }));
+  const colorMap = d => CAT_HEX[d.cat] || "#888780";
+  new Chart(document.getElementById("matrixChart"), {
+    type: "bubble",
+    data: {
+      datasets: [{
+        data: data.map(d => ({ x: d.x, y: d.y, r: 7, meta: d })),
+        backgroundColor: data.map(d => colorMap(d) + "bb"),
+        borderColor: data.map(d => colorMap(d)),
+        borderWidth: 1.5,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const m = ctx.raw.meta;
+              return [`${m.label}`, `Effort: ${m.x}d  Priority: ${m.y}  Sev: ${m.sev}`];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: "effort (dev-days) →", color: "#888780", font: { size: 11 } }, ticks: { color: "#888780", font: { size: 11 } }, grid: { color: "rgba(136,135,128,0.12)" }, min: 0, max: 28 },
+        y: { title: { display: true, text: "← priority score", color: "#888780", font: { size: 11 } }, ticks: { color: "#888780", font: { size: 11 } }, grid: { color: "rgba(136,135,128,0.12)" }, min: 25, max: 105 }
+      },
+      layout: { padding: 12 }
+    }
+  });
+}
+
+renderMetrics();
+renderInterest();
+renderTabs();
+renderList();
+renderGrowthChart();
+renderMatrixChart();
+</script>

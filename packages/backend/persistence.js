@@ -1171,6 +1171,21 @@ const getDepositsByWallet = async (walletAddress) => {
   return sqlite.prepare(`SELECT * FROM user_deposits WHERE wallet_address = ? ORDER BY created_at DESC`).all(walletAddress);
 };
 
+const listLendingPositions = async (walletAddress) => {
+  if (!walletAddress) return [];
+  const normalized = walletAddress.toLowerCase();
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('lending_positions')
+      .select('*')
+      .eq('wallet_address', normalized)
+      .order('deposit_timestamp', { ascending: false });
+    if (error) throw new Error(`[supabase] listLendingPositions failed: ${error.message}`);
+    return data || [];
+  }
+  return [];
+};
+
 const deleteDeposit = async (id) => {
   if (useSupabase) {
     const { error } = await supabaseClient().from('user_deposits').delete().eq('id', id);
@@ -1959,5 +1974,6 @@ module.exports = {
   saveActivityEvent,
   upsertVcsScore,
   getSqlite: () => sqlite,
+  listLendingPositions,
   supabaseClient
 };

@@ -18,11 +18,11 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     struct LenderPosition {
         uint256 id;
         uint256 amount;
+        uint64 startTime;
+        uint64 lockDays;
+        uint64 lockEndTime;
+        uint32 fixedApyBps;
         DepositType depositType;
-        uint256 startTime;
-        uint256 lockDays;
-        uint256 lockEndTime;
-        uint256 fixedApyBps;
         bool isActive;
     }
 
@@ -480,11 +480,11 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         lenderPositions[msg.sender].push(LenderPosition({
             id: positionId,
             amount: amount,
+            startTime: uint64(block.timestamp),
+            lockDays: uint64(lockDays),
+            lockEndTime: uint64(lockEndTime),
+            fixedApyBps: uint32(fixedApyBps),
             depositType: depositType,
-            startTime: block.timestamp,
-            lockDays: lockDays,
-            lockEndTime: lockEndTime,
-            fixedApyBps: fixedApyBps,
             isActive: true
         }));
 

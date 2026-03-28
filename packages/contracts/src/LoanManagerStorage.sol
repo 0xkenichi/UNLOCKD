@@ -126,6 +126,7 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
     address[] public autoRepayRequiredTokens;
     
     mapping(uint256 => uint256) public loanDeficits;
+    mapping(address => uint256) public activeLoansCount;
     mapping(address => bool) public sanctionsPass;
 
     mapping(address => address) public tokenTreasuries;

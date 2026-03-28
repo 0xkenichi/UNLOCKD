@@ -56,6 +56,8 @@ const SovereignDataService = require('./lib/SovereignDataService');
 
 // Service Imports
 const RelayerService = require('./services/RelayerService');
+const LoanExecutionService = require('./services/LoanExecutionService');
+const LendingService = require('./services/LendingService');
 const IndexerService = require('./services/IndexerService');
 const OmegaService = require('./services/OmegaService');
 const AirdropService = require('./services/AirdropService');
@@ -257,6 +259,8 @@ let simulationState = {
 };
 
 let relayerService;
+let loanExecutionService;
+let lendingService;
 let indexerService;
 let omegaService;
 let airdropService;
@@ -876,12 +880,43 @@ app.get('/api/loans', async (req, res) => {
   }
 });
 
+app.get('/api/lend/positions', async (req, res) => {
+  const wallet = normalizeAnyWalletAddress(req.query.wallet || '');
+  if (!wallet) {
+    return res.status(400).json({ ok: false, error: 'Missing wallet query' });
+  }
+  try {
+    const positions = await persistence.listLendingPositions(wallet);
+    return res.json({ ok: true, positions });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get('/api/lend', async (req, res) => {
   try {
     const wallet = normalizeAnyWalletAddress(req.query.wallet || '');
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
-    const deposits = await persistence.getDepositsByWallet(wallet);
-    res.json({ ok: true, items: deposits });
+    
+    // Fetch persisted data as fallback or for metadata
+    const persisted = await persistence.getDepositsByWallet(wallet);
+    
+    // Fetch real-time enriched data from LendingService
+    const dashboard = await lendingService.getLenderDashboard(wallet, persisted);
+    
+    res.json({ ok: true, data: dashboard, persisted });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/lender/projections', async (req, res) => {
+  try {
+    const { amount, apyBps } = req.query;
+    if (!amount || !apyBps) return res.status(400).json({ ok: false, error: 'missing params' });
+    
+    const result = await lendingService.getProjections(amount, apyBps);
+    res.json({ ok: true, projections: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1000,6 +1035,31 @@ app.get('/api/testnet/leaderboard', async (req, res) => {
     res.json({ ok: true, data: board });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/api/loans/prepare', async (req, res) => {
+  try {
+    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
+    if (!wallet) return res.status(400).json({ ok: false, error: 'missing wallet' });
+    
+    const result = await loanExecutionService.prepareLoanExecution(wallet);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/loans/finalize', async (req, res) => {
+  try {
+    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
+    const { txHash } = req.body;
+    if (!wallet || !txHash) return res.status(400).json({ ok: false, error: 'missing fields' });
+
+    const result = await loanExecutionService.finalizeLoan(wallet, txHash);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -4853,11 +4913,25 @@ const start = async () => {
   const valuationContract = new ethers.Contract(valuationEngine.address, valuationDeployment.abi, relayer);
   
   relayerService = new RelayerService(persistence);
+  
+  const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer);
+  const poolContract = new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, relayer);
+  
+  loanExecutionService = new LoanExecutionService(provider, relayer, {
+      loanManager: loanManagerContract,
+      valuationEngine: valuationContract,
+      wrapperNFT: new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, relayer)
+  });
+
+  lendingService = new LendingService(provider, {
+      pool: poolContract
+  });
+
   indexerService = new IndexerService(provider, persistence, {
       valuation: valuationContract,
       adapter: new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, relayer),
-      pool: new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, relayer),
-      loanManager: new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer)
+      pool: poolContract,
+      loanManager: loanManagerContract
   }, {
       lookbackBlocks: INDEXER_LOOKBACK_BLOCKS,
       pollInterval: INDEXER_POLL_INTERVAL_MS,

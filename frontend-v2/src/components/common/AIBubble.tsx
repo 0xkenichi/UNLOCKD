@@ -483,7 +483,7 @@ export default function AIBubble() {
         onClick={() => setIsOpen(true)}
       >
         <CRDTMascot size={32} />
-        <span className="text-sm font-bold text-white tracking-wide">Vestra AI</span>
+        <span className="text-sm font-bold text-white tracking-wide">CRDT AI</span>
         {hasUnreadHint && <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full animate-pulse" />}
       </button>
 
@@ -501,7 +501,7 @@ export default function AIBubble() {
               <div className="flex items-center gap-3">
                 <CRDTMascot size={28} />
                 <div>
-                  <h3 className="text-sm font-bold text-white">Vestra AI</h3>
+                  <h3 className="text-sm font-bold text-white">CRDT AI</h3>
                   <p className="text-[10px] text-gray-400 font-medium">Risk & Liquidity Assistant</p>
                 </div>
               </div>

@@ -12,6 +12,7 @@ const inter = Inter({
 
 const montserrat = Montserrat({
   subsets: ["latin"],
+  variable: "--font-montserrat",
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -22,7 +23,11 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Vestra Protocol | Premium Vesting-Credit Protocol",
   description: "Advanced credit infrastructure from vested tokens — premium DeFi aesthetics for 2026.",
+  other: {
+    "base:app_id": "69c8015f480a9d8cb993adef",
+  },
 };
+
 
 export default function RootLayout({
   children,

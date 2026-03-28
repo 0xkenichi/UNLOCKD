@@ -177,15 +177,17 @@ class IndexerService {
           // or mark as withdrawn if needed.
         }
       } else if (event.contract === 'loanManager') {
-        if (event.type === 'LoanCreated') {
+        if (event.type === 'LoanOriginated') {
           await this.persistence.syncLoanFromEvent({
             loanId: event.params.loanId.toString(),
             borrower: event.params.borrower,
-            amount: event.params.amount.toString(),
+            amount: event.params.borrowedUsdc.toString(),
+            dpv: event.params.dpvAtOrigination.toString(),
+            nftTokenId: event.params.nftTokenId.toString(),
             timestamp: event.timestamp
           });
         } else if (event.type === 'LoanRepaid') {
-          await this.persistence.updateLoanStatus(event.params.loanId.toString(), 'repaid', event.params.amount.toString());
+          await this.persistence.updateLoanStatus(event.params.loanId.toString(), 'repaid', event.params.principal.toString());
         }
       }
     } catch (err) {

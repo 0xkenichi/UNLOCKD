@@ -1,10 +1,12 @@
 import { useReadContract } from 'wagmi';
-import { VALUATION_ENGINE_ABI } from '@/abis/ValuationEngine';
+import { useEffect } from 'react';
+import { VESTRA_PROTOCOL_ABI } from '@/abis/VestraProtocol';
 import { GlassCard } from './ui/GlassCard';
 import { InfoRow } from './InfoRow';
 
 export function DpvDisplay({
   streamId,
+  quantity,
   streamContract,
   token,
   endTime,
@@ -12,40 +14,32 @@ export function DpvDisplay({
   contracts,
 }: {
   streamId:      number;
+  quantity:      bigint;
   streamContract: string;
   token:          string;
   endTime:        number;
   maxCreditBps:   number;
   contracts:      any;
+  onMaxBorrow?:   (val: number) => void;
 }) {
   const { data: dpvResult, isLoading } = useReadContract({
-    address:      contracts.ValuationEngine,
-    abi:          VALUATION_ENGINE_ABI,
+    address:      contracts.valuationEngine,
+    abi:          VESTRA_PROTOCOL_ABI,
     functionName: 'computeDPV',
-    args:         [BigInt(streamId), token as `0x${string}`, BigInt(endTime), streamContract as `0x${string}`],
-    query:        { enabled: !!token && endTime > 0 },
-  });
-
-  const { data: twapResult } = useReadContract({
-    address: contracts.ValuationEngine,
-    abi: VALUATION_ENGINE_ABI,
-    functionName: 'getTWAP',
-    args: [token as `0x${string}`],
-    query: { enabled: !!token },
+    args:         [quantity, token as `0x${string}`, BigInt(endTime), streamContract as `0x${string}`],
+    query:        { enabled: !!token && endTime > 0 && quantity > 0n },
   });
 
   const dpvWad  = dpvResult?.[0] ?? 0n;
   const ltvBps  = dpvResult?.[1] ?? 0n;
   const dpvUsdc = Number(dpvWad) / 1e12; // WAD (1e18) → USDC (1e6): divide by 1e12
   
-  // 25% TWAP Cap
-  const twapPrice = Number(twapResult ?? 0n) / 1e6; // Assuming 6 decimals for price
-  const twapCap = (twapPrice * 2500) / 10_000; // This is per token. Need quantity.
-  // We'll simplify UI for now to show the cap relative to PV if quantity is known.
-  // Actually, maxBorrow should just be min(dpvUsdc * ltv, 25% TWAP_total)
-  
   const maxBorrow = (dpvUsdc * maxCreditBps) / 10_000;
-  // Let's assume the contract enforces the 25% TWAP cap, we just display the "Protocol Limit"
+
+  // Sync back to parent
+  useEffect(() => {
+    if (onMaxBorrow) onMaxBorrow(maxBorrow);
+  }, [maxBorrow, onMaxBorrow]);
   
   return (
     <GlassCard className="border-[#1D9E75]/20">

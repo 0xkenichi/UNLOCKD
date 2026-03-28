@@ -113,6 +113,7 @@ export const api = {
   fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`),
   fetchVestingAll: (limit = 50) => fetchApi(`/api/vesting/all?limit=${limit}`),
   fetchOpenVestingClaims: () => fetchApi('/api/vesting/open-claims'),
+  fetchLendingPositions: (walletAddress: string) => fetchApi(`/api/lend/positions?wallet=${walletAddress}`),
   verifyIdentity: (walletAddress: string) => fetchApi('/api/identity/verify', {
     method: 'POST',
     body: JSON.stringify({ walletAddress })

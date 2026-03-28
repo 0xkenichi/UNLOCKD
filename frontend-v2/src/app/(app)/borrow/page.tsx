@@ -4,7 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatUnits, parseUnits } from 'viem';
 import { useContracts } from '@/hooks/useVestraContracts';
-import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
+import { usePassportSnapshot } from '@/hooks/usePassportSnapshot';
+import { VESTRA_PROTOCOL_ABI } from '@/abis/VestraProtocol';
 import { MOCK_SABLIER_ABI } from '@/abis/MockSablierStream';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TxButton } from '@/components/ui/TxButton';
@@ -20,30 +21,27 @@ type BorrowStep = 'select-stream' | 'approve-operator' | 'review' | 'borrow' | '
 export default function BorrowPage() {
   const { address, isConnected } = useAccount();
   const contracts = useContracts();
+  const passport = usePassportSnapshot(address);
 
   const [step,          setStep]          = useState<BorrowStep>('select-stream');
   const [selectedStream, setSelectedStream] = useState<number | null>(null);
   const [requestAmount, setRequestAmount] = useState('');
+  const [durationDays,  setDurationDays]  = useState('30');
+  const [maxBorrowVal,  setMaxBorrowVal]  = useState(0);
 
-  // ─── Fetch Borrower's VCS Tier ──────────────────────────────────────────────
-  const { data: vcsTierData } = useReadContract({
+  // ─── Fetch Borrower's VCS Status ──────────────────────────────────────────────
+  // ─── Fetch Borrower's VCS Status (On-Chain) ──────────────────────────────────
+  const { data: identityLinked } = useReadContract({
     address:      contracts.loanManager,
-    abi:          LOAN_MANAGER_ABI,
-    functionName: 'vcsTier',
-    args:         [address!],
-    query:        { enabled: !!address },
-  });
-  const { data: maxCreditBpsData } = useReadContract({
-    address:      contracts.loanManager,
-    abi:          LOAN_MANAGER_ABI,
-    functionName: 'maxCreditBps',
+    abi:          VESTRA_PROTOCOL_ABI,
+    functionName: 'identityLinked',
     args:         [address!],
     query:        { enabled: !!address },
   });
 
   // ─── Fetch Stream Details (after selection) ─────────────────────────────────
   const { data: streamData } = useReadContract({
-    address:      contracts.MockSablier,
+    address:      contracts.mockSablier,
     abi:          MOCK_SABLIER_ABI,
     functionName: 'getStream',
     args:         [BigInt(selectedStream ?? 0)],
@@ -58,44 +56,48 @@ export default function BorrowPage() {
   const handleApproveOperator = useCallback(() => {
     if (selectedStream === null) return;
     setOperator({
-      address:      (contracts as any).MockSablier,
+      address:      contracts.mockSablier,
       abi:          MOCK_SABLIER_ABI,
       functionName: 'setOperator',
       args:         [BigInt(selectedStream), contracts.loanManager, true],
     });
   }, [selectedStream, setOperator, contracts]);
 
-  // ─── Step 2: Originate Loan ─────────────────────────────────────────────────
-  const { writeContract: originateLoan, data: loanTxHash } = useWriteContract();
+  // ─── Step 2: Create Loan ───────────────────────────────────────────────────
+  const { writeContract: createLoan, data: loanTxHash } = useWriteContract();
   const { isLoading: loanPending, isSuccess: loanSuccess } =
     useWaitForTransactionReceipt({ hash: loanTxHash });
 
   const handleBorrow = useCallback(() => {
     if (selectedStream === null || !requestAmount) return;
-    originateLoan({
+    createLoan({
       address:      contracts.loanManager,
-      abi:          LOAN_MANAGER_ABI,
-      functionName: 'originateLoan',
-      args: [
-        contracts.MockSablier,
-        BigInt(selectedStream),
-        parseUnits(requestAmount, 6),
-      ],
+      abi:          VESTRA_PROTOCOL_ABI,
+      functionName: 'createLoan',
+      args: [{
+        collateralId:      BigInt(selectedStream),
+        vestingContract:   contracts.mockSablier,
+        borrowAmount:      parseUnits(requestAmount, 6),
+        durationDays:      BigInt(durationDays),
+        tokenURI:          'ipfs://VESTRA-LOAN-V1'
+      }],
     });
-  }, [selectedStream, requestAmount, originateLoan, contracts]);
+  }, [selectedStream, requestAmount, durationDays, createLoan, contracts]);
 
   useEffect(() => {
     if (loanSuccess) setStep('success');
   }, [loanSuccess]);
 
   // ─── Computed Values ─────────────────────────────────────────────────────────
-  const tierLabel = ['STANDARD', 'PREMIUM', 'TITAN'][Number(vcsTierData ?? 0n)] as string || 'STANDARD';
-  const maxCreditBps = Number(maxCreditBpsData ?? 4000n);
+  const tierLabel = identityLinked ? 'PREMIUM' : 'STANDARD';
+  const maxCreditBps = 4000;
 
-  // Stream details
-  const streamEndTime   = streamData ? Number(streamData[5]) : 0;
-  const streamToken     = streamData ? streamData[2] as string : '';
-  const streamTotal     = streamData ? formatUnits(streamData[3] as bigint, 18) : '0';
+  // Stream details (Safe access for tuple)
+  const streamArr = streamData as any[] | undefined;
+  const streamEndTime   = streamArr ? Number(streamArr[5]) : 0;
+  const streamToken     = streamArr ? streamArr[2] as string : '';
+  const streamQuantity  = streamArr ? (streamArr[3] as bigint) : 0n;
+  const streamTotal     = formatUnits(streamQuantity, 18);
   const daysRemaining   = streamEndTime
     ? Math.max(0, Math.floor((streamEndTime * 1000 - Date.now()) / 86400000))
     : 0;
@@ -114,7 +116,10 @@ export default function BorrowPage() {
           </p>
         </div>
         {address && (
-          <VcsBadge tier={tierLabel} score={0} />
+          <VcsBadge 
+            tier={passport.tierName || (identityLinked ? 'PREMIUM' : 'STANDARD')} 
+            score={passport.compositeScore || 0} 
+          />
         )}
       </div>
 
@@ -131,7 +136,6 @@ export default function BorrowPage() {
             </h3>
             <StreamSelector
               address={address}
-              sablierAddress={contracts.MockSablier}
               selected={selectedStream}
               onSelect={(id: number) => {
                 setSelectedStream(id);
@@ -167,27 +171,54 @@ export default function BorrowPage() {
           {(step === 'review' || step === 'borrow') && operatorSuccess && (
             <GlassCard>
               <h3 className="text-[#E8E6DF] font-medium mb-4 redaction-text uppercase tracking-tight">
-                3. Set Borrow Amount
+                3. Loan Terms
               </h3>
 
-              <div className="flex justify-between mb-2">
-                <label className="text-[#9C9A92] text-sm">Request Amount (USDC)</label>
-                <span className="text-[#5F5E5A] text-xs">
-                  Max credit: {maxCreditBps / 100}% of dDPV
-                </span>
-              </div>
+              <div className="space-y-4 mb-6">
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-[#9C9A92] text-sm">Amount (USDC)</label>
+                    <span className="text-[#5F5E5A] text-xs">Max credit: {maxCreditBps / 100}%</span>
+                  </div>
+                  <input
+                    type="number"
+                    value={requestAmount}
+                    onChange={e => setRequestAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[#E8E6DF] font-mono"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    {[25, 50, 75, 100].map((pct) => (
+                      <button
+                        key={pct}
+                        onClick={() => {
+                          const amount = (maxBorrowVal * (pct / 100));
+                          setRequestAmount(amount > 0 ? amount.toFixed(2) : '0.00');
+                        }}
+                        className="flex-1 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[#9C9A92] text-[10px] uppercase hover:bg-white/10 transition-colors"
+                      >
+                        {pct === 100 ? 'Max' : `${pct}%`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <input
-                type="number"
-                value={requestAmount}
-                onChange={e => setRequestAmount(e.target.value)}
-                placeholder="0.00"
-                className={cn(
-                  'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3',
-                  'text-[#E8E6DF] font-mono text-lg placeholder:text-white/20',
-                  'focus:outline-none focus:border-[#1D9E75] transition-colors mb-4'
-                )}
-              />
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-[#9C9A92] text-sm">Duration (Days)</label>
+                    <span className="text-[#E8E6DF] text-xs font-mono">{durationDays}d</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="30"
+                    max="365"
+                    step="30"
+                    value={durationDays}
+                    onChange={e => setDurationDays(e.target.value)}
+                    className="w-full accent-[#1D9E75]"
+                  />
+                </div>
+              </div>
 
               <TxButton
                 onClick={handleBorrow}
@@ -211,7 +242,6 @@ export default function BorrowPage() {
                 </h3>
                 <p className="text-[#9C9A92] text-sm">
                   {formatUsd(parseFloat(requestAmount))} USDC sent to your wallet.
-                  Repay before stream unlock to reclaim your vesting claim rights.
                 </p>
                 <a
                   href="/portfolio"
@@ -226,7 +256,7 @@ export default function BorrowPage() {
 
         {/* Right: Stream Info + dDPV */}
         <div className="space-y-4">
-          {selectedStream !== null && streamData && (
+          {selectedStream !== null && streamArr && (
             <>
               <GlassCard>
                 <h3 className="text-[#9C9A92] text-sm mb-4 uppercase tracking-wider redaction-text">
@@ -246,11 +276,13 @@ export default function BorrowPage() {
 
               <DpvDisplay
                 streamId={selectedStream}
-                streamContract={contracts.MockSablier}
+                quantity={streamQuantity}
+                streamContract={contracts.mockSablier}
                 token={streamToken}
                 endTime={streamEndTime}
                 maxCreditBps={maxCreditBps}
                 contracts={contracts}
+                onMaxBorrow={setMaxBorrowVal}
               />
             </>
           )}

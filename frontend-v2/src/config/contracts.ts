@@ -1,5 +1,5 @@
 import { sepolia as viemSepolia } from 'viem/chains';
-import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
+import { VESTRA_PROTOCOL_ABI } from '@/abis/VestraProtocol';
 
 export const usdcAbi = [
   {
@@ -78,7 +78,7 @@ export const demoFaucetAbi = [
   }
 ] as const;
 
-export const loanManagerAbi = LOAN_MANAGER_ABI;
+export const loanManagerAbi = VESTRA_PROTOCOL_ABI;
 export const sepolia = viemSepolia;
 
 export function getContract(chainId: number, name: string): `0x${string}` {
@@ -93,15 +93,16 @@ export function getContract(chainId: number, name: string): `0x${string}` {
 
 export const CONTRACTS = {
   11155111: {
-    usdc:            '0xc74e9a55285cd4a02a2601caddcf1f09e22ec537',
-    lendingPool:     '0x56c75bea4d17e6ed772ce1c668462e6c4878cdd3',
-    loanManager:     '0xfaa8fb747885904f3b622f2986ce7568363e3646',
-    valuationEngine: '0xa84B9C4912C33645CB2192BDB321430d2C437Ae3',
+    usdc:            '0xfc02c9a40d847da372fa8ee05346e3c38c1a8c14',
+    lendingPool:     '0x3ae02658c2f4928fa9a84c2b5fac41de78b67ef5',
+    loanManager:     '0xf70a3b29cf5f806b4b7d2d397376ea7161339b1d',
+    valuationEngine: '0x83bb6887085b34a14fe685a59ce1ae71be3432d8',
     vestingAdapter:  '0xA8743ABc6BCD80633171Af6AF7091Cf240e77910',
-    vestToken:       '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
+    vestToken:       '0x6a7abfa27ec2654c3103df2e6d22c36423af8b2d',
     vestingWallet:   '0xAF5976bC206b784B3c43896Ed799c084A140583a',
     insuranceVault:  '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
     auctionFactory:  '0x10269d602DFCC9180927F54dE32657a572c0F432',
     demoFaucet:      '0x6EE0a9B7972f43100B9c0757D88BF5A8c7F0bF2E',
+    mockSablier:     '0x3491da3a2b1f864e93da9cf141002e115c68ce3f',
   }
 } as const;

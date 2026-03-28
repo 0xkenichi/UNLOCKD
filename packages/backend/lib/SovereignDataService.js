@@ -1634,6 +1634,9 @@ class SovereignDataService {
         walletAddress: normalized,
         ...scoreInfo,
         score: scoreInfo.score,
+        compositeScore: scoreInfo.score, // Align with frontend expectations
+        ias: scoreInfo.breakdown.gitcoinPassport, // Identity Attestation Score
+        fbs: scoreInfo.breakdown.financialHistory, // Financial Behavior Score
         tierName: scoreInfo.tier,
         creditHistory: { repaidCount: repaidLoans.size, defaultedCount },
         activityMetrics: financialMetrics,

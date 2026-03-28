@@ -37,7 +37,7 @@ export const KNOWLEDGE_ENTRIES = [
 ];
 
 export const FALLBACK_ANSWER =
-  'Vestra AI is temporarily running in fallback mode. I can still help with DPV, LTV, unlock risk, pool matching, and governance steps using protocol knowledge.';
+  'CRDT AI is temporarily running in fallback mode. I can still help with DPV, LTV, unlock risk, pool matching, and governance steps using protocol knowledge.';
 
 export function findLocalAnswer(input: string) {
   const text = String(input || '').toLowerCase();

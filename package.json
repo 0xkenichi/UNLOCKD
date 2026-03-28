@@ -8,8 +8,9 @@
   ],
   "scripts": {
     "dev": "npm run dev:services",
-    "demo": "packages/scripts/demo-local.sh",
-    "dev:services": "concurrently --kill-others-on-fail -n redis,backend,frontend,docs -c red,green,blue,magenta \"redis-server\" \"npm run dev -w packages/backend\" \"npm run dev --prefix frontend-v2\" \"npm run dev --prefix docs-site\"",
+    "dev:services": "concurrently --kill-others-on-fail -n redis,backend,frontend,docs -c red,green,blue,magenta \"npm run dev:redis\" \"npm run dev -w packages/backend\" \"npm run dev --prefix frontend-v2\" \"npm run dev --prefix docs-site\"",
+    "dev:redis": "redis-cli ping 2>/dev/null | grep -q PONG && echo '[redis] Already running on :6379, reusing.' || redis-server",
+    "stop": "lsof -ti :6379 | xargs kill -9 2>/dev/null; pkill -f 'packages/backend' 2>/dev/null; echo 'Vestra services stopped.'",
     "build": "npm run build --prefix frontend-v2",
     "lint": "eslint .",
     "security:scan": "packages/scripts/security-scan.sh",

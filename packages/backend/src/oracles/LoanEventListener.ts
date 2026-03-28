@@ -2,6 +2,7 @@ import { createPublicClient, http, parseAbiItem, Log } from 'viem';
 import { sepolia } from 'viem/chains';
 import { createClient } from '@supabase/supabase-js';
 import pino from 'pino';
+import { oracleQueue } from '../queue.js';
 
 const logger = pino({ name: 'EventListener' });
 
@@ -11,15 +12,22 @@ const LOAN_EVENTS = [
   parseAbiItem('event LoanSettled(uint256 indexed loanId, address indexed borrower, uint256 recoveredUsdc, bool fullRecovery)'),
 ] as const;
 
+const LENDING_EVENTS = [
+  parseAbiItem('event Deposit(address indexed user, uint256 indexed positionId, uint256 amount, uint8 depositType, uint256 lockDays)'),
+  parseAbiItem('event Withdraw(address indexed user, uint256 indexed positionId, uint256 amount)'),
+] as const;
+
 export class LoanEventListener {
   private client:   ReturnType<typeof createPublicClient>;
   private supabase: ReturnType<typeof createClient>;
   private loanManager: `0x${string}`;
+  private lendingPool: `0x${string}`;
 
-  constructor(rpcUrl: string, supabaseUrl: string, supabaseKey: string, loanManager: string) {
+  constructor(rpcUrl: string, supabaseUrl: string, supabaseKey: string, loanManager: string, lendingPool: string) {
     this.client      = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
     this.supabase    = createClient(supabaseUrl, supabaseKey);
     this.loanManager = loanManager as `0x${string}`;
+    this.lendingPool = lendingPool as `0x${string}`;
   }
 
   start(): void {
@@ -84,5 +92,49 @@ export class LoanEventListener {
         }
       },
     });
+
+    // Watch LendingPool Deposits
+    this.client.watchContractEvent({
+      address: this.lendingPool,
+      abi: [LENDING_EVENTS[0]],
+      eventName: 'Deposit',
+      onLogs: async (logs: Log[]) => {
+        for (const log of logs) {
+          const { user, positionId, amount, depositType, lockDays } = (log as any).args;
+          // Push to BullMQ
+          await oracleQueue.add('lending-position-update', {
+            type: 'DEPOSIT',
+            user: user!.toLowerCase(),
+            amount: Number(amount) / 1e6,
+            depositType: depositType === 0 ? 'VARIABLE' : 'FIXED',
+            lockDays: Number(lockDays),
+            txHash: log.transactionHash,
+            timestamp: new Date().toISOString()
+          });
+          logger.info({ user, amount: amount?.toString() }, 'Lending deposit queued');
+        }
+      }
+    });
+
+    // Watch LendingPool Withdrawals
+    this.client.watchContractEvent({
+      address: this.lendingPool,
+      abi: [LENDING_EVENTS[1]],
+      eventName: 'Withdraw',
+      onLogs: async (logs: Log[]) => {
+        for (const log of logs) {
+          const { user, amount } = (log as any).args;
+          await oracleQueue.add('lending-position-update', {
+            type: 'WITHDRAW',
+            user: user!.toLowerCase(),
+            amount: Number(amount) / 1e6,
+            txHash: log.transactionHash,
+            timestamp: new Date().toISOString()
+          });
+          logger.info({ user, amount: amount?.toString() }, 'Lending withdrawal queued');
+        }
+      }
+    });
   }
 }
+
