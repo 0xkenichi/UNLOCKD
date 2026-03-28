@@ -15,6 +15,11 @@ frontend/node_modules
 *.log
 .DS_Store
 .vercel
+backend/data/*.sqlite
 backend/data/*.sqlite-shm
 backend/data/*.sqlite-wal
 backend/data/*.sqlite-journal
+**/data/*.sqlite
+**/data/*.sqlite-shm
+**/data/*.sqlite-wal
+**/data/*.sqlite-journal
