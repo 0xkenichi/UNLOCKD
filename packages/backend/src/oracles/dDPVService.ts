@@ -89,7 +89,7 @@ const BPS = 10_000;
 const SECS_PER_YEAR = 365 * 24 * 3600;
 
 const VALUATION_ENGINE_ABI = parseAbi([
-  'function computeDPV(uint256,address,uint256,uint8,uint256) view returns (uint256,uint256)',
+  'function computeDPV(uint256,address,uint256,address) view returns (uint256,uint256)',
   'function tokenOmegaBps(address) view returns (uint256)',
   'function updateRiskParams(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256) external',
   'function proposeOmega(address,uint256) external',

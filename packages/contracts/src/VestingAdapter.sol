@@ -303,6 +303,28 @@ contract VestingAdapter is IERC721Receiver, VestraAccessControl {
         Collateral memory c = collaterals[collateralId];
         require(c.vestingContract != address(0), "unknown collateral");
 
+        uint256 nftId = collateralToNftId[collateralId];
+
+        if (nftId != 0) {
+            bool adapterOwnsNft = IERC721(address(wrapperNFT)).ownerOf(nftId) == address(this);
+            if (adapterOwnsNft) {
+                if (block.timestamp >= c.unlockTime) {
+                    // Vesting has unlocked: release tokens directly to the borrower
+                    IVestingWalletTokenRelease(c.vestingContract).releaseTo(newOwner, c.totalAmount);
+                } else {
+                    // Loan repaid early: transfer the WrapperNFT so borrower can claim on unlock
+                    IERC721(address(wrapperNFT)).transferFrom(address(this), newOwner, nftId);
+                }
+                // Only wipe the NFT mapping when WE moved it
+                delete collateralToNftId[collateralId];
+            }
+            // else: NFT already moved by liquidation auction — leave mapping for auction.transferNft()
+        }
+
+        // Clear storage
+        delete collaterals[collateralId];
+        delete collateralToNftId[collateralId];
+
         emit CollateralTransferred(collateralId, address(this), newOwner);
     }
 

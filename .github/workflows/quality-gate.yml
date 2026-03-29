@@ -161,3 +161,22 @@ jobs:
           if [ -f /tmp/unlockd-backend.pid ]; then
             kill "$(cat /tmp/unlockd-backend.pid)" || true
           fi
+
+  foundry-tests:
+    name: Foundry Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Run Foundry tests
+        run: forge test
+        working-directory: packages/contracts

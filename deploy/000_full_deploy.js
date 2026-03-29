@@ -280,6 +280,57 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     // If the UI is using some other account, hardhat provides 10,000 ETH to account 0.
   }
 
+  // ─── 15. Deploy GlobalRiskModule ──────────────────────────────────────────────
+  const globalRiskModule = await deploy("GlobalRiskModule", {
+    from: deployer,
+    args: [loanManager.address, deployer],
+    log: true,
+  });
+
+  const globalRiskModuleInstance = await ethers.getContractAt(
+    "GlobalRiskModule",
+    globalRiskModule.address,
+    await ethers.getSigner(deployer)
+  );
+
+  // ─── 16. Grant roles — this is the fix for the dead-man's-switch ──────────────
+  const loanManagerInstance2 = await ethers.getContractAt(
+    "LoanManager",
+    loanManager.address,
+    await ethers.getSigner(deployer)
+  );
+
+  // PAUSER_ROLE → GlobalRiskModule (enables emergencyHalt → loanManager.pause())
+  const PAUSER_ROLE = await loanManagerInstance2.PAUSER_ROLE();
+  const grantPauserTx = await loanManagerInstance2.grantRole(PAUSER_ROLE, globalRiskModule.address);
+  await grantPauserTx.wait();
+
+  // GUARDIAN_ROLE → GlobalRiskModule (enables syncBadDebt → loanManager.syncBadDebt())
+  const GUARDIAN_ROLE_LM = await loanManagerInstance2.GUARDIAN_ROLE();
+  const grantGuardianTx = await loanManagerInstance2.grantRole(GUARDIAN_ROLE_LM, globalRiskModule.address);
+  await grantGuardianTx.wait();
+
+  // ─── 17. Verify grants landed (fail fast if not) ──────────────────────────────
+  const hasPauserRole = await loanManagerInstance2.hasRole(PAUSER_ROLE, globalRiskModule.address);
+  if (!hasPauserRole) throw new Error("❌ PAUSER_ROLE grant failed — abort deploy");
+  log("✅ PAUSER_ROLE granted to GlobalRiskModule:", globalRiskModule.address);
+
+  const hasGuardianRole = await loanManagerInstance2.hasRole(GUARDIAN_ROLE_LM, globalRiskModule.address);
+  if (!hasGuardianRole) throw new Error("❌ GUARDIAN_ROLE grant failed — abort deploy");
+  log("✅ GUARDIAN_ROLE granted to GlobalRiskModule:", globalRiskModule.address);
+
+  // ─── 18. Wire GlobalRiskModule's own bad debt ceiling ─────────────────────────
+  const badDebtCeiling = process.env.BAD_DEBT_CEILING_USDC
+    ? ethers.parseUnits(process.env.BAD_DEBT_CEILING_USDC, 6)
+    : ethers.parseUnits("1000000", 6); // $1M default
+  await (await globalRiskModuleInstance.setBadDebtCeiling(badDebtCeiling)).wait();
+  log("✅ BadDebtCeiling set to:", badDebtCeiling.toString(), "USDC (6 dec)");
+
+  // ─── 19. Sync LoanManager's own badDebtCeiling to match ─────────────────────
+  // LoanManager has its own badDebtCeiling used by its internal syncBadDebt()
+  await (await loanManagerInstance2.setBadDebtCeiling(badDebtCeiling)).wait();
+  log("✅ LoanManager.badDebtCeiling synced to:", badDebtCeiling.toString());
+
   log("Deployment complete!");
 };
 

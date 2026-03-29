@@ -188,6 +188,15 @@ contract LoanManager is LoanManagerStorage {
         emit SanctionsStatusUpdated(account, status);
     }
 
+    /// @notice Batch-whitelist multiple wallets in a single governor call.
+    /// Use on testnet to allow testers to borrow without per-wallet calls.
+    function batchSetSanctionsPass(address[] calldata accounts, bool status) external onlyGovernor {
+        for (uint256 i = 0; i < accounts.length; i++) {
+            sanctionsPass[accounts[i]] = status;
+            emit SanctionsStatusUpdated(accounts[i], status);
+        }
+    }
+
     /// @notice V6.0 Citadel - Set the designated Treasury address for a token to enable exclusive OTC buybacks
     function setTokenTreasury(address token, address treasury) external onlyGovernor {
         tokenTreasuries[token] = treasury;
@@ -339,6 +348,15 @@ contract LoanManager is LoanManagerStorage {
         _unpause();
     }
 
+    /**
+     * @notice Allows the risk module to resume after a syncBadDebt-triggered pause.
+     * @dev    Lower trust than full unpause — only PAUSER_ROLE required.
+     *         Governor retains override via unpause().
+     */
+    function resumeFromRiskModule() external onlyPauser {
+        _unpause();
+    }
+
     // V9.0 Sovereign Functions
     function setLoanNFT(address _loanNFT) external onlyGovernor {
         loanNFT = LoanNFT(_loanNFT);
@@ -395,20 +413,21 @@ contract LoanManager is LoanManagerStorage {
             active: true
         });
 
-        // Mint Lender NFT
+        // Mint Lender NFT and record tokenId → loanId mapping for claimDefaultedLoan()
         if (address(lenderNFT) != address(0)) {
-            lenderNFT.mint(msg.sender, loanId, amount, token);
+            uint256 lenderTokenId = lenderNFT.mint(msg.sender, loanId, amount, token);
+            loanToLenderTokenId[loanId] = lenderTokenId;
         }
 
-        console.log("Event: Borrow, %s, %s", borrower, amount);
-        console.log("Details: %s, %s", adapter.vestingContracts(collateralId), block.timestamp);
         emit LoanCreated(loanId, borrower, amount);
     }
 
     function syncBadDebt(uint256 _totalBadDebt) external onlyGuardian {
         totalBadDebt = _totalBadDebt;
         if (totalBadDebt > badDebtCeiling) {
-            _pause();
+            if (!paused()) {
+                _pause();
+            }
         }
     }
 }

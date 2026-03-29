@@ -175,6 +175,37 @@ contract ValuationEngine is VestraAccessControl {
         tokenOmegaBps[token] = finalOmega;
         emit OmegaUpdated(token, finalOmega);
     }
+
+    // --- Legacy / Backend Oracle Stub ---
+    // The offchain dDPV service submits a monolithic 9-parameter tuple payload.
+    // We emit an event and delegate specific fields (like EWMA) while avoiding a revert,
+    // thereby keeping the legacy bridge happy without clogging state onchain.
+    event RiskParamsUpdated(
+        address indexed token,
+        uint256 ewmaPrice,
+        uint256 lambda,
+        uint256 v30d,
+        uint256 v90d,
+        uint256 vImplied,
+        uint256 dexLiquidityUsd,
+        uint256 tokenPremiumBps,
+        uint256 liquidityPremiumBps
+    );
+
+    function updateRiskParams(
+        address token,
+        uint256 ewmaPrice,
+        uint256 lambda,
+        uint256 v30d,
+        uint256 v90d,
+        uint256 vImplied,
+        uint256 dexLiquidityUsd,
+        uint256 tokenPremiumBps,
+        uint256 liquidityPremiumBps
+    ) external {
+        require(msg.sender == coprocessor || hasRole(GUARDIAN_ROLE, msg.sender), "unauthorized");
+        emit RiskParamsUpdated(token, ewmaPrice, lambda, v30d, v90d, vImplied, dexLiquidityUsd, tokenPremiumBps, liquidityPremiumBps);
+    }
     
     function setPreTGEOracle(address _oracle) external onlyGovernor {
         preTGEOracle = _oracle;

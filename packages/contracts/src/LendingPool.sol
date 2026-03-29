@@ -8,7 +8,7 @@ import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
-import "hardhat/console.sol";
+
 
 contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     using SafeERC20 for IERC20;
@@ -512,8 +512,6 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
             withdrawAmount = amount - penalty;
             insuranceReserve += penalty;
             
-            console.log("Event: Penalty, %s, %s", msg.sender, penalty);
-            console.log("Details: %s, %s", address(0), block.timestamp);
             emit PenaltyApplied(msg.sender, penalty, block.timestamp);
         }
 
@@ -575,34 +573,26 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
             require(totalBorrowed >= amount, "repay>debt");
             totalBorrowed -= amount;
         }
-        
-        // Finalize transfer to pool treasury
-        require(issuanceTreasury != address(0), "issuance=0");
-        usdc.safeTransferFrom(msg.sender, issuanceTreasury, amount + interestAmount);
+
+        // Pull entire repayment (principal + interest) into this contract
+        usdc.safeTransferFrom(msg.sender, address(this), amount + interestAmount);
 
         if (interestAmount > 0) {
-            // Split: Protocol 0.5%, Insurance 20%, Lenders rest
-            uint256 protocolCut = (interestAmount * 50) / BPS_DENOMINATOR; // 0.5%
+            // Split: Protocol 0.5%, Insurance 20%, Lenders rest (~79.5%)
+            uint256 protocolCut  = (interestAmount * 50)   / BPS_DENOMINATOR; // 0.5%
             uint256 insuranceCut = (interestAmount * 2000) / BPS_DENOMINATOR; // 20%
-            
-            insuranceReserve += insuranceCut;
-            
-            // Transfer protocol cut to returnsTreasury
+            uint256 lpYield      = interestAmount - protocolCut - insuranceCut;
+
+            // 1. Protocol fee → returnsTreasury
             if (protocolCut > 0 && returnsTreasury != address(0)) {
-                // Since funds are already in issuanceTreasury (or this contract depending on implementation)
-                // We'll just account for it or transfer it. 
-                // In this codebase, issuanceTreasury seems to hold everything. 
-                // Let's just emit an event for it or transfer if needed.
-                // Assuming returnsTreasury is different.
-                if (returnsTreasury != issuanceTreasury) {
-                    // This is a bit tricky if funds are in issuanceTreasury.
-                    // But standard practice here is to just account for it.
-                }
+                usdc.safeTransfer(returnsTreasury, protocolCut);
             }
-            
-            totalDeposits += (interestAmount - insuranceCut - protocolCut);
-            console.log("Event: Repay, %s, %s", msg.sender, interestAmount);
-            console.log("Final: %s, %s", address(0), block.timestamp);
+
+            // 2. Insurance reserve stays in contract (tracked separately)
+            insuranceReserve += insuranceCut;
+
+            // 3. LP yield stays in contract — increases totalAssets backing LP shares
+            totalDeposits += lpYield;
         }
     }
 

@@ -35,7 +35,9 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         if (!loan.active) revert LoanInactive();
         if (amount == 0) revert ZeroAmount();
 
-        _repayUsdcFrom(loanId, msg.sender, amount);
+        // skipCollateralReturn = true: the auction contract handles NFT delivery to the winning bidder
+        usdc.safeTransferFrom(msg.sender, address(this), amount);
+        _applyUsdcToLoan(loanId, loan.borrower, amount, true);
     }
 
     function repayPrivateLoan(uint256 loanId, uint256 amount) external whenNotPaused nonReentrant {
@@ -51,7 +53,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
     function _repayUsdcFrom(uint256 loanId, address payer, uint256 amount) internal {
         if (payer == address(0)) revert InvalidToken();
         usdc.safeTransferFrom(payer, address(this), amount);
-        _applyUsdcToLoan(loanId, payer, amount);
+        _applyUsdcToLoan(loanId, payer, amount, false);
     }
 
     function _repayUsdcFromPrivate(uint256 loanId, address payer, uint256 amount) internal {
@@ -76,7 +78,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         if (allowance < totalDebt) revert MissingRepayPermissions();
 
         usdc.safeTransferFrom(borrower, address(this), totalDebt);
-        _applyUsdcToLoan(loanId, borrower, totalDebt);
+        _applyUsdcToLoan(loanId, borrower, totalDebt, false);
     }
 
     function repayLoanWithCollateral(uint256 loanId, address tokenIn, uint256 amountIn, uint256[] calldata minUsdcOuts) external whenNotPaused nonReentrant {
@@ -104,7 +106,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             });
 
         uint256 usdcReceived = uniswapRouter.exactInputSingle(params);
-        _applyUsdcToLoan(loanId, msg.sender, usdcReceived);
+        _applyUsdcToLoan(loanId, msg.sender, usdcReceived, false);
 
         emit LoanRepaidWithSwap(loanId, tokenIn, amountIn, usdcReceived);
     }
@@ -162,11 +164,11 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         require(loan.active, "loan inactive");
         require(block.timestamp > loan.unlockTime, "not defaulted yet");
         
-        // Ensure msg.sender is the holder of the Lender NFT for this loan
-        // Note: For simplicity, we check if the lender belongs to the loanId in lenderNFT mapping.
-        // Actually, we should check ownerOf(tokenId) where tokenId corresponds to loanId.
-        // I'll assume a mapping or lookup exists.
-        require(lenderNFT.ownerOf(loanId) == msg.sender, "not loan lender");
+        // Ensure msg.sender holds the LenderNFT for this specific loan.
+        // loanToLenderTokenId gives us the correct ERC-721 tokenId (≠ loanId).
+        uint256 lenderTokenId = loanToLenderTokenId[loanId];
+        require(lenderTokenId != 0, "no lender NFT for loan");
+        require(lenderNFT.ownerOf(lenderTokenId) == msg.sender, "not loan lender");
 
         (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(loan.collateralId);
         
@@ -203,19 +205,14 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             // Repay pool
             usdc.forceApprove(address(pool), usdcReceived);
             pool.repay(loan.principal, loan.interest);
-            
-            console.log("Event: Default, %s, %s", msg.sender, usdcReceived);
-            console.log("Contract: %s, %s", adapter.vestingContracts(loan.collateralId), block.timestamp);
         } else {
             // Lender takes the tokens
             adapter.releaseTo(loan.collateralId, msg.sender, quantity);
-            console.log("Event: Default, %s, %s", msg.sender, quantity);
-            console.log("Contract: %s, %s", adapter.vestingContracts(loan.collateralId), block.timestamp);
         }
 
         loan.active = false;
         activeLoansCount[loan.borrower] -= 1;
-        lenderNFT.burn(loanId);
+        lenderNFT.burn(lenderTokenId);
         emit LoanSettled(loanId, true);
     }
 
@@ -406,7 +403,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         emit OTCBuybackExecuted(loanId, msg.sender, discountedPayment);
     }
 
-    function _applyUsdcToLoan(uint256 loanId, address payer, uint256 usdcAmount) internal {
+    function _applyUsdcToLoan(uint256 loanId, address payer, uint256 usdcAmount, bool skipCollateralReturn) internal {
         if (usdcAmount == 0) return;
 
         Loan storage loan = loans[loanId];
@@ -458,11 +455,15 @@ contract LoanRepaymentFacet is LoanManagerStorage {
 
         if (loan.principal == 0 && loan.interest == 0) {
             loan.active = false;
-            activeLoansCount[loan.borrower] -= 1;
+            if (activeLoansCount[loan.borrower] > 0) {
+                activeLoansCount[loan.borrower] -= 1;
+            }
             if (address(loanNFT) != address(0)) {
                 loanNFT.settleProof(loanId);
             }
-            adapter.transferCollateral(loan.collateralId, loan.borrower);
+            if (!skipCollateralReturn) {
+                adapter.transferCollateral(loan.collateralId, loan.borrower);
+            }
             emit LoanSettled(loanId, false);
         }
     }

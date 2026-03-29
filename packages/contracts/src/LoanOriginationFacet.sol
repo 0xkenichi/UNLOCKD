@@ -150,16 +150,16 @@ contract LoanOriginationFacet is LoanManagerStorage {
         
         // V10.0 Sovereign - 25% TWAP Cap
         uint256 twap = valuation.getTWAP(token);
-        uint256 twapNormalized = twap;
-        if (tokenDecimals > 6) {
-            twapNormalized = twap / (10 ** (tokenDecimals - 6));
-        } else if (tokenDecimals < 6) {
-            twapNormalized = twap * (10 ** (6 - tokenDecimals));
-        }
-        uint256 twapMaxBorrow = (twapNormalized * pledgedQuantity * 2500) / (BPS_DENOMINATOR * (10 ** 6)); // Assuming TWAP is in token decimals
-        // Wait, valuation.getTWAP usually returns price in USD (6 decimals). 
-        // Let's assume TWAP is price per token in 1e6.
-        twapMaxBorrow = (pledgedQuantity * twap * 2500) / (BPS_DENOMINATOR * (10 ** tokenDecimals));
+        address feedAddress = valuation.getPriceFeedForToken(token);
+        require(feedAddress != address(0), "No oracle for token");
+        uint8 twapDecimals = AggregatorV3Interface(feedAddress).decimals();
+
+        // Calculate total USDC value of collateral using the TWAP price
+        // Result normalized to 6 decimals (USDC)
+        uint256 twapValue = (pledgedQuantity * twap * 1e6) / (10 ** tokenDecimals * 10 ** twapDecimals);
+        
+        // Capped at 25% of the TWAP value
+        uint256 twapMaxBorrow = (twapValue * 2500) / BPS_DENOMINATOR;
 
         if (maxBorrow > twapMaxBorrow) {
             maxBorrow = twapMaxBorrow;

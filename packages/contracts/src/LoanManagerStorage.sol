@@ -17,7 +17,6 @@ import "./IsolatedLendingPool.sol";
 import "./LoanNFT.sol";
 import "./LenderNFT.sol";
 import "./governance/VestraAccessControl.sol";
-import "hardhat/console.sol";
 
 // Interfaces
 interface IIdentityVerifier {
@@ -132,6 +131,9 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
     mapping(address => address) public tokenTreasuries;
     mapping(uint256 => bool) public inOTCBuyback;
     mapping(uint256 => uint256) public otcBuybackDeadline;
+    /// @notice Maps loanId → the LenderNFT tokenId minted for this loan.
+    /// Used by claimDefaultedLoan() to verify the caller holds the correct NFT.
+    mapping(uint256 => uint256) public loanToLenderTokenId;
 
     mapping(address => uint256) public currentGlobalExposure;
     mapping(uint256 => bool) public inLiquidation;
