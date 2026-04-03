@@ -16,6 +16,8 @@ contract VestingFactory is Ownable {
         rewardToken = _rewardToken;
     }
 
+    mapping(address => bool) public isVestraVesting;
+
     /**
      * @notice Create a new vesting contract and automatically submit it to the registry.
      */
@@ -26,10 +28,17 @@ contract VestingFactory is Ownable {
         // Mock deployment logic
         address mockVesting = address(uint160(uint256(keccak256(abi.encodePacked(recipient, amount, block.timestamp)))));
         
+        // V6.0 Citadel: Track legitimate deployments
+        isVestraVesting[mockVesting] = true;
+
         // Auto-vet for testnet speed (only if it's our factory)
         registry.vetContract(mockVesting, 3); // Rank 3 - Standard
         
         emit VestingContractCreated(mockVesting, recipient, amount);
         return mockVesting;
+    }
+
+    function isLegit(address _contract) external view returns (bool) {
+        return isVestraVesting[_contract];
     }
 }

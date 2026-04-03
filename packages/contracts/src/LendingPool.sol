@@ -458,6 +458,10 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
     }
 
     function deposit(uint256 amount, DepositType depositType, uint256 lockDays) external nonReentrant whenNotPaused {
+        _deposit(msg.sender, amount, depositType, lockDays);
+    }
+
+    function _deposit(address user, uint256 amount, DepositType depositType, uint256 lockDays) internal {
         require(amount > 0, "amount=0");
         require(issuanceTreasury != address(0), "issuance=0");
         
@@ -472,12 +476,12 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
             lockEndTime = block.timestamp + (lockDays * 1 days);
         }
 
-        usdc.safeTransferFrom(msg.sender, issuanceTreasury, amount);
+        usdc.safeTransferFrom(user, issuanceTreasury, amount);
         
         uint256 positionId = nextPositionId++;
         
-        positionIdToIndex[msg.sender][positionId] = lenderPositions[msg.sender].length;
-        lenderPositions[msg.sender].push(LenderPosition({
+        positionIdToIndex[user][positionId] = lenderPositions[user].length;
+        lenderPositions[user].push(LenderPosition({
             id: positionId,
             amount: amount,
             startTime: uint64(block.timestamp),
@@ -488,15 +492,15 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
             isActive: true
         }));
 
-        deposits[msg.sender] += amount;
+        deposits[user] += amount;
         totalDeposits += amount;
         
-        emit Deposit(msg.sender, positionId, amount, depositType, lockDays);
+        emit Deposit(user, positionId, amount, depositType, lockDays);
     }
 
     // Legacy deposit for compatibility
     function deposit(uint256 amount) external nonReentrant whenNotPaused {
-        this.deposit(amount, DepositType.VARIABLE, 0);
+        _deposit(msg.sender, amount, DepositType.VARIABLE, 0);
     }
 
     function withdraw(uint256 amount, uint256 positionId) external nonReentrant whenNotPaused {

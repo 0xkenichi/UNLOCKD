@@ -1,96 +1,93 @@
 const { request, gql } = require('graphql-request');
+const { parseAbi } = require('viem');
 
-const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || '';
-
-// Sablier V2 Subgraph Mapping (Separate Lockup and Flow)
-const SABLIER_SUBGRAPHS = {
-    1: { // Mainnet
-        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/AvDAMYYHGaEwn9F9585uqq6MM5CfvRtYcb7KjK7LKPCt`,
-        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/ECxBJhKceBGaVvK6vqmK3VQAncKwPeAQutEb8TeiUiod`
-    },
-    10: { // Optimism
-        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/NZHzd2JNFKhHP5EWUiDxa5TaxGCFbSD4g6YnYr8JGi6`,
-        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/AygPgsehNGSB4K7DYYtvBPhTpEiU4dCu3nt95bh9FhRf`
-    },
-    8453: { // Base
-        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/778GfecD9tsyB4xNnz4wfuAyfHU6rqGr79VCPZKu3t2F`,
-        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/4XSxXh8ZgkzaA35nrbQG9Ry3FYz3ZFD8QBdWwVg5pF9W`
-    },
-    11155111: { // Sepolia
-        lockup: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/5yDtFSxyRuqyjvGJyyuQhMEW3Uah7Ddy2KFSKVhy9VMa`,
-        flow: `https://gateway.thegraph.com/api/${THEGRAPH_API_KEY}/subgraphs/id/EU9AWmJjrjMRkjxcdHfuWPZvPTNAL3hiXfNGN5MwUpvm`
-    }
-};
+// Sablier Envio Multi-chain Indexer (Aggregated Data)
+const SABLIER_ENVIO_ENDPOINT = 'https://indexer.hyperindex.xyz/53b7e25/v1/graphql';
 
 const SABLIER_ENABLED = process.env.EVM_SABLIER_ENABLED === 'true';
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+
+// ABIs for real-time validation
+const SABLIER_LOCKUP_ABI = parseAbi([
+    'function getStatus(uint256 streamId) view returns (uint8)',
+    'function getStream(uint256 streamId) view returns (address sender, address recipient, uint128 depositedAmount, address asset, uint40 startTime, uint40 endTime, uint40 cliffTime, uint128 withdrawnAmount, bool cancellable, bool transferrable)'
+]);
 
 const LOCKUP_QUERY = gql`
-  query GetLockupPositions($recipients: [Bytes!]) {
-    streams(where: { 
-      recipient_in: $recipients,
-      status_not: "DEPLETED" 
-    }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
+  query GetLockupPositions($recipients: [String!]) {
+    Stream(where: { 
+      recipient: { _in: $recipients },
+      status: { _neq: "DEPLETED" }
+    }, limit: 50, order_by: { createdAtTimestamp: desc }) {
       id
-      contract
+      chainId
+      contractAddress
       recipient
       asset { id symbol decimals }
       depositedAmount
       withdrawnAmount
       cliffTime
       endTime
+      status
+      createdAtTimestamp
     }
   }
 `;
 
 const FLOW_QUERY = gql`
-  query GetFlowPositions($recipients: [Bytes!]) {
-    flows(where: {
-      recipient_in: $recipients,
-      status_not: "VOIDED"
-    }, first: 50, orderBy: createdAtTimestamp, orderDirection: desc) {
+  query GetFlowPositions($recipients: [String!]) {
+    Flow(where: {
+      recipient: { _in: $recipients },
+      status: { _neq: "VOIDED" }
+    }, limit: 50, order_by: { createdAtTimestamp: desc }) {
       id
-      contract
+      chainId
+      contractAddress
       recipient
       asset { id symbol decimals }
       ratePerSecond
       accumulatedAmount
       withdrawnAmount
+      status
+      createdAtTimestamp
     }
   }
 `;
 
-const DEMO_MODE = process.env.DEMO_MODE === 'true';
-
-const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
+/**
+ * Fetch Sablier Streams (Lockup & Flow)
+ * Now uses Envio multi-chain indexer for unified fetching across all chains.
+ */
+const fetchSablierStreams = async (wallets = [], chainId = null, client = null) => {
     if (!SABLIER_ENABLED || !wallets.length) {
         return [];
     }
 
-    // In demo mode, only fetch for Sepolia (11155111) and Base (8453) to avoid timeouts on other chains
-    if (DEMO_MODE && chainId !== 11155111 && chainId !== 8453) {
-        return [];
-    }
-
-    const config = SABLIER_SUBGRAPHS[chainId] || SABLIER_SUBGRAPHS[11155111];
     const recipients = wallets.map(w => w.toLowerCase());
     const now = Math.floor(Date.now() / 1000);
 
-    let lockupRes = { streams: [] };
-    let flowRes = { flows: [] };
+    let lockupRes = { Stream: [] };
+    let flowRes = { Flow: [] };
 
     try {
+        // Envio handles multi-chain queries in a single endpoint
         [lockupRes, flowRes] = await Promise.all([
-            request(config.lockup, LOCKUP_QUERY, { recipients }),
-            request(config.flow, FLOW_QUERY, { recipients })
+            request(SABLIER_ENVIO_ENDPOINT, LOCKUP_QUERY, { recipients }),
+            request(SABLIER_ENVIO_ENDPOINT, FLOW_QUERY, { recipients })
         ]);
     } catch (error) {
         if (!DEMO_MODE) {
-            console.error(`[sablier] subgraph fetch error on chain ${chainId}:`, error.message);
+            console.error(`[sablier] Envio fetch error:`, error.message);
         }
+        return [];
     }
 
     // Process Lockup Streams
-    const lockupPositions = (lockupRes.streams || []).map(stream => {
+    const lockupPositions = (lockupRes.Stream || []).map(stream => {
+        // Filter by chainId if provided (to match VestingOracleService's loop if needed)
+        // However, Envio is better called once. We handle chainId filtering here for compatibility.
+        if (chainId && Number(stream.chainId) !== chainId) return null;
+
         const deposited = BigInt(stream.depositedAmount || '0');
         const withdrawn = BigInt(stream.withdrawnAmount || '0');
         const locked = deposited - withdrawn;
@@ -107,17 +104,20 @@ const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
             tokenDecimals: Number(stream.asset.decimals || 18),
             quantity: locked.toString(),
             chain: 'evm',
-            chainId,
+            chainId: Number(stream.chainId),
             protocol: 'Sablier Lockup',
             timeline: {
                 cliff: Number(stream.cliffTime || 0),
-                end: endTime
+                end: endTime,
+                start: Number(stream.createdAtTimestamp || 0)
             }
         };
-    });
+    }).filter(Boolean);
 
     // Process Flow Streams
-    const flowPositions = (flowRes.flows || []).map(flow => {
+    const flowPositions = (flowRes.Flow || []).map(flow => {
+        if (chainId && Number(flow.chainId) !== chainId) return null;
+
         const withdrawn = BigInt(flow.withdrawnAmount || '0');
         const accumulated = BigInt(flow.accumulatedAmount || '0');
         const locked = accumulated - withdrawn;
@@ -127,21 +127,21 @@ const fetchSablierStreams = async (wallets = [], chainId = 11155111) => {
             borrower: flow.recipient,
             collateralId: flow.id,
             unlockTime: 0, 
-            active: true,
+            active: flow.status !== 'VOIDED',
             token: flow.asset.id,
             tokenSymbol: flow.asset.symbol || 'SAB',
             tokenDecimals: Number(flow.asset.decimals || 18),
             quantity: locked.toString(),
             ratePerSecond: flow.ratePerSecond,
             chain: 'evm',
-            chainId,
+            chainId: Number(flow.chainId),
             protocol: 'Sablier Flow',
             timeline: {
-                start: 0,
+                start: Number(flow.createdAtTimestamp || 0),
                 end: 0 
             }
         };
-    });
+    }).filter(Boolean);
 
     return [...lockupPositions, ...flowPositions];
 };

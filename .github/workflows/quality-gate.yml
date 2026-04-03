@@ -8,7 +8,7 @@ on:
       - "test/**"
       - "packages/scripts/**"
       - "packages/backend/**"
-      - "frontend-v2/**"
+      - "frontend/**"
       - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
@@ -20,24 +20,45 @@ on:
       - "test/**"
       - "packages/scripts/**"
       - "packages/backend/**"
-      - "frontend-v2/**"
+      - "frontend/**"
       - "eslint.config.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/quality-gate.yml"
 
 jobs:
+  # CRITICAL: This job handles invariant and unit tests. Must pass as a blocking gate.
+  foundry-tests:
+    name: Blocking Foundry Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1.2.0
+        with:
+          version: nightly
+
+      - name: Run Foundry tests
+        run: forge test
+        working-directory: packages/contracts
+
   lint:
     runs-on: ubuntu-latest
+    needs: [foundry-tests]
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
@@ -50,15 +71,16 @@ jobs:
 
   protocol-tests:
     runs-on: ubuntu-latest
+    needs: [foundry-tests]
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
@@ -71,62 +93,65 @@ jobs:
 
   frontend-build:
     runs-on: ubuntu-latest
+    needs: [foundry-tests]
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm install --prefix frontend-v2
+        run: npm install --prefix frontend
 
       - name: Build frontend
-        run: npm run build --prefix frontend-v2
+        run: npm run build --prefix frontend
 
   frontend-e2e-smoke:
     runs-on: ubuntu-latest
+    needs: [foundry-tests]
     timeout-minutes: 25
     env:
       NODE_OPTIONS: --max-old-space-size=4096
       CI: "true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm install --prefix frontend-v2
+        run: npm install --prefix frontend
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
-        working-directory: frontend-v2
+        working-directory: frontend
 
       - name: Run frontend smoke tests
-        run: npm run test:e2e:smoke --prefix frontend-v2
+        run: npm run test:e2e:smoke --prefix frontend
 
   backend-smoke:
     runs-on: ubuntu-latest
+    needs: [foundry-tests]
     timeout-minutes: 20
     env:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
@@ -161,22 +186,3 @@ jobs:
           if [ -f /tmp/unlockd-backend.pid ]; then
             kill "$(cat /tmp/unlockd-backend.pid)" || true
           fi
-
-  foundry-tests:
-    name: Foundry Test Suite
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Run Foundry tests
-        run: forge test
-        working-directory: packages/contracts

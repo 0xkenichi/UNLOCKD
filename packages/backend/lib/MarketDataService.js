@@ -101,6 +101,26 @@ class MarketDataService {
   }
 
   /**
+   * Get price for a single symbol
+   * Fallback to USDC=1.0 for common stablecoins in demo/missing data scenarios
+   */
+  async getPrice(symbol) {
+    if (!symbol) return 0;
+    const s = symbol.toUpperCase();
+    if (s === 'USDC' || s === 'USDT' || s === 'DAI' || s === 'USDCX') return 1.0;
+    
+    try {
+      const prices = await this.getPrices(`coingecko:${symbol.toLowerCase()}`);
+      if (prices && prices.coins && Object.keys(prices.coins).length > 0) {
+          return Object.values(prices.coins)[0].price;
+      }
+      return 0;
+    } catch (err) {
+      return 0;
+    }
+  }
+
+  /**
    * Compute Risk Adjusted APY for a pool
    * This is a proprietary Vestra calculation using DefiLlama yields
    */

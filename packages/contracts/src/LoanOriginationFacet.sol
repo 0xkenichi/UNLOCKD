@@ -19,6 +19,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
     function createLoan(
         uint256 collateralId,
         address vestingContract,
+        VestingAdapter.Protocol protocol,
         uint256 borrowAmount,
         uint256 durationDays,
         string calldata tokenURI
@@ -26,6 +27,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         _createLoanInternal(CreateLoanParams({
             collateralId: collateralId,
             vestingContract: vestingContract,
+            protocol: protocol,
             borrowAmount: borrowAmount,
             collateralAmount: 0,
             durationDays: durationDays,
@@ -37,6 +39,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
     function createLoanWithCollateralAmount(
         uint256 collateralId,
         address vestingContract,
+        VestingAdapter.Protocol protocol,
         uint256 borrowAmount,
         uint256 collateralAmount,
         uint256 durationDays,
@@ -45,6 +48,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         _createLoanInternal(CreateLoanParams({
             collateralId: collateralId,
             vestingContract: vestingContract,
+            protocol: protocol,
             borrowAmount: borrowAmount,
             collateralAmount: collateralAmount,
             durationDays: durationDays,
@@ -56,6 +60,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
     function createPrivateLoan(
         uint256 collateralId,
         address vestingContract,
+        VestingAdapter.Protocol protocol,
         uint256 borrowAmount,
         uint256 durationDays,
         string calldata tokenURI
@@ -63,6 +68,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         _createLoanInternal(CreateLoanParams({
             collateralId: collateralId,
             vestingContract: vestingContract,
+            protocol: protocol,
             borrowAmount: borrowAmount,
             collateralAmount: 0,
             durationDays: durationDays,
@@ -74,6 +80,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
     function createPrivateLoanWithCollateralAmount(
         uint256 collateralId,
         address vestingContract,
+        VestingAdapter.Protocol protocol,
         uint256 borrowAmount,
         uint256 collateralAmount,
         uint256 durationDays,
@@ -82,6 +89,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
         _createLoanInternal(CreateLoanParams({
             collateralId: collateralId,
             vestingContract: vestingContract,
+            protocol: protocol,
             borrowAmount: borrowAmount,
             collateralAmount: collateralAmount,
             durationDays: durationDays,
@@ -96,6 +104,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
     struct CreateLoanParams {
         uint256 collateralId;
         address vestingContract;
+        VestingAdapter.Protocol protocol;
         uint256 borrowAmount;
         uint256 collateralAmount;
         uint256 durationDays;
@@ -110,8 +119,8 @@ contract LoanOriginationFacet is LoanManagerStorage {
         if (params.borrowAmount == 0) revert ZeroAmount();
         if (params.durationDays == 0) revert ZeroAmount();
 
-        adapter.escrow(params.collateralId, params.vestingContract, msg.sender);
-        (uint256 quantity, address token, uint256 unlockTime) = adapter.getDetails(params.collateralId);
+        uint256 eid = adapter.escrow(params.collateralId, params.vestingContract, params.protocol);
+        (address token, uint256 quantity, , uint256 unlockTime) = adapter.getDetails(eid);
         if (quantity == 0) revert ZeroAmount();
         
         // V5.0 Flash Pump Pre-Crime Defense
@@ -126,6 +135,17 @@ contract LoanOriginationFacet is LoanManagerStorage {
             ltvBps = ltvBps + identityBoostBps;
             if (ltvBps > BPS_DENOMINATOR) {
                 ltvBps = BPS_DENOMINATOR;
+            }
+        }
+
+        // V10.0 VCS: LTV Boost application
+        if (address(vcsRegistry) != address(0)) {
+            uint16 vcsBoost = vcsRegistry.getLtvBoostBps(msg.sender);
+            if (vcsBoost > 0) {
+                ltvBps += vcsBoost;
+                if (ltvBps > BPS_DENOMINATOR) {
+                    ltvBps = BPS_DENOMINATOR;
+                }
             }
         }
         
@@ -178,6 +198,21 @@ contract LoanOriginationFacet is LoanManagerStorage {
                 interestRateBps = 0;
             }
         }
+
+        // V10.0 VCS: Interest Rate augmentation
+        if (address(vcsRegistry) != address(0)) {
+            int16 rateAdj = vcsRegistry.getRateAdjBps(msg.sender);
+            if (rateAdj > 0) {
+                interestRateBps += uint256(int256(rateAdj));
+            } else if (rateAdj < 0) {
+                uint256 discount = uint256(int256(-rateAdj));
+                if (interestRateBps > discount) {
+                    interestRateBps -= discount;
+                } else {
+                    interestRateBps = 0;
+                }
+            }
+        }
         
         uint256 interest = (params.borrowAmount * interestRateBps) / BPS_DENOMINATOR;
         uint256 originationFee = (params.borrowAmount * originationFeeBps) / BPS_DENOMINATOR;
@@ -211,6 +246,8 @@ contract LoanOriginationFacet is LoanManagerStorage {
                 loanDuration: params.durationDays * 1 days,
                 unlockTime: unlockTime,
                 hedgeAmount: hedgeAmount,
+                escrowId: eid,
+                protocol: params.protocol,
                 active: true
             });
             emit PrivateLoanCreated(loanId, msg.sender, params.borrowAmount);
@@ -225,6 +262,8 @@ contract LoanOriginationFacet is LoanManagerStorage {
                 loanDuration: params.durationDays * 1 days,
                 unlockTime: unlockTime,
                 hedgeAmount: hedgeAmount,
+                escrowId: eid,
+                protocol: params.protocol,
                 active: true
             });
             emit LoanCreated(loanId, msg.sender, params.borrowAmount);
@@ -244,6 +283,7 @@ contract LoanOriginationFacet is LoanManagerStorage {
             }
         }
         loanCount += 1;
+        adapter.linkLoan(eid, loanId);
         // Optimization: O(1) active loan count
         if (params.isPrivate) {
             activeLoansCount[msg.sender] += 1;

@@ -1,0 +1,2 @@
+import{r as o,a as l}from"./index-Cu9Lq934.js";import{g as u}from"./passport-CtltROvi.js";function c(s){const[n,t]=o.useState({loading:!1,score:null,stamps:null});return o.useEffect(()=>{if(!s){t({loading:!1,score:null,stamps:null});return}let a=!0;return t(e=>({...e,loading:!0})),l(s).then(e=>{if(!a)return;const r=u(e?.attestations);t({loading:!1,score:r.score,stamps:r.stamps})}).catch(()=>{a&&t({loading:!1,score:null,stamps:null})}),()=>{a=!1}},[s]),n}export{c as u};
+//# sourceMappingURL=usePassportSnapshot-tgffQ6fe.js.map

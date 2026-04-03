@@ -1,7 +1,21 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 const { request, gql } = require('graphql-request');
-// Pricing is handled downstream in the dDPV engine
+const { createPublicClient, http, parseAbi } = require('viem');
+const { mainnet, base } = require('viem/chains');
+
+// SUPERFLUID PROTOCOL CONSTANTS
+const CFAV1_FORWARDER_ADDRESS = '0xcfA132E353cB4E398080B9700609bb008eceB125';
+const GDAV1_FORWARDER_ADDRESS = '0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08';
+
+const CFAV1_FORWARDER_ABI = parseAbi([
+  'function getFlowInfo(address token, address sender, address receiver) view returns (uint256 lastUpdated, int96 flowrate, uint256 deposit, uint256 owedDeposit)',
+  'function getAccountFlowrate(address token, address account) view returns (int96 flowrate)'
+]);
+
+const GDAV1_FORWARDER_ABI = parseAbi([
+  'function getPoolAdjustmentFlowRate(address pool, address member) view returns (int96 flowRate)'
+]);
 
 // Superfluid Subgraph for Polygon (or change based on deployment chain)
 const THEGRAPH_API_KEY = process.env.THEGRAPH_API_KEY || '';
@@ -9,13 +23,10 @@ const SUPERFLUID_SUBGRAPH_URL = `https://gateway.thegraph.com/api/${THEGRAPH_API
 const SUPERFLUID_ENABLED = process.env.EVM_SUPERFLUID_ENABLED === 'true';
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 
-const fetchSuperfluidStreams = async (wallets = []) => {
+const fetchSuperfluidStreams = async (wallets = [], client = null) => {
   if (!SUPERFLUID_ENABLED || !wallets || wallets.length === 0) {
     return [];
   }
-
-  // In demo mode, superfluid might be non-essential if subgraphs are down
-  // We'll still try, but silence the error if it fails
 
   const normalizedWallets = wallets.map(w => w.toLowerCase());
 
@@ -45,27 +56,38 @@ const fetchSuperfluidStreams = async (wallets = []) => {
     const now = Math.floor(Date.now() / 1000);
 
     const streams = await Promise.all(data.streams.map(async (stream) => {
-      const flowRate = BigInt(stream.currentFlowRate || '0');
+      let flowRate = BigInt(stream.currentFlowRate || '0');
+      
+      // REAL-TIME VALIDATION via CFAv1Forwarder
+      if (client) {
+        try {
+          const flowInfo = await client.readContract({
+            address: CFAV1_FORWARDER_ADDRESS,
+            abi: CFAV1_FORWARDER_ABI,
+            functionName: 'getFlowInfo',
+            args: [stream.token.id, stream.sender, stream.receiver]
+          });
+          flowRate = BigInt(flowInfo[1]); // flowrate is index 1
+        } catch (err) {
+          console.warn(`[Superfluid] CFA validation failed for ${stream.token.symbol}: ${err.message}`);
+        }
+      }
+
+      if (flowRate === 0n) return null; // Stream might have closed since subgraph update
 
       const startTime = Number(stream.createdAtTimestamp || 0);
       const updatedAt = Number(stream.updatedAtTimestamp || 0);
       const streamedUntilUpdate = BigInt(stream.streamedUntilUpdatedAt || '0');
 
-      // Calculate amount streamed since last update
       const timeDelta = BigInt(Math.max(0, now - updatedAt));
       const newlyStreamed = flowRate * timeDelta;
       const totalStreamed = streamedUntilUpdate + newlyStreamed;
 
-      // Superfluid flows are continuous and do not have an inherent "end time" unless scheduled.
-      // For Vestra's MVP we assume continuous perpetual streams act as liquid yielding assets 
-      // where the "locked" amount is functionally unlimited, but we treat the "principal" 
-      // as the 1-year yield for valuation purposes.
       const oneYearSeconds = BigInt(365 * 24 * 60 * 60);
       const expectedOneYearYield = flowRate * oneYearSeconds;
 
       let tokenSymbol = stream.token.symbol || 'SUP';
       let tokenDecimals = Number(stream.token.decimals || 18);
-      let pv = '0'; // True PV depends on oracle downstream
 
       return {
         loanId: `superfluid-${stream.id}`,
@@ -73,13 +95,14 @@ const fetchSuperfluidStreams = async (wallets = []) => {
         principal: '0',
         interest: '0',
         collateralId: stream.id,
-        unlockTime: now + 86400 * 365, // Arbitrary 1-year horizon
+        unlockTime: now + 86400 * 365,
         active: true,
         token: stream.token.id,
         tokenSymbol,
         tokenDecimals,
         quantity: expectedOneYearYield.toString(),
-        pv,
+        ratePerSecond: flowRate.toString(), // CRITICAL: Added for monthlyInflowUsd calculation
+        pv: '0',
         ltvBps: '0',
         daysToUnlock: 365,
         chain: 'evm',
@@ -87,17 +110,20 @@ const fetchSuperfluidStreams = async (wallets = []) => {
         timeline: {
           start: startTime,
           cliff: startTime,
-          end: now + 86400 * 365 // Rolling 1-year continuous
+          end: now + 86400 * 365
         },
         evidence: {
           escrowTx: '',
           wallet: '',
-          token: ''
+          token: stream.token.id
         }
       };
     }));
 
-    return streams.filter(Boolean);
+    // DISCOVER POOLS (GDA)
+    const pools = await fetchSuperfluidPools(normalizedWallets, client);
+    
+    return [...streams.filter(Boolean), ...pools];
   } catch (error) {
     if (!DEMO_MODE) {
       console.warn('[evm] superfluid search failed', error?.message || error);
@@ -106,4 +132,87 @@ const fetchSuperfluidStreams = async (wallets = []) => {
   }
 };
 
-module.exports = { fetchSuperfluidStreams };
+/**
+ * Fetch Distribution Pools (GDA) for a user
+ */
+const fetchSuperfluidPools = async (receivers = [], client = null) => {
+    // Discovery for pools is done via GDA subgraph or common emitters
+    // For MVP we query the GDA subgraph if active
+    const GDA_QUERY = gql`
+      query GetPools($members: [String!]) {
+        poolMembers(where: { account_in: $members, units_gt: "0" }) {
+          id
+          pool {
+            id
+            token {
+              id
+              symbol
+              decimals
+            }
+          }
+          account {
+            id
+          }
+          units
+          createdAtTimestamp
+        }
+      }
+    `;
+
+    try {
+        const data = await request(SUPERFLUID_SUBGRAPH_URL, GDA_QUERY, { members: receivers });
+        if (!data || !data.poolMembers) return [];
+
+        const now = Math.floor(Date.now() / 1000);
+        
+        const pools = await Promise.all(data.poolMembers.map(async (member) => {
+            let flowRate = 0n;
+
+            // VALIDATE POOL INCOME via GDAv1Forwarder
+            if (client) {
+                try {
+                    flowRate = BigInt(await client.readContract({
+                        address: GDAV1_FORWARDER_ADDRESS,
+                        abi: GDAV1_FORWARDER_ABI,
+                        functionName: 'getPoolAdjustmentFlowRate',
+                        args: [member.pool.id, member.account.id]
+                    }));
+                } catch (err) {
+                   // Fallback: GDA flow rates are aggregate of all pool distributors
+                   // If contract call fails, we might need a more complex calculation
+                }
+            }
+
+            // Simplified: If flowrate is 0 or negative, we skip it for credit scoring unless it's a fixed distribution
+            if (flowRate <= 0n) return null;
+
+            const oneYearSeconds = BigInt(365 * 24 * 60 * 60);
+            const expectedOneYearYield = flowRate * oneYearSeconds;
+
+            return {
+                id: `sf-pool-${member.id}`,
+                loanId: `sf-pool-${member.id}`,
+                borrower: member.account.id,
+                protocol: 'Superfluid GDA',
+                token: member.pool.token.id,
+                tokenSymbol: member.pool.token.symbol,
+                tokenDecimals: Number(member.pool.token.decimals || 18),
+                quantity: expectedOneYearYield.toString(),
+                ratePerSecond: flowRate.toString(),
+                active: true,
+                chain: 'evm',
+                unlockTime: now + 86400 * 365,
+                timeline: {
+                    start: Number(member.createdAtTimestamp),
+                    end: now + 86400 * 365
+                }
+            };
+        }));
+
+        return pools.filter(Boolean);
+    } catch (err) {
+        return [];
+    }
+};
+
+module.exports = { fetchSuperfluidStreams, fetchSuperfluidPools };

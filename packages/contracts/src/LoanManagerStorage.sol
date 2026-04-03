@@ -17,6 +17,7 @@ import "./IsolatedLendingPool.sol";
 import "./LoanNFT.sol";
 import "./LenderNFT.sol";
 import "./governance/VestraAccessControl.sol";
+import "./VestraCreditRegistry.sol";
 
 // Interfaces
 interface IIdentityVerifier {
@@ -99,6 +100,8 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
         uint256 loanDuration;
         uint256 unlockTime;
         uint256 hedgeAmount; // V4.0 Risk Insurance
+        uint256 escrowId;     // V11.0 VestingAdapter linkage
+        VestingAdapter.Protocol protocol; // V11.0 VestingAdapter protocol
         bool active;
     }
 
@@ -112,6 +115,8 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
         uint256 loanDuration;
         uint256 unlockTime;
         uint256 hedgeAmount; // V4.0 Risk Insurance
+        uint256 escrowId;     // V11.0 VestingAdapter linkage
+        VestingAdapter.Protocol protocol; // V11.0 VestingAdapter protocol
         bool active;
     }
 
@@ -211,4 +216,8 @@ abstract contract LoanManagerStorage is VestraAccessControl, Pausable, Reentranc
     error UnauthorizedTreasury();
     error NoCollateralToBuy();
     error GlobalExposureCapExceeded();
+
+    // V10.0 VCS Module integration
+    VestraCreditRegistry public vcsRegistry;
 }
+

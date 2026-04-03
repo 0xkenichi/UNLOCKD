@@ -112,13 +112,13 @@ const toEvent = (row) => ({
   txHash: row.tx_hash || row.txHash,
   logIndex: Number(row.log_index ?? row.logIndex ?? 0),
   blockNumber: Number(row.block_number ?? row.blockNumber ?? 0),
-  timestamp: Number(row.timestamp ?? 0),
-  type: row.type,
+  timestamp: row.timestamp ? Number(row.timestamp) : (row.occurred_at ? Date.parse(row.occurred_at) / 1000 : 0),
+  type: row.type || row.event_type,
   loanId: row.loan_id || row.loanId || '',
   borrower: row.borrower || '',
-  amount: row.amount || '',
-  defaulted: Boolean(row.defaulted),
-  tokenAddress: row.token_address ?? row.tokenAddress ?? null,
+  amount: row.amount || row.principal_usdc || '',
+  defaulted: Boolean(row.defaulted || row.status === 'liquidated'),
+  tokenAddress: row.token_address ?? row.tokenAddress ?? row.collateral_token ?? null,
   payload: row.payload ? (typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload) : null
 });
 
@@ -252,17 +252,30 @@ const initSqlite = () => {
       wallet_address TEXT PRIMARY KEY, linked_at TEXT, identity_proof_hash TEXT,
       sanctions_pass INTEGER, last_synced_score INTEGER DEFAULT 0, updated_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS user_loans (
-      id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL, amount TEXT NOT NULL,
-      asset TEXT DEFAULT 'USDC', ltv_bps INTEGER, apr_bps INTEGER,
-      status TEXT DEFAULT 'pending', repaid_amount TEXT DEFAULT '0',
-      duration_days INTEGER DEFAULT 30,
+    CREATE TABLE IF NOT EXISTS loans (
+      id TEXT PRIMARY KEY, loan_id INTEGER UNIQUE, chain_id INTEGER,
+      borrower TEXT NOT NULL, nft_holder TEXT NOT NULL,
+      collateral_token TEXT, stream_id TEXT, quantity TEXT, unlock_time TEXT,
+      principal_usdc TEXT, dpv_at_open_usdc TEXT, ltv_bps INTEGER,
+      origination_fee_usdc TEXT DEFAULT '0', interest_usdc TEXT DEFAULT '0',
+      nft_token_id INTEGER, nft_tx_hash TEXT,
+      status TEXT DEFAULT 'active', tx_hash_open TEXT, tx_hash_close TEXT,
+      block_number_open INTEGER, block_number_close INTEGER,
+      opened_at TEXT DEFAULT (datetime('now')), closed_at TEXT,
       created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE TABLE IF NOT EXISTS loan_collateral (
-      id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, source_id TEXT NOT NULL,
-      collateral_amount TEXT, raw_data TEXT, created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY(source_id) REFERENCES vesting_sources(id)
+    CREATE TABLE IF NOT EXISTS loan_events (
+      id TEXT PRIMARY KEY, loan_id INTEGER NOT NULL, chain_id INTEGER,
+      event_type TEXT NOT NULL, tx_hash TEXT NOT NULL, block_number INTEGER,
+      log_index INTEGER, from_address TEXT, payload TEXT,
+      occurred_at TEXT, indexed_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(loan_id) REFERENCES loans(loan_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS nft_transfers (
+      id TEXT PRIMARY KEY, loan_id INTEGER NOT NULL, chain_id INTEGER,
+      from_address TEXT NOT NULL, to_address TEXT NOT NULL,
+      tx_hash TEXT NOT NULL, block_number INTEGER, transferred_at TEXT,
+      FOREIGN KEY(loan_id) REFERENCES loans(loan_id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS user_deposits (
       id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL, amount TEXT NOT NULL,
@@ -271,10 +284,26 @@ const initSqlite = () => {
       created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS vcs_scores (
-      wallet TEXT PRIMARY KEY, gitcoin_score REAL, financial_score INTEGER,
-      credit_history_score INTEGER, total_vcs_score INTEGER, tier TEXT,
-      total_repaid_loans INTEGER, has_defaults INTEGER,
-      last_updated TEXT DEFAULT (datetime('now'))
+      wallet TEXT PRIMARY KEY,
+      gitcoin_score REAL DEFAULT 0,
+      financial_score INTEGER DEFAULT 0,
+      credit_history_score INTEGER DEFAULT 0,
+      vesting_score INTEGER DEFAULT 0,
+      total_vcs_score INTEGER DEFAULT 0,
+      tier TEXT DEFAULT 'UNRANKED',
+      total_repaid_loans INTEGER DEFAULT 0,
+      has_defaults BOOLEAN DEFAULT 0,
+      tx_count INTEGER DEFAULT 0,
+      wallet_age_days INTEGER DEFAULT 0,
+      unique_protocols INTEGER DEFAULT 0,
+      balance_usd REAL DEFAULT 0,
+      latest_tx_timestamp INTEGER DEFAULT 0,
+      volume_traded REAL DEFAULT 0,
+      largest_tx REAL DEFAULT 0,
+      active_vesting_usd REAL DEFAULT 0,
+      vesting_monthly_inflow_usd REAL DEFAULT 0,
+      raw_data TEXT,
+      last_updated TEXT
     );
     CREATE TABLE IF NOT EXISTS identity_attestations (
       id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL, provider TEXT NOT NULL,
@@ -375,8 +404,8 @@ const init = async () => {
 const loadEvents = async (limit) => {
   if (useSupabase) {
     const { data, error } = await supabaseClient()
-      .from('indexer_events')
-      .select('tx_hash, log_index, block_number, timestamp, type, loan_id, borrower, amount, defaulted, token_address')
+      .from('loan_events')
+      .select('*')
       .order('block_number', { ascending: false })
       .order('log_index', { ascending: false })
       .limit(limit);
@@ -384,7 +413,7 @@ const loadEvents = async (limit) => {
     return (data || []).map(toEvent);
   }
   const rows = sqlite.prepare(
-    'SELECT txHash, logIndex, blockNumber, timestamp, type, loanId, borrower, amount, defaulted, token_address FROM events ORDER BY blockNumber DESC, logIndex DESC LIMIT ?'
+    'SELECT * FROM loan_events ORDER BY block_number DESC, log_index DESC LIMIT ?'
   ).all(limit);
   return rows.map((row) => ({
     txHash: row.txHash, logIndex: Number(row.logIndex), blockNumber: Number(row.blockNumber),
@@ -619,6 +648,18 @@ const listWalletLinksByUser = async (userId) => {
   return rows.map((row) => ({ id: row.id, userId: row.user_id, chainType: row.chain_type, walletAddress: row.wallet_address, createdAt: row.created_at || null }));
 };
 
+const getLinkedWalletsByAddress = async (walletAddress, chainType = 'evm') => {
+  const chain = normalizeChainType(chainType);
+  if (useSupabase) {
+    const { data: link, error: linkErr } = await supabaseClient().from('user_wallet_links').select('user_id').eq('chain_type', chain).eq('wallet_address', walletAddress).maybeSingle();
+    if (linkErr || !link?.user_id) return [{ chainType: chain, walletAddress }];
+    return listWalletLinksByUser(link.user_id);
+  }
+  const link = sqlite.prepare('SELECT user_id FROM user_wallet_links WHERE chain_type = ? AND wallet_address = ?').get(chain, walletAddress);
+  if (!link?.user_id) return [{ chainType: chain, walletAddress }];
+  return listWalletLinksByUser(link.user_id);
+};
+
 const getLinkedEvmWallet = async ({ chainType, walletAddress }) => {
   const chain = normalizeChainType(chainType);
   if (!walletAddress) return '';
@@ -828,6 +869,25 @@ const createMatchEvent = async ({ type, payload }) => {
   }
   sqlite.prepare('INSERT INTO match_events (id, type, payload, created_at) VALUES (?, ?, ?, ?)').run(id, type || 'unknown', JSON.stringify(normalized), createdAt);
   return { id, type: type || 'unknown', payload: normalized, createdAt };
+};
+
+const listMatchEvents = async ({ type, limit = 100 } = {}) => {
+  if (useSupabase) {
+    let query = supabaseClient().from('match_events').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (type) query = query.eq('type', type);
+    const { data, error } = await query;
+    if (error) throw new Error(`[supabase] listMatchEvents failed: ${error.message}`);
+    return data || [];
+  }
+  let sql = 'SELECT * FROM match_events';
+  const args = [];
+  if (type) {
+    sql += ' WHERE type = ?';
+    args.push(type);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  args.push(limit);
+  return sqlite.prepare(sql).all(...args);
 };
 
 const getPoints = async (walletAddress) => {
@@ -1118,35 +1178,47 @@ const listAdminAuditLogs = async ({ limit = 100, action = null } = {}) => {
   return rows.map((row) => ({ id: row.id, action: row.action, actorUserId: row.actor_user_id || null, actorWallet: row.actor_wallet || null, actorRole: row.actor_role || null, targetType: row.target_type || null, targetId: row.target_id || null, ipHash: row.ip_hash || null, sessionFingerprint: row.session_fingerprint || null, payload: (() => { try { return row.payload ? JSON.parse(row.payload) : {}; } catch { return {}; } })(), createdAt: row.created_at || null }));
 };
 
-const createLoan = async ({ walletAddress, amount, ltvBps, aprBps, duration_days, collateralItems }) => {
-  const loanId = createId();
+const createLoan = async ({ loanIdOnChain, chainId, borrower, amount, ltvBps, dpvAtOpen, collateralToken, streamId, unlockTime, nftTxHash, blockNumber }) => {
+  const id = createId();
   const now = new Date().toISOString();
-  const durationValue = Number(duration_days || 30);
   if (useSupabase) {
-    const { error: loanError } = await supabaseClient().from('user_loans').insert({ id: loanId, wallet_address: walletAddress, amount: String(amount), ltv_bps: ltvBps, apr_bps: aprBps, duration_days: durationValue, created_at: now, updated_at: now });
+    const { error: loanError } = await supabaseClient().from('loans').insert({
+      id,
+      loan_id: loanIdOnChain,
+      chain_id: chainId,
+      borrower: borrower,
+      nft_holder: borrower,
+      collateral_token: collateralToken,
+      stream_id: streamId,
+      quantity: String(amount),
+      unlock_time: new Date(unlockTime * 1000).toISOString(),
+      principal_usdc: String(amount),
+      dpv_at_open_usdc: String(dpvAtOpen),
+      ltv_bps: ltvBps,
+      nft_token_id: loanIdOnChain,
+      nft_tx_hash: nftTxHash,
+      status: 'active',
+      tx_hash_open: nftTxHash,
+      block_number_open: blockNumber,
+      opened_at: now,
+      updated_at: now
+    });
     if (loanError) throw loanError;
-    if (collateralItems && collateralItems.length > 0) {
-      const { error: collError } = await supabaseClient().from('loan_collateral').insert(collateralItems.map(item => ({ id: createId(), loan_id: loanId, source_id: item.sourceId, collateral_amount: String(item.amount || '0'), raw_data: JSON.stringify(item.rawData || {}), created_at: now })));
-      if (collError) throw collError;
-    }
-    return loanId;
+    return id;
   }
-  sqlite.prepare(`INSERT INTO user_loans (id, wallet_address, amount, ltv_bps, apr_bps, duration_days, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(loanId, walletAddress, String(amount), ltvBps, aprBps, durationValue, now, now);
-  if (collateralItems && collateralItems.length > 0) {
-    const collateralStmt = sqlite.prepare(`INSERT INTO loan_collateral (id, loan_id, source_id, collateral_amount, raw_data, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
-    for (const item of collateralItems) collateralStmt.run(createId(), loanId, item.sourceId, String(item.amount || '0'), JSON.stringify(item.rawData || {}), now);
-  }
-  return loanId;
+  sqlite.prepare(`INSERT INTO loans (id, loan_id, chain_id, borrower, nft_holder, collateral_token, stream_id, quantity, unlock_time, principal_usdc, dpv_at_open_usdc, ltv_bps, nft_token_id, nft_tx_hash, status, tx_hash_open, block_number_open, opened_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, loanIdOnChain, chainId, borrower, borrower, collateralToken, streamId, String(amount), new Date(unlockTime * 1000).toISOString(), String(amount), String(dpvAtOpen), ltvBps, loanIdOnChain, nftTxHash, 'active', nftTxHash, blockNumber, now, now
+  );
+  return id;
 };
 
 const getLoansByWallet = async (walletAddress) => {
   if (useSupabase) {
-    const { data, error } = await supabaseClient().from('user_loans').select('*, collateral:loan_collateral(*)').eq('wallet_address', walletAddress).order('created_at', { ascending: false });
+    const { data, error } = await supabaseClient().from('loans').select('*').or(`borrower.eq.${walletAddress},nft_holder.eq.${walletAddress}`).order('opened_at', { ascending: false });
     if (error) throw error;
     return data;
   }
-  const rows = sqlite.prepare(`SELECT * FROM user_loans WHERE wallet_address = ? ORDER BY created_at DESC`).all(walletAddress);
-  for (const row of rows) row.collateral = sqlite.prepare(`SELECT * FROM loan_collateral WHERE loan_id = ?`).all(row.id);
+  const rows = sqlite.prepare(`SELECT * FROM loans WHERE borrower = ? OR nft_holder = ? ORDER BY opened_at DESC`).all(walletAddress, walletAddress);
   return rows;
 };
 
@@ -1248,26 +1320,105 @@ const listStaleIdentityProfiles = async ({ days = 3, limit = 50 } = {}) => {
 const listIdentityAttestations = async (walletAddress) => {
   if (!walletAddress) return [];
   if (useSupabase) {
-    const { data, error } = await supabaseClient().from('identity_attestations').select('id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at').eq('wallet_address', walletAddress).order('verified_at', { ascending: false });
+    // Select only the guaranteed base columns — treat everything else as optional
+    const { data, error } = await supabaseClient()
+      .from('identity_attestations')
+      .select('id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at')
+      .eq('wallet_address', walletAddress)
+      .order('verified_at', { ascending: false });
     if (error) {
-      if (error.code === '42P01' || error.message?.includes('schema cache')) { console.warn(`[supabase] table 'identity_attestations' missing, returning empty array`); return []; }
+      if (error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('not exist')) {
+        console.warn(`[supabase] identity_attestations: ${error.message} — returning empty`);
+        return [];
+      }
       throw new Error(`[supabase] listIdentityAttestations failed: ${error.message}`);
     }
-    return (data || []).map((row) => ({ id: row.id, walletAddress: row.wallet_address, provider: row.provider, score: row.score === null || row.score === undefined ? null : Number(row.score), stampsCount: row.stamps_count === null || row.stamps_count === undefined ? null : Number(row.stamps_count), verifiedAt: row.verified_at || null, expiresAt: row.expires_at || null, metadata: row.metadata || {}, createdAt: row.created_at || null, updatedAt: row.updated_at || null }));
+    return (data || []).map((row) => ({
+      id: row.id,
+      walletAddress: row.wallet_address,
+      provider: row.provider,
+      score: row.score == null ? null : Number(row.score),
+      stampsCount: row.stamps_count == null ? null : Number(row.stamps_count),
+      verifiedAt: row.verified_at || null,
+      expiresAt: row.expires_at || null,
+      metadata: row.metadata || {},
+      createdAt: row.created_at || null,
+      updatedAt: row.updated_at || null
+    }));
   }
   const rows = sqlite.prepare(`SELECT id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at FROM identity_attestations WHERE wallet_address = ? ORDER BY verified_at DESC`).all(walletAddress);
-  return rows.map((row) => ({ id: row.id, walletAddress: row.wallet_address, provider: row.provider, score: row.score === null || row.score === undefined ? null : Number(row.score), stampsCount: row.stamps_count === null || row.stamps_count === undefined ? null : Number(row.stamps_count), verifiedAt: row.verified_at || null, expiresAt: row.expires_at || null, metadata: (() => { try { return row.metadata ? JSON.parse(row.metadata) : {}; } catch { return {}; } })(), createdAt: row.created_at || null, updatedAt: row.updated_at || null }));
+  return rows.map((row) => ({ id: row.id, walletAddress: row.wallet_address, provider: row.provider, score: row.score == null ? null : Number(row.score), stampsCount: row.stamps_count == null ? null : Number(row.stamps_count), verifiedAt: row.verified_at || null, expiresAt: row.expires_at || null, metadata: (() => { try { return row.metadata ? JSON.parse(row.metadata) : {}; } catch { return {}; } })(), createdAt: row.created_at || null, updatedAt: row.updated_at || null }));
 };
 
 const upsertIdentityAttestation = async ({ walletAddress, provider, score = null, stampsCount = null, verifiedAt = null, expiresAt = null, metadata = {} } = {}) => {
   if (!walletAddress || !provider) return null;
   const now = new Date().toISOString();
-  const id = createId();
-  const normalizedMetadata = normalizeJson(metadata || {});
+  // id is handled by bigserial in Supabase or implicitly in SQLite
   if (useSupabase) {
-    const { data, error } = await supabaseClient().from('identity_attestations').upsert({ id, wallet_address: walletAddress, provider: String(provider).toLowerCase(), score, stamps_count: stampsCount, verified_at: verifiedAt || now, expires_at: expiresAt, metadata: normalizedMetadata, updated_at: now }, { onConflict: 'wallet_address,provider' }).select('id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at').single();
+    const payload = {
+      wallet_address: walletAddress,
+      provider: String(provider).toLowerCase(),
+      verified_at: verifiedAt || now,
+      expires_at: expiresAt || null,
+      updated_at: now,
+      score: score != null ? Number(score) : null,
+      stampsCount: stampsCount != null ? Number(stampsCount) : null,
+      metadata: metadata || {},
+    };
+    let data = null;
+    let error = null;
+    try {
+      const res = await supabaseClient()
+        .from('identity_attestations')
+        .upsert(payload, { onConflict: 'wallet_address,provider' })
+        .select('id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at')
+        .single();
+      data = res.data;
+      error = res.error;
+    } catch (err) {
+      // If unique constraint is missing, fallback to select + update/insert
+      if (err.message?.includes('unique or exclusion constraint')) {
+        const { data: existing } = await supabaseClient()
+          .from('identity_attestations')
+          .select('id')
+          .eq('wallet_address', walletAddress)
+          .eq('provider', String(provider).toLowerCase())
+          .maybeSingle();
+        if (existing) {
+          const res = await supabaseClient()
+            .from('identity_attestations')
+            .update(payload)
+            .eq('id', existing.id)
+            .select()
+            .single();
+          data = res.data;
+          error = res.error;
+        } else {
+          const res = await supabaseClient()
+            .from('identity_attestations')
+            .insert(payload)
+            .select()
+            .single();
+          data = res.data;
+          error = res.error;
+        }
+      } else {
+        throw err;
+      }
+    }
     if (error) throw new Error(`[supabase] upsertIdentityAttestation failed: ${error.message}`);
-    return { id: data.id, walletAddress: data.wallet_address, provider: data.provider, score: data.score === null || data.score === undefined ? null : Number(data.score), stampsCount: data.stamps_count === null || data.stamps_count === undefined ? null : Number(data.stamps_count), verifiedAt: data.verified_at || null, expiresAt: data.expires_at || null, metadata: data.metadata || {}, createdAt: data.created_at || null, updatedAt: data.updated_at || null };
+    return { 
+      id: data.id, 
+      walletAddress: data.wallet_address, 
+      provider: data.provider, 
+      score: data.score == null ? null : Number(data.score), 
+      stampsCount: data.stamps_count == null ? null : Number(data.stamps_count), 
+      verifiedAt: data.verified_at || null, 
+      expiresAt: data.expires_at || null, 
+      metadata: data.metadata || {}, 
+      createdAt: data.created_at || null, 
+      updatedAt: data.updated_at || null 
+    };
   }
   sqlite.prepare(`INSERT INTO identity_attestations (id, wallet_address, provider, score, stamps_count, verified_at, expires_at, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(wallet_address, provider) DO UPDATE SET score=excluded.score, stamps_count=excluded.stamps_count, verified_at=excluded.verified_at, expires_at=excluded.expires_at, metadata=excluded.metadata, updated_at=excluded.updated_at`).run(id, walletAddress, String(provider).toLowerCase(), score, stampsCount, verifiedAt || now, expiresAt, JSON.stringify(normalizedMetadata), now, now);
   const rows = await listIdentityAttestations(walletAddress);
@@ -1336,32 +1487,36 @@ const syncDepositFromEvent = async ({ walletAddress, positionId, amount, deposit
   return id;
 };
 
-const syncLoanFromEvent = async ({ loanId, borrower, amount, asset = 'USDC', durationDays, timestamp }) => {
-  const id = String(loanId);
-  const now = new Date(timestamp * 1000).toISOString();
+const syncLoanFromEvent = async ({ loanId, borrower, amount, ltvBps, dpvAtOpen, collateralToken, streamId, unlockTime, txHash, blockNumber, chainId }) => {
+  const now = new Date().toISOString();
   if (useSupabase) {
-    const { error } = await supabaseClient().from('user_loans').upsert({
-      id, wallet_address: borrower, amount: String(amount), asset, status: 'active', 
-      duration_days: durationDays || 30, created_at: now, updated_at: now
-    }, { onConflict: 'id' });
+    const { error } = await supabaseClient().from('loans').upsert({
+      loan_id: loanId, chain_id: chainId, borrower, nft_holder: borrower,
+      collateral_token: collateralToken, stream_id: streamId, quantity: String(amount),
+      unlock_time: new Date(unlockTime * 1000).toISOString(),
+      principal_usdc: String(amount), dpv_at_open_usdc: String(dpvAtOpen),
+      ltv_bps: ltvBps, nft_token_id: loanId, status: 'active',
+      tx_hash_open: txHash, block_number_open: blockNumber,
+      opened_at: now, updated_at: now
+    }, { onConflict: 'loan_id,chain_id' });
     if (error) throw error;
-    return id;
+    return loanId;
   }
-  sqlite.prepare(`INSERT INTO user_loans (id, wallet_address, amount, asset, status, duration_days, created_at, updated_at) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
-    ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`)
-    .run(id, borrower, String(amount), asset, 'active', durationDays || 30, now, now);
-  return id;
+  sqlite.prepare(`INSERT INTO loans (loan_id, chain_id, borrower, nft_holder, collateral_token, stream_id, quantity, unlock_time, principal_usdc, dpv_at_open_usdc, ltv_bps, nft_token_id, status, tx_hash_open, block_number_open, opened_at, updated_at) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+    ON CONFLICT(loan_id, chain_id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`)
+    .run(loanId, chainId, borrower, borrower, collateralToken, streamId, String(amount), new Date(unlockTime * 1000).toISOString(), String(amount), String(dpvAtOpen), ltvBps, loanId, 'active', txHash, blockNumber, now, now);
+  return loanId;
 };
 
 const updateLoanStatus = async (loanId, status, repaidAmount = '0') => {
   const now = new Date().toISOString();
   if (useSupabase) {
-    const { error } = await supabaseClient().from('user_loans').update({ status, repaid_amount: String(repaidAmount), updated_at: now }).eq('id', String(loanId));
+    const { error } = await supabaseClient().from('loans').update({ status, interest_usdc: String(repaidAmount), updated_at: now }).eq('loan_id', Number(loanId));
     if (error) throw error;
     return true;
   }
-  sqlite.prepare(`UPDATE user_loans SET status = ?, repaid_amount = ?, updated_at = ? WHERE id = ?`).run(status, String(repaidAmount), now, String(loanId));
+  sqlite.prepare(`UPDATE loans SET status = ?, interest_usdc = ?, updated_at = ? WHERE loan_id = ?`).run(status, String(repaidAmount), now, Number(loanId));
   return true;
 };
 
@@ -1772,12 +1927,12 @@ const getActiveSovereignWallets = async () => {
 
 const getRecentWallets = async () => {
   if (useSupabase) {
-    const { data, error } = await supabaseClient().from('user_loans').select('wallet_address');
+    const { data, error } = await supabaseClient().from('loans').select('borrower');
     if (error) throw error;
-    return [...new Set(data.map(r => r.wallet_address))];
+    return [...new Set(data.map(r => r.borrower))];
   }
-  const rows = sqlite.prepare('SELECT DISTINCT wallet_address FROM user_loans').all();
-  return rows.map(r => r.wallet_address);
+  const rows = sqlite.prepare('SELECT DISTINCT borrower FROM loans').all();
+  return rows.map(r => r.borrower);
 };
 
 const saveTokenProject = async ({ id, name, symbol, description, category, metadata }) => {
@@ -1833,9 +1988,18 @@ const saveTokenUnlockEvent = async ({ id, tokenId, eventType, occurrenceDate, am
 
 const listTokenProjects = async ({ limit = 50 } = {}) => {
   if (useSupabase) {
-    const { data, error } = await supabaseClient().from('token_projects').select('id, name, symbol, description, category, metadata, created_at, updated_at').order('updated_at', { ascending: false }).limit(limit);
+    const { data, error } = await supabaseClient().from('token_projects').select('*').order('updated_at', { ascending: false }).limit(limit);
     if (error) throw new Error(`[supabase] listTokenProjects failed: ${error.message}`);
-    return (data || []).map(r => ({ ...r, metadata: r.metadata }));
+    return (data || []).map(r => ({ 
+      id: r.id, 
+      name: r.name, 
+      symbol: r.symbol, 
+      description: r.description, 
+      category: r.category || 'DeFi', // Fallback for missing column
+      metadata: r.metadata,
+      created_at: r.created_at,
+      updated_at: r.updated_at
+    }));
   }
   const rows = sqlite.prepare('SELECT id, name, symbol, description, category, metadata, created_at, updated_at FROM token_projects ORDER BY updated_at DESC LIMIT ?').all(limit);
   return rows.map(r => ({ ...r, metadata: r.metadata ? JSON.parse(r.metadata) : null }));
@@ -1843,7 +2007,7 @@ const listTokenProjects = async ({ limit = 50 } = {}) => {
 
 const listTokenUnlockEvents = async ({ tokenId, limit = 100 } = {}) => {
   if (useSupabase) {
-    let q = supabaseClient().from('token_unlock_events').select('id, token_id, event_type, occurrence_date, amount, percentage, metadata, created_at').order('occurrence_date', { ascending: true }).limit(limit);
+    let q = supabaseClient().from('token_unlock_events').select('*').order('occurrence_date', { ascending: true }).limit(limit);
     if (tokenId) q = q.eq('token_id', tokenId);
     const { data, error } = await q;
     if (error) throw new Error(`[supabase] listTokenUnlockEvents failed: ${error.message}`);
@@ -1858,23 +2022,76 @@ const listTokenUnlockEvents = async ({ tokenId, limit = 100 } = {}) => {
   return rows.map(r => ({ id: r.id, tokenId: r.token_id, eventType: r.event_type, occurrenceDate: r.occurrence_date, amount: r.amount, percentage: r.percentage, metadata: r.metadata ? JSON.parse(r.metadata) : null, createdAt: r.created_at }));
 };
 
+const getVcsScoreByWallet = async (wallet) => {
+  const addr = String(wallet || '').trim().toLowerCase();
+  if (!addr) return null;
+  if (useSupabase) {
+    const { data, error } = await supabaseClient()
+      .from('vcs_scores')
+      .select('*')
+      .eq('wallet', addr)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') throw new Error(`getVcsScoreByWallet: ${error.message}`);
+    return data;
+  }
+  const row = sqlite.prepare('SELECT * FROM vcs_scores WHERE wallet = ?').get(addr);
+  if (row && row.raw_data) {
+     try { row.raw_data = JSON.parse(row.raw_data); } catch (_) {}
+  }
+  return row || null;
+};
+
 const upsertVcsScore = async (data) => {
-  const { wallet, gitcoin_score, financial_score, credit_history_score, total_vcs_score, tier, total_repaid_loans, has_defaults } = data;
+  const { 
+    wallet, gitcoin_score, financial_score, credit_history_score, 
+    vesting_score = 0, total_vcs_score, tier, total_repaid_loans, has_defaults,
+    tx_count = 0, wallet_age_days = 0, unique_protocols = 0, balance_usd = 0,
+    latest_tx_timestamp = 0, volume_traded = 0, largest_tx = 0,
+    active_vesting_usd = 0, vesting_monthly_inflow_usd = 0, raw_data
+  } = data;
   const last_updated = new Date().toISOString();
   if (useSupabase) {
-    const { error } = await supabaseClient().from('vcs_scores').upsert({ wallet: wallet.toLowerCase(), gitcoin_score, financial_score, credit_history_score, total_vcs_score, tier, total_repaid_loans, has_defaults, last_updated }, { onConflict: 'wallet' });
+    const { error } = await supabaseClient().from('vcs_scores').upsert({ 
+      wallet: wallet.toLowerCase(), gitcoin_score, financial_score, credit_history_score, vesting_score,
+      total_vcs_score, tier, total_repaid_loans, has_defaults,
+      tx_count, wallet_age_days, unique_protocols, balance_usd,
+      latest_tx_timestamp, volume_traded, largest_tx,
+      active_vesting_usd, vesting_monthly_inflow_usd, raw_data,
+      last_updated 
+    }, { onConflict: 'wallet' });
     if (error) throw new Error(`[supabase] upsertVcsScore failed: ${error.message}`);
     return;
   }
   sqlite.prepare(`
-    INSERT INTO vcs_scores (wallet, gitcoin_score, financial_score, credit_history_score, total_vcs_score, tier, total_repaid_loans, has_defaults, last_updated)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO vcs_scores (
+      wallet, gitcoin_score, financial_score, credit_history_score, vesting_score,
+      total_vcs_score, tier, total_repaid_loans, has_defaults, 
+      tx_count, wallet_age_days, unique_protocols, balance_usd, 
+      latest_tx_timestamp, volume_traded, largest_tx,
+      active_vesting_usd, vesting_monthly_inflow_usd, raw_data,
+      last_updated
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(wallet) DO UPDATE SET
       gitcoin_score=excluded.gitcoin_score, financial_score=excluded.financial_score,
-      credit_history_score=excluded.credit_history_score, total_vcs_score=excluded.total_vcs_score,
-      tier=excluded.tier, total_repaid_loans=excluded.total_repaid_loans,
-      has_defaults=excluded.has_defaults, last_updated=excluded.last_updated
-  `).run(wallet.toLowerCase(), gitcoin_score, financial_score, credit_history_score, total_vcs_score, tier, total_repaid_loans, has_defaults ? 1 : 0, last_updated);
+      credit_history_score=excluded.credit_history_score, vesting_score=excluded.vesting_score,
+      total_vcs_score=excluded.total_vcs_score, tier=excluded.tier,
+      total_repaid_loans=excluded.total_repaid_loans, has_defaults=excluded.has_defaults,
+      tx_count=excluded.tx_count, wallet_age_days=excluded.wallet_age_days,
+      unique_protocols=excluded.unique_protocols, balance_usd=excluded.balance_usd,
+      latest_tx_timestamp=excluded.latest_tx_timestamp, volume_traded=excluded.volume_traded,
+      largest_tx=excluded.largest_tx, active_vesting_usd=excluded.active_vesting_usd,
+      vesting_monthly_inflow_usd=excluded.vesting_monthly_inflow_usd,
+      raw_data=excluded.raw_data, last_updated=excluded.last_updated
+  `).run(
+    wallet.toLowerCase(), gitcoin_score, financial_score, credit_history_score, vesting_score,
+    total_vcs_score, tier, total_repaid_loans, has_defaults ? 1 : 0, 
+    tx_count, wallet_age_days, unique_protocols, balance_usd,
+    latest_tx_timestamp, volume_traded, largest_tx,
+    active_vesting_usd, vesting_monthly_inflow_usd,
+    raw_data ? JSON.stringify(raw_data) : null,
+    last_updated
+  );
 };
 
 module.exports = {
@@ -1907,6 +2124,7 @@ module.exports = {
   listPools,
   getPoolById,
   createMatchEvent,
+  listMatchEvents,
   getPoints,
   updatePoints,
   getLeaderboard,
@@ -1973,6 +2191,8 @@ module.exports = {
   getActivityEvents,
   saveActivityEvent,
   upsertVcsScore,
+  getVcsScoreByWallet,
+  getLinkedWalletsByAddress,
   getSqlite: () => sqlite,
   listLendingPositions,
   supabaseClient

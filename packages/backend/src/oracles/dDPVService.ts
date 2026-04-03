@@ -670,6 +670,13 @@ export class DDPVService {
     console.log(`[dDPV] Processing ${token} on chain ${chainId}`);
 
     // 1. Fetch median price + historical series
+    const lockKey = `oracle:lock:${chainId}:${token}`;
+    const lock = await this.redis.set(lockKey, '1', 'NX', 'EX', 30);
+    if (!lock) {
+      console.log(`[dDPV] Concurrent update for ${token} on ${chainId} skipped. Mutex locked.`);
+      return;
+    }
+
     const { price: currentPrice } = await fetchMedianPrice(token, chainId);
 
     // Historical prices from Redis cache (populated by price feed service)
@@ -678,6 +685,10 @@ export class DDPVService {
     const historicalPrices: PriceSample[] = rawPrices.map(r => JSON.parse(r));
 
     // 2. Adaptive EWMA
+    if (historicalPrices.length < 7) {
+      console.warn(`[dDPV] Insufficient price history for ${token} (${historicalPrices.length}/7 candles). Skipping oracle write.`);
+      return;
+    }
     const { ewmaPrice, lambdaBps } = computeAdaptiveEWMA(historicalPrices, currentPrice);
 
     // 3. Volatility regime

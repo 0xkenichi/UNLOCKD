@@ -22,7 +22,7 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ["packages/backend/**/*.js", "packages/scripts/**/*.js", "packages/test/**/*.js", "test/**/*.js", "packages/contracts/test/**/*.js", "deploy/**/*.js", "packages/sdk/**/*.js", "sdk/**/*.js", "**/*.cjs", "*.js"],
+    files: ["packages/backend/**/*.js", "scripts/**/*.js", "packages/test/**/*.js", "test/**/*.js", "packages/contracts/test/**/*.js", "deploy/**/*.js", "packages/sdk/**/*.js", "sdk/**/*.js", "**/*.cjs", "*.js"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "script",

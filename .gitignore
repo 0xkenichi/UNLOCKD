@@ -1,7 +1,11 @@
 node_modules
 .env
-backend/.env
+.env.*
+!.env.example
+packages/**/.env
+packages/**/.env.*
 frontend/.env
+frontend/.env.*
 artifacts
 cache
 coverage
@@ -11,6 +15,7 @@ frontend/dist
 frontend/test-results
 frontend/playwright-report
 frontend/.vite
+frontend/.next
 frontend/node_modules
 *.log
 .DS_Store
@@ -23,3 +28,5 @@ backend/data/*.sqlite-journal
 **/data/*.sqlite-shm
 **/data/*.sqlite-wal
 **/data/*.sqlite-journal
+**/tmp/
+**/temp/

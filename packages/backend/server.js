@@ -52,7 +52,7 @@ const meTTabrain = require('./meTTabrain');
 const omegaWatcher = require('./omegaWatcher');
 const sovereignRelayer = require('./relayer/SovereignRelayer');
 const rnodeService = require('./rholang/rnodeService');
-const SovereignDataService = require('./lib/SovereignDataService');
+const sovereignDataService = require('./lib/SovereignDataService');
 
 // Service Imports
 const RelayerService = require('./services/RelayerService');
@@ -61,6 +61,7 @@ const LendingService = require('./services/LendingService');
 const IndexerService = require('./services/IndexerService');
 const OmegaService = require('./services/OmegaService');
 const AirdropService = require('./services/AirdropService');
+const healthRouter = require('./routes/health');
 
 // Contract ABIs
 const {
@@ -516,7 +517,7 @@ const getCreditHistoryForWallet = (walletAddress) => {
 };
 
 const buildIdentityProfile = async (walletAddress) => {
-  return SovereignDataService.refreshIdentityProfile(walletAddress);
+  return sovereignDataService.refreshIdentityProfile(walletAddress);
 };
 
 const requireJsonBody = (req, res, next) => {
@@ -631,6 +632,8 @@ app.use(attachSession(persistence));
 // Expose expensiveLimiter for routers
 app.set('expensiveLimiter', expensiveLimiter);
 
+app.use('/health', healthRouter);
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -737,28 +740,156 @@ app.post('/api/identity/verify', async (req, res) => {
     
     // Fetch score and stamps in parallel
     const [scoreResult, stampsResult] = await Promise.all([
-      SovereignDataService.fetchGitcoinPassportScore(normalized),
-      SovereignDataService.fetchGitcoinPassportStamps(normalized)
+      sovereignDataService.fetchGitcoinPassportScore(normalized),
+      sovereignDataService.fetchGitcoinPassportStamps(normalized)
     ]);
 
-    // Upsert to persistence
-    await persistence.upsertIdentityAttestation({
-      walletAddress: normalized,
-      provider: 'GitcoinPassport',
-      score: scoreResult?.score || 0,
-      stampsCount: stampsResult?.stamps?.length || 0,
-      metadata: JSON.stringify({
-        status: scoreResult?.status,
-        last_score_timestamp: scoreResult?.last_score_timestamp,
-        stamps: stampsResult?.stamps
-      })
-    });
+    // Upsert to persistence — non-fatal if Supabase schema is missing columns
+    try {
+      await persistence.upsertIdentityAttestation({
+        walletAddress:  normalized,
+        provider:       'GitcoinPassport',
+        verifiedAt:     new Date().toISOString(),
+        score:          scoreResult?.score ?? 0,
+        stampsCount:   stampsResult?.stamps?.length ?? 0,
+        metadata:       { 
+          ...(scoreResult || {}), 
+          stamps: stampsResult?.stamps || [] 
+        },
+      });
+    } catch (upsertErr) {
+      console.warn(`[identity] Attestation upsert skipped: ${upsertErr.message}`);
+    }
 
-    const profile = await buildIdentityProfile(normalized);
+    const profile = await sovereignDataService.refreshIdentityProfile(normalized);
     return res.json({ ok: true, profile });
   } catch (error) {
     console.error('[identity] Verification failed:', error.message);
-    return res.status(500).json({ ok: false, error: error.message });
+    // Return partial profile if refresh failed but stamps/score were fetched
+    return res.json({ 
+      ok: true, 
+      profile: { 
+        walletAddress: normalized,
+        error: error.message,
+        vcsNote: 'Aggregated profile refresh failed; using partial data'
+      } 
+    });
+  }
+});
+
+// Returns raw inputs for VCS computation on frontend
+app.get('/api/profile/vcs-input', async (req, res) => {
+  const address = normalizeAnyWalletAddress(req.query.address || '');
+  if (!address) {
+    return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+  }
+
+  try {
+    const profile = await sovereignDataService.refreshIdentityProfile(address);
+    if (!profile) throw new Error('Profile not found');
+
+    // Extract metrics for frontend engine
+    res.json({
+      ok: true,
+      gitcoinPassportScore: profile.gitcoinPassportScore ?? 0,
+      hasWorldID: profile.hasWorldID ?? false,
+      easAttestations: profile.stamps ?? [],
+      txCount: profile.txCount ?? 0,
+      walletAgedays: (profile.ageMonths ?? 0) * 30,
+      uniqueProtocolsUsed: profile.activeMonths ?? 0,
+      balanceUsd: profile.balanceUsd ?? 0,
+      latestTxTimestamp: profile.latestTxTimestamp ?? 0,
+      volumeTraded: profile.volumeTraded ?? 0,
+      largestTx: profile.largestTx ?? 0,
+      activeVestingUsd: profile.activeVestingUsd ?? 0,
+      vestingMonthlyInflowUsd: profile.vestingMonthlyInflowUsd ?? 0,
+    });
+  } catch (error) {
+    console.error('[profile] VCS input fetch failed:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Returns Vestra-internal loan history for VCS computation
+// Always 200 — frontend throws on non-2xx
+app.get('/internal/credit-history/:address', async (req, res) => {
+  const address = (req.params.address || '').toLowerCase();
+  const defaults = {
+    totalRepaidLoans: 0,
+    totalRepaidUsd: 0,
+    hasActiveDefaults: false,
+    lateRepaymentCount: 0,
+    veCrdtBalance: 0,
+    gaugeVotesCount: 0,
+  };
+
+  if (!address) return res.json(defaults);
+
+  try {
+    const events = await persistence.getActivityEvents({ limit: 2000 });
+    const repaidLoans = new Set();
+    let totalRepaidUsd = 0;
+    let defaultedCount = 0;
+    let lateRepaymentCount = 0;
+
+    for (const event of events) {
+      const borrower = (event?.borrower || '').toLowerCase();
+      if (borrower !== address) continue;
+
+      if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
+        repaidLoans.add(String(event.loanId || ''));
+        // Try to sum the amount if it looks like a number
+        const amt = parseFloat(event.amount || '0');
+        if (isFinite(amt)) totalRepaidUsd += amt;
+        
+        // If the payload has a 'late' flag or timestamp comparison exists
+        if (event.payload?.late) {
+          lateRepaymentCount += 1;
+        }
+      }
+      
+      if (event.type === 'LoanSettled' && event.defaulted) {
+        defaultedCount += 1;
+      }
+    }
+
+    return res.json({
+      totalRepaidLoans: repaidLoans.size,
+      totalRepaidUsd,
+      hasActiveDefaults: defaultedCount > 0,
+      lateRepaymentCount,
+      veCrdtBalance: 0,
+      gaugeVotesCount: 0,
+    });
+  } catch (error) {
+    console.error('[internal] credit history fetch failed:', error.message);
+    return res.json(defaults);
+  }
+});
+
+// VCS score caching routes
+app.get('/internal/vcs-score/:address', async (req, res) => {
+  const address = (req.params.address || '').toLowerCase();
+  if (!address) return res.status(400).json({ error: 'Address missing' });
+  try {
+    const score = await persistence.getVcsScoreByWallet(address);
+    res.json({ ok: true, score });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/internal/vcs-score/:address', async (req, res) => {
+  const address = (req.params.address || '').toLowerCase();
+  if (!address) return res.status(400).json({ error: 'Address missing' });
+  try {
+    await persistence.upsertVcsScore({
+      wallet: address,
+      ...req.body
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
@@ -1097,9 +1228,9 @@ app.get(
       let score = 0;
       let stampsCount = 0;
 
-      const liveScore = await SovereignDataService.fetchGitcoinPassportScore(identityWallet);
-      const liveStamps = await SovereignDataService.fetchGitcoinPassportStamps(identityWallet);
-      const stampsMetadata = await SovereignDataService.fetchGitcoinPassportMetadata();
+      const liveScore = await sovereignDataService.fetchGitcoinPassportScore(identityWallet);
+      const liveStamps = await sovereignDataService.fetchGitcoinPassportStamps(identityWallet);
+      const stampsMetadata = await sovereignDataService.fetchGitcoinPassportMetadata();
 
       if (liveScore && liveScore.score !== undefined) {
         score = liveScore.score;
@@ -1519,7 +1650,7 @@ const buildPoolOffers = async ({
   return results.sort((a, b) => b.score - a.score).slice(0, safeMax);
 };
 
-app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) => {
+app.post('/api/auth/nonce', strictLimiter, validateBody(walletNonceSchema), async (req, res) => {
   try {
     if (!ethers.isAddress(req.body.walletAddress)) {
       return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
@@ -1553,7 +1684,7 @@ app.post('/api/auth/nonce', validateBody(walletNonceSchema), async (req, res) =>
   }
 });
 
-app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) => {
+app.post('/api/auth/verify', strictLimiter, validateBody(walletVerifySchema), async (req, res) => {
   try {
     if (!ethers.isAddress(req.body.walletAddress)) {
       return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
@@ -1610,6 +1741,22 @@ app.post('/api/auth/verify', validateBody(walletVerifySchema), async (req, res) 
   } catch (error) {
     console.error('[auth] verify error', error?.message || error);
     res.status(500).json({ ok: false, error: 'Unable to verify signature' });
+  }
+});
+
+app.post('/api/auth/logout', requireSession, async (req, res) => {
+  try {
+    const token = getSessionToken(req);
+    if (token) {
+      const session = await persistence.getSessionByToken(token);
+      if (session) {
+        await persistence.deleteSession(session.id);
+      }
+    }
+    res.json({ ok: true, message: 'Logged out' });
+  } catch (error) {
+    console.error('[auth] logout error', error?.message || error);
+    res.status(500).json({ ok: false, error: 'Logout failed' });
   }
 });
 
@@ -3172,7 +3319,7 @@ app.get('/api/market/quotes', async (req, res) => {
   try {
     const symbols = ['USDC', 'VESTRA', 'ETH', 'BTC'];
     const quotes = await Promise.all(symbols.map(async (symbol) => {
-       const price = await SovereignDataService.getConsensusPrice(symbol);
+       const price = await sovereignDataService.getConsensusPrice(symbol);
        return {
          asset: symbol,
          price: price ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--',
@@ -4855,6 +5002,21 @@ app.use('/api/scanner', (req, _res, next) => {
 app.use('/api/faucet', faucetRouter);
 app.use('/api/vesting', vestingRouter);
 app.use('/api/portfolio', portfolioRouter);
+
+// Global Error Handler (Point 9 Security Hardening)
+app.use((err, req, res, next) => {
+  console.error('[security] unhandled error', {
+    message: err.message,
+    path: req.path,
+    stack: isProduction ? undefined : err.stack
+  });
+
+  const statusCode = err.status || 500;
+  res.status(statusCode).json({
+    ok: false,
+    error: isProduction ? 'Internal server error' : err.message
+  });
+});
 
 const start = async () => {
   try {

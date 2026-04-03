@@ -1,0 +1,2 @@
+import{j as u}from"./index-Cu9Lq934.js";function f({score:s=null,stamps:n=null,loading:t=!1,label:o="Passport",showLabel:r=!0,as:a="span",className:e="",style:p}){const i=a,c=t?"Loading...":`Score: ${s??"—"} · Stamps: ${n??0}`,l=r?`${o}: `:"";return u.jsxs(i,{className:e,style:p,children:[l,c]})}function g(s=[]){const t=(Array.isArray(s)?s:[]).find(o=>String(o?.provider||"").toLowerCase()==="gitcoin_passport");return{score:t?.score??null,stamps:t?.stampsCount??null}}export{f as P,g};
+//# sourceMappingURL=passport-CtltROvi.js.map

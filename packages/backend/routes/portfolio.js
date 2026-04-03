@@ -346,6 +346,7 @@ router.get('/:wallet', async (req, res) => {
       console.log(`[portfolio] Seeding demo assets for ${walletAddress}`);
       illiquidFound.push({
         id: 'vestra-rj-vesting',
+        collateralId: 101, // Mock collateral ID
         name: 'Rejuve.AI Vesting',
         symbol: 'RJV',
         amount: '1250000',
@@ -359,6 +360,7 @@ router.get('/:wallet', async (req, res) => {
       });
       illiquidFound.push({
         id: 'lido-staked-eth',
+        collateralId: 202,
         name: 'Lido Staked ETH',
         symbol: 'stETH',
         amount: '1.5',

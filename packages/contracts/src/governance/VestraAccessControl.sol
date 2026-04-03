@@ -13,6 +13,7 @@ contract VestraAccessControl is AccessControl {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");   // Multisig (The Sovereign)
     bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");   // Omega Agent (Operational)
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");       // GlobalRiskModule (Safety)
+    bytes32 public constant KEEPER_ROLE = keccak256("KEEPER_ROLE");       // Vestra Pay (Settlement)
 
     event GovernanceInitialised(address governor);
 
@@ -23,6 +24,7 @@ contract VestraAccessControl is AccessControl {
         // Admin role can manage all other roles
         _setRoleAdmin(GUARDIAN_ROLE, GOVERNOR_ROLE);
         _setRoleAdmin(PAUSER_ROLE, GOVERNOR_ROLE);
+        _setRoleAdmin(KEEPER_ROLE, GOVERNOR_ROLE);
         
         emit GovernanceInitialised(initialGovernor);
     }
@@ -40,6 +42,11 @@ contract VestraAccessControl is AccessControl {
 
     modifier onlyPauser() {
         require(hasRole(PAUSER_ROLE, msg.sender), "Caller is not pauser");
+        _;
+    }
+
+    modifier onlyKeeper() {
+        require(hasRole(KEEPER_ROLE, msg.sender), "Caller is not keeper");
         _;
     }
 }

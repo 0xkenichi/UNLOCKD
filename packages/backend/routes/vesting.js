@@ -163,4 +163,49 @@ router.get('/valuation/:id', async (req, res) => {
   }
 });
 
+/**
+ * @api {get} /api/vesting/open-claims Get all open borrow requests (claims)
+ */
+router.get('/open-claims', async (req, res) => {
+  try {
+    const events = await persistence.listMatchEvents({ limit: 50 });
+    
+    // Filter for quote events
+    const quotes = events.filter(e => e.type === 'quote' || e.type === 'quote_missing_valuation');
+    
+    // Deduplicate by collateralId/streamId and format for frontend
+    const seen = new Set();
+    const claims = [];
+    
+    for (const event of quotes) {
+      const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+      const key = payload.collateralId || payload.streamId;
+      
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        
+        claims.push({
+          id: event.id,
+          tokenName: payload.tokenSymbol || payload.tokenName || 'Vestra Asset',
+          requestedAmount: payload.desiredAmountUsd || '0',
+          collateralValue: payload.pvUsd ? payload.pvUsd.toString() : '0',
+          daysRemaining: payload.unlockTime ? Math.max(0, Math.floor((payload.unlockTime - Date.now() / 1000) / 86400)).toString() : '30',
+          collateralId: key
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: claims
+    });
+  } catch (err) {
+    console.error('[API] /api/vesting/open-claims error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch open claims'
+    });
+  }
+});
+
 module.exports = router;

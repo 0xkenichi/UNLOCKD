@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - name: Install dependencies
+        run: |
+          cd packages/contracts
+          forge install
+      - name: Run tests
+        run: |
+          cd packages/contracts
+          forge test --gas-report
+      - name: Coverage
+        run: |
+          cd packages/contracts
+          forge coverage --report lcov
+      - uses: codecov/codecov-action@v3
+        with:
+          file: ./packages/contracts/lcov.info
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          cd packages/backend
+          npm ci
+      - run: |
+          cd packages/backend
+          npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          cd frontend
+          npm ci
+      - run: |
+          cd frontend
+          npm run build

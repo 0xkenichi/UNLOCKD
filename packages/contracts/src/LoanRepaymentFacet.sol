@@ -126,8 +126,8 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         address auctionAddr = auctionFactory.auctions("LIQUIDATION");
         if (auctionAddr == address(0)) revert("Liquidation auction not registered");
 
-        // Authorize auction to move the NFT
-        adapter.authorizeAuction(auctionAddr);
+        // Transfer the NFT to the auction contract
+        adapter.liquidateEscrow(loan.escrowId, auctionAddr);
 
         uint256 collateralId = loan.collateralId;
         uint256 debtUsdc = loan.principal + loan.interest;
@@ -178,7 +178,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         
         if (pv < (twap * 1500) / BPS_DENOMINATOR) {
             // Auto-sell on Uniswap
-            adapter.releaseTo(loan.collateralId, address(this), quantity);
+            adapter.liquidateEscrow(loan.escrowId, address(this));
             IERC20(token).forceApprove(address(uniswapRouter), quantity);
             
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
@@ -207,7 +207,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             pool.repay(loan.principal, loan.interest);
         } else {
             // Lender takes the tokens
-            adapter.releaseTo(loan.collateralId, msg.sender, quantity);
+            adapter.releaseEscrow(loan.escrowId);
         }
 
         loan.active = false;
@@ -280,7 +280,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             ? collateralAvailable
             : seizeAmount;
 
-        adapter.releaseTo(loan.collateralId, address(this), actualSeize);
+        adapter.liquidateEscrow(loan.escrowId, address(this));
 
         uint256 usdcReceived = 0;
         if (token == address(usdc)) {
@@ -311,8 +311,11 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         emit CollateralLiquidated(loanId, token, actualSeize, usdcReceived);
 
         if (actualSeize < collateralAvailable) {
-            uint256 refundAmount = collateralAvailable - actualSeize;
-            adapter.releaseTo(loan.collateralId, loan.vault, refundAmount);
+            // Note: Partial release not supported in discrete VestingAdapter V11. 
+            // In Citadel Pivot, we release the whole NFT to the liquidator/contract.
+            // If the liquidator is this contract, we'd handle the surplus tokens manually 
+            // or release the NFT back. For now, we releaseEscrow to the vault.
+            adapter.releaseEscrow(loan.escrowId);
         }
 
         loan.active = false;
@@ -399,7 +402,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
             loanDeficits[loanId] = deficit;
         }
 
-        adapter.releaseTo(collateralId, msg.sender, collateralAvailable);
+        adapter.liquidateEscrow(loan.escrowId, msg.sender);
         emit OTCBuybackExecuted(loanId, msg.sender, discountedPayment);
     }
 
@@ -462,7 +465,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
                 loanNFT.settleProof(loanId);
             }
             if (!skipCollateralReturn) {
-                adapter.transferCollateral(loan.collateralId, loan.borrower);
+                adapter.releaseEscrow(loan.escrowId);
             }
             emit LoanSettled(loanId, false);
         }
@@ -521,7 +524,7 @@ contract LoanRepaymentFacet is LoanManagerStorage {
         if (loan.principal == 0 && loan.interest == 0) {
             loan.active = false;
             activeLoansCount[loan.vault] -= 1;
-            adapter.transferCollateral(loan.collateralId, loan.vault);
+            adapter.releaseEscrow(loan.escrowId);
             emit PrivateLoanSettled(loanId, false);
         }
     }

@@ -25,18 +25,27 @@ abstract contract BaseAuction is VestraAccessControl, IAuction, ReentrancyGuard,
     uint256 public auctionCount;
     VestingAdapter public immutable adapter;
     IERC20 public immutable usdc;
+    address public feeRecipient;
 
     uint256 public constant FEE_BPS = 200; // 2%
     uint256 public constant BPS_DENOMINATOR = 10000;
 
     event AuctionFinalized(uint256 auctionId, address winner, uint256 amount);
     event AuctionClaimed(uint256 auctionId, address winner, uint256 amount);
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 
     constructor(address _adapter, address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
         require(_adapter != address(0), "adapter=0");
         require(_usdc != address(0), "usdc=0");
         adapter = VestingAdapter(_adapter);
         usdc = IERC20(_usdc);
+        feeRecipient = _initialGovernor;
+    }
+
+    function setFeeRecipient(address _newRecipient) external onlyGovernor {
+        require(_newRecipient != address(0), "recipient=0");
+        emit FeeRecipientUpdated(feeRecipient, _newRecipient);
+        feeRecipient = _newRecipient;
     }
 
     function createAuction(
@@ -112,7 +121,7 @@ abstract contract BaseAuction is VestraAccessControl, IAuction, ReentrancyGuard,
     function _distributeProceeds(uint256 auctionId, address seller, uint256 amount) internal virtual {
         uint256 fee = (amount * FEE_BPS) / BPS_DENOMINATOR;
         if (fee > 0) {
-            usdc.safeTransfer(msg.sender, fee); // Or designated treasury
+            usdc.safeTransfer(feeRecipient, fee);
         }
         usdc.safeTransfer(seller, amount - fee);
     }

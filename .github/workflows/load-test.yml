@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "backend/**"
+      - "packages/backend/**"
       - "scripts/load/**"
       - "package.json"
       - "package-lock.json"
@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3
         with:
           node-version: 20
           cache: npm
@@ -28,7 +28,7 @@ jobs:
         run: npm ci
 
       - name: Install backend dependencies
-        run: npm ci --prefix backend
+        run: npm ci --prefix packages/backend
 
       - name: Start backend (load profile mode)
         run: |
@@ -36,7 +36,7 @@ jobs:
           INDEXER_ENABLED=false \
           RATE_LIMIT_MAX=1000000 \
           RATE_LIMIT_STRICT_MAX=1000000 \
-          node backend/server.js > /tmp/vestra-backend.log 2>&1 &
+          node packages/backend/server.js > /tmp/vestra-backend.log 2>&1 &
           echo $! > /tmp/vestra-backend.pid
 
       - name: Wait for backend health

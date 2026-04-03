@@ -28,8 +28,9 @@ contract ValuationEngine is VestraAccessControl {
     uint256 public riskFreeRate = 5; // percent, 5 = 5%
     uint256 public volatility = 50; // percent, 50 = 50%
     uint256 public maxPriceAge = 1 hours;
+    uint256 public constant MIN_MAX_PRICE_AGE = 30 minutes;
     uint256 public twapInterval = 1 hours; // Default TWAP window
-    uint256 public maxTwapLookback = 20;
+    uint256 public maxTwapLookback = 100;
     
     uint256 public ewmaAlpha = 2000; // 20% alpha
     mapping(address => uint256) public tokenEWMA;
@@ -297,7 +298,7 @@ contract ValuationEngine is VestraAccessControl {
     }
 
     function setMaxPriceAge(uint256 newMaxPriceAge) external onlyGovernor {
-        require(newMaxPriceAge > 0 && newMaxPriceAge <= 365 days, "bad max age");
+        require(newMaxPriceAge >= MIN_MAX_PRICE_AGE && newMaxPriceAge <= 365 days, "bad max age");
         maxPriceAge = newMaxPriceAge;
     }
 
@@ -344,7 +345,7 @@ contract ValuationEngine is VestraAccessControl {
     }
 
     function setMaxTwapLookback(uint256 newMax) external onlyGovernor {
-        require(newMax >= 5 && newMax <= 100, "lookback out of range");
+        require(newMax >= 5 && newMax <= 500, "lookback out of range");
         maxTwapLookback = newMax;
     }
 
@@ -380,22 +381,21 @@ contract ValuationEngine is VestraAccessControl {
 
     function _readValidatedPrice(
         address token
-    ) internal view returns (uint256 price, uint8 decimals) {
+    ) internal view returns (uint256 price, uint8 decimals, uint256 updatedAt) {
         checkSequencerActive(); 
         address primaryFeed = tokenPriceFeeds[token];
         
         if (primaryFeed == address(0)) {
             require(preTGEOracle != address(0), "no price feed");
-            uint256 updatedAt;
             (price, decimals, updatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
             require(block.timestamp >= updatedAt, "future round");
-            return (price, decimals);
+            return (price, decimals, updatedAt);
         }
         
         return _fetchTWAP(token, primaryFeed);
     }
 
-    function _fetchTWAP(address token, address feedAddress) internal view returns (uint256 price, uint8 decimals) {
+    function _fetchTWAP(address token, address feedAddress) internal view returns (uint256 price, uint8 decimals, uint256 updatedAt) {
         AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
         (uint80 latestRoundId, int256 latestAnswer, , uint256 latestUpdatedAt, ) = feed.latestRoundData();
         
@@ -405,7 +405,7 @@ contract ValuationEngine is VestraAccessControl {
         }
         
         require(latestUpdatedAt > 0 && block.timestamp >= latestUpdatedAt, "bad timestamp");
-        require(block.timestamp - latestUpdatedAt <= maxPriceAge, "stale price");
+        updatedAt = latestUpdatedAt;
 
         uint256 cumulativePriceTime = 0;
         uint256 totalWeightTime = 0;
@@ -464,7 +464,8 @@ contract ValuationEngine is VestraAccessControl {
         uint8 rank = registry.getRank(vestingContract);
         require(rank > 0 && rank <= 3, "unverified contract");
 
-        (uint256 price, uint8 decimals) = _readValidatedPrice(token);
+        (uint256 price, uint8 decimals, uint256 updatedAt) = _readValidatedPrice(token);
+        require(block.timestamp - updatedAt <= maxPriceAge, "stale price");
         uint8 tokenDecimals = IERC20Metadata(token).decimals();
 
         uint256 baseValue = (quantity * price * 1e6) / (10 ** uint256(tokenDecimals)) / (10 ** uint256(decimals));
@@ -554,7 +555,7 @@ contract ValuationEngine is VestraAccessControl {
     function getTWAP(address token) public view returns (uint256) {
         address feed = tokenPriceFeeds[token];
         if (feed == address(0)) return 0;
-        (uint256 price, ) = _readValidatedPrice(token);
+        (uint256 price, , ) = _readValidatedPrice(token);
         return price;
     }
 }
