@@ -33,3 +33,4 @@ backend/data/*.sqlite-journal
 
 # Local databases / dumps
 *.rdb
+frontend-legacy/dist
