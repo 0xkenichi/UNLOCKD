@@ -40,7 +40,7 @@ contract ValuationEngine is VestraAccessControl {
     uint256 public volatility = 50;          // percent, clamped to [0, 100]
     uint256 public maxPriceAge = 1 hours;
     uint256 public twapInterval = 1 hours;
-    uint256 public maxTwapLookback = 100;
+    uint256 public maxTwapLookback = 50;
     uint256 public ewmaAlphaBps = 2000;
     uint256 public ewmaMaxAge = 1 days;      // EWMA older than this is ignored
     uint256 public preTGEHaircutBps = 9000;  // D_uncertainty: 90% haircut by default
@@ -164,7 +164,7 @@ contract ValuationEngine is VestraAccessControl {
 
     function setTwapParams(uint256 interval, uint256 lookback) external onlyGovernor {
         require(interval >= 5 minutes && interval <= 7 days, "interval");
-        require(lookback >= 5 && lookback <= 500, "lookback");
+        require(lookback >= 5 && lookback <= 200, "lookback");
         twapInterval = interval;
         maxTwapLookback = lookback;
         emit ParamUpdated("twapInterval", interval);
@@ -297,10 +297,12 @@ contract ValuationEngine is VestraAccessControl {
         uint8 rank = rankOf(vestingContract);
         require(rank >= 1 && rank <= 3, "unverified contract");
 
-        pv = _discountedValue(quantity, token, unlockTime, rank);
+        pv = _discountedValue(quantity, token, unlockTime, rank, true);
         pv = (pv * _omega(token)) / BPS;
 
         uint256 cap = tokenMaxBorrowUsd[token];
+        // Pre-TGE prices are underwriting inputs, not market prices: a per-loan cap is mandatory.
+        require(tokenPriceFeeds[token] != address(0) || cap > 0, "pre-TGE cap required");
         if (cap > 0 && pv > cap) pv = cap;
 
         ltvBps = rankBaseLtvBps[rank];
@@ -310,27 +312,29 @@ contract ValuationEngine is VestraAccessControl {
 
     /**
      * @notice Health-check valuation: the same discounting as origination but without Ω,
-     *         freezes, quarantine or the per-loan cap. Works after unlock (T = 0).
+     *         freezes, quarantine, the per-loan cap or the EWMA (which a caller could bias by
+     *         choosing which rounds to sample). Works after unlock (T = 0).
+     * @param  rank The rank fixed on the loan at origination, so later registry changes
+     *              cannot make an existing loan liquidatable.
      */
-    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, uint8 rank)
         external
         view
         returns (uint256)
     {
-        uint8 rank = rankOf(vestingContract);
-        if (rank == 0 || rank > 3) rank = 3; // a revoked contract is valued at the most conservative rank
-        return _discountedValue(quantity, token, unlockTime, rank);
+        require(rank >= 1 && rank <= 3, "rank");
+        return _discountedValue(quantity, token, unlockTime, rank, false);
     }
 
     /// @notice Undiscounted market value of `quantity` tokens (6-dec USD). Used as the auction start price.
     function spotValue(uint256 quantity, address token) external view returns (uint256) {
-        (uint256 price, uint8 feedDecimals) = _price(token);
+        (uint256 price, uint8 feedDecimals) = _price(token, false);
         return _toUsd(quantity, token, price, feedDecimals);
     }
 
     /// @notice Price used for valuation, in the feed's decimals.
     function getTWAP(address token) external view returns (uint256 price) {
-        (price, ) = _price(token);
+        (price, ) = _price(token, true);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -341,12 +345,12 @@ contract ValuationEngine is VestraAccessControl {
         return omegaSet[token] ? tokenOmegaBps[token] : BPS;
     }
 
-    function _discountedValue(uint256 quantity, address token, uint256 unlockTime, uint8 rank)
+    function _discountedValue(uint256 quantity, address token, uint256 unlockTime, uint8 rank, bool useEwma)
         internal
         view
         returns (uint256)
     {
-        (uint256 price, uint8 feedDecimals) = _price(token);
+        (uint256 price, uint8 feedDecimals) = _price(token, useEwma);
         uint256 base = _toUsd(quantity, token, price, feedDecimals);
 
         // Time discount e^(−rT)
@@ -398,7 +402,8 @@ contract ValuationEngine is VestraAccessControl {
     }
 
     /// @dev Valuation price for `token`. Reverts if no valid, fresh price exists.
-    function _price(address token) internal view returns (uint256 price, uint8 decimals) {
+    ///      `useEwma` is true for origination only.
+    function _price(address token, bool useEwma) internal view returns (uint256 price, uint8 decimals) {
         address feed = tokenPriceFeeds[token];
         if (feed == address(0)) {
             require(preTGEOracle != address(0), "no price feed");
@@ -428,12 +433,15 @@ contract ValuationEngine is VestraAccessControl {
         if (twap > 0 && twap < price) price = twap;
 
         uint256 ewma = tokenEWMA[token];
-        if (ewma > 0 && block.timestamp - lastEWMARoundTime[token] <= ewmaMaxAge && ewma < price) price = ewma;
+        if (useEwma && ewma > 0 && block.timestamp - lastEWMARoundTime[token] <= ewmaMaxAge && ewma < price) {
+            price = ewma;
+        }
     }
 
-    /// @dev Time-weighted average over `twapInterval`. Each round's answer is weighted by how
-    ///      long it was the live answer. Returns 0 (caller falls back to spot) if history is
-    ///      unavailable, instead of reverting and blocking borrows and liquidations.
+    /// @dev Time-weighted average over `twapInterval` (or as much of it as `maxTwapLookback`
+    ///      rounds cover). Each round's answer is weighted by how long it was the live answer.
+    ///      Returns 0 (caller falls back to spot) only if no history is available, instead of
+    ///      reverting and blocking borrows and liquidations.
     function _twap(AggregatorV3Interface agg, uint80 latestRound, uint256 latestAnswer, uint256 latestUpdatedAt)
         internal
         view
@@ -458,7 +466,7 @@ contract ValuationEngine is VestraAccessControl {
                 break;
             }
         }
-        if (covered == 0 || covered < twapInterval / 2) return 0;
+        if (covered == 0) return 0;
         return weighted / covered;
     }
 
@@ -466,6 +474,7 @@ contract ValuationEngine is VestraAccessControl {
         if (sequencerUptimeFeed == address(0)) return;
         (, int256 answer, uint256 startedAt, , ) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
         require(answer == 0, "sequencer down");
+        require(startedAt != 0, "invalid sequencer round");
         require(block.timestamp - startedAt > sequencerGracePeriod, "sequencer grace period");
     }
 }

@@ -152,7 +152,7 @@ contract VestraCoreTest is Test {
 
     function test_Valuation_PreTGEAppliesMandatoryHaircut() public {
         MockProjectToken preTge = new MockProjectToken("Pre", "PRE", 18, 1_000_000e18, address(this));
-        PreTGEOracle oracle = new PreTGEOracle(address(this));
+        PreTGEOracle oracle = new PreTGEOracle(address(this), address(this));
         oracle.setSyntheticPrice(address(preTge), 1e8, 8); // $1.00 implied
         vm.prank(governor);
         valuation.setPreTGEOracle(address(oracle));
@@ -260,8 +260,8 @@ contract VestraCoreTest is Test {
         vm.stopPrank();
 
         assertEq(manager.getLoan(loanId).principal, 15_000e6);
-        assertEq(manager.getLoan(loanId).interestOwed, 0);
-        assertEq(pool.totalBorrowed(), 15_000e6);
+        assertApproxEqAbs(manager.debtOf(loanId), 15_000e6, 10, "only principal left");
+        assertApproxEqAbs(pool.totalBorrowed(), 15_000e6, 10);
     }
 
     function test_VestedTokensTravelWithTheNFT() public {
@@ -320,9 +320,13 @@ contract VestraCoreTest is Test {
 
         feed.setPrice(0.05e8); // collateral now worth $5,000
         manager.startLiquidation(loanId);
+        // Marked down at once to the liquidation value (~$3,329): no exit at par during the auction.
+        assertLt(pool.totalAssets(), assetsBefore - 16_000e6, "marked down at auction start");
+
         vm.warp(block.timestamp + 2.5 days);
         uint256 price = manager.currentPrice(loanId);
-        assertEq(price, 4_000e6);
+        // start 24,000 (120% of debt), floor 2,400, 5/6 of the way down
+        assertEq(price, 6_000e6);
 
         usdc.mint(buyer, price);
         vm.startPrank(buyer);
@@ -332,8 +336,8 @@ contract VestraCoreTest is Test {
 
         assertEq(usdc.balanceOf(address(insurance)), 0, "insurance used first");
         assertEq(pool.totalBorrowed(), 0);
-        assertEq(pool.totalWrittenOff(), 15_000e6, "20,000 - 4,000 proceeds - 1,000 insurance");
-        assertEq(pool.totalAssets(), assetsBefore - 15_000e6);
+        assertEq(manager.totalLosses(), 13_000e6, "20,000 - 6,000 proceeds - 1,000 insurance");
+        assertEq(pool.totalAssets(), assetsBefore - 13_000e6);
 
         // Both lenders bear the loss equally; neither can exit at par.
         assertEq(pool.maxWithdraw(lender), pool.maxWithdraw(lender2));
@@ -434,7 +438,7 @@ contract VestraCoreTest is Test {
         vm.expectRevert("only loan manager");
         pool.lend(attacker, 1);
         vm.expectRevert("only loan manager");
-        pool.writeOff(0);
+        pool.repay(1);
         vm.expectRevert("only loan manager");
         insurance.cover(1);
         vm.expectRevert(abi.encodeWithSelector(VestingAdapter.OnlyLoanManager.selector, attacker));
@@ -463,6 +467,158 @@ contract VestraCoreTest is Test {
         registry.vetContract(address(sablier), 0); // revoke is allowed
         vm.stopPrank();
         assertEq(registry.getRank(address(sablier)), 0);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Regressions from the adversarial review
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// H1: a flash deposit around `borrow` cannot lower the rate the loan pays.
+    function test_FlashDepositCannotLowerRate() public {
+        vm.prank(lender);
+        pool.withdraw(970_000e6, lender, lender); // pool: 30,000
+
+        address whale = makeAddr("whale");
+        usdc.mint(whale, 10_000_000e6);
+        vm.startPrank(whale);
+        usdc.approve(address(pool), type(uint256).max);
+        pool.deposit(10_000_000e6, whale);
+        vm.stopPrank();
+
+        uint256 loanId = _borrow(20_000e6);
+
+        vm.startPrank(whale);
+        pool.withdraw(pool.maxWithdraw(whale), whale, whale);
+        vm.stopPrank();
+
+        // Utilization is now ~66% → APR ≈ 5% + 0.66/0.8·10% ≈ 13.3%, not the 5.0% seen during the flash.
+        assertGt(manager.currentRateBps(), 1_300);
+        vm.warp(block.timestamp + 365 days);
+        assertGt(manager.debtOf(loanId), 22_600e6, "pays the real utilization rate");
+    }
+
+    /// H2: depositing right before a large repayment captures (almost) none of the interest.
+    function test_JITDepositCapturesNoInterest() public {
+        uint256 loanId = _borrow(20_000e6);
+        vm.warp(block.timestamp + 365 days);
+
+        _deposit(lender2, POOL_SIZE);
+        _repayFull(loanId);
+
+        uint256 shares = pool.balanceOf(lender2);
+        vm.prank(lender2);
+        uint256 out = pool.redeem(shares, lender2, lender2);
+        assertLe(out, POOL_SIZE + 1, "no interest captured");
+        assertGe(out, POOL_SIZE - 1);
+    }
+
+    /// H1/H2: accrued interest reaches lenders continuously, before it is paid.
+    function test_InterestAccruesIntoSharePrice() public {
+        _borrow(20_000e6);
+        uint256 before = pool.totalAssets();
+        vm.warp(block.timestamp + 180 days);
+        assertGt(pool.totalAssets(), before, "share price rises before repayment");
+    }
+
+    /// H3: a lender exiting during an auction does not get par.
+    function test_ExitDuringAuctionBearsExpectedLoss() public {
+        _deposit(lender2, POOL_SIZE);
+        uint256 loanId = _borrow(20_000e6);
+        feed.setPrice(0.05e8);
+        manager.startLiquidation(loanId);
+
+        uint256 maxOut = pool.maxWithdraw(lender);
+        assertLt(maxOut, POOL_SIZE - 8_000e6, "half of the ~16.7k mark-down");
+    }
+
+    /// M2: an auction never hands the position out for free; rounds restart from the floor.
+    function test_AuctionFloorAndRestart() public {
+        uint256 loanId = _borrow(20_000e6);
+        feed.setPrice(0.05e8);
+        manager.startLiquidation(loanId);
+
+        vm.warp(block.timestamp + 3 days + 1);
+        assertEq(manager.currentPrice(loanId), 2_400e6, "floor = 10% of start");
+
+        manager.restartAuction(loanId);
+        assertEq(manager.currentPrice(loanId), 2_400e6);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.expectRevert("round not over");
+        manager.restartAuction(loanId);
+
+        vm.warp(block.timestamp + 2 days);
+        assertEq(manager.currentPrice(loanId), 240e6, "second round ends at 10% of its start");
+    }
+
+    /// M2: changing auction params does not affect a running round.
+    function test_AuctionParamChangeDoesNotAffectRunningRound() public {
+        uint256 loanId = _borrow(20_000e6);
+        feed.setPrice(0.5e8);
+        manager.startLiquidation(loanId);
+        uint256 p0 = manager.currentPrice(loanId);
+
+        vm.prank(governor);
+        manager.setAuctionParams(1 hours, 12_000, 1000);
+        vm.warp(block.timestamp + 2 hours);
+        assertGt(manager.currentPrice(loanId), (p0 * 9) / 10, "still on the 3-day schedule");
+    }
+
+    /// M3: revoking a vesting contract's rank does not make existing loans liquidatable.
+    function test_RegistryRevokeDoesNotLiquidateExistingLoans() public {
+        uint256 loanId = _borrow(23_000e6);
+        uint256 hfBefore = manager.healthFactorBps(loanId);
+        vm.prank(governor);
+        registry.vetContract(address(sablier), 0);
+        assertEq(manager.healthFactorBps(loanId), hfBefore);
+        assertFalse(manager.isLiquidatable(loanId));
+    }
+
+    /// M4: a caller-biased EWMA lowers new borrowing power but never health checks.
+    function test_EWMANotUsedForLiquidationValue() public {
+        uint256 unlock = block.timestamp + 365 days;
+        uint256 v0 = valuation.liquidationValue(QTY, address(token), unlock, 2);
+
+        valuation.updateEWMA(address(token));
+        vm.warp(block.timestamp + 1 minutes);
+        feed.setPrice(0.5e8);
+        valuation.updateEWMA(address(token)); // EWMA → 0.9
+        vm.warp(block.timestamp + 1 minutes);
+        feed.setPrice(1e8);
+        vm.warp(block.timestamp + 2 hours);
+        feed.setPrice(1e8);
+
+        (uint256 pv, ) = valuation.computeDPV(QTY, address(token), unlock, address(sablier));
+        uint256 v1 = valuation.liquidationValue(QTY, address(token), unlock, 2);
+        assertApproxEqRel(v1, v0, 0.001e18, "health value ignores the EWMA");
+        assertLt(pv, (v1 * 95) / 100, "origination is more conservative");
+    }
+
+    /// H4: pre-TGE collateral needs a per-loan cap, and the signer cannot jump the price.
+    function test_PreTGE_CapRequiredAndSignerBounded() public {
+        MockProjectToken preTge = new MockProjectToken("Pre", "PRE", 18, 1_000_000e18, address(this));
+        address signer = makeAddr("signer");
+        PreTGEOracle oracle = new PreTGEOracle(address(this), signer);
+        oracle.setSyntheticPrice(address(preTge), 1e8, 8);
+        vm.prank(governor);
+        valuation.setPreTGEOracle(address(oracle));
+
+        vm.expectRevert("pre-TGE cap required");
+        valuation.computeDPV(100_000e18, address(preTge), block.timestamp + 365 days, address(sablier));
+
+        vm.prank(governor);
+        valuation.setTokenMaxBorrowUsd(address(preTge), 5_000e6);
+        (uint256 pv, ) = valuation.computeDPV(100_000e18, address(preTge), block.timestamp + 365 days, address(sablier));
+        assertLe(pv, 5_000e6);
+
+        vm.warp(block.timestamp + 2 hours);
+        vm.startPrank(signer);
+        vm.expectRevert("change too large");
+        oracle.updateSyntheticPrice(address(preTge), 1e30);
+        oracle.updateSyntheticPrice(address(preTge), 1.2e8);
+        vm.expectRevert("too soon");
+        oracle.updateSyntheticPrice(address(preTge), 1.3e8);
+        vm.stopPrank();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

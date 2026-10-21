@@ -11,36 +11,41 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./governance/VestraAccessControl.sol";
 
+/// @notice What the pool needs from the LoanManager.
+interface ILoanBook {
+    /// @notice Lenders' claim on outstanding loans: principal + accrued interest net of the
+    ///         reserve factor + the marked-down value of loans in liquidation.
+    function lenderClaim() external view returns (uint256);
+    /// @notice Bring the borrow index up to date at the current rate.
+    function accrue() external;
+}
+
 /**
  * @title  LendingPool
  * @notice ERC-4626 USDC vault that funds Vestra loans.
  *
- *         • The pool holds every lender dollar itself. No treasury wallet, role or
- *           LoanManager can move idle funds except by `lend`, which only the
- *           (set-once) LoanManager can call and which is booked as a receivable.
- *         • totalAssets = idle USDC + principal outstanding. Interest is recognised
- *           when paid and raises the share price for all lenders.
- *         • Losses are recognised by `writeOff`, which lowers totalAssets and so
- *           the share price for all lenders pro rata. No lender can exit at par
- *           ahead of a known loss being booked.
- *         • Idle USDC is tracked internally, so tokens sent directly to the pool do
- *           not move the share price (no donation / inflation attack); a 6-decimal
- *           virtual-share offset is used as a second layer.
- *         • Withdrawals are limited only by idle liquidity. Pausing blocks deposits
- *           and new loans, never withdrawals.
+ *         • The pool holds every idle lender dollar itself. Only the (set-once)
+ *           LoanManager can draw funds, via `lend`.
+ *         • totalAssets = idle USDC + LoanManager.lenderClaim(). Interest accrues into
+ *           the share price continuously (not when paid), so depositing just before a
+ *           repayment captures nothing.
+ *         • A loan entering liquidation is immediately marked down to a conservative
+ *           recovery value, so lenders cannot exit at par ahead of a loss that is
+ *           already being realised. Shortfalls lower the share price for all lenders.
+ *         • Every deposit/withdraw first accrues the borrow index at the rate that
+ *           applied before the change, so flash deposits cannot lower anyone's rate.
+ *         • Idle USDC is tracked internally (direct transfers do not move the share
+ *           price) and a 6-decimal virtual-share offset is used as a second layer.
+ *         • Pausing blocks deposits and new loans, never withdrawals.
  */
 contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
-    using Math for uint256;
 
     uint256 public constant BPS = 10_000;
 
     address public loanManager;
-
-    uint256 public idleAssets;      // USDC held and available
-    uint256 public totalBorrowed;   // principal outstanding
-    uint256 public totalWrittenOff; // cumulative principal losses
-    uint256 public depositCap;      // 0 = uncapped
+    uint256 public idleAssets;
+    uint256 public depositCap; // 0 = uncapped
 
     // Kinked utilization rate model (APR, bps)
     uint256 public baseRateBps = 500;
@@ -50,8 +55,7 @@ contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable 
 
     event LoanManagerSet(address indexed loanManager);
     event Lent(address indexed to, uint256 amount);
-    event Repaid(uint256 principal, uint256 interest);
-    event WrittenOff(uint256 principal);
+    event Repaid(uint256 amount);
     event Donated(address indexed from, uint256 amount);
     event RateModelUpdated(uint256 baseRateBps, uint256 slope1Bps, uint256 slope2Bps, uint256 kinkBps);
     event DepositCapUpdated(uint256 cap);
@@ -81,6 +85,7 @@ contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable 
     function setRateModel(uint256 base, uint256 s1, uint256 s2, uint256 kink) external onlyGovernor {
         require(kink > 0 && kink < BPS, "kink");
         require(base + s1 + s2 <= 20_000, "max APR 200%");
+        _accrueLoans();
         baseRateBps = base;
         slope1Bps = s1;
         slope2Bps = s2;
@@ -110,26 +115,15 @@ contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable 
         require(amount > 0, "amount=0");
         require(amount <= idleAssets, "insufficient liquidity");
         idleAssets -= amount;
-        totalBorrowed += amount;
         IERC20(asset()).safeTransfer(to, amount);
         emit Lent(to, amount);
     }
 
-    /// @notice Pull `principal + interest` from the LoanManager.
-    function repay(uint256 principal, uint256 interest) external onlyLoanManager nonReentrant {
-        require(principal <= totalBorrowed, "repay > borrowed");
-        totalBorrowed -= principal;
-        idleAssets += principal + interest;
-        IERC20(asset()).safeTransferFrom(msg.sender, address(this), principal + interest);
-        emit Repaid(principal, interest);
-    }
-
-    /// @notice Recognise a principal loss. Lowers the share price for every lender.
-    function writeOff(uint256 principal) external onlyLoanManager {
-        require(principal <= totalBorrowed, "writeOff > borrowed");
-        totalBorrowed -= principal;
-        totalWrittenOff += principal;
-        emit WrittenOff(principal);
+    /// @notice Pull `amount` (repayments, auction proceeds, insurance) from the LoanManager.
+    function repay(uint256 amount) external onlyLoanManager nonReentrant {
+        idleAssets += amount;
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), amount);
+        emit Repaid(amount);
     }
 
     /// @notice Add assets for all lenders (e.g. later recoveries). Raises the share price.
@@ -140,29 +134,69 @@ contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable 
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ERC-4626 entry points: accrue first so the elapsed period is priced at the
+    // utilization that actually prevailed.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function deposit(uint256 assets, address receiver) public override returns (uint256) {
+        _accrueLoans();
+        return super.deposit(assets, receiver);
+    }
+
+    function mint(uint256 shares, address receiver) public override returns (uint256) {
+        _accrueLoans();
+        return super.mint(shares, receiver);
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
+        _accrueLoans();
+        return super.withdraw(assets, receiver, owner);
+    }
+
+    function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
+        _accrueLoans();
+        return super.redeem(shares, receiver, owner);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Views
     // ─────────────────────────────────────────────────────────────────────────
 
     function totalAssets() public view override returns (uint256) {
-        return idleAssets + totalBorrowed;
+        return idleAssets + totalBorrowed();
+    }
+
+    /// @notice Lenders' claim on loans (principal + net accrued interest + marked auctions).
+    function totalBorrowed() public view returns (uint256) {
+        return loanManager == address(0) ? 0 : ILoanBook(loanManager).lenderClaim();
     }
 
     function utilizationBps() public view returns (uint256) {
-        uint256 assets = totalAssets();
-        return assets == 0 ? 0 : (totalBorrowed * BPS) / assets;
+        return utilizationFor(totalBorrowed(), idleAssets);
+    }
+
+    function utilizationFor(uint256 borrowed, uint256 idle) public pure returns (uint256) {
+        uint256 assets = borrowed + idle;
+        return assets == 0 ? 0 : (borrowed * BPS) / assets;
     }
 
     /// @notice Borrow APR (bps) at the current utilization.
-    function borrowRateBps() public view returns (uint256) {
-        return _rateAt(utilizationBps());
+    function borrowRateBps() external view returns (uint256) {
+        return rateAt(utilizationBps());
     }
 
     /// @notice Borrow APR (bps) after borrowing an additional `amount`.
     function borrowRateAfter(uint256 amount) external view returns (uint256) {
-        uint256 assets = totalAssets();
-        if (assets == 0) return _rateAt(BPS);
-        uint256 u = ((totalBorrowed + amount) * BPS) / assets;
-        return _rateAt(u > BPS ? BPS : u);
+        uint256 borrowed = totalBorrowed();
+        if (amount > idleAssets) return rateAt(BPS);
+        return rateAt(utilizationFor(borrowed + amount, idleAssets - amount));
+    }
+
+    /// @notice APR (bps) for a utilization `u` (bps).
+    function rateAt(uint256 u) public view returns (uint256) {
+        if (u > BPS) u = BPS;
+        if (u <= kinkBps) return baseRateBps + (u * slope1Bps) / kinkBps;
+        return baseRateBps + slope1Bps + ((u - kinkBps) * slope2Bps) / (BPS - kinkBps);
     }
 
     function availableLiquidity() external view returns (uint256) {
@@ -196,9 +230,8 @@ contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable 
     // Internal
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _rateAt(uint256 u) internal view returns (uint256) {
-        if (u <= kinkBps) return baseRateBps + (u * slope1Bps) / kinkBps;
-        return baseRateBps + slope1Bps + ((u - kinkBps) * slope2Bps) / (BPS - kinkBps);
+    function _accrueLoans() internal {
+        if (loanManager != address(0)) ILoanBook(loanManager).accrue();
     }
 
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares)

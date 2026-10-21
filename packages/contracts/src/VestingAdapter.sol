@@ -113,7 +113,15 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
     // Governance
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Approve or revoke a vesting NFT contract. Revocation does not affect existing escrows.
+    /**
+     * @notice Approve or revoke a vesting NFT contract. Revocation does not affect existing escrows.
+     * @dev    Whitelisting criteria (the adapter's guarantees rely on them; only Sablier v2 is
+     *         checked on-chain for cancelability):
+     *         1. streams cannot be cancelled or clawed back by the sender once escrowed;
+     *         2. withdrawals can only go to the current NFT owner (this contract while escrowed);
+     *         3. the reported `withdrawn` amount only increases and equals tokens actually sent;
+     *         4. the streamed token is a plain ERC-20 (no fee-on-transfer, rebasing or hooks).
+     */
     function setWhitelisted(Protocol protocol, address nftContract, bool approved)
         external
         onlyRole(GOVERNOR_ROLE)

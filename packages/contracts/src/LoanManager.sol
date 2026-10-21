@@ -13,7 +13,7 @@ import "./VestingAdapter.sol";
 interface IValuationEngine {
     function computeDPV(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
         external view returns (uint256 pv, uint256 ltvBps);
-    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, uint8 rank)
         external view returns (uint256);
     function spotValue(uint256 quantity, address token) external view returns (uint256);
     function rankOf(address vestingContract) external view returns (uint8);
@@ -22,9 +22,10 @@ interface IValuationEngine {
 
 interface ILendingPool {
     function lend(address to, uint256 amount) external;
-    function repay(uint256 principal, uint256 interest) external;
-    function writeOff(uint256 principal) external;
-    function borrowRateAfter(uint256 amount) external view returns (uint256);
+    function repay(uint256 amount) external;
+    function idleAssets() external view returns (uint256);
+    function utilizationFor(uint256 borrowed, uint256 idle) external pure returns (uint256);
+    function rateAt(uint256 utilizationBps) external view returns (uint256);
 }
 
 interface IInsuranceVault {
@@ -35,24 +36,35 @@ interface IInsuranceVault {
  * @title  LoanManager
  * @notice The single loan lifecycle contract for Vestra.
  *
- *         borrow → (interest accrues per second) → repay → collateral returned
- *         default → startLiquidation → Dutch auction → bid → settle
+ *         borrow → interest accrues on a global floating-rate index → repay → collateral returned
+ *         default → startLiquidation (loan marked down) → Dutch auction → bid → settle
  *
- *         Loans are non-recourse: the escrowed vesting position is the only
- *         collateral. Settlement order on liquidation:
- *           1. proceeds repay the debt (principal first, then interest),
- *           2. any surplus is credited to the borrower (pull via `claim`),
- *           3. any shortfall is covered by the InsuranceVault up to its balance,
- *           4. remaining principal is written off in the pool (pro-rata loss).
+ *         Loans are non-recourse: the escrowed vesting position is the only collateral.
  *
- *         Repayment, liquidation and bidding are never pausable. Pausing only
- *         stops new borrowing.
+ *         Interest: every loan's debt is `scaledDebt × borrowIndex`. The index grows at the
+ *         pool's utilization-based APR and is accrued before every change to utilization
+ *         (borrow, repay, pool deposit/withdraw), so no single transaction can choose the
+ *         rate for a period that already elapsed.
+ *
+ *         Lender accounting: `lenderClaim()` (read by the pool's totalAssets) is principal +
+ *         accrued interest net of the reserve factor + the marked-down value of loans in
+ *         liquidation. Accrued interest therefore reaches lenders continuously, and a loan's
+ *         expected loss is recognised the moment its liquidation starts.
+ *
+ *         Settlement: proceeds repay the debt; surplus is credited to the borrower (pull via
+ *         `claim`); a shortfall is covered by the InsuranceVault up to its balance; whatever
+ *         is still missing is a loss shared by all lenders through the share price.
+ *
+ *         Repayment, liquidation and bidding are never pausable. Pausing only stops new borrowing.
  */
 contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS = 10_000;
     uint256 public constant YEAR = 365 days;
+    uint256 public constant RAY = 1e27;
+    /// Start-price multiple of the debt when no price is available at auction start.
+    uint256 public constant NO_PRICE_START_MULTIPLE = 4;
 
     IERC20           public immutable usdc;
     ILendingPool     public immutable pool;
@@ -66,9 +78,17 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     uint256 public reserveFactorBps       = 1000;    // 10% of interest → insurance
     uint256 public gracePeriod            = 3 days;  // after maturity
     uint256 public auctionDuration        = 3 days;
-    uint256 public auctionStartPremiumBps = 12_000;  // start at 120% of max(spot value, debt)
+    uint256 public auctionStartPremiumBps = 12_000;  // 120% of max(spot value, debt)
+    uint256 public auctionFloorBps        = 1000;    // each round ends at 10% of its start price
     uint256 public minBorrow              = 10e6;    // 10 USDC
     uint256[4] public liqThresholdBps     = [uint256(0), 6500, 5000, 3500];
+
+    // ── Interest index ───────────────────────────────────────────────────────
+    uint256 public borrowIndex = RAY;
+    uint256 public lastIndexUpdate;
+    uint256 public totalScaledDebt;
+    uint256 public totalPrincipal;      // principal of Active loans
+    uint256 public totalAuctionMarks;   // lenders' marked value of loans in liquidation
 
     // ── Loans ────────────────────────────────────────────────────────────────
     enum Status { None, Active, Auction, Repaid, Liquidated }
@@ -82,19 +102,22 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         uint256 quantity;
         uint256 unlockTime;
         uint256 principal;
-        uint256 interestOwed;
-        uint256 aprBps;
+        uint256 scaledDebt;
         uint64  openedAt;
-        uint64  lastAccrual;
         uint64  maturity;
-        uint8   rank;
+        uint8   rank;      // fixed at origination; later registry changes do not affect this loan
         Status  status;
     }
 
     struct AuctionState {
         uint64  startTime;
+        uint64  duration;
         uint256 startPrice;
-        uint256 debt; // frozen at auction start
+        uint256 floorPrice;
+        uint256 debt;       // frozen at auction start
+        uint256 principal;
+        uint256 claim;      // lenders' claim at auction start (debt net of reserve on interest)
+        uint256 mark;       // value at which the loan is carried in lenderClaim during the auction
     }
 
     uint256 public nextLoanId = 1;
@@ -105,8 +128,9 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     /// Liquidation surpluses owed to borrowers (pull payment).
     mapping(address => uint256) public claimable;
 
-    uint256 public totalPrincipalOutstanding;
+    uint256 public totalLosses;
 
+    event Accrued(uint256 borrowIndex, uint256 rateBps);
     event LoanOpened(
         uint256 indexed loanId,
         address indexed borrower,
@@ -114,18 +138,18 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         uint256 escrowId,
         uint256 principal,
         uint256 fee,
-        uint256 aprBps,
         uint256 maturity,
         uint256 pv
     );
     event LoanRepaid(uint256 indexed loanId, address indexed payer, uint256 principalPaid, uint256 interestPaid, bool closed);
-    event LiquidationStarted(uint256 indexed loanId, address indexed caller, uint256 debt, uint256 startPrice);
+    event LiquidationStarted(uint256 indexed loanId, address indexed caller, uint256 debt, uint256 startPrice, uint256 mark);
+    event AuctionRestarted(uint256 indexed loanId, uint256 startPrice, uint256 floorPrice);
     event LoanLiquidated(
         uint256 indexed loanId,
         address indexed winner,
         uint256 price,
         uint256 insuranceCovered,
-        uint256 principalWrittenOff,
+        uint256 lenderLoss,
         uint256 borrowerSurplus
     );
     event SurplusClaimed(address indexed borrower, uint256 amount);
@@ -152,6 +176,31 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         valuation = _valuation;
         insurance = _insurance;
         feeRecipient = _feeRecipient;
+        lastIndexUpdate = block.timestamp;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Interest
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Accrue the borrow index at the rate implied by current (pre-change) utilization.
+    function accrue() public {
+        uint256 dt = block.timestamp - lastIndexUpdate;
+        if (dt == 0) return;
+        uint256 rate = _rateBps();
+        borrowIndex = _indexAfter(dt, rate);
+        lastIndexUpdate = block.timestamp;
+        emit Accrued(borrowIndex, rate);
+    }
+
+    /// @notice Current borrow APR (bps), floating.
+    function currentRateBps() external view returns (uint256) {
+        return _rateBps();
+    }
+
+    /// @notice Lenders' claim on the loan book. Read by LendingPool.totalAssets().
+    function lenderClaim() external view returns (uint256) {
+        return _lenderClaim(_currentIndex());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -160,9 +209,8 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
 
     /**
      * @notice Borrow USDC against a vesting-stream NFT.
-     * @dev    Approve the NFT to `adapter` first. Quantity, token and unlock time are
-     *         read from the stream. `maturity` = 0 means "at unlock".
-     * @return loanId The new loan.
+     * @dev    Approve the NFT to `adapter` first. Quantity, token and unlock time are read
+     *         from the stream. `maturity` = 0 means "at unlock". The rate floats.
      */
     function borrow(
         address nftContract,
@@ -172,6 +220,7 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         uint256 maturity
     ) external nonReentrant whenNotPaused returns (uint256 loanId) {
         require(amount >= minBorrow, "below minimum");
+        accrue();
 
         loanId = nextLoanId++;
         uint256 escrowId = adapter.escrowFor(msg.sender, nftContract, streamId, protocol, loanId);
@@ -185,34 +234,32 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         require(ltvBps < liqThresholdBps[rank], "ltv >= liquidation threshold");
         require(amount <= (pv * ltvBps) / BPS, "exceeds max borrow");
 
-        uint256 apr = pool.borrowRateAfter(amount);
-
+        uint256 scaled = Math.mulDiv(amount, RAY, borrowIndex, Math.Rounding.Ceil);
         loans[loanId] = Loan({
-            borrower:     msg.sender,
-            nftContract:  nftContract,
-            streamId:     streamId,
-            escrowId:     escrowId,
-            token:        token,
-            quantity:     quantity,
-            unlockTime:   unlockTime,
-            principal:    amount,
-            interestOwed: 0,
-            aprBps:       apr,
-            openedAt:     uint64(block.timestamp),
-            lastAccrual:  uint64(block.timestamp),
-            maturity:     uint64(maturity),
-            rank:         rank,
-            status:       Status.Active
+            borrower:    msg.sender,
+            nftContract: nftContract,
+            streamId:    streamId,
+            escrowId:    escrowId,
+            token:       token,
+            quantity:    quantity,
+            unlockTime:  unlockTime,
+            principal:   amount,
+            scaledDebt:  scaled,
+            openedAt:    uint64(block.timestamp),
+            maturity:    uint64(maturity),
+            rank:        rank,
+            status:      Status.Active
         });
         _loansByBorrower[msg.sender].push(loanId);
-        totalPrincipalOutstanding += amount;
+        totalScaledDebt += scaled;
+        totalPrincipal += amount;
 
         pool.lend(address(this), amount);
         uint256 fee = (amount * originationFeeBps) / BPS;
         if (fee > 0) usdc.safeTransfer(feeRecipient, fee);
         usdc.safeTransfer(msg.sender, amount - fee);
 
-        emit LoanOpened(loanId, msg.sender, token, escrowId, amount, fee, apr, maturity, pv);
+        emit LoanOpened(loanId, msg.sender, token, escrowId, amount, fee, maturity, pv);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -225,36 +272,49 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
      */
     function repay(uint256 loanId, uint256 amount) external nonReentrant {
         Loan storage loan = loans[loanId];
-        require(loan.status == Status.Active || loan.status == Status.Auction, "not repayable");
         require(amount > 0, "amount=0");
 
+        uint256 pay;
+        uint256 interestPart;
+        uint256 principalPart;
+        bool closed;
+
         if (loan.status == Status.Active) {
-            _accrue(loan);
-        } else {
-            // Debt is frozen at auction start; a full repayment cancels the auction.
-            uint256 frozen = auctions[loanId].debt;
-            require(amount >= frozen, "full repayment required during auction");
-            loan.interestOwed = frozen - loan.principal;
+            accrue();
+            uint256 debt = _loanDebt(loan, borrowIndex);
+            pay = amount < debt ? amount : debt;
+            uint256 interest = debt > loan.principal ? debt - loan.principal : 0;
+            interestPart = pay < interest ? pay : interest;
+            principalPart = pay - interestPart;
+
+            uint256 scaledReduction = pay == debt
+                ? loan.scaledDebt
+                : Math.min(Math.mulDiv(pay, RAY, borrowIndex, Math.Rounding.Floor), loan.scaledDebt);
+            loan.scaledDebt -= scaledReduction;
+            totalScaledDebt -= scaledReduction;
+            loan.principal -= principalPart;
+            totalPrincipal -= principalPart;
+            closed = pay == debt;
+        } else if (loan.status == Status.Auction) {
+            AuctionState storage a = auctions[loanId];
+            require(amount >= a.debt, "full repayment required during auction");
+            pay = a.debt;
+            principalPart = a.principal;
+            interestPart = a.debt - a.principal;
+            totalAuctionMarks -= a.mark;
             delete auctions[loanId];
-            loan.status = Status.Active;
+            loan.principal = 0;
+            closed = true;
+        } else {
+            revert("not repayable");
         }
 
-        uint256 owed = loan.principal + loan.interestOwed;
-        uint256 pay = amount < owed ? amount : owed;
-        uint256 interestPart = pay < loan.interestOwed ? pay : loan.interestOwed;
-        uint256 principalPart = pay - interestPart;
-
-        loan.interestOwed -= interestPart;
-        loan.principal -= principalPart;
-        totalPrincipalOutstanding -= principalPart;
-        bool closed = loan.principal == 0 && loan.interestOwed == 0;
         if (closed) loan.status = Status.Repaid;
 
         usdc.safeTransferFrom(msg.sender, address(this), pay);
-
         uint256 reserve = (interestPart * reserveFactorBps) / BPS;
         if (reserve > 0) usdc.safeTransfer(address(insurance), reserve);
-        _repayPool(principalPart, interestPart - reserve);
+        _repayPool(pay - reserve);
 
         if (closed) adapter.release(loan.escrowId, loan.borrower);
 
@@ -265,39 +325,78 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     // Liquidation (permissionless)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Open the Dutch auction for a liquidatable loan.
+    /**
+     * @notice Open the Dutch auction for a liquidatable loan. The loan stops accruing interest
+     *         and is immediately carried in the pool at min(lenders' claim, liquidation value),
+     *         so lenders exiting during the auction take their share of the expected loss.
+     */
     function startLiquidation(uint256 loanId) external nonReentrant {
         Loan storage loan = loans[loanId];
         require(isLiquidatable(loanId), "not liquidatable");
 
-        _accrue(loan);
-        uint256 debt = loan.principal + loan.interestOwed;
+        accrue();
+        uint256 debt = _loanDebt(loan, borrowIndex);
+        uint256 principal = loan.principal;
+        uint256 claimValue = _netOfReserve(debt, principal);
 
-        uint256 reference_ = debt;
+        totalScaledDebt -= loan.scaledDebt;
+        totalPrincipal -= principal;
+        loan.scaledDebt = 0;
+
+        uint256 mark;
+        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.rank) returns (uint256 v) {
+            mark = v < claimValue ? v : claimValue;
+        } catch {
+            mark = 0; // no price: carry at zero until proceeds arrive
+        }
+        totalAuctionMarks += mark;
+
+        uint256 startPrice;
         try valuation.spotValue(loan.quantity, loan.token) returns (uint256 spot) {
-            if (spot > reference_) reference_ = spot;
-        } catch {}
-        uint256 startPrice = (reference_ * auctionStartPremiumBps) / BPS;
+            startPrice = ((spot > debt ? spot : debt) * auctionStartPremiumBps) / BPS;
+        } catch {
+            startPrice = debt * NO_PRICE_START_MULTIPLE; // generous start protects the borrower's equity
+        }
 
         loan.status = Status.Auction;
-        auctions[loanId] = AuctionState({startTime: uint64(block.timestamp), startPrice: startPrice, debt: debt});
+        auctions[loanId] = AuctionState({
+            startTime:  uint64(block.timestamp),
+            duration:   uint64(auctionDuration),
+            startPrice: startPrice,
+            floorPrice: (startPrice * auctionFloorBps) / BPS,
+            debt:       debt,
+            principal:  principal,
+            claim:      claimValue,
+            mark:       mark
+        });
 
-        emit LiquidationStarted(loanId, msg.sender, debt, startPrice);
+        emit LiquidationStarted(loanId, msg.sender, debt, startPrice, mark);
     }
 
     /**
-     * @notice Buy the escrowed vesting position at the current auction price.
-     * @param  maxPrice Slippage guard: revert if the price is above this.
-     * @dev    After the auction window the price is 0 and anyone may take the position;
-     *         that only happens if nobody valued it above zero during the whole auction.
+     * @notice After an auction round ends without a bid, start a new round from the previous
+     *         floor. Prices therefore keep falling across rounds but never jump to zero.
      */
+    function restartAuction(uint256 loanId) external nonReentrant {
+        require(loans[loanId].status == Status.Auction, "no auction");
+        AuctionState storage a = auctions[loanId];
+        require(block.timestamp >= uint256(a.startTime) + a.duration, "round not over");
+        a.startPrice = a.floorPrice;
+        a.floorPrice = (a.floorPrice * auctionFloorBps) / BPS;
+        a.startTime = uint64(block.timestamp);
+        a.duration = uint64(auctionDuration);
+        emit AuctionRestarted(loanId, a.startPrice, a.floorPrice);
+    }
+
+    /// @notice Buy the escrowed vesting position at the current auction price (≤ `maxPrice`).
     function bid(uint256 loanId, uint256 maxPrice) external nonReentrant {
         Loan storage loan = loans[loanId];
         require(loan.status == Status.Auction, "no auction");
         uint256 price = currentPrice(loanId);
+        require(price > 0, "price=0");
         require(price <= maxPrice, "price above max");
 
-        if (price > 0) usdc.safeTransferFrom(msg.sender, address(this), price);
+        usdc.safeTransferFrom(msg.sender, address(this), price);
         _settle(loanId, loan, price, msg.sender);
     }
 
@@ -318,7 +417,7 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         Loan storage loan = loans[loanId];
         if (loan.status == Status.Auction) return auctions[loanId].debt;
         if (loan.status != Status.Active) return 0;
-        return loan.principal + loan.interestOwed + _pendingInterest(loan);
+        return _loanDebt(loan, _currentIndex());
     }
 
     /**
@@ -330,7 +429,7 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         Loan storage loan = loans[loanId];
         if (loan.status != Status.Active) return false;
         if (block.timestamp > uint256(loan.maturity) + gracePeriod) return true;
-        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.nftContract) returns (uint256 v) {
+        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.rank) returns (uint256 v) {
             return debtOf(loanId) * BPS > v * liqThresholdBps[loan.rank];
         } catch {
             return false;
@@ -342,19 +441,20 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         Loan storage loan = loans[loanId];
         uint256 debt = debtOf(loanId);
         if (debt == 0) return type(uint256).max;
-        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.nftContract) returns (uint256 v) {
+        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.rank) returns (uint256 v) {
             return (v * liqThresholdBps[loan.rank]) / debt;
         } catch {
             return 0;
         }
     }
 
+    /// @notice Current auction price: linear from start to floor over the round, then the floor.
     function currentPrice(uint256 loanId) public view returns (uint256) {
-        AuctionState storage a = auctions[loanId];
         if (loans[loanId].status != Status.Auction) return 0;
+        AuctionState storage a = auctions[loanId];
         uint256 elapsed = block.timestamp - a.startTime;
-        if (elapsed >= auctionDuration) return 0;
-        return (a.startPrice * (auctionDuration - elapsed)) / auctionDuration;
+        if (elapsed >= a.duration) return a.floorPrice;
+        return a.floorPrice + ((a.startPrice - a.floorPrice) * (a.duration - elapsed)) / a.duration;
     }
 
     function getLoan(uint256 loanId) external view returns (Loan memory) {
@@ -369,11 +469,10 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     function quoteMaxBorrow(address token, uint256 quantity, uint256 unlockTime, address nftContract)
         external
         view
-        returns (uint256 maxBorrow, uint256 pv, uint256 ltvBps, uint256 aprBps)
+        returns (uint256 maxBorrow, uint256 pv, uint256 ltvBps)
     {
         (pv, ltvBps) = valuation.computeDPV(quantity, token, unlockTime, nftContract);
         maxBorrow = (pv * ltvBps) / BPS;
-        aprBps = pool.borrowRateAfter(maxBorrow);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -394,6 +493,7 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
 
     function setReserveFactorBps(uint256 bps) external onlyGovernor {
         require(bps <= 5000, "max 50%");
+        accrue();
         reserveFactorBps = bps;
         emit ParamUpdated("reserveFactorBps", bps);
     }
@@ -404,11 +504,14 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
         emit ParamUpdated("gracePeriod", secs);
     }
 
-    function setAuctionParams(uint256 duration, uint256 startPremiumBps) external onlyGovernor {
+    /// @dev Applies to auctions started afterwards; running rounds keep their stored duration.
+    function setAuctionParams(uint256 duration, uint256 startPremiumBps, uint256 floorBps) external onlyGovernor {
         require(duration >= 1 hours && duration <= 14 days, "duration");
         require(startPremiumBps >= BPS && startPremiumBps <= 30_000, "premium");
+        require(floorBps >= 100 && floorBps <= 9000, "floor");
         auctionDuration = duration;
         auctionStartPremiumBps = startPremiumBps;
+        auctionFloorBps = floorBps;
         emit ParamUpdated("auctionDuration", duration);
     }
 
@@ -437,51 +540,69 @@ contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     // Internal
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _pendingInterest(Loan storage loan) internal view returns (uint256) {
-        uint256 dt = block.timestamp - loan.lastAccrual;
-        if (dt == 0 || loan.principal == 0) return 0;
-        return Math.mulDiv(loan.principal, loan.aprBps * dt, YEAR * BPS, Math.Rounding.Ceil);
+    /// @dev Rate from stored state only (no pending interest), so pool.totalAssets → lenderClaim
+    ///      → _currentIndex → _rateBps never recurses back into the pool's totalAssets.
+    function _rateBps() internal view returns (uint256) {
+        uint256 storedClaim = _lenderClaim(borrowIndex);
+        return pool.rateAt(pool.utilizationFor(storedClaim, pool.idleAssets()));
     }
 
-    function _accrue(Loan storage loan) internal {
-        loan.interestOwed += _pendingInterest(loan);
-        loan.lastAccrual = uint64(block.timestamp);
+    function _indexAfter(uint256 dt, uint256 rateBps) internal view returns (uint256) {
+        return borrowIndex + Math.mulDiv(borrowIndex, rateBps * dt, YEAR * BPS);
     }
 
-    function _repayPool(uint256 principal, uint256 interest) internal {
-        uint256 total = principal + interest;
-        if (total == 0) return;
-        usdc.forceApprove(address(pool), total);
-        pool.repay(principal, interest);
+    function _currentIndex() internal view returns (uint256) {
+        uint256 dt = block.timestamp - lastIndexUpdate;
+        return dt == 0 ? borrowIndex : _indexAfter(dt, _rateBps());
+    }
+
+    function _loanDebt(Loan storage loan, uint256 index) internal view returns (uint256) {
+        return Math.mulDiv(loan.scaledDebt, index, RAY, Math.Rounding.Ceil);
+    }
+
+    function _netOfReserve(uint256 debt, uint256 principal) internal view returns (uint256) {
+        uint256 interest = debt > principal ? debt - principal : 0;
+        return principal + (interest * (BPS - reserveFactorBps)) / BPS;
+    }
+
+    function _lenderClaim(uint256 index) internal view returns (uint256) {
+        uint256 debt = Math.mulDiv(totalScaledDebt, index, RAY);
+        return _netOfReserve(debt, totalPrincipal) + totalAuctionMarks;
+    }
+
+    function _repayPool(uint256 amount) internal {
+        if (amount == 0) return;
+        usdc.forceApprove(address(pool), amount);
+        pool.repay(amount);
     }
 
     function _settle(uint256 loanId, Loan storage loan, uint256 price, address winner) internal {
-        uint256 debt = auctions[loanId].debt;
-        uint256 principal = loan.principal;
+        AuctionState memory a = auctions[loanId];
 
-        uint256 toDebt = price < debt ? price : debt;
+        uint256 toDebt = price < a.debt ? price : a.debt;
         uint256 surplus = price - toDebt;
         uint256 covered;
-        if (toDebt < debt) {
-            covered = insurance.cover(debt - toDebt);
-            toDebt += covered;
+        if (toDebt < a.debt) {
+            uint256 shortfall = a.debt - toDebt;
+            covered = insurance.cover(shortfall);
+            if (covered > shortfall) covered = shortfall;
         }
-
-        uint256 principalPaid = toDebt < principal ? toDebt : principal;
-        uint256 interestPaid = toDebt - principalPaid;
-        uint256 writtenOff = principal - principalPaid;
+        uint256 received = toDebt + covered;
+        uint256 toLenders = received < a.claim ? received : a.claim;
+        uint256 toReserve = received - toLenders; // the reserve factor's share of recovered interest
+        uint256 loss = a.claim - toLenders;
 
         loan.principal = 0;
-        loan.interestOwed = 0;
         loan.status = Status.Liquidated;
-        totalPrincipalOutstanding -= principal;
+        totalAuctionMarks -= a.mark;
+        totalLosses += loss;
         delete auctions[loanId];
         if (surplus > 0) claimable[loan.borrower] += surplus;
 
-        _repayPool(principalPaid, interestPaid);
-        if (writtenOff > 0) pool.writeOff(writtenOff);
+        if (toReserve > 0) usdc.safeTransfer(address(insurance), toReserve);
+        _repayPool(toLenders);
         adapter.release(loan.escrowId, winner);
 
-        emit LoanLiquidated(loanId, winner, price, covered, writtenOff, surplus);
+        emit LoanLiquidated(loanId, winner, price, covered, loss, surplus);
     }
 }
