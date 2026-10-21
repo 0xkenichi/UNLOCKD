@@ -18,7 +18,7 @@ const ROLES = [
     {
         group: 'Core Team',
         emoji: '⚡',
-        color: '139, 92, 246',
+        color: '176, 141, 87',
         tagline: 'The smallest possible group of the best possible people.',
         positions: [
             {
@@ -70,7 +70,7 @@ const ROLES = [
     {
         group: 'Team',
         emoji: '🔵',
-        color: '59, 130, 246',
+        color: '196, 162, 108',
         tagline: 'Operators and builders who make the protocol real.',
         positions: [
             {
@@ -120,7 +120,7 @@ const ROLES = [
     {
         group: 'Contributors',
         emoji: '🟢',
-        color: '16, 185, 129',
+        color: '127, 156, 120',
         tagline: 'Part-time builders, open-source contributors, and specialists.',
         positions: [
             {
@@ -204,14 +204,14 @@ function RoleCard({ role, color }) {
                             background: `rgba(${color}, 0.1)`,
                             padding: '2px 10px', borderRadius: '20px', fontWeight: 700
                         }}>{role.type}</span>
-                        <span style={{ fontSize: '12px', color: '#475569' }}>{role.location}</span>
-                        <span style={{ fontSize: '12px', color: '#475569' }}>·</span>
-                        <span style={{ fontSize: '12px', color: '#475569' }}>{role.comp}</span>
+                        <span style={{ fontSize: '12px', color: '#5f574a' }}>{role.location}</span>
+                        <span style={{ fontSize: '12px', color: '#5f574a' }}>·</span>
+                        <span style={{ fontSize: '12px', color: '#5f574a' }}>{role.comp}</span>
                     </div>
                 </div>
 
                 <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                    <ChevronDown size={18} color="#475569" />
+                    <ChevronDown size={18} color="#5f574a" />
                 </motion.div>
             </button>
 
@@ -226,19 +226,19 @@ function RoleCard({ role, color }) {
                         style={{ overflow: 'hidden' }}
                     >
                         <div style={{ padding: '0 24px 28px', borderTop: `1px solid rgba(${color}, 0.08)` }}>
-                            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.8, margin: '18px 0 16px' }}>
+                            <p style={{ color: '#a39985', fontSize: '14px', lineHeight: 1.8, margin: '18px 0 16px' }}>
                                 {role.desc}
                             </p>
                             <div style={{ marginBottom: '22px' }}>
                                 <div style={{
-                                    color: '#cbd5e1', fontSize: '11px', fontWeight: 700,
+                                    color: '#c9bfab', fontSize: '11px', fontWeight: 700,
                                     textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px'
                                 }}>
                                     What we look for
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
                                     {role.requirements.map((r, i) => (
-                                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', color: '#94a3b8', fontSize: '13px' }}>
+                                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', color: '#a39985', fontSize: '13px' }}>
                                             <Check size={13} color={`rgb(${color})`} style={{ marginTop: '2px', flexShrink: 0 }} />
                                             {r}
                                         </div>
@@ -278,11 +278,11 @@ export default function Hiring() {
                 <motion.div variants={fadeUp}>
                     <div style={{
                         display: 'inline-flex', alignItems: 'center', gap: '8px',
-                        background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
+                        background: 'rgba(176,141,87,0.1)', border: '1px solid rgba(176,141,87,0.2)',
                         borderRadius: '20px', padding: '4px 14px', marginBottom: '18px'
                     }}>
-                        <Zap size={13} color="#a78bfa" />
-                        <span style={{ color: '#a78bfa', fontSize: '13px', fontWeight: 600 }}>We're Hiring</span>
+                        <Zap size={13} color="#c4a26c" />
+                        <span style={{ color: '#c4a26c', fontSize: '13px', fontWeight: 600 }}>We're Hiring</span>
                     </div>
                     <h1 className="page-title holo-glow" style={{ maxWidth: '680px', marginBottom: '1rem' }}>
                         Build the future of vesting credit
@@ -326,19 +326,19 @@ export default function Hiring() {
                 className="holo-card"
                 style={{
                     marginBottom: '3rem',
-                    background: 'linear-gradient(135deg, rgba(139,92,246,0.07), rgba(59,130,246,0.05))',
-                    border: '1px solid rgba(139,92,246,0.18)',
+                    background: 'linear-gradient(135deg, rgba(176,141,87,0.07), rgba(196,162,108,0.05))',
+                    border: '1px solid rgba(176,141,87,0.18)',
                     padding: '2.5rem'
                 }}
             >
                 <h3 className="holo-title" style={{ marginBottom: '1rem' }}>Our hiring philosophy</h3>
-                <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.85, maxWidth: '700px', margin: '0 0 1.5rem' }}>
+                <p style={{ color: '#a39985', fontSize: '15px', lineHeight: 1.85, maxWidth: '700px', margin: '0 0 1.5rem' }}>
                     We don't care about where you went to school or how many years are on your CV. We care about what you've shipped, how you think about problems, and whether you take ownership without being told. Every hire is expected to be world-class at their craft. We keep the team small on purpose — fewer people, higher trust, faster execution.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                     {VALUES.map(v => (
                         <div key={v} className="pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <Check size={11} color="#34d399" /> {v}
+                            <Check size={11} color="#9db896" /> {v}
                         </div>
                     ))}
                 </div>
@@ -363,7 +363,7 @@ export default function Hiring() {
                             {section.positions.length} open
                         </span>
                     </div>
-                    <p style={{ color: '#475569', fontSize: '13px', marginBottom: '1.5rem', paddingLeft: '32px' }}>
+                    <p style={{ color: '#5f574a', fontSize: '13px', marginBottom: '1.5rem', paddingLeft: '32px' }}>
                         {section.tagline}
                     </p>
 

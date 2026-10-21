@@ -24,7 +24,7 @@ export default function TreasuryVaultCard({ vault }) {
     return (
         <motion.div
             className="holo-card"
-            whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(59, 130, 246, 0.2)' }}
+            whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(196, 162, 108, 0.2)' }}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
@@ -35,8 +35,8 @@ export default function TreasuryVaultCard({ vault }) {
                     <div style={{
                         padding: 8,
                         borderRadius: 'var(--radius-md)',
-                        background: 'rgba(59,130,246,0.12)',
-                        border: '1px solid rgba(59,130,246,0.25)',
+                        background: 'rgba(196,162,108,0.12)',
+                        border: '1px solid rgba(196,162,108,0.25)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
                         <Icon size={18} style={{ color: 'var(--primary-400)' }} />
@@ -78,7 +78,7 @@ export default function TreasuryVaultCard({ vault }) {
                             height: '100%',
                             background: 'var(--primary-500)',
                             borderRadius: 4,
-                            boxShadow: '0 0 8px rgba(59, 130, 246, 0.5)'
+                            boxShadow: '0 0 8px rgba(196, 162, 108, 0.5)'
                         }}
                     />
                 </div>

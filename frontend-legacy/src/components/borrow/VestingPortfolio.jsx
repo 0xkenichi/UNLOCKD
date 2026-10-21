@@ -25,7 +25,7 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                     padding: '40px 24px',
                     textAlign: 'center',
                     border: '1px solid var(--border-primary)',
-                    background: 'linear-gradient(180deg, rgba(59, 130, 246, 0.05) 0%, rgba(0, 0, 0, 0) 100%)',
+                    background: 'linear-gradient(180deg, rgba(196, 162, 108, 0.05) 0%, rgba(0, 0, 0, 0) 100%)',
                     borderRadius: '16px'
                 }}>
                     <div className="stack" style={{ gap: 16, alignItems: 'center' }}>
@@ -85,7 +85,7 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                 width: 20, 
                                 height: 20, 
                                 borderRadius: 4, 
-                                background: protocol.includes('Sablier') ? '#6B21A8' : '#3B82F6', 
+                                background: protocol.includes('Sablier') ? '#6B21A8' : '#b08d57', 
                                 fontSize: 10, 
                                 display: 'flex', 
                                 alignItems: 'center', 
@@ -131,7 +131,7 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                                     gridTemplateColumns: '1.2fr 1fr 1fr 100px',
                                                     padding: '14px 16px',
                                                     cursor: 'pointer',
-                                                    background: isSelected ? 'rgba(59, 130, 246, 0.08)' : 'transparent',
+                                                    background: isSelected ? 'rgba(196, 162, 108, 0.08)' : 'transparent',
                                                     borderLeft: isSelected ? '3px solid var(--primary-400)' : '3px solid transparent'
                                                 }}
                                                 onClick={() => onSelect(uniqueId)}
@@ -170,8 +170,8 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                                 <div style={{ textAlign: 'right' }}>
                                                     <span className="tag" style={{ 
                                                         fontSize: 10, 
-                                                        background: isFlow ? 'rgba(16, 185, 129, 0.14)' : 'rgba(59, 130, 246, 0.14)', 
-                                                        color: isFlow ? '#10B981' : 'var(--primary-300)' 
+                                                        background: isFlow ? 'rgba(127, 156, 120, 0.14)' : 'rgba(196, 162, 108, 0.14)', 
+                                                        color: isFlow ? '#7f9c78' : 'var(--primary-300)' 
                                                     }}>
                                                         {unlockDate}
                                                     </span>

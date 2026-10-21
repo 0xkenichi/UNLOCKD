@@ -68,7 +68,7 @@ const ZKShield = ({
                 position: 'absolute',
                 inset: -2,
                 borderRadius: '4px',
-                background: 'rgba(59, 130, 246, 0.05)',
+                background: 'rgba(196, 162, 108, 0.05)',
                 filter: 'blur(4px)',
                 zIndex: -1
             }} />

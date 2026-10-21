@@ -146,8 +146,8 @@ export default function TestnetLeaderboard() {
                 .phase-badge {
                     padding: 4px 12px;
                     border-radius: 20px;
-                    background: rgba(59, 130, 246, 0.1);
-                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    background: rgba(196, 162, 108, 0.1);
+                    border: 1px solid rgba(196, 162, 108, 0.3);
                     color: var(--primary-400);
                     font-size: 12px;
                     font-weight: 700;
@@ -155,7 +155,7 @@ export default function TestnetLeaderboard() {
                 .phase-badge.active {
                     background: var(--primary-500);
                     color: #fff;
-                    box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+                    box-shadow: 0 0 15px rgba(196, 162, 108, 0.4);
                 }
                 .phase-stats {
                     display: flex;
@@ -172,15 +172,15 @@ export default function TestnetLeaderboard() {
                 }
                 .phase-card {
                     padding: 20px;
-                    background: rgba(30, 41, 59, 0.3);
+                    background: rgba(37, 34, 27, 0.3);
                     border: 1px solid rgba(255, 255, 255, 0.05);
                     border-radius: 16px;
                     position: relative;
                     overflow: hidden;
                 }
                 .phase-card.active {
-                    border-color: rgba(59, 130, 246, 0.4);
-                    background: rgba(59, 130, 246, 0.05);
+                    border-color: rgba(196, 162, 108, 0.4);
+                    background: rgba(196, 162, 108, 0.05);
                 }
                 .phase-title {
                     font-family: var(--font-display);

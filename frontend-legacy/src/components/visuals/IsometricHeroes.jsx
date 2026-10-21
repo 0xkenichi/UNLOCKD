@@ -44,7 +44,7 @@ function Block({ cx, cy, w, h, d, color, highlight, shadow, animated, delay = 0 
 }
 
 // A glowing flowing line connecting two isometric points
-function Rail({ from, to, color = '#3b82f6', delay = 0 }) {
+function Rail({ from, to, color = '#b08d57', delay = 0 }) {
     return (
         <line
             x1={from.x} y1={from.y}
@@ -77,13 +77,13 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
     // Stacked vault blocks — bottom to top
     const blocks = [
         { level: 0, w: 80, h: 16, d: 80, color: '#0e3077', highlight: '#1646b1', shadow: '#081d4a' },
-        { level: 16, w: 68, h: 16, d: 68, color: '#1646b1', highlight: '#2563eb', shadow: '#0e3077' },
-        { level: 32, w: 56, h: 16, d: 56, color: '#2563eb', highlight: '#3b82f6', shadow: '#1646b1' },
-        { level: 48, w: 44, h: 16, d: 44, color: '#3b82f6', highlight: '#60a5fa', shadow: '#2563eb' },
+        { level: 16, w: 68, h: 16, d: 68, color: '#1646b1', highlight: '#8e7244', shadow: '#0e3077' },
+        { level: 32, w: 56, h: 16, d: 56, color: '#8e7244', highlight: '#b08d57', shadow: '#1646b1' },
+        { level: 48, w: 44, h: 16, d: 44, color: '#b08d57', highlight: '#c4a26c', shadow: '#8e7244' },
     ];
 
     // Gold accent layer (vesting token capsule)
-    const goldBlock = { level: 64, w: 32, h: 12, d: 32, color: '#7b5913', highlight: '#d99a22', shadow: '#573f0e' };
+    const goldBlock = { level: 64, w: 32, h: 12, d: 32, color: '#7b5913', highlight: '#b08d57', shadow: '#573f0e' };
 
     return (
         <svg
@@ -97,8 +97,8 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
         >
             <defs>
                 <radialGradient id="iso-bg-glow" cx="50%" cy="60%" r="40%">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.12" />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                    <stop offset="0%" stopColor="#b08d57" stopOpacity="0.12" />
+                    <stop offset="100%" stopColor="#b08d57" stopOpacity="0" />
                 </radialGradient>
                 <filter id="iso-glow-filter">
                     <feGaussianBlur stdDeviation="3" result="blur" />
@@ -127,7 +127,7 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
             <ellipse cx={cx} cy={cy + 10} rx={90} ry={20} fill="url(#iso-bg-glow)" />
 
             {/* Shadow ellipse under vault */}
-            <ellipse cx={cx} cy={cy + 14} rx={60} ry={12} fill="rgba(59,130,246,0.07)" />
+            <ellipse cx={cx} cy={cy + 14} rx={60} ry={12} fill="rgba(196,162,108,0.07)" />
 
             {/* Stacked blocks */}
             {blocks.map((b, i) => (
@@ -153,7 +153,7 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
                 <circle
                     cx={cx} cy={cy - (goldBlock.level + goldBlock.h + 3) * ISO_SCALE}
                     r="6"
-                    fill="#d99a22"
+                    fill="#b08d57"
                     opacity="0.7"
                     filter="url(#iso-glow-filter)"
                     style={{ animation: 'iso-pulse 2s ease-in-out infinite' }}
@@ -162,16 +162,16 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
 
             {/* Orbit ring around vault */}
             <g style={{ transformOrigin: `${cx}px ${cy - 20}px`, animation: 'iso-orbit 8s linear infinite' }}>
-                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={0} color="#60a5fa" size={3} />
-                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={120} color="#d99a22" size={2.5} />
-                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={240} color="#60a5fa" size={2} />
+                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={0} color="#c4a26c" size={3} />
+                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={120} color="#b08d57" size={2.5} />
+                <OrbitNode cx={cx} cy={cy - 20} r={72} angle={240} color="#c4a26c" size={2} />
             </g>
 
             {/* Liquidity rail lines emanating from both sides */}
             {[-1, 1].map((dir, i) => {
                 const base = isoProject(dir * 40, 16, 0, cx, cy);
                 const tip = isoProject(dir * 90, 0, 0, cx, cy);
-                return <Rail key={i} from={base} to={tip} color={dir > 0 ? '#3b82f6' : '#d99a22'} delay={i * 0.5} />;
+                return <Rail key={i} from={base} to={tip} color={dir > 0 ? '#b08d57' : '#b08d57'} delay={i * 0.5} />;
             })}
 
             {/* Node terminals at rail ends */}
@@ -179,8 +179,8 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
                 const tip = isoProject(dir * 90, 0, 0, cx, cy);
                 return (
                     <g key={i}>
-                        <circle cx={tip.x} cy={tip.y} r={4} fill={dir > 0 ? '#3b82f6' : '#d99a22'} opacity="0.9" />
-                        <circle cx={tip.x} cy={tip.y} r={8} fill={dir > 0 ? '#3b82f6' : '#d99a22'} opacity="0.15" />
+                        <circle cx={tip.x} cy={tip.y} r={4} fill={dir > 0 ? '#b08d57' : '#b08d57'} opacity="0.9" />
+                        <circle cx={tip.x} cy={tip.y} r={8} fill={dir > 0 ? '#b08d57' : '#b08d57'} opacity="0.15" />
                     </g>
                 );
             })}
@@ -197,12 +197,12 @@ export function IsometricIdentityPassport({ width = 320, height = 200, tier = 0 
     const cy = height * 0.52;
 
     const tierColors = [
-        { base: '#334155', top: '#475569', shadow: '#1e293b' },   // 0 - Anonymous
-        { base: '#1e3a5f', top: '#2563eb', shadow: '#0e3077' },   // 1 - Basic
-        { base: '#065f46', top: '#10b981', shadow: '#064e3b' },   // 2 - Standard
-        { base: '#1a4731', top: '#34d399', shadow: '#065f46' },   // 3 - Verified
-        { base: '#7b5913', top: '#d99a22', shadow: '#573f0e' },   // 4 - Trusted
-        { base: '#3b0764', top: '#a855f7', shadow: '#2e1065' },   // 5 - Institutional
+        { base: '#4a4336', top: '#5f574a', shadow: '#25221b' },   // 0 - Anonymous
+        { base: '#1e3a5f', top: '#8e7244', shadow: '#0e3077' },   // 1 - Basic
+        { base: '#065f46', top: '#7f9c78', shadow: '#064e3b' },   // 2 - Standard
+        { base: '#1a4731', top: '#9db896', shadow: '#065f46' },   // 3 - Verified
+        { base: '#7b5913', top: '#b08d57', shadow: '#573f0e' },   // 4 - Trusted
+        { base: '#3b0764', top: '#b08d57', shadow: '#2e1065' },   // 5 - Institutional
     ];
     const tc = tierColors[Math.min(tier, 5)];
 

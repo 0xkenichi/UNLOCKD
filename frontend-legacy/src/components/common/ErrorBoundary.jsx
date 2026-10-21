@@ -23,18 +23,18 @@ export default class ErrorBoundary extends Component {
             maxWidth: 720,
             margin: '10vh auto',
             fontFamily: 'system-ui, -apple-system, sans-serif',
-            background: '#0a0e14',
+            background: '#0b0a08',
             color: '#e6e8eb',
             borderRadius: 16,
-            border: '1px solid rgba(59, 130, 246, 0.2)',
+            border: '1px solid rgba(196, 162, 108, 0.2)',
             boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
             textAlign: 'center'
           }}
         >
-          <svg style={{ width: 64, height: 64, color: '#ef4444', margin: '0 auto 16px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg style={{ width: 64, height: 64, color: '#b2564b', margin: '0 auto 16px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <h2 style={{ color: '#f87171', marginTop: 0, marginBottom: 8, fontSize: '1.5rem' }}>Application Error</h2>
+          <h2 style={{ color: '#cc7a6e', marginTop: 0, marginBottom: 8, fontSize: '1.5rem' }}>Application Error</h2>
           <p style={{ color: '#9ca3af', marginBottom: 24 }}>Vestra Protocol encountered an unexpected error. Please try reloading the page.</p>
           <pre
             style={{
@@ -58,7 +58,7 @@ export default class ErrorBoundary extends Component {
                 href="https://cloud.walletconnect.com"
                 target="_blank"
                 rel="noreferrer"
-                style={{ color: '#3b82f6' }}
+                style={{ color: '#b08d57' }}
               >
                 cloud.walletconnect.com
               </a>
@@ -91,17 +91,17 @@ export default class ErrorBoundary extends Component {
                 onClick={() => window.location.reload()}
                 style={{
                   padding: '10px 20px',
-                  background: '#3b82f6',
+                  background: '#b08d57',
                   color: 'white',
                   border: 'none',
                   borderRadius: 8,
                   cursor: 'pointer',
                   fontWeight: 600,
-                  boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
+                  boxShadow: '0 4px 14px rgba(196, 162, 108, 0.4)',
                   transition: 'background 0.2s'
                 }}
-                onMouseOver={(e) => e.currentTarget.style.background = '#2563eb'}
-                onMouseOut={(e) => e.currentTarget.style.background = '#3b82f6'}
+                onMouseOver={(e) => e.currentTarget.style.background = '#8e7244'}
+                onMouseOut={(e) => e.currentTarget.style.background = '#b08d57'}
             >
               Reload Page
             </button>

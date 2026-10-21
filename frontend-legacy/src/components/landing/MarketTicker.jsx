@@ -197,7 +197,7 @@ const Change = styled.span`
 
 const BestLTV = styled.div`
   font-size: 11px;
-  color: #8b5cf6;
+  color: #b08d57;
   font-weight: 600;
   margin-top: 4px;
   letter-spacing: 0.05em;

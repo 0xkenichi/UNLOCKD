@@ -37,7 +37,7 @@ const RiskPulse = () => {
     }, []);
 
     return (
-        <div className="immersive-core-card p-6 rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-xl hover:shadow-[0_0_30px_rgba(59,130,246,0.2)] transition-all duration-500">
+        <div className="immersive-core-card p-6 rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-xl hover:shadow-[0_0_30px_rgba(196,162,108,0.2)] transition-all duration-500">
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h3 className="text-xs font-mono text-blue-400 tracking-widest uppercase mb-1">Omega Sentinel</h3>

@@ -92,13 +92,13 @@ export default function TestnetPointsBadge({ walletAddress, onOpenLeaderboard })
                 .testnet-points-badge {
                     display: flex;
                     flex-direction: column;
-                    background: rgba(15, 23, 42, 0.8);
+                    background: rgba(17, 16, 13, 0.8);
                     backdrop-filter: blur(12px);
-                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    border: 1px solid rgba(196, 162, 108, 0.3);
                     border-radius: 12px;
                     padding: 8px 12px;
                     min-width: 140px;
-                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 10px rgba(59, 130, 246, 0.1);
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 10px rgba(196, 162, 108, 0.1);
                     overflow: hidden;
                     cursor: pointer;
                     transition: border-color 0.3s;
@@ -112,7 +112,7 @@ export default function TestnetPointsBadge({ walletAddress, onOpenLeaderboard })
                     left: -50%;
                     width: 200%;
                     height: 200%;
-                    background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+                    background: radial-gradient(circle, rgba(196, 162, 108, 0.1) 0%, transparent 70%);
                     pointer-events: none;
                 }
                 .badge-content {
@@ -150,20 +150,20 @@ export default function TestnetPointsBadge({ walletAddress, onOpenLeaderboard })
                     color: #fff;
                     line-height: 1;
                     margin-top: 2px;
-                    text-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+                    text-shadow: 0 0 10px rgba(196, 162, 108, 0.5);
                 }
                 .badge-multiplier {
                     margin-left: auto;
                     display: flex;
                     align-items: center;
                     gap: 2px;
-                    background: rgba(59, 130, 246, 0.2);
+                    background: rgba(196, 162, 108, 0.2);
                     color: var(--primary-300);
                     font-size: 10px;
                     font-weight: 700;
                     padding: 2px 6px;
                     border-radius: 20px;
-                    border: 1px solid rgba(59, 130, 246, 0.3);
+                    border: 1px solid rgba(196, 162, 108, 0.3);
                 }
                 .badge-phase-progress {
                     margin-top: 8px;
@@ -182,7 +182,7 @@ export default function TestnetPointsBadge({ walletAddress, onOpenLeaderboard })
                 }
                 @keyframes pulse {
                     0% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); }
-                    50% { box-shadow: 0 4px 30px rgba(59, 130, 246, 0.4); border-color: var(--primary-400); }
+                    50% { box-shadow: 0 4px 30px rgba(196, 162, 108, 0.4); border-color: var(--primary-400); }
                     100% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); }
                 }
             `}</style>

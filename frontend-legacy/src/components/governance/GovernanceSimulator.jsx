@@ -99,7 +99,7 @@ export default function GovernanceSimulator() {
                             <XAxis dataKey="name" stroke="#A0A0A0" fontSize={10} tickLine={false} axisLine={false} />
                             <YAxis
                                 yAxisId="left"
-                                stroke="#3b82f6"
+                                stroke="#b08d57"
                                 fontSize={10}
                                 tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
                                 tickLine={false}
@@ -108,19 +108,19 @@ export default function GovernanceSimulator() {
                             <YAxis
                                 yAxisId="right"
                                 orientation="right"
-                                stroke="#ef4444"
+                                stroke="#b2564b"
                                 fontSize={10}
                                 tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
                                 tickLine={false}
                                 axisLine={false}
                             />
                             <Tooltip
-                                contentStyle={{ backgroundColor: '#001F3F', borderColor: '#3b82f630', borderRadius: 8 }}
+                                contentStyle={{ backgroundColor: '#001F3F', borderColor: '#b08d5730', borderRadius: 8 }}
                                 itemStyle={{ fontSize: 12 }}
                                 labelStyle={{ fontSize: 12, color: '#A0A0A0', marginBottom: 4 }}
                             />
-                            <Line yAxisId="left" type="monotone" dataKey="tvl" name="Projected TVL" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                            <Line yAxisId="right" type="monotone" dataKey="defaults" name="Est. Defaults" stroke="#ef4444" strokeWidth={2} dot={false} />
+                            <Line yAxisId="left" type="monotone" dataKey="tvl" name="Projected TVL" stroke="#b08d57" strokeWidth={2} dot={false} />
+                            <Line yAxisId="right" type="monotone" dataKey="defaults" name="Est. Defaults" stroke="#b2564b" strokeWidth={2} dot={false} />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>

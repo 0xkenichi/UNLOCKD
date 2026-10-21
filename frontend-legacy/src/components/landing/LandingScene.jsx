@@ -9,7 +9,7 @@ const CHAINS = [
   { id: 'eth', label: 'Ethereum', color: '#627eea', ring: t => `rgba(98,126,234,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'London', 'Zürich', 'Frankfurt', 'Tokyo'] },
   { id: 'base', label: 'Base', color: '#0052ff', ring: t => `rgba(0,82,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['San Francisco', 'Los Angeles', 'Seattle', 'Austin', 'Boston'] },
   { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0', ring: t => `rgba(40,160,240,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'Chicago', 'Miami', 'Singapore', 'Seoul'] },
-  { id: 'solana', label: 'Solana', color: '#9945ff', ring: t => `rgba(153,69,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['San Francisco', 'Miami', 'New York', 'Lisbon', 'Dubai'] },
+  { id: 'solana', label: 'Solana', color: '#9945ff', ring: t => `rgba(176,141,87,${Math.sqrt(1 - t) * 0.9})`, bias: ['San Francisco', 'Miami', 'New York', 'Lisbon', 'Dubai'] },
   { id: 'sui', label: 'Sui', color: '#4da2ff', ring: t => `rgba(77,162,255,${Math.sqrt(1 - t) * 0.9})`, bias: ['Singapore', 'Hong Kong', 'Tokyo', 'Seoul', 'Sydney'] },
   { id: 'avax', label: 'Avalanche', color: '#e84142', ring: t => `rgba(232,65,66,${Math.sqrt(1 - t) * 0.9})`, bias: ['New York', 'Toronto', 'São Paulo', 'Melbourne', 'Johannesburg'] },
 ];
@@ -33,8 +33,8 @@ function getTheme() {
 function ChainExplorerOverlay({ activeChains, onToggle, mode, onModeToggle }) {
   const isLight = getTheme() === 'light';
   const bg = isLight ? 'rgba(240,244,251,0.92)' : 'rgba(8,12,22,0.88)';
-  const border = isLight ? 'rgba(59,102,196,0.2)' : 'rgba(88,166,255,0.15)';
-  const text = isLight ? '#0a0f1e' : '#e2e8f0';
+  const border = isLight ? 'rgba(59,102,196,0.2)' : 'rgba(196,162,108,0.15)';
+  const text = isLight ? '#0a0f1e' : '#e6dece';
 
   return (
     <div style={{
@@ -49,20 +49,20 @@ function ChainExplorerOverlay({ activeChains, onToggle, mode, onModeToggle }) {
     }}>
       {/* Mode toggle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: mode === 'chain' ? '#60a5fa' : '#64748b' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: mode === 'chain' ? '#c4a26c' : '#8a8170' }}>
           {mode === 'live' ? '⚡ Live Feed' : '🌐 Chain Explorer'}
         </span>
         <button onClick={onModeToggle} style={{
           fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-          background: mode === 'chain' ? 'rgba(59,130,246,0.2)' : 'rgba(100,116,139,0.15)',
-          border: `1px solid ${mode === 'chain' ? 'rgba(59,130,246,0.4)' : 'rgba(100,116,139,0.3)'}`,
+          background: mode === 'chain' ? 'rgba(196,162,108,0.2)' : 'rgba(138,129,112,0.15)',
+          border: `1px solid ${mode === 'chain' ? 'rgba(196,162,108,0.4)' : 'rgba(138,129,112,0.3)'}`,
           borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: text,
         }}>Switch</button>
       </div>
 
       {mode === 'chain' && (
         <>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>Show chains:</div>
+          <div style={{ fontSize: 11, color: '#8a8170', marginBottom: 2 }}>Show chains:</div>
           {CHAINS.map(chain => (
             <button
               key={chain.id}
@@ -80,7 +80,7 @@ function ChainExplorerOverlay({ activeChains, onToggle, mode, onModeToggle }) {
                 boxShadow: activeChains.has(chain.id) ? `0 0 8px ${chain.color}` : 'none',
                 flexShrink: 0,
               }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: activeChains.has(chain.id) ? text : '#64748b' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: activeChains.has(chain.id) ? text : '#8a8170' }}>
                 {chain.label}
               </span>
             </button>
@@ -213,14 +213,14 @@ function EarthGlobe() {
   const isLight = theme === 'light';
   const activePings = mode === 'live' ? livePings : chainPings;
 
-  const hexColor = isLight ? () => 'rgba(10, 40, 130, 0.3)' : () => 'rgba(88, 166, 255, 0.4)';
-  const atmColor = isLight ? '#1d48b0' : '#3b82f6';
+  const hexColor = isLight ? () => 'rgba(10, 40, 130, 0.3)' : () => 'rgba(196, 162, 108, 0.4)';
+  const atmColor = isLight ? '#1d48b0' : '#b08d57';
   const defaultRingColor = isLight
     ? () => t => `rgba(14, 50, 160, ${Math.sqrt(1 - t)})`
-    : () => t => `rgba(59, 130, 246, ${Math.sqrt(1 - t)})`;
+    : () => t => `rgba(196, 162, 108, ${Math.sqrt(1 - t)})`;
 
   const ringColorFn = mode === 'chain'
-    ? d => (d.chainRing ? d.chainRing : t => `rgba(59,130,246,${Math.sqrt(1 - t)})`)
+    ? d => (d.chainRing ? d.chainRing : t => `rgba(196,162,108,${Math.sqrt(1 - t)})`)
     : defaultRingColor;
 
   const toggleChain = id => setActiveChains(prev => {

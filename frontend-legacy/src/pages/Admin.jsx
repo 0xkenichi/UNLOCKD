@@ -223,7 +223,7 @@ function LoginGate({ onLogin }) {
     return (
         <div style={{
             minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'radial-gradient(ellipse at 50% 0%, rgba(139,92,246,0.15) 0%, transparent 60%), var(--surface-base)',
+            background: 'radial-gradient(ellipse at 50% 0%, rgba(176,141,87,0.15) 0%, transparent 60%), var(--surface-base)',
             padding: 'var(--space-6)'
         }}>
             <motion.div
@@ -233,7 +233,7 @@ function LoginGate({ onLogin }) {
                 style={{
                     width: '100%', maxWidth: '400px',
                     background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(139,92,246,0.3)',
+                    border: '1px solid rgba(176,141,87,0.3)',
                     borderRadius: '24px',
                     padding: '48px 40px',
                     backdropFilter: 'blur(20px)',
@@ -243,20 +243,20 @@ function LoginGate({ onLogin }) {
                 <div style={{ textAlign: 'center', marginBottom: '40px' }}>
                     <div style={{
                         width: '64px', height: '64px', borderRadius: '20px',
-                        background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(59,130,246,0.3))',
-                        border: '1px solid rgba(139,92,246,0.4)',
+                        background: 'linear-gradient(135deg, rgba(176,141,87,0.3), rgba(196,162,108,0.3))',
+                        border: '1px solid rgba(176,141,87,0.4)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         margin: '0 auto 20px'
                     }}>
-                        <Shield size={32} color="#a78bfa" />
+                        <Shield size={32} color="#c4a26c" />
                     </div>
                     <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)' }}>Admin Portal</h1>
-                    <p style={{ margin: '8px 0 0', color: '#64748b', fontSize: '14px' }}>Restricted access. Super admins only.</p>
+                    <p style={{ margin: '8px 0 0', color: '#8a8170', fontSize: '14px' }}>Restricted access. Super admins only.</p>
                 </div>
 
                 <form onSubmit={handleSubmit}>
                     <div style={{ position: 'relative', marginBottom: '16px' }}>
-                        <Key size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+                        <Key size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#5f574a', pointerEvents: 'none' }} />
                         <input
                             type={show ? 'text' : 'password'}
                             value={pass}
@@ -264,33 +264,33 @@ function LoginGate({ onLogin }) {
                             placeholder="Enter super admin passphrase"
                             style={{
                                 width: '100%', boxSizing: 'border-box',
-                                background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                                background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? 'rgba(178,86,75,0.4)' : 'rgba(255,255,255,0.08)'}`,
                                 borderRadius: '12px', padding: '14px 48px 14px 44px',
                                 color: '#fff', fontSize: '15px', outline: 'none', fontFamily: 'var(--font-family)',
                                 transition: 'border-color 0.2s'
                             }}
-                            onFocus={e => { if (!error) e.target.style.borderColor = 'rgba(139,92,246,0.5)'; }}
+                            onFocus={e => { if (!error) e.target.style.borderColor = 'rgba(176,141,87,0.5)'; }}
                             onBlur={e => { if (!error) e.target.style.borderColor = 'rgba(255,255,255,0.08)'; }}
                         />
                         <button type="button" onClick={() => setShow(s => !s)} style={{
                             position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
-                            background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: '4px'
+                            background: 'none', border: 'none', color: '#5f574a', cursor: 'pointer', padding: '4px'
                         }}>
                             {show ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
                     </div>
 
                     {error && (
-                        <p style={{ color: '#f87171', fontSize: '13px', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <p style={{ color: '#cc7a6e', fontSize: '13px', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <AlertTriangle size={14} /> {error}
                         </p>
                     )}
 
                     <button type="submit" style={{
                         width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
-                        background: 'linear-gradient(135deg, #7c3aed, #3b82f6)',
+                        background: 'linear-gradient(135deg, #8e7244, #b08d57)',
                         color: '#fff', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-                        boxShadow: '0 4px 20px rgba(124,58,237,0.4)', transition: 'all 0.2s'
+                        boxShadow: '0 4px 20px rgba(142,114,68,0.4)', transition: 'all 0.2s'
                     }}>
                         Access Admin Portal
                     </button>
@@ -305,9 +305,9 @@ function IPVault() {
     const [selected, setSelected] = useState(null);
 
     const classColors = {
-        'TOP SECRET': { bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.3)', text: '#f87171' },
-        CONFIDENTIAL: { bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)', text: '#fbbf24' },
-        RESTRICTED: { bg: 'rgba(59,130,246,0.1)', border: 'rgba(59,130,246,0.3)', text: '#60a5fa' },
+        'TOP SECRET': { bg: 'rgba(178,86,75,0.1)', border: 'rgba(178,86,75,0.3)', text: '#cc7a6e' },
+        CONFIDENTIAL: { bg: 'rgba(194,148,68,0.1)', border: 'rgba(194,148,68,0.3)', text: '#d8b06a' },
+        RESTRICTED: { bg: 'rgba(196,162,108,0.1)', border: 'rgba(196,162,108,0.3)', text: '#c4a26c' },
     };
 
     if (selected) {
@@ -315,11 +315,11 @@ function IPVault() {
         return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                    <button onClick={() => setSelected(null)} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#94a3b8', padding: '6px 12px', cursor: 'pointer', fontSize: '13px' }}>← Back</button>
+                    <button onClick={() => setSelected(null)} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#a39985', padding: '6px 12px', cursor: 'pointer', fontSize: '13px' }}>← Back</button>
                     <span style={{ fontSize: '12px', fontWeight: 700, color: c.text, background: c.bg, border: `1px solid ${c.border}`, padding: '3px 10px', borderRadius: '6px' }}>{selected.classification}</span>
                     <h2 style={{ margin: 0, color: '#fff', fontSize: '18px', fontFamily: 'var(--font-display)' }}>{selected.title}</h2>
                 </div>
-                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '16px', padding: '32px', fontFamily: 'var(--font-family)', color: '#cbd5e1', lineHeight: 1.8 }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '16px', padding: '32px', fontFamily: 'var(--font-family)', color: '#c9bfab', lineHeight: 1.8 }}>
                     <style>{`.admin-md h1,.admin-md h2,.admin-md h3{color:#fff;font-family:var(--font-display);margin:1.5rem 0 0.75rem;}.admin-md code{background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;font-family:monospace;}.admin-md pre{background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px;overflow-x:auto;}.admin-md table{width:100%;border-collapse:collapse;}.admin-md th,.admin-md td{padding:8px 12px;border:1px solid rgba(255,255,255,0.06);text-align:left;}.admin-md th{background:rgba(255,255,255,0.04);color:#fff;}`}</style>
                     <div className="admin-md">
                         {selected.content.split('\n').map((line, i) => {
@@ -343,7 +343,7 @@ function IPVault() {
         <div>
             <div style={{ marginBottom: '24px' }}>
                 <h2 style={{ margin: '0 0 8px', color: '#fff', fontFamily: 'var(--font-display)' }}>Intellectual Property Vault</h2>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Classified documents not available in public documentation.</p>
+                <p style={{ margin: 0, color: '#8a8170', fontSize: '14px' }}>Classified documents not available in public documentation.</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
                 {SENSITIVE_DOCS.map(doc => {
@@ -359,12 +359,12 @@ function IPVault() {
                             }}
                         >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{doc.category}</span>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#8a8170', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{doc.category}</span>
                                 <span style={{ fontSize: '11px', fontWeight: 700, color: c.text, background: c.bg, border: `1px solid ${c.border}`, padding: '2px 8px', borderRadius: '4px' }}>{doc.classification}</span>
                             </div>
                             <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: '16px', fontFamily: 'var(--font-display)' }}>{doc.title}</h3>
-                            <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '13px', lineHeight: 1.5 }}>{doc.summary}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7c3aed', fontSize: '13px', fontWeight: 600 }}>
+                            <p style={{ margin: '0 0 16px', color: '#8a8170', fontSize: '13px', lineHeight: 1.5 }}>{doc.summary}</p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8e7244', fontSize: '13px', fontWeight: 600 }}>
                                 View Document <ChevronRight size={14} />
                             </div>
                         </motion.div>
@@ -407,7 +407,7 @@ function WhitelistManager() {
         <div>
             <div style={{ marginBottom: '24px' }}>
                 <h2 style={{ margin: '0 0 8px', color: '#fff', fontFamily: 'var(--font-display)' }}>Whitelist Management</h2>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Manage test wallets and authorized addresses for the admin portal.</p>
+                <p style={{ margin: 0, color: '#8a8170', fontSize: '14px' }}>Manage test wallets and authorized addresses for the admin portal.</p>
             </div>
 
             {/* Add Entry */}
@@ -426,17 +426,17 @@ function WhitelistManager() {
                         placeholder="Label (optional)"
                         style={{ flex: '1 1 150px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px 14px', color: '#fff', fontSize: '14px', outline: 'none', fontFamily: 'var(--font-family)' }}
                     />
-                    <button onClick={addEntry} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #7c3aed, #3b82f6)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+                    <button onClick={addEntry} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #8e7244, #b08d57)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
                         <Plus size={16} /> Add
                     </button>
                 </div>
-                {error && <p style={{ color: '#f87171', fontSize: '13px', margin: '10px 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={13} /> {error}</p>}
+                {error && <p style={{ color: '#cc7a6e', fontSize: '13px', margin: '10px 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={13} /> {error}</p>}
             </div>
 
             {/* List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {list.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '48px', color: '#475569' }}>
+                    <div style={{ textAlign: 'center', padding: '48px', color: '#5f574a' }}>
                         <Users size={32} style={{ marginBottom: '12px', opacity: 0.4 }} />
                         <p style={{ margin: 0 }}>No whitelisted addresses yet.</p>
                     </div>
@@ -448,17 +448,17 @@ function WhitelistManager() {
                         borderRadius: '12px', flexWrap: 'wrap'
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                            <CheckCircle size={16} color="#34d399" />
+                            <CheckCircle size={16} color="#9db896" />
                             <div>
                                 <div style={{ color: '#fff', fontSize: '14px', fontWeight: 600 }}>{entry.label}</div>
-                                <div style={{ color: '#64748b', fontSize: '12px', fontFamily: 'monospace' }}>{entry.address}</div>
+                                <div style={{ color: '#8a8170', fontSize: '12px', fontFamily: 'monospace' }}>{entry.address}</div>
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <button onClick={() => copyText(entry.address, () => setCopied(entry.address))} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: copied === entry.address ? '#34d399' : '#94a3b8', padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                            <button onClick={() => copyText(entry.address, () => setCopied(entry.address))} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: copied === entry.address ? '#9db896' : '#a39985', padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
                                 {copied === entry.address ? <CheckCircle size={13} /> : <Copy size={13} />}
                             </button>
-                            <button onClick={() => removeEntry(entry.address)} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#f87171', padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                            <button onClick={() => removeEntry(entry.address)} style={{ background: 'rgba(178,86,75,0.08)', border: '1px solid rgba(178,86,75,0.2)', borderRadius: '8px', color: '#cc7a6e', padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                                 <Trash2 size={13} />
                             </button>
                         </div>
@@ -486,15 +486,15 @@ export default function Admin() {
             {/* Header */}
             <div style={{ maxWidth: '1200px', margin: '0 auto 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'linear-gradient(135deg, rgba(124,58,237,0.3), rgba(59,130,246,0.3))', border: '1px solid rgba(124,58,237,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Shield size={20} color="#a78bfa" />
+                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'linear-gradient(135deg, rgba(142,114,68,0.3), rgba(196,162,108,0.3))', border: '1px solid rgba(142,114,68,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Shield size={20} color="#c4a26c" />
                     </div>
                     <div>
                         <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)' }}>Vestra Admin Portal</h1>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>Super Administrator Access · <span style={{ color: '#34d399' }}>● Active Session</span></p>
+                        <p style={{ margin: 0, color: '#8a8170', fontSize: '13px' }}>Super Administrator Access · <span style={{ color: '#9db896' }}>● Active Session</span></p>
                     </div>
                 </div>
-                <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
+                <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(178,86,75,0.3)', background: 'rgba(178,86,75,0.08)', color: '#cc7a6e', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
                     <LogOut size={14} /> Sign Out
                 </button>
             </div>
@@ -506,8 +506,8 @@ export default function Admin() {
                         <button key={t.id} onClick={() => setTab(t.id)} style={{
                             display: 'flex', alignItems: 'center', gap: '8px',
                             padding: '10px 20px', background: 'none', borderRadius: '0',
-                            border: 'none', borderBottom: `2px solid ${tab === t.id ? '#7c3aed' : 'transparent'}`,
-                            color: tab === t.id ? '#fff' : '#64748b',
+                            border: 'none', borderBottom: `2px solid ${tab === t.id ? '#8e7244' : 'transparent'}`,
+                            color: tab === t.id ? '#fff' : '#8a8170',
                             fontSize: '14px', fontWeight: 600, cursor: 'pointer',
                             marginBottom: '-1px', transition: 'all 0.2s'
                         }}>
