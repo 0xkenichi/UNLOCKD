@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
+    "postbuild": "npm run clean:maps",
     "build:prod": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
+    "postbuild:prod": "npm run clean:maps",
+    "clean:maps": "node -e \"const fs=require('fs'),p=require('path');let n=0;(function w(d){if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=p.join(d,e.name);if(e.isDirectory())w(f);else if(f.endsWith('.map')){fs.unlinkSync(f);n++}}})('dist');console.log('removed '+n+' source map(s) from dist')\"",
     "health:check": "node scripts/health-check.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test",

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import SolanaProvider from './components/solana/SolanaProvider.jsx';
@@ -22,8 +22,6 @@ import '@rainbow-me/rainbowkit/styles.css';
 import '@solana/wallet-adapter-react-ui/styles.css';
 import { ALL_EVM_CHAINS, DEFAULT_EVM_CHAIN } from './utils/chains.js';
 import { getContractAddress } from './utils/contracts.js';
-import { AlchemyAccountProvider, createConfig as createAlchemyConfig } from '@account-kit/react';
-import { alchemy, baseSepolia, sepolia } from '@account-kit/infra';
 
 const projectId = import.meta.env.VITE_WC_PROJECT_ID;
 const hasWalletConnectProjectId = Boolean(
@@ -62,28 +60,28 @@ const queryClient = new QueryClient({
   }
 });
 
-// Alchemy Account Kit (optional feature gate)
-const alchemyApiKey = import.meta.env.VITE_ALCHEMY_ACCOUNT_KIT_API_KEY;
-const alchemyPolicyId = import.meta.env.VITE_ALCHEMY_ACCOUNT_KIT_POLICY_ID;
-const alchemyChainName = String(import.meta.env.VITE_ALCHEMY_ACCOUNT_KIT_CHAIN || 'sepolia');
-const alchemyChain = alchemyChainName === 'base-sepolia' ? baseSepolia : sepolia;
-const hasAlchemyAccountKit = Boolean(alchemyApiKey);
-
-const alchemyConfig = hasAlchemyAccountKit
-  ? createAlchemyConfig(
-    {
-      transport: alchemy({ apiKey: alchemyApiKey }),
-      chain: alchemyChain,
-      ...(alchemyPolicyId ? { policyId: alchemyPolicyId } : {})
-    },
-    {
-      auth: {
-        sections: [[{ type: 'email' }], [{ type: 'passkey' }]],
-        addPasskeyOnSignup: true
-      }
-    }
-  )
+// Alchemy Account Kit (optional feature gate). The provider still wraps the whole app, but its
+// code is loaded on demand so @account-kit/* is not part of the entry bundle. The import starts
+// immediately (not on first render) to keep the extra round trip as short as possible.
+const hasAlchemyAccountKit = Boolean(import.meta.env.VITE_ALCHEMY_ACCOUNT_KIT_API_KEY);
+const alchemyProviderModule = hasAlchemyAccountKit
+  ? import('./components/common/AlchemyAccountKitProvider.jsx')
   : null;
+const AlchemyAccountKitProvider = alchemyProviderModule ? lazy(() => alchemyProviderModule) : null;
+
+// Same markup/classes as the static boot shell in index.html (its styles live in <head>).
+function BootSplash() {
+  return (
+    <div className="boot-shell" role="status" aria-live="polite">
+      <div className="boot-shell__mark" aria-hidden="true">
+        <div className="boot-shell__ring" />
+        <div className="boot-shell__v">V</div>
+      </div>
+      <p className="boot-shell__title">Vestra Protocol</p>
+      <p className="boot-shell__sub">Loading…</p>
+    </div>
+  );
+}
 
 // RainbowKit custom dark theme matching Vestra design
 const vestraTheme = darkTheme({
@@ -120,10 +118,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             }}
           >
             <SolanaProvider>
-              {hasAlchemyAccountKit && alchemyConfig ? (
-                <AlchemyAccountProvider config={alchemyConfig} queryClient={queryClient}>
-                  <App />
-                </AlchemyAccountProvider>
+              {AlchemyAccountKitProvider ? (
+                <Suspense fallback={<BootSplash />}>
+                  <AlchemyAccountKitProvider queryClient={queryClient}>
+                    <App />
+                  </AlchemyAccountKitProvider>
+                </Suspense>
               ) : (
                 <App />
               )}

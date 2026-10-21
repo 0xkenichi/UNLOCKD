@@ -29,7 +29,9 @@ export default defineConfig({
     ]
   },
   build: {
-    sourcemap: true,
+    // Maps are generated (for error-reporting uploads) but not referenced from the bundles.
+    // `postbuild` in package.json deletes dist/**/*.map so they are not deployed publicly.
+    sourcemap: 'hidden',
     commonjsOptions: {
       transformMixedEsModules: true,
     },

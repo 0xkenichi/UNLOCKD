@@ -14,14 +14,17 @@
   <meta property="og:title" content="Vestra Protocol — Vesting Credit" />
   <meta property="og:description"
     content="Borrow against vested tokens without custody. DPV valuation, auto-settlement, institutional-grade." />
-  <meta property="og:image" content="/favicon.svg" />
+  <meta property="og:image" content="https://vestraprotocol.vercel.app/logo.png" />
+  <meta property="og:image:width" content="655" />
+  <meta property="og:image:height" content="652" />
+  <meta property="og:image:alt" content="Vestra Protocol logo" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Vestra Protocol — Vesting Credit" />
   <meta name="twitter:description"
     content="Non-custodial credit against vested tokens. DPV-powered valuation with auto-settlement." />
-  <meta name="twitter:image" content="/favicon.svg" />
+  <meta name="twitter:image" content="https://vestraprotocol.vercel.app/logo.png" />
 
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.bunny.net" />
@@ -40,11 +43,193 @@
     #root {
       min-height: 100vh
     }
+
+    /* Static boot shell: painted before any JS loads; React's first render replaces #root's children. */
+    .boot-shell {
+      --boot-bg: #0a0e14;
+      --boot-fg: #e6e8eb;
+      --boot-muted: #8b93a1;
+      --boot-accent: #3b82f6;
+      --boot-track: rgba(59, 130, 246, 0.18);
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 16px;
+      box-sizing: border-box;
+      background: var(--boot-bg);
+      color: var(--boot-fg);
+      font-family: Sora, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) .boot-shell {
+        --boot-bg: #f6f7f9;
+        --boot-fg: #0f172a;
+        --boot-muted: #5b6473;
+        --boot-accent: #2563eb;
+        --boot-track: rgba(37, 99, 235, 0.16);
+      }
+    }
+
+    :root[data-theme="light"] .boot-shell {
+      --boot-bg: #f6f7f9;
+      --boot-fg: #0f172a;
+      --boot-muted: #5b6473;
+      --boot-accent: #2563eb;
+      --boot-track: rgba(37, 99, 235, 0.16);
+    }
+
+    .boot-shell__mark {
+      position: relative;
+      width: 64px;
+      height: 64px;
+    }
+
+    .boot-shell__ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 3px solid var(--boot-track);
+      border-top-color: var(--boot-accent);
+      animation: boot-spin 1s linear infinite;
+    }
+
+    .boot-shell__v {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      animation: boot-pulse 1.6s ease-in-out infinite;
+    }
+
+    .boot-shell__title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .boot-shell__sub {
+      margin: -12px 0 0;
+      font-size: 13px;
+      color: var(--boot-muted);
+    }
+
+    .boot-shell__slow {
+      display: none;
+      max-width: 320px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--boot-muted);
+    }
+
+    .boot-shell--slow .boot-shell__slow {
+      display: block;
+    }
+
+    .boot-shell__reload {
+      margin-top: 12px;
+      padding: 8px 18px;
+      border: 1px solid var(--boot-accent);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--boot-fg);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .boot-shell__reload:hover,
+    .boot-shell__reload:focus-visible {
+      background: var(--boot-track);
+    }
+
+    @keyframes boot-spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    @keyframes boot-pulse {
+
+      0%,
+      100% {
+        opacity: 0.55
+      }
+
+      50% {
+        opacity: 1
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .boot-shell__ring,
+      .boot-shell__v {
+        animation: none
+      }
+    }
   </style>
 </head>
 
 <body>
-  <div id="root"><noscript>Enable JavaScript to use Vestra Protocol.</noscript></div>
+  <div id="root">
+    <div id="boot-shell" class="boot-shell" role="status" aria-live="polite">
+      <div class="boot-shell__mark" aria-hidden="true">
+        <div class="boot-shell__ring"></div>
+        <div class="boot-shell__v">V</div>
+      </div>
+      <p class="boot-shell__title">Vestra Protocol</p>
+      <p class="boot-shell__sub">Loading&hellip;</p>
+      <noscript>
+        <p class="boot-shell__sub" style="margin-top:0">Enable JavaScript to use Vestra Protocol.</p>
+      </noscript>
+      <div class="boot-shell__slow">
+        Still loading &mdash; check your connection.
+        <br />
+        <button type="button" class="boot-shell__reload" id="boot-shell-reload">Reload</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Boot-shell helpers. Classic inline script (no network); CSP allows 'unsafe-inline'.
+    (function () {
+      try {
+        var stored = window.localStorage.getItem('unlockd-theme');
+        if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored;
+      } catch (e) { /* storage blocked: fall back to prefers-color-scheme */ }
+
+      function showSlow() {
+        // React's first render removes #boot-shell; if it is still here, the app has not mounted.
+        var shell = document.getElementById('boot-shell');
+        if (shell) shell.className += ' boot-shell--slow';
+      }
+
+      var btn = document.getElementById('boot-shell-reload');
+      if (btn) btn.addEventListener('click', function () { window.location.reload(); });
+
+      window.setTimeout(showSlow, 15000);
+      // A failed same-origin entry script / modulepreload / stylesheet means the app will not mount:
+      // say so right away. (Third-party failures, e.g. the web-font stylesheet, are ignored.)
+      window.addEventListener('error', function (event) {
+        var t = event && event.target;
+        if (!t || (t.tagName !== 'SCRIPT' && t.tagName !== 'LINK')) return;
+        var url = t.src || t.href || '';
+        if (url.indexOf(window.location.origin + '/') === 0) showSlow();
+      }, true);
+    })();
+  </script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 
