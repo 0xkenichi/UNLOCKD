@@ -32,6 +32,8 @@ contract PreTGEOracle is Ownable {
     /// @notice Allows the designated data signer (e.g., a localized coprocessor) to push Pre-TGE pricing.
     function setSyntheticPrice(address token, uint256 price, uint8 decimals) external {
         require(msg.sender == dataSigner || msg.sender == owner(), "Unauthorized");
+        require(price > 0, "price=0");
+        require(decimals <= 18, "decimals>18");
         impliedPrices[token] = price;
         lastUpdateTimes[token] = block.timestamp;
         tokenDecimals[token] = decimals;

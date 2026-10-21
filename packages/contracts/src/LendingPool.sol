@@ -3,615 +3,98 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./governance/VestraAccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./governance/VestraAccessControl.sol";
 
-
-
-contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
+/**
+ * @title  LendingPool
+ * @notice ERC-4626 USDC vault that funds Vestra loans.
+ *
+ *         • The pool holds every lender dollar itself. No treasury wallet, role or
+ *           LoanManager can move idle funds except by `lend`, which only the
+ *           (set-once) LoanManager can call and which is booked as a receivable.
+ *         • totalAssets = idle USDC + principal outstanding. Interest is recognised
+ *           when paid and raises the share price for all lenders.
+ *         • Losses are recognised by `writeOff`, which lowers totalAssets and so
+ *           the share price for all lenders pro rata. No lender can exit at par
+ *           ahead of a known loss being booked.
+ *         • Idle USDC is tracked internally, so tokens sent directly to the pool do
+ *           not move the share price (no donation / inflation attack); a 6-decimal
+ *           virtual-share offset is used as a second layer.
+ *         • Withdrawals are limited only by idle liquidity. Pausing blocks deposits
+ *           and new loans, never withdrawals.
+ */
+contract LendingPool is ERC4626, VestraAccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
-    enum DepositType { VARIABLE, FIXED }
+    uint256 public constant BPS = 10_000;
 
-    struct LenderPosition {
-        uint256 id;
-        uint256 amount;
-        uint64 startTime;
-        uint64 lockDays;
-        uint64 lockEndTime;
-        uint32 fixedApyBps;
-        DepositType depositType;
-        bool isActive;
-    }
-
-    IERC20 public usdc;
     address public loanManager;
-    address public issuanceTreasury;
-    address public returnsTreasury;
 
-    mapping(address => uint256) public deposits;
-    mapping(address => LenderPosition[]) public lenderPositions;
-    mapping(address => mapping(uint256 => uint256)) public positionIdToIndex;
-    uint256 public nextPositionId;
+    uint256 public idleAssets;      // USDC held and available
+    uint256 public totalBorrowed;   // principal outstanding
+    uint256 public totalWrittenOff; // cumulative principal losses
+    uint256 public depositCap;      // 0 = uncapped
 
-    uint256 public totalDeposits;
-    uint256 public totalBorrowed;
-    uint256 public insuranceReserve;
+    // Kinked utilization rate model (APR, bps)
+    uint256 public baseRateBps = 500;
+    uint256 public slope1Bps   = 1000;
+    uint256 public slope2Bps   = 6000;
+    uint256 public kinkBps     = 8000;
 
-    uint256 public constant BPS_DENOMINATOR = 10000;
-    uint256 public constant REWARD_PRECISION = 1e18;
-    uint256 public lowUtilizationThresholdBps = 4000;
-    uint256 public highUtilizationThresholdBps = 7500;
-    uint256 public lowUtilizationRateBps = 1200;
-    uint256 public midUtilizationRateBps = 1800;
-    uint256 public highUtilizationRateBps = 2600;
-    bool public adminTimelockEnabled;
-    uint256 public adminTimelockDelay = 1 days;
-
-    struct PendingLoanManager {
-        address manager;
-        uint256 executeAfter;
-        bool exists;
-    }
-
-    struct PendingTreasuryConfig {
-        address issuanceTreasury;
-        address returnsTreasury;
-        uint256 executeAfter;
-        bool exists;
-    }
-
-    struct PendingRateModel {
-        uint256 lowThresholdBps;
-        uint256 highThresholdBps;
-        uint256 lowRateBps;
-        uint256 midRateBps;
-        uint256 highRateBps;
-        uint256 executeAfter;
-        bool exists;
-    }
-
-    PendingLoanManager public pendingLoanManager;
-    PendingTreasuryConfig public pendingTreasuryConfig;
-    PendingRateModel public pendingRateModel;
-    uint256 public communityPoolCount;
-
-    // V6.0 Citadel: Optimistic AI Veto Timelocks + LP Ragequit
-    address public coprocessor;
-    bool public ragequitActive;
-    uint256 public ragequitEndTime;
-    
-    event CoprocessorUpdated(address indexed coprocessor);
-    event UpgradeVetoed(string reason);
-    event RagequitTriggered(uint256 windowEndTime);
-
-    enum CommunityPoolState {
-        FUNDRAISING,
-        ACTIVE,
-        REFUNDING,
-        CLOSED
-    }
-
-    struct CommunityPool {
-        string name;
-        address creator;
-        uint256 targetAmount;
-        uint256 maxAmount;
-        uint256 deadline;
-        uint256 totalContributed;
-        uint256 totalBuildingUnits;
-        uint256 participantCount;
-        uint256 accRewardPerWeight;
-        uint256 totalRewardFunded;
-        bool rewardsByBuildingSize;
-        CommunityPoolState state;
-    }
-
-    struct CommunityPosition {
-        uint256 contributed;
-        uint256 buildingUnits;
-        uint256 rewardDebt;
-        uint256 pendingRewards;
-        bool joined;
-    }
-
-    mapping(uint256 => CommunityPool) public communityPools;
-    mapping(uint256 => mapping(address => CommunityPosition)) public communityPositions;
-
-    event TreasuryConfigUpdated(address issuanceTreasury, address returnsTreasury);
-    event LoanManagerUpdated(address indexed loanManager);
-    event RateModelUpdated(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps
-    );
-    event AdminTimelockConfigUpdated(bool enabled, uint256 delaySeconds);
-    event LoanManagerQueued(address indexed manager, uint256 executeAfter);
-    event LoanManagerQueueCancelled();
-    event TreasuryConfigQueued(address issuanceTreasury, address returnsTreasury, uint256 executeAfter);
-    event TreasuryConfigCancelled();
-    event RateModelQueued(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps,
-        uint256 executeAfter
-    );
-    event RateModelCancelled();
-    event Deposit(address indexed user, uint256 indexed positionId, uint256 amount, DepositType depositType, uint256 lockDays);
-    event Withdraw(address indexed user, uint256 indexed positionId, uint256 amount);
-    event CommunityPoolCreated(
-        uint256 indexed poolId,
-        address indexed creator,
-        string name,
-        uint256 targetAmount,
-        uint256 maxAmount,
-        uint256 deadline,
-        bool rewardsByBuildingSize
-    );
-    event CommunityPoolContribution(
-        uint256 indexed poolId,
-        address indexed contributor,
-        uint256 amount,
-        uint256 buildingUnits
-    );
-    event CommunityPoolActivated(uint256 indexed poolId, uint256 amountMovedToLiquidity);
-    event CommunityPoolMarkedRefunding(uint256 indexed poolId);
-    event CommunityPoolRefunded(
-        uint256 indexed poolId,
-        address indexed contributor,
-        uint256 amount
-    );
-    event CommunityPoolRewardsFunded(
-        uint256 indexed poolId,
-        address indexed funder,
-        uint256 amount
-    );
-    event CommunityPoolRewardsClaimed(
-        uint256 indexed poolId,
-        address indexed contributor,
-        uint256 amount
-    );
-    event CommunityPoolClosed(uint256 indexed poolId);
-
-    struct StakedPosition {
-        uint256 amount;
-        uint256 durationDays;
-        uint256 lockEndTime;
-        uint256 apyBps;
-        uint256 lastClaimTime;
-        bool isActive;
-        bool flowEligible;
-        uint256 withdrawnFlow;
-    }
-
-    mapping(address => StakedPosition[]) public userStakes;
-    uint256 public constant BASE_APY_BPS = 1000; // 10% Base
-
-    event Staked(address indexed user, uint256 amount, uint256 durationDays, uint256 apyBps);
-    event Unstaked(address indexed user, uint256 amount, uint256 yield, bool penaltyApplied);
-    event YieldClaimed(address indexed user, uint256 amount);
-    event PenaltyApplied(address indexed user, uint256 amount, uint256 timestamp);
-
-    constructor(address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
-        usdc = IERC20(_usdc);
-        issuanceTreasury = msg.sender;
-        returnsTreasury = msg.sender;
-    }
+    event LoanManagerSet(address indexed loanManager);
+    event Lent(address indexed to, uint256 amount);
+    event Repaid(uint256 principal, uint256 interest);
+    event WrittenOff(uint256 principal);
+    event Donated(address indexed from, uint256 amount);
+    event RateModelUpdated(uint256 baseRateBps, uint256 slope1Bps, uint256 slope2Bps, uint256 kinkBps);
+    event DepositCapUpdated(uint256 cap);
 
     modifier onlyLoanManager() {
-        require(msg.sender == loanManager, "not loan manager");
+        require(msg.sender == loanManager, "only loan manager");
         _;
     }
 
-    // --- V6.0 Citadel: Coprocessor & Ragequit ---
-    
-    function setCoprocessor(address _coprocessor) external onlyGovernor {
-        coprocessor = _coprocessor;
-        emit CoprocessorUpdated(_coprocessor);
+    constructor(IERC20 _usdc, address _governor)
+        ERC20("Vestra USDC Lending Pool", "vUSDC")
+        ERC4626(_usdc)
+        VestraAccessControl(_governor)
+    {}
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Governance
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function setLoanManager(address _loanManager) external onlyGovernor {
+        require(_loanManager != address(0), "loanManager=0");
+        require(loanManager == address(0), "already set");
+        loanManager = _loanManager;
+        emit LoanManagerSet(_loanManager);
     }
 
-    /**
-     * @notice V6.0 Citadel: The AI Coprocessor or Owner can veto pending configuration upgrades 
-     * if they are deemed malicious (e.g., routing funds to a hacker's treasury).
-     */
-    function vetoUpgrade(string calldata reason) external {
-        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
-        
-        if (pendingLoanManager.exists) {
-            delete pendingLoanManager;
-            emit LoanManagerQueueCancelled();
-        }
-        if (pendingTreasuryConfig.exists) {
-            delete pendingTreasuryConfig;
-            emit TreasuryConfigCancelled();
-        }
-        if (pendingRateModel.exists) {
-            delete pendingRateModel;
-            emit RateModelCancelled();
-        }
-        
-        emit UpgradeVetoed(reason);
+    function setRateModel(uint256 base, uint256 s1, uint256 s2, uint256 kink) external onlyGovernor {
+        require(kink > 0 && kink < BPS, "kink");
+        require(base + s1 + s2 <= 20_000, "max APR 200%");
+        baseRateBps = base;
+        slope1Bps = s1;
+        slope2Bps = s2;
+        kinkBps = kink;
+        emit RateModelUpdated(base, s1, s2, kink);
     }
 
-    /**
-     * @notice V6.0 Citadel: If a malicious upgrade bypasses the veto, the Coprocessor or Owner
-     * can trigger a global 7-day LP Ragequit window, allowing LPs to withdraw all available liquidity instantly.
-     */
-    function triggerRagequit() external {
-        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
-        require(!ragequitActive, "already active");
-        
-        ragequitActive = true;
-        ragequitEndTime = block.timestamp + 7 days;
-        
-        emit RagequitTriggered(ragequitEndTime);
+    function setDepositCap(uint256 cap) external onlyGovernor {
+        depositCap = cap;
+        emit DepositCapUpdated(cap);
     }
 
-    // --- Core Pool Operations ---
-
-    function setLoanManager(address manager) external onlyGovernor {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyLoanManager(manager);
-    }
-
-    function queueLoanManager(address manager) external onlyGovernor {
-        require(adminTimelockEnabled, "timelock disabled");
-        require(manager != address(0), "manager=0");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingLoanManager = PendingLoanManager({
-            manager: manager,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit LoanManagerQueued(manager, executeAfter);
-    }
-
-    function executeQueuedLoanManager() external onlyGovernor {
-        PendingLoanManager memory pending = pendingLoanManager;
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingLoanManager;
-        _applyLoanManager(pending.manager);
-    }
-
-    function cancelQueuedLoanManager() external onlyGovernor {
-        require(pendingLoanManager.exists, "no queued config");
-        delete pendingLoanManager;
-        emit LoanManagerQueueCancelled();
-    }
-
-    function setTreasuries(address issuance, address returnsAddr) external onlyGovernor {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyTreasuries(issuance, returnsAddr);
-    }
-
-    function queueTreasuries(address issuance, address returnsAddr) external onlyGovernor {
-        require(adminTimelockEnabled, "timelock disabled");
-        require(issuance != address(0), "issuance=0");
-        require(returnsAddr != address(0), "returns=0");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingTreasuryConfig = PendingTreasuryConfig({
-            issuanceTreasury: issuance,
-            returnsTreasury: returnsAddr,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit TreasuryConfigQueued(issuance, returnsAddr, executeAfter);
-    }
-
-    function executeQueuedTreasuries() external onlyGovernor {
-        PendingTreasuryConfig memory pending = pendingTreasuryConfig;
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingTreasuryConfig;
-        _applyTreasuries(pending.issuanceTreasury, pending.returnsTreasury);
-    }
-
-    function cancelQueuedTreasuries() external onlyGovernor {
-        require(pendingTreasuryConfig.exists, "no queued config");
-        delete pendingTreasuryConfig;
-        emit TreasuryConfigCancelled();
-    }
-
-    function setRateModel(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps
-    ) external onlyGovernor {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyRateModel(
-            lowThresholdBps,
-            highThresholdBps,
-            lowRateBps,
-            midRateBps,
-            highRateBps
-        );
-    }
-
-    function queueRateModel(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps
-    ) external onlyGovernor {
-        require(adminTimelockEnabled, "timelock disabled");
-        _validateRateModel(
-            lowThresholdBps,
-            highThresholdBps,
-            lowRateBps,
-            midRateBps,
-            highRateBps
-        );
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingRateModel = PendingRateModel({
-            lowThresholdBps: lowThresholdBps,
-            highThresholdBps: highThresholdBps,
-            lowRateBps: lowRateBps,
-            midRateBps: midRateBps,
-            highRateBps: highRateBps,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit RateModelQueued(
-            lowThresholdBps,
-            highThresholdBps,
-            lowRateBps,
-            midRateBps,
-            highRateBps,
-            executeAfter
-        );
-    }
-
-    function executeQueuedRateModel() external onlyGovernor {
-        PendingRateModel memory pending = pendingRateModel;
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingRateModel;
-        _applyRateModel(
-            pending.lowThresholdBps,
-            pending.highThresholdBps,
-            pending.lowRateBps,
-            pending.midRateBps,
-            pending.highRateBps
-        );
-    }
-
-    function cancelQueuedRateModel() external onlyGovernor {
-        require(pendingRateModel.exists, "no queued config");
-        delete pendingRateModel;
-        emit RateModelCancelled();
-    }
-
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
-        require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
-        adminTimelockEnabled = enabled;
-        adminTimelockDelay = delaySeconds;
-        emit AdminTimelockConfigUpdated(enabled, delaySeconds);
-    }
-
-    function _applyLoanManager(address manager) internal {
-        require(manager != address(0), "manager=0");
-        loanManager = manager;
-        emit LoanManagerUpdated(manager);
-    }
-
-    function _applyTreasuries(address issuance, address returnsAddr) internal {
-        require(issuance != address(0), "issuance=0");
-        require(returnsAddr != address(0), "returns=0");
-        issuanceTreasury = issuance;
-        returnsTreasury = returnsAddr;
-        emit TreasuryConfigUpdated(issuance, returnsAddr);
-    }
-
-    function _validateRateModel(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps
-    ) internal pure {
-        require(lowThresholdBps < highThresholdBps, "bad thresholds");
-        require(highThresholdBps <= BPS_DENOMINATOR, "threshold too high");
-        require(
-            lowRateBps <= midRateBps && midRateBps <= highRateBps,
-            "bad rates"
-        );
-        require(highRateBps <= 5000, "rate too high");
-    }
-
-    function _applyRateModel(
-        uint256 lowThresholdBps,
-        uint256 highThresholdBps,
-        uint256 lowRateBps,
-        uint256 midRateBps,
-        uint256 highRateBps
-    ) internal {
-        _validateRateModel(
-            lowThresholdBps,
-            highThresholdBps,
-            lowRateBps,
-            midRateBps,
-            highRateBps
-        );
-        lowUtilizationThresholdBps = lowThresholdBps;
-        highUtilizationThresholdBps = highThresholdBps;
-        lowUtilizationRateBps = lowRateBps;
-        midUtilizationRateBps = midRateBps;
-        highUtilizationRateBps = highRateBps;
-
-        emit RateModelUpdated(
-            lowThresholdBps,
-            highThresholdBps,
-            lowRateBps,
-            midRateBps,
-            highRateBps
-        );
-    }
-
-    function deposit(uint256 amount, DepositType depositType, uint256 lockDays) external nonReentrant whenNotPaused {
-        _deposit(msg.sender, amount, depositType, lockDays);
-    }
-
-    function _deposit(address user, uint256 amount, DepositType depositType, uint256 lockDays) internal {
-        require(amount > 0, "amount=0");
-        require(issuanceTreasury != address(0), "issuance=0");
-        
-        uint256 fixedApyBps = 0;
-        uint256 lockEndTime = 0;
-        
-        if (depositType == DepositType.FIXED) {
-            require(lockDays == 30 || lockDays == 60 || lockDays == 90, "invalid lock");
-            if (lockDays == 30) fixedApyBps = 800;
-            else if (lockDays == 60) fixedApyBps = 1000;
-            else if (lockDays == 90) fixedApyBps = 1200;
-            lockEndTime = block.timestamp + (lockDays * 1 days);
-        }
-
-        usdc.safeTransferFrom(user, issuanceTreasury, amount);
-        
-        uint256 positionId = nextPositionId++;
-        
-        positionIdToIndex[user][positionId] = lenderPositions[user].length;
-        lenderPositions[user].push(LenderPosition({
-            id: positionId,
-            amount: amount,
-            startTime: uint64(block.timestamp),
-            lockDays: uint64(lockDays),
-            lockEndTime: uint64(lockEndTime),
-            fixedApyBps: uint32(fixedApyBps),
-            depositType: depositType,
-            isActive: true
-        }));
-
-        deposits[user] += amount;
-        totalDeposits += amount;
-        
-        emit Deposit(user, positionId, amount, depositType, lockDays);
-    }
-
-    // Legacy deposit for compatibility
-    function deposit(uint256 amount) external nonReentrant whenNotPaused {
-        _deposit(msg.sender, amount, DepositType.VARIABLE, 0);
-    }
-
-    function withdraw(uint256 amount, uint256 positionId) external nonReentrant whenNotPaused {
-        require(amount > 0, "amount=0");
-        LenderPosition storage pos = _findPosition(msg.sender, positionId);
-        require(pos.isActive, "inactive position");
-        require(pos.amount >= amount, "insufficient in position");
-        require(availableLiquidity() >= amount, "insufficient liquidity");
-
-        uint256 withdrawAmount = amount;
-        if (pos.depositType == DepositType.FIXED && block.timestamp < pos.lockEndTime) {
-            uint256 penalty = (amount * 1000) / BPS_DENOMINATOR; // 10% penalty
-            withdrawAmount = amount - penalty;
-            insuranceReserve += penalty;
-            
-            emit PenaltyApplied(msg.sender, penalty, block.timestamp);
-        }
-
-        pos.amount -= amount;
-        if (pos.amount == 0) pos.isActive = false;
-        
-        deposits[msg.sender] -= amount;
-        totalDeposits -= amount;
-        
-        require(issuanceTreasury != address(0), "issuance=0");
-        usdc.safeTransferFrom(issuanceTreasury, msg.sender, withdrawAmount);
-
-        emit Withdraw(msg.sender, positionId, amount);
-    }
-
-    // Legacy withdraw for compatibility (withdraws from first available variable deposit)
-    function withdraw(uint256 amount) external nonReentrant whenNotPaused {
-        require(amount > 0, "amount=0");
-        require(deposits[msg.sender] >= amount, "insufficient total deposit");
-        
-        uint256 remaining = amount;
-        for (uint256 i = 0; i < lenderPositions[msg.sender].length; i++) {
-            LenderPosition storage pos = lenderPositions[msg.sender][i];
-            if (pos.isActive && pos.depositType == DepositType.VARIABLE) {
-                uint256 take = pos.amount > remaining ? remaining : pos.amount;
-                pos.amount -= take;
-                if (pos.amount == 0) pos.isActive = false;
-                remaining -= take;
-                if (remaining == 0) break;
-            }
-        }
-        require(remaining == 0, "no variable liquidity");
-        
-        totalDeposits -= amount;
-        deposits[msg.sender] -= amount;
-        require(issuanceTreasury != address(0), "issuance=0");
-        usdc.safeTransferFrom(issuanceTreasury, msg.sender, amount);
-    }
-
-    function _findPosition(address user, uint256 positionId) internal view returns (LenderPosition storage) {
-        uint256 index = positionIdToIndex[user][positionId];
-        require(index < lenderPositions[user].length, "index OOB");
-        LenderPosition storage pos = lenderPositions[user][index];
-        require(pos.id == positionId, "id mismatch");
-        return pos;
-    }
-
-    function lend(address to, uint256 amount) external nonReentrant onlyLoanManager whenNotPaused {
-        require(amount > 0, "amount=0");
-        require(availableLiquidity() >= amount, "insufficient liquidity");
-        totalBorrowed += amount;
-        require(issuanceTreasury != address(0), "issuance=0");
-        usdc.safeTransferFrom(issuanceTreasury, to, amount);
-    }
-
-    function repay(uint256 amount, uint256 interestAmount) external nonReentrant onlyLoanManager whenNotPaused {
-        require(amount > 0 || interestAmount > 0, "nothing to repay");
-        if (amount > 0) {
-            require(totalBorrowed >= amount, "repay>debt");
-            totalBorrowed -= amount;
-        }
-
-        // Pull entire repayment (principal + interest) into this contract
-        usdc.safeTransferFrom(msg.sender, address(this), amount + interestAmount);
-
-        if (interestAmount > 0) {
-            // Split: Protocol 0.5%, Insurance 20%, Lenders rest (~79.5%)
-            uint256 protocolCut  = (interestAmount * 50)   / BPS_DENOMINATOR; // 0.5%
-            uint256 insuranceCut = (interestAmount * 2000) / BPS_DENOMINATOR; // 20%
-            uint256 lpYield      = interestAmount - protocolCut - insuranceCut;
-
-            // 1. Protocol fee → returnsTreasury
-            if (protocolCut > 0 && returnsTreasury != address(0)) {
-                usdc.safeTransfer(returnsTreasury, protocolCut);
-            }
-
-            // 2. Insurance reserve stays in contract (tracked separately)
-            insuranceReserve += insuranceCut;
-
-            // 3. LP yield stays in contract — increases totalAssets backing LP shares
-            totalDeposits += lpYield;
-        }
-    }
-
-    function setTotalBorrowed(uint256 amount) external onlyGovernor {
-        totalBorrowed = amount;
-    }
-    
-    function claimInsurance(address to, uint256 amount) external nonReentrant onlyLoanManager whenNotPaused {
-        require(amount > 0, "amount=0");
-        require(insuranceReserve >= amount, "insufficient reserve");
-        insuranceReserve -= amount;
-        usdc.safeTransfer(to, amount);
-    }
-
-    function pause() external onlyGovernor {
+    function pause() external {
+        require(hasRole(GUARDIAN_ROLE, msg.sender) || hasRole(PAUSER_ROLE, msg.sender), "not pauser");
         _pause();
     }
 
@@ -619,411 +102,125 @@ contract LendingPool is ReentrancyGuard, VestraAccessControl, Pausable {
         _unpause();
     }
 
-    function getVariableApyBps() public view returns (uint256) {
-        if (totalDeposits == 0) return 450; // 4.5% base
-        uint256 utilization = utilizationRateBps();
-        // Simple linear float: 4.5% + (utilization * risk_premium)
-        // For example: 4.5% at 0% util, up to 15% at 100% util
-        return 450 + (utilization * 1050) / BPS_DENOMINATOR;
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // LoanManager
+    // ─────────────────────────────────────────────────────────────────────────
 
-    function utilizationRateBps() public view returns (uint256) {
-        if (totalDeposits == 0) {
-            return 0;
-        }
-        return (totalBorrowed * BPS_DENOMINATOR) / totalDeposits;
-    }
-
-    function getInterestRateBps(uint256 durationDays) public view returns (uint256) {
-        uint256 utilization = utilizationRateBps(); // [0, 10000]
-        uint256 baseRate;
-
-        // Dynamic Interest Rate Game Theory Kink Model
-        if (utilization <= lowUtilizationThresholdBps) {
-            baseRate = 500 + ((utilization * 1000) / lowUtilizationThresholdBps); // Up to 1500 (15%)
-        } else if (utilization <= highUtilizationThresholdBps) {
-            uint256 range = highUtilizationThresholdBps - lowUtilizationThresholdBps;
-            uint256 progress = utilization - lowUtilizationThresholdBps;
-            baseRate = 1500 + ((progress * 1500) / range); // Up to 3000 (30%)
-        } else {
-            uint256 range = BPS_DENOMINATOR - highUtilizationThresholdBps;
-            uint256 progress = utilization - highUtilizationThresholdBps;
-            baseRate = 3000 + ((progress * progress * 12000) / (range * range));
-        }
-
-        // True "Inverted Duration-Rate Curve"
-        // In Web3 Vested Lending, shorter loans against illiquid tokens are much safer than long-term holds.
-        // The core strategy: incentivize users to borrow and pay back iteratively on small timeframes (30-90 days),
-        // completely disincentivizing tying up capital and exposing lenders to 1yr+ token fluctuations.
-        
-        // The computed baseRate serves as the absolute Ceiling (Max Risk / Longest Supported Duration approx 1yr+)
-        uint256 finalRate = baseRate;
-        
-        if (durationDays < 180) {
-            // Maximum discount of 50% for 0 day loans.
-            // As loan extends from 0 to 180 days, the discount linearly decays to 0%.
-            // E.g., at 30 days: (180 - 30) = 150. (150 * 5000) / 180 = 4166 (41.6% discount)
-            uint256 discountBps = ((180 - durationDays) * 5000) / 180;
-            
-            finalRate = (baseRate * (BPS_DENOMINATOR - discountBps)) / BPS_DENOMINATOR;
-            
-            // Hard floor of 5% to protect basic lender ROI
-            if (finalRate < 500) {
-                finalRate = 500;
-            }
-        }
-        
-        // Exceedingly long-term loans (e.g. 2+ years) apply a massive hazard premium
-        if (durationDays > 365) {
-            uint256 hazardPremiumBps = ((durationDays - 365) * BPS_DENOMINATOR) / 365;
-            uint256 maxMultiplierBps = 30000; // Cap at 3x multiplier
-            
-            finalRate = (baseRate * (BPS_DENOMINATOR + hazardPremiumBps)) / BPS_DENOMINATOR;
-            if (finalRate > (baseRate * maxMultiplierBps) / BPS_DENOMINATOR) {
-                finalRate = (baseRate * maxMultiplierBps) / BPS_DENOMINATOR;
-            }
-        }
-
-        return finalRate;
-    }
-
-    function availableLiquidity() public view returns (uint256) {
-        return totalDeposits - totalBorrowed;
-    }
-
-    function createCommunityPool(
-        string calldata name,
-        uint256 targetAmount,
-        uint256 maxAmount,
-        uint256 deadline,
-        bool rewardsByBuildingSize
-    ) external whenNotPaused returns (uint256 poolId) {
-        require(bytes(name).length > 0, "name required");
-        require(targetAmount > 0, "target=0");
-        require(maxAmount >= targetAmount, "max<target");
-        require(deadline > block.timestamp, "bad deadline");
-
-        poolId = communityPoolCount;
-        communityPoolCount += 1;
-
-        communityPools[poolId] = CommunityPool({
-            name: name,
-            creator: msg.sender,
-            targetAmount: targetAmount,
-            maxAmount: maxAmount,
-            deadline: deadline,
-            totalContributed: 0,
-            totalBuildingUnits: 0,
-            participantCount: 0,
-            accRewardPerWeight: 0,
-            totalRewardFunded: 0,
-            rewardsByBuildingSize: rewardsByBuildingSize,
-            state: CommunityPoolState.FUNDRAISING
-        });
-
-        emit CommunityPoolCreated(
-            poolId,
-            msg.sender,
-            name,
-            targetAmount,
-            maxAmount,
-            deadline,
-            rewardsByBuildingSize
-        );
-    }
-
-    function contributeToCommunityPool(
-        uint256 poolId,
-        uint256 amount,
-        uint256 buildingUnits
-    ) external nonReentrant whenNotPaused {
-        CommunityPool storage cp = communityPools[poolId];
-        require(poolId < communityPoolCount, "bad pool");
-        _syncCommunityPoolState(cp, poolId);
-        require(cp.state == CommunityPoolState.FUNDRAISING, "not fundraising");
+    function lend(address to, uint256 amount) external onlyLoanManager whenNotPaused nonReentrant {
         require(amount > 0, "amount=0");
-        require(cp.totalContributed + amount <= cp.maxAmount, "max exceeded");
-        if (cp.rewardsByBuildingSize) {
-            require(buildingUnits > 0, "building=0");
-        }
-
-        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
-        _accruePosition(cp, pos);
-
-        if (!pos.joined) {
-            pos.joined = true;
-            cp.participantCount += 1;
-        }
-
-        pos.contributed += amount;
-        pos.buildingUnits += buildingUnits;
-        cp.totalContributed += amount;
-        cp.totalBuildingUnits += buildingUnits;
-
-        _resetRewardDebt(cp, pos);
-        usdc.safeTransferFrom(msg.sender, address(this), amount);
-
-        emit CommunityPoolContribution(poolId, msg.sender, amount, buildingUnits);
-
-        if (cp.totalContributed >= cp.targetAmount) {
-            _activateCommunityPool(cp, poolId);
-        }
+        require(amount <= idleAssets, "insufficient liquidity");
+        idleAssets -= amount;
+        totalBorrowed += amount;
+        IERC20(asset()).safeTransfer(to, amount);
+        emit Lent(to, amount);
     }
 
-    function activateCommunityPool(uint256 poolId) external nonReentrant whenNotPaused {
-        require(poolId < communityPoolCount, "bad pool");
-        CommunityPool storage cp = communityPools[poolId];
-        _syncCommunityPoolState(cp, poolId);
-        require(cp.state == CommunityPoolState.FUNDRAISING, "not fundraising");
-        require(cp.totalContributed >= cp.targetAmount, "target not met");
-        _activateCommunityPool(cp, poolId);
+    /// @notice Pull `principal + interest` from the LoanManager.
+    function repay(uint256 principal, uint256 interest) external onlyLoanManager nonReentrant {
+        require(principal <= totalBorrowed, "repay > borrowed");
+        totalBorrowed -= principal;
+        idleAssets += principal + interest;
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), principal + interest);
+        emit Repaid(principal, interest);
     }
 
-    function claimCommunityPoolRefund(uint256 poolId) external nonReentrant whenNotPaused {
-        require(poolId < communityPoolCount, "bad pool");
-        CommunityPool storage cp = communityPools[poolId];
-        _syncCommunityPoolState(cp, poolId);
-        require(cp.state == CommunityPoolState.REFUNDING, "not refunding");
-
-        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
-        uint256 refundAmount = pos.contributed;
-        require(refundAmount > 0, "nothing to refund");
-
-        cp.totalContributed -= refundAmount;
-        if (cp.totalBuildingUnits >= pos.buildingUnits) {
-            cp.totalBuildingUnits -= pos.buildingUnits;
-        } else {
-            cp.totalBuildingUnits = 0;
-        }
-        if (cp.participantCount > 0 && pos.joined) {
-            cp.participantCount -= 1;
-        }
-
-        pos.contributed = 0;
-        pos.buildingUnits = 0;
-        pos.rewardDebt = 0;
-        pos.pendingRewards = 0;
-        pos.joined = false;
-
-        usdc.safeTransfer(msg.sender, refundAmount);
-        emit CommunityPoolRefunded(poolId, msg.sender, refundAmount);
+    /// @notice Recognise a principal loss. Lowers the share price for every lender.
+    function writeOff(uint256 principal) external onlyLoanManager {
+        require(principal <= totalBorrowed, "writeOff > borrowed");
+        totalBorrowed -= principal;
+        totalWrittenOff += principal;
+        emit WrittenOff(principal);
     }
 
-    function fundCommunityPoolRewards(
-        uint256 poolId,
-        uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(poolId < communityPoolCount, "bad pool");
-        require(amount > 0, "amount=0");
-        CommunityPool storage cp = communityPools[poolId];
-        _syncCommunityPoolState(cp, poolId);
-        require(cp.state == CommunityPoolState.ACTIVE, "not active");
-        uint256 totalWeight = _poolWeight(cp);
-        require(totalWeight > 0, "no weight");
-
-        usdc.safeTransferFrom(msg.sender, address(this), amount);
-        cp.accRewardPerWeight += (amount * REWARD_PRECISION) / totalWeight;
-        cp.totalRewardFunded += amount;
-
-        emit CommunityPoolRewardsFunded(poolId, msg.sender, amount);
+    /// @notice Add assets for all lenders (e.g. later recoveries). Raises the share price.
+    function donate(uint256 amount) external nonReentrant {
+        idleAssets += amount;
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), amount);
+        emit Donated(msg.sender, amount);
     }
 
-    function claimCommunityPoolRewards(uint256 poolId) external nonReentrant whenNotPaused {
-        require(poolId < communityPoolCount, "bad pool");
-        CommunityPool storage cp = communityPools[poolId];
-        _syncCommunityPoolState(cp, poolId);
-        require(
-            cp.state == CommunityPoolState.ACTIVE || cp.state == CommunityPoolState.CLOSED,
-            "rewards unavailable"
-        );
+    // ─────────────────────────────────────────────────────────────────────────
+    // Views
+    // ─────────────────────────────────────────────────────────────────────────
 
-        CommunityPosition storage pos = communityPositions[poolId][msg.sender];
-        _accruePosition(cp, pos);
-        uint256 amount = pos.pendingRewards;
-        require(amount > 0, "nothing to claim");
-        pos.pendingRewards = 0;
-        _resetRewardDebt(cp, pos);
-
-        usdc.safeTransfer(msg.sender, amount);
-        emit CommunityPoolRewardsClaimed(poolId, msg.sender, amount);
+    function totalAssets() public view override returns (uint256) {
+        return idleAssets + totalBorrowed;
     }
 
-    function closeCommunityPool(uint256 poolId) external whenNotPaused {
-        require(poolId < communityPoolCount, "bad pool");
-        CommunityPool storage cp = communityPools[poolId];
-        _syncCommunityPoolState(cp, poolId);
-        require(cp.state == CommunityPoolState.ACTIVE, "not active");
-        require(hasRole(GOVERNOR_ROLE, msg.sender) || msg.sender == cp.creator, "not authorized");
-        cp.state = CommunityPoolState.CLOSED;
-        emit CommunityPoolClosed(poolId);
+    function utilizationBps() public view returns (uint256) {
+        uint256 assets = totalAssets();
+        return assets == 0 ? 0 : (totalBorrowed * BPS) / assets;
     }
 
-    function pendingCommunityPoolRewards(
-        uint256 poolId,
-        address user
-    ) external view returns (uint256) {
-        if (poolId >= communityPoolCount) {
-            return 0;
-        }
-        CommunityPool storage cp = communityPools[poolId];
-        CommunityPosition storage pos = communityPositions[poolId][user];
-        uint256 accrued = (uint256(_positionWeight(cp, pos)) * cp.accRewardPerWeight) /
-            REWARD_PRECISION;
-        uint256 delta = accrued > pos.rewardDebt ? accrued - pos.rewardDebt : 0;
-        return pos.pendingRewards + delta;
+    /// @notice Borrow APR (bps) at the current utilization.
+    function borrowRateBps() public view returns (uint256) {
+        return _rateAt(utilizationBps());
     }
 
-    function _syncCommunityPoolState(CommunityPool storage cp, uint256 poolId) internal {
-        if (
-            cp.state == CommunityPoolState.FUNDRAISING &&
-            block.timestamp > cp.deadline &&
-            cp.totalContributed < cp.targetAmount
-        ) {
-            cp.state = CommunityPoolState.REFUNDING;
-            emit CommunityPoolMarkedRefunding(poolId);
-        }
+    /// @notice Borrow APR (bps) after borrowing an additional `amount`.
+    function borrowRateAfter(uint256 amount) external view returns (uint256) {
+        uint256 assets = totalAssets();
+        if (assets == 0) return _rateAt(BPS);
+        uint256 u = ((totalBorrowed + amount) * BPS) / assets;
+        return _rateAt(u > BPS ? BPS : u);
     }
 
-    function _activateCommunityPool(CommunityPool storage cp, uint256 poolId) internal {
-        require(cp.state == CommunityPoolState.FUNDRAISING, "bad state");
-        require(cp.totalContributed >= cp.targetAmount, "target not met");
-        require(issuanceTreasury != address(0), "issuance=0");
-        cp.state = CommunityPoolState.ACTIVE;
-        totalDeposits += cp.totalContributed;
-        usdc.safeTransfer(issuanceTreasury, cp.totalContributed);
-        emit CommunityPoolActivated(poolId, cp.totalContributed);
+    function availableLiquidity() external view returns (uint256) {
+        return idleAssets;
     }
 
-    function _poolWeight(CommunityPool storage cp) internal view returns (uint256) {
-        return cp.rewardsByBuildingSize ? cp.totalBuildingUnits : cp.totalContributed;
+    function maxDeposit(address) public view override returns (uint256) {
+        if (paused()) return 0;
+        if (depositCap == 0) return type(uint256).max;
+        uint256 assets = totalAssets();
+        return assets >= depositCap ? 0 : depositCap - assets;
     }
 
-    function _positionWeight(
-        CommunityPool storage cp,
-        CommunityPosition storage pos
-    ) internal view returns (uint256) {
-        return cp.rewardsByBuildingSize ? pos.buildingUnits : pos.contributed;
+    function maxMint(address receiver) public view override returns (uint256) {
+        uint256 d = maxDeposit(receiver);
+        return d == type(uint256).max ? d : _convertToShares(d, Math.Rounding.Floor);
     }
 
-    function _accruePosition(CommunityPool storage cp, CommunityPosition storage pos) internal {
-        uint256 weight = _positionWeight(cp, pos);
-        if (weight == 0) {
-            return;
-        }
-        uint256 accrued = (weight * cp.accRewardPerWeight) / REWARD_PRECISION;
-        if (accrued > pos.rewardDebt) {
-            pos.pendingRewards += (accrued - pos.rewardDebt);
-        }
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        uint256 owned = _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
+        return owned < idleAssets ? owned : idleAssets;
     }
 
-    function _resetRewardDebt(CommunityPool storage cp, CommunityPosition storage pos) internal {
-        uint256 weight = _positionWeight(cp, pos);
-        pos.rewardDebt = (weight * cp.accRewardPerWeight) / REWARD_PRECISION;
+    function maxRedeem(address owner) public view override returns (uint256) {
+        uint256 shares = balanceOf(owner);
+        uint256 liquidShares = _convertToShares(idleAssets, Math.Rounding.Floor);
+        return shares < liquidShares ? shares : liquidShares;
     }
 
-    function stake(uint256 amount, uint256 durationDays) external nonReentrant whenNotPaused {
-        require(amount > 0, "amount=0");
-        require(
-            durationDays == 30 || durationDays == 90 || durationDays == 180 || 
-            durationDays == 365 || durationDays == 1825 || durationDays == 3650, 
-            "invalid duration"
-        );
-        require(returnsTreasury != address(0), "returns=0");
+    // ─────────────────────────────────────────────────────────────────────────
+    // Internal
+    // ─────────────────────────────────────────────────────────────────────────
 
-        uint256 multiplierBps;
-        if (durationDays == 30) multiplierBps = 10000;      // 1.0x
-        else if (durationDays == 90) multiplierBps = 12000; // 1.2x
-        else if (durationDays == 180) multiplierBps = 15000;// 1.5x
-        else if (durationDays == 365) multiplierBps = 20000;// 2.0x
-        else if (durationDays == 1825) multiplierBps = 35000;// 3.5x
-        else multiplierBps = 50000; // 5.0x (10 Years)
-
-        uint256 apyBps = (BASE_APY_BPS * multiplierBps) / BPS_DENOMINATOR;
-
-        usdc.safeTransferFrom(msg.sender, returnsTreasury, amount);
-        totalDeposits += amount;
-
-        userStakes[msg.sender].push(StakedPosition({
-            amount: amount,
-            durationDays: durationDays,
-            lockEndTime: block.timestamp + (durationDays * 1 days),
-            apyBps: apyBps,
-            lastClaimTime: block.timestamp,
-            isActive: true,
-            flowEligible: durationDays == 3650,
-            withdrawnFlow: 0
-        }));
-
-        emit Staked(msg.sender, amount, durationDays, apyBps);
+    function _rateAt(uint256 u) internal view returns (uint256) {
+        if (u <= kinkBps) return baseRateBps + (u * slope1Bps) / kinkBps;
+        return baseRateBps + slope1Bps + ((u - kinkBps) * slope2Bps) / (BPS - kinkBps);
     }
 
-    function unstake(uint256 stakeId) external nonReentrant whenNotPaused {
-        require(stakeId < userStakes[msg.sender].length, "invalid stakeId");
-        StakedPosition storage sp = userStakes[msg.sender][stakeId];
-        require(sp.isActive, "already unstaked");
-
-        uint256 yield = calculateYield(msg.sender, stakeId);
-        uint256 principal = sp.amount;
-        bool penaltyApplied = false;
-
-        if (block.timestamp < sp.lockEndTime) {
-            uint256 penaltyBps = getEarlyWithdrawalPenaltyBps(sp.durationDays);
-            uint256 penalty = (principal * penaltyBps) / BPS_DENOMINATOR;
-            principal -= penalty;
-            yield = 0; // Lose remaining yield if early
-            penaltyApplied = true;
-        }
-
-        sp.isActive = false;
-        totalDeposits -= sp.amount;
-
-        uint256 totalReturn = principal + yield;
-        require(usdc.balanceOf(returnsTreasury) >= totalReturn, "insufficient liquidity");
-        
-        usdc.safeTransferFrom(returnsTreasury, msg.sender, totalReturn);
-
-        emit Unstaked(msg.sender, sp.amount, yield, penaltyApplied);
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares)
+        internal
+        override
+        nonReentrant
+    {
+        idleAssets += assets;
+        super._deposit(caller, receiver, assets, shares);
     }
 
-    function claimYield(uint256 stakeId) external nonReentrant whenNotPaused {
-        require(stakeId < userStakes[msg.sender].length, "invalid stakeId");
-        StakedPosition storage sp = userStakes[msg.sender][stakeId];
-        require(sp.isActive, "not active");
-
-        // Non-flow lockers can only claim at end
-        if (!sp.flowEligible) {
-            require(block.timestamp >= sp.lockEndTime, "lock active");
-        }
-
-        uint256 yield = calculateYield(msg.sender, stakeId);
-        require(yield > 0, "no yield");
-
-        sp.lastClaimTime = block.timestamp;
-        if (sp.flowEligible) {
-            sp.withdrawnFlow += yield;
-        }
-        
-        require(usdc.balanceOf(returnsTreasury) >= yield, "insufficient liquidity");
-        usdc.safeTransferFrom(returnsTreasury, msg.sender, yield);
-
-        emit YieldClaimed(msg.sender, yield);
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        override
+        nonReentrant
+    {
+        require(assets <= idleAssets, "insufficient liquidity");
+        idleAssets -= assets;
+        super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    function getEarlyWithdrawalPenaltyBps(uint256 durationDays) public pure returns (uint256) {
-        if (durationDays <= 30) return 500;    // 5%
-        if (durationDays <= 90) return 1000;   // 10%
-        if (durationDays <= 180) return 1500;  // 15%
-        if (durationDays <= 365) return 2000;  // 20%
-        if (durationDays <= 1825) return 2500; // 25%
-        return 3000; // 30% (10 Years)
-    }
-
-    function calculateYield(address user, uint256 stakeId) public view returns (uint256) {
-        StakedPosition memory sp = userStakes[user][stakeId];
-        if (!sp.isActive) return 0;
-
-        uint256 timePassed = block.timestamp - sp.lastClaimTime;
-        uint256 yield = (sp.amount * sp.apyBps * timePassed) / (BPS_DENOMINATOR * 365 days);
-        return yield;
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return 6;
     }
 }

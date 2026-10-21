@@ -4,53 +4,52 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "./governance/VestraAccessControl.sol";
 
-interface ILendingPool {
-    function repay(uint256 principal, uint256 interest) external;
-}
-
 /**
- * @title InsuranceVault
- * @notice Protocol Insurance Fund that covers bad debt during insolvency events.
+ * @title  InsuranceVault
+ * @notice First-loss reserve funded by the reserve-factor share of loan interest
+ *         (and by anyone who transfers USDC in).
+ *
+ *         Funds can leave only through `cover`, callable only by the (set-once)
+ *         LoanManager to make the lending pool whole after a liquidation
+ *         shortfall. There is no governor or guardian withdrawal.
  */
-contract InsuranceVault is VestraAccessControl, IERC721Receiver {
+contract InsuranceVault is VestraAccessControl {
     using SafeERC20 for IERC20;
 
-    IERC20 public usdc;
+    IERC20 public immutable usdc;
+    address public loanManager;
     uint256 public totalCovered;
 
-    event DeficitCovered(uint256 indexed loanId, address indexed pool, uint256 amount);
-    event FundsWithdrawn(address indexed to, uint256 amount);
+    event LoanManagerSet(address indexed loanManager);
+    event Covered(uint256 requested, uint256 paid);
 
-    constructor(address _usdc, address _initialGovernor) VestraAccessControl(_initialGovernor) {
-        require(_usdc != address(0), "usdc=0");
-        usdc = IERC20(_usdc);
+    constructor(IERC20 _usdc, address _governor) VestraAccessControl(_governor) {
+        require(address(_usdc) != address(0), "usdc=0");
+        usdc = _usdc;
     }
 
-    /**
-     * @notice Covers a shortfall by transferring funds to the caller (Auction or Manager).
-     */
-    function collectDeficit(uint256 amount) external onlyGuardian {
-        require(amount > 0, "amount=0");
-        require(usdc.balanceOf(address(this)) >= amount, "insufficient insurance funds");
-
-        totalCovered += amount;
-        usdc.safeTransfer(msg.sender, amount);
+    function setLoanManager(address _loanManager) external onlyGovernor {
+        require(_loanManager != address(0), "loanManager=0");
+        require(loanManager == address(0), "already set");
+        loanManager = _loanManager;
+        emit LoanManagerSet(_loanManager);
     }
 
-    function withdraw(address to, uint256 amount) external onlyGovernor {
-        usdc.safeTransfer(to, amount);
-        emit FundsWithdrawn(to, amount);
+    /// @notice Pay up to `amount` to the LoanManager. Returns the amount paid.
+    function cover(uint256 amount) external returns (uint256 paid) {
+        require(msg.sender == loanManager, "only loan manager");
+        uint256 bal = usdc.balanceOf(address(this));
+        paid = amount < bal ? amount : bal;
+        if (paid > 0) {
+            totalCovered += paid;
+            usdc.safeTransfer(msg.sender, paid);
+        }
+        emit Covered(amount, paid);
     }
 
-    function onERC721Received(
-        address,
-        address,
-        uint256,
-        bytes calldata
-    ) external pure returns (bytes4) {
-        return IERC721Receiver.onERC721Received.selector;
+    function balance() external view returns (uint256) {
+        return usdc.balanceOf(address(this));
     }
 }

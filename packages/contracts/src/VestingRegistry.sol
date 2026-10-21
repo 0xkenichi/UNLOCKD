@@ -61,9 +61,13 @@ contract VestingRegistry is VestraAccessControl {
      * @notice Admin function to vet and assign a rank to a contract.
      * @param wrapper The vesting wrapper address.
      * @param rank The assigned rank (1=Flagship, 2=Premium, 3=Standard, 0=Revoke).
+     * @dev   Only the governor can grant or change a rank; the guardian can only revoke (rank 0).
      */
     function vetContract(address wrapper, uint8 rank) external {
-        require(hasRole(GOVERNOR_ROLE, msg.sender) || hasRole(GUARDIAN_ROLE, msg.sender), "unauthorized");
+        require(
+            hasRole(GOVERNOR_ROLE, msg.sender) || (rank == 0 && hasRole(GUARDIAN_ROLE, msg.sender)),
+            "unauthorized"
+        );
         require(wrapper != address(0), "wrapper=0");
         require(rank <= 3, "invalid rank");
         

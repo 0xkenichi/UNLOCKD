@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: BSL-1.1
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.20;
 
 /**
  * @title  IVestingProtocol
- * @notice Minimal interface each protocol-specific adapter must satisfy.
- *         Vestra never calls a vesting contract directly — it always goes
- *         through a typed adapter so attack surface stays bounded.
+ * @notice Interface a whitelisted generic ERC-721 vesting claim must implement.
  */
 interface IVestingProtocol {
-    /// @notice Transfer control of streamId to `newOwner`.
-    function transferStream(uint256 streamId, address newOwner) external;
-
     /// @notice Return the token, total deposited, withdrawn, and end-time for `streamId`.
     function getStream(uint256 streamId)
         external
@@ -24,41 +19,30 @@ interface IVestingProtocol {
 }
 
 /**
- * @title  ISablierV2LockupLinear
- * @notice Minimal Sablier v2 surface Vestra needs.
+ * @title  ISablierV2Lockup
+ * @notice The Sablier v2 Lockup getters Vestra relies on. These per-field getters
+ *         exist with the same signatures on Lockup Linear, Dynamic and Tranched
+ *         (v2.0 – v2.2), unlike the `getStream` struct whose layout changed
+ *         between releases.
  */
-interface ISablierV2LockupLinear {
-    struct Timestamps {
-        uint40 start;
-        uint40 cliff;
-        uint40 end;
-    }
-
-    function transferFrom(address from, address to, uint256 tokenId) external;
-    function ownerOf(uint256 tokenId) external view returns (address);
-    function getStream(uint256 streamId)
-        external
-        view
-        returns (
-            address sender,
-            address recipient,
-            uint128 depositAmount,
-            address asset,
-            bool cancelable,
-            bool wasCanceled,
-            uint128 withdrawnAmount,
-            Timestamps memory timestamps
-        );
+interface ISablierV2Lockup {
+    function getAsset(uint256 streamId) external view returns (address);
+    function getDepositedAmount(uint256 streamId) external view returns (uint128);
+    function getWithdrawnAmount(uint256 streamId) external view returns (uint128);
+    function getRefundedAmount(uint256 streamId) external view returns (uint128);
+    function getEndTime(uint256 streamId) external view returns (uint40);
+    function isCancelable(uint256 streamId) external view returns (bool);
+    function wasCanceled(uint256 streamId) external view returns (bool);
+    /// @dev v2.1+ returns the withdrawn amount; v2.0 returns nothing. Callers must
+    ///      not rely on the return value.
+    function withdrawMax(uint256 streamId, address to) external;
 }
 
 /**
  * @title  IStreamflow
- * @notice Minimal Streamflow surface (Solana-side handled by off-chain relayer;
- *         EVM side is a wrapper contract that holds the claim NFT).
+ * @notice Minimal Streamflow EVM wrapper surface.
  */
 interface IStreamflow {
-    function transferFrom(address from, address to, uint256 tokenId) external;
-    function ownerOf(uint256 tokenId) external view returns (address);
     function getStreamData(uint256 tokenId)
         external
         view

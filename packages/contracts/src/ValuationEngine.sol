@@ -2,9 +2,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "abdk-libraries-solidity/ABDKMath64x64.sol";
 import "./VestingRegistry.sol";
@@ -14,51 +12,54 @@ interface IPreTGEOracle {
     function getLatestPrice(address token) external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
 }
 
-interface IOpenClawLighthouse {
-    function getConsensusOmega(address token) external view returns (uint256);
-}
-
+/**
+ * @title  ValuationEngine
+ * @notice Prices time-locked collateral (dDPV). All USD values are 6-decimal (USDC units).
+ *
+ *           P   = min(spot, TWAP, EWMA)                      (live tokens)
+ *           P   = syntheticPrice · (1 − preTGEHaircut)        (pre-TGE tokens)
+ *           pv  = Q · P · e^(−r_rank·T) · (1 − σ/2) · (1 − drawdownPenalty) · Ω
+ *           ltv = rankBaseLtv, capped by the token's hard LTV cap
+ *
+ *         `computeDPV` is the origination view: it applies Ω and reverts on frozen or
+ *         quarantined tokens. `liquidationValue` is the health view: it ignores Ω,
+ *         freezes and quarantine so that a risk control can never block liquidations.
+ */
 contract ValuationEngine is VestraAccessControl {
     using ABDKMath64x64 for int128;
 
-    VestingRegistry public registry;
-    mapping(address => address) public tokenPriceFeeds;
-    mapping(address => address) public secondaryPriceFeeds;
-    uint256 public deviationThresholdBps = 1000; // 10%
-    uint256 public riskFreeRate = 5; // percent, 5 = 5%
-    uint256 public volatility = 50; // percent, 50 = 50%
-    uint256 public maxPriceAge = 1 hours;
+    uint256 public constant BPS = 10_000;
     uint256 public constant MIN_MAX_PRICE_AGE = 30 minutes;
-    uint256 public twapInterval = 1 hours; // Default TWAP window
-    uint256 public maxTwapLookback = 100;
-    
-    uint256 public ewmaAlpha = 2000; // 20% alpha
-    mapping(address => uint256) public tokenEWMA;
-    mapping(address => uint256) public lastEWMATimestamp;
 
-    bool public adminTimelockEnabled;
-    uint256 public adminTimelockDelay = 1 days;
-    
-    address public coprocessor;
-    mapping(address => uint256) public tokenOmegaBps; // 10000 = 100%
-    
+    VestingRegistry public registry;
     address public preTGEOracle;
-    mapping(address => uint256) public tokenMaxLiquidityBorrow; // in 1e18 USD
-    mapping(address => uint256) public flashPumpCooldownUntil;
-    mapping(address => uint256) public preTGECaps;
 
-    address public sequencerUptimeFeed;
-    uint256 public gracePeriodTime = 3600; 
-    
+    mapping(address => address) public tokenPriceFeeds;
+
+    // ── Risk parameters ──────────────────────────────────────────────────────
+    uint256 public volatility = 50;          // percent, clamped to [0, 100]
+    uint256 public maxPriceAge = 1 hours;
+    uint256 public twapInterval = 1 hours;
+    uint256 public maxTwapLookback = 100;
+    uint256 public ewmaAlphaBps = 2000;
+    uint256 public ewmaMaxAge = 1 days;      // EWMA older than this is ignored
+    uint256 public preTGEHaircutBps = 9000;  // D_uncertainty: 90% haircut by default
+    uint256 public preTGEMaxAge = 7 days;
+
+    /// rank → base LTV (bps) and discount rate (bps per year)
+    uint256[4] public rankBaseLtvBps = [uint256(0), 5000, 3500, 2000];
+    uint256[4] public rankDiscountRateBps = [uint256(0), 200, 500, 1000];
+
+    mapping(address => uint256) public tokenEWMA;
+    mapping(address => uint256) public lastEWMARoundTime;
+
+    /// Ω per token, bps. `omegaSet` distinguishes "unset" (Ω = 100%) from an explicit 0.
+    mapping(address => uint256) public tokenOmegaBps;
+    mapping(address => bool) public omegaSet;
+    mapping(address => uint256) public hardLTVCapBps;
+    mapping(address => uint256) public tokenMaxBorrowUsd; // 6-dec cap on pv for one loan, 0 = none
+    mapping(address => uint256) public frozenUntil;
     mapping(address => bool) public isQuarantined;
-
-    struct PendingTokenFeed {
-        address feed;
-        uint256 executeAfter;
-        bool exists;
-    }
-
-    mapping(address => PendingTokenFeed) public pendingTokenFeeds;
 
     struct TokenPriceBounds {
         uint256 ath;
@@ -67,120 +68,22 @@ contract ValuationEngine is VestraAccessControl {
         bool set;
     }
     mapping(address => TokenPriceBounds) public tokenPriceBounds;
-    uint256 public drawdownPenaltyPerBps = 50;
+    uint256 public drawdownPenaltyPerBps = 50;  // penalty bps per 100 bps of drawdown from ATH
     uint256 public maxDrawdownPenaltyBps = 2000;
-    uint256 public rangeVolWeightBps = 10;
+    uint256 public rangeVolWeightBps = 2000; // 20% of the ATH/ATL range ratio is added to σ
 
-    uint256 public constant BASE_LTV_BPS = 3000; // 30%
-    uint256 public constant BPS_DENOMINATOR = 10000;
+    address public sequencerUptimeFeed;
+    uint256 public sequencerGracePeriod = 1 hours;
 
-    event AdminTimelockConfigUpdated(bool enabled, uint256 delaySeconds);
-    event TokenPriceBoundsUpdated(address indexed token, uint256 ath, uint256 atl, uint8 decimals);
-    event DrawdownParamsUpdated(uint256 penaltyPerBps, uint256 maxPenaltyBps);
-    event RangeVolWeightUpdated(uint256 rangeVolWeightBps);
-    event TokenPriceFeedQueued(address indexed token, address indexed feed, uint256 executeAfter);
-    event TokenPriceFeedCancelled(address indexed token);
     event RegistryUpdated(address indexed registry);
-    event CoprocessorUpdated(address indexed coprocessor);
+    event PreTGEOracleUpdated(address indexed oracle);
+    event TokenPriceFeedUpdated(address indexed token, address indexed feed);
     event OmegaUpdated(address indexed token, uint256 omegaBps);
-    event TokenMaxLiquidityBorrowUpdated(address indexed token, uint256 maxBorrowUsd);
-    event FlashPumpCooldownSet(address indexed token, uint256 cooldownUntil);
-    event FlashPumpCooldownCleared(address indexed token);
-    event PreTGECapUpdated(address indexed token, uint256 maxProtocolExposure);
-    event SequencerUptimeFeedUpdated(address indexed feed);
-    event GracePeriodTimeUpdated(uint256 timeSeconds);
-    event TokenQuarantined(address indexed token, string reason);
-
-    constructor(address _registry, address _initialGovernor) VestraAccessControl(_initialGovernor) {
-        require(_registry != address(0), "registry=0");
-        registry = VestingRegistry(_registry);
-    }
-
-    function setRegistry(address _registry) external onlyGovernor {
-        require(_registry != address(0), "registry=0");
-        registry = VestingRegistry(_registry);
-        emit RegistryUpdated(_registry);
-    }
-
-    function setTokenPriceFeed(address token, address feed) external onlyGovernor {
-        require(!adminTimelockEnabled, "timelocked");
-        _applyTokenPriceFeed(token, feed);
-    }
-
-    function setSecondaryPriceFeed(address token, address feed) external onlyGovernor {
-        require(token != address(0), "token=0");
-        secondaryPriceFeeds[token] = feed;
-    }
-
-    function setDeviationThresholdBps(uint256 thresholdBps) external onlyGovernor {
-        require(thresholdBps <= 5000, "threshold too high");
-        deviationThresholdBps = thresholdBps;
-    }
-
-    function queueTokenPriceFeed(address token, address feed) external onlyGovernor {
-        require(adminTimelockEnabled, "timelock disabled");
-        require(token != address(0), "token=0");
-        uint256 executeAfter = block.timestamp + adminTimelockDelay;
-        pendingTokenFeeds[token] = PendingTokenFeed({
-            feed: feed,
-            executeAfter: executeAfter,
-            exists: true
-        });
-        emit TokenPriceFeedQueued(token, feed, executeAfter);
-    }
-
-    function executeQueuedTokenPriceFeed(address token) external onlyGovernor {
-        PendingTokenFeed memory pending = pendingTokenFeeds[token];
-        require(pending.exists, "no queued config");
-        require(block.timestamp >= pending.executeAfter, "timelock pending");
-        delete pendingTokenFeeds[token];
-        _applyTokenPriceFeed(token, pending.feed);
-    }
-
-    address public openClawLighthouse;
-
-    function setOpenClawLighthouse(address _lighthouse) external onlyGovernor {
-        openClawLighthouse = _lighthouse;
-    }
-    
-    function setCoprocessor(address _coprocessor) external onlyGovernor {
-        coprocessor = _coprocessor;
-        _grantRole(GUARDIAN_ROLE, _coprocessor);
-        emit CoprocessorUpdated(_coprocessor);
-    }
-    
-    mapping(address => uint256) public hardLTVCapBps; 
-    uint256 public globalMaxOmegaBps = 10000; 
-
     event HardLTVCapUpdated(address indexed token, uint256 capBps);
-    event GlobalMaxOmegaUpdated(uint256 capBps);
-
-    function setHardLTVCap(address token, uint256 capBps) external onlyGovernor {
-        require(capBps <= 10000, "invalid cap");
-        hardLTVCapBps[token] = capBps;
-        emit HardLTVCapUpdated(token, capBps);
-    }
-
-    function setGlobalMaxOmega(uint256 capBps) external onlyGovernor {
-        require(capBps <= 10000, "invalid cap");
-        globalMaxOmegaBps = capBps;
-        emit GlobalMaxOmegaUpdated(capBps);
-    }
-
-    function updateOmega(address token, uint256 omegaBps) external onlyGuardian {
-        uint256 finalOmega = omegaBps > globalMaxOmegaBps ? globalMaxOmegaBps : omegaBps;
-        uint256 hardCap = hardLTVCapBps[token];
-        if (hardCap > 0 && finalOmega > hardCap) {
-            finalOmega = hardCap;
-        }
-        tokenOmegaBps[token] = finalOmega;
-        emit OmegaUpdated(token, finalOmega);
-    }
-
-    // --- Legacy / Backend Oracle Stub ---
-    // The offchain dDPV service submits a monolithic 9-parameter tuple payload.
-    // We emit an event and delegate specific fields (like EWMA) while avoiding a revert,
-    // thereby keeping the legacy bridge happy without clogging state onchain.
+    event TokenMaxBorrowUpdated(address indexed token, uint256 maxBorrowUsd);
+    event TokenFrozen(address indexed token, uint256 until);
+    event TokenQuarantined(address indexed token, bool status, string reason);
+    event TokenPriceBoundsUpdated(address indexed token, uint256 ath, uint256 atl, uint8 decimals);
     event RiskParamsUpdated(
         address indexed token,
         uint256 ewmaPrice,
@@ -192,7 +95,150 @@ contract ValuationEngine is VestraAccessControl {
         uint256 tokenPremiumBps,
         uint256 liquidityPremiumBps
     );
+    event ParamUpdated(bytes32 indexed name, uint256 value);
 
+    constructor(address _registry, address _initialGovernor) VestraAccessControl(_initialGovernor) {
+        require(_registry != address(0), "registry=0");
+        registry = VestingRegistry(_registry);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Governor configuration (deploy the governor behind a TimelockController)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function setRegistry(address _registry) external onlyGovernor {
+        require(_registry != address(0), "registry=0");
+        registry = VestingRegistry(_registry);
+        emit RegistryUpdated(_registry);
+    }
+
+    function setPreTGEOracle(address _oracle) external onlyGovernor {
+        preTGEOracle = _oracle;
+        emit PreTGEOracleUpdated(_oracle);
+    }
+
+    function setTokenPriceFeed(address token, address feed) external onlyGovernor {
+        require(token != address(0), "token=0");
+        tokenPriceFeeds[token] = feed;
+        delete tokenEWMA[token];
+        delete lastEWMARoundTime[token];
+        emit TokenPriceFeedUpdated(token, feed);
+    }
+
+    function setHardLTVCap(address token, uint256 capBps) external onlyGovernor {
+        require(capBps <= BPS, "invalid cap");
+        hardLTVCapBps[token] = capBps;
+        emit HardLTVCapUpdated(token, capBps);
+    }
+
+    function setTokenMaxBorrowUsd(address token, uint256 maxBorrowUsd) external onlyGovernor {
+        tokenMaxBorrowUsd[token] = maxBorrowUsd;
+        emit TokenMaxBorrowUpdated(token, maxBorrowUsd);
+    }
+
+    function quarantineToken(address token, bool status, string calldata reason) external onlyGovernor {
+        isQuarantined[token] = status;
+        emit TokenQuarantined(token, status, reason);
+    }
+
+    function setRankParams(uint8 rank, uint256 baseLtvBps, uint256 discountRateBps) external onlyGovernor {
+        require(rank >= 1 && rank <= 3, "rank");
+        require(baseLtvBps <= 8000, "ltv too high");
+        require(discountRateBps <= 5000, "rate too high");
+        rankBaseLtvBps[rank] = baseLtvBps;
+        rankDiscountRateBps[rank] = discountRateBps;
+        emit ParamUpdated(keccak256(abi.encodePacked("rank", rank)), baseLtvBps);
+    }
+
+    function setVolatility(uint256 newVol) external onlyGovernor {
+        require(newVol <= 100, "vol too high");
+        volatility = newVol;
+        emit ParamUpdated("volatility", newVol);
+    }
+
+    function setMaxPriceAge(uint256 newMaxPriceAge) external onlyGovernor {
+        require(newMaxPriceAge >= MIN_MAX_PRICE_AGE && newMaxPriceAge <= 7 days, "bad max age");
+        maxPriceAge = newMaxPriceAge;
+        emit ParamUpdated("maxPriceAge", newMaxPriceAge);
+    }
+
+    function setTwapParams(uint256 interval, uint256 lookback) external onlyGovernor {
+        require(interval >= 5 minutes && interval <= 7 days, "interval");
+        require(lookback >= 5 && lookback <= 500, "lookback");
+        twapInterval = interval;
+        maxTwapLookback = lookback;
+        emit ParamUpdated("twapInterval", interval);
+    }
+
+    function setEWMAParams(uint256 alphaBps, uint256 maxAge) external onlyGovernor {
+        require(alphaBps > 0 && alphaBps <= BPS, "alpha");
+        require(maxAge >= 1 hours && maxAge <= 30 days, "maxAge");
+        ewmaAlphaBps = alphaBps;
+        ewmaMaxAge = maxAge;
+        emit ParamUpdated("ewmaAlphaBps", alphaBps);
+    }
+
+    function setPreTGEParams(uint256 haircutBps, uint256 maxAge) external onlyGovernor {
+        require(haircutBps >= 5000 && haircutBps < BPS, "haircut");
+        require(maxAge >= 1 hours && maxAge <= 30 days, "maxAge");
+        preTGEHaircutBps = haircutBps;
+        preTGEMaxAge = maxAge;
+        emit ParamUpdated("preTGEHaircutBps", haircutBps);
+    }
+
+    function setTokenPriceBounds(address token, uint256 ath, uint256 atl, uint8 boundsDecimals) external onlyGovernor {
+        require(token != address(0), "token=0");
+        require(atl > 0 && ath >= atl, "invalid bounds");
+        tokenPriceBounds[token] = TokenPriceBounds(ath, atl, boundsDecimals, true);
+        emit TokenPriceBoundsUpdated(token, ath, atl, boundsDecimals);
+    }
+
+    function clearTokenPriceBounds(address token) external onlyGovernor {
+        delete tokenPriceBounds[token];
+        emit TokenPriceBoundsUpdated(token, 0, 0, 0);
+    }
+
+    function setDrawdownParams(uint256 penaltyPerBps, uint256 maxPenaltyBps, uint256 rangeWeightBps) external onlyGovernor {
+        require(penaltyPerBps <= 1000 && maxPenaltyBps <= 5000 && rangeWeightBps <= BPS, "too high");
+        drawdownPenaltyPerBps = penaltyPerBps;
+        maxDrawdownPenaltyBps = maxPenaltyBps;
+        rangeVolWeightBps = rangeWeightBps;
+        emit ParamUpdated("drawdown", penaltyPerBps);
+    }
+
+    function setSequencerUptimeFeed(address feed, uint256 gracePeriod) external onlyGovernor {
+        require(gracePeriod <= 1 days, "grace");
+        sequencerUptimeFeed = feed;
+        sequencerGracePeriod = gracePeriod;
+        emit ParamUpdated("sequencerGracePeriod", gracePeriod);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Guardian risk controls — affect NEW loans only
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Set Ω for `token`. 0 stops new credit against the token.
+    function updateOmega(address token, uint256 omegaBps) external onlyGuardian {
+        require(omegaBps <= BPS, "omega>1");
+        tokenOmegaBps[token] = omegaBps;
+        omegaSet[token] = true;
+        emit OmegaUpdated(token, omegaBps);
+    }
+
+    function clearOmega(address token) external onlyGuardian {
+        delete tokenOmegaBps[token];
+        delete omegaSet[token];
+        emit OmegaUpdated(token, BPS);
+    }
+
+    /// @notice Pause new origination against `token` for up to 7 days.
+    function freezeToken(address token, uint256 duration) external onlyGuardian {
+        require(duration <= 7 days, "max 7 days");
+        frozenUntil[token] = block.timestamp + duration;
+        emit TokenFrozen(token, block.timestamp + duration);
+    }
+
+    /// @notice Off-chain risk telemetry. Event only; does not change valuations.
     function updateRiskParams(
         address token,
         uint256 ewmaPrice,
@@ -203,359 +249,223 @@ contract ValuationEngine is VestraAccessControl {
         uint256 dexLiquidityUsd,
         uint256 tokenPremiumBps,
         uint256 liquidityPremiumBps
-    ) external {
-        require(msg.sender == coprocessor || hasRole(GUARDIAN_ROLE, msg.sender), "unauthorized");
+    ) external onlyGuardian {
         emit RiskParamsUpdated(token, ewmaPrice, lambda, v30d, v90d, vImplied, dexLiquidityUsd, tokenPremiumBps, liquidityPremiumBps);
     }
-    
-    function setPreTGEOracle(address _oracle) external onlyGovernor {
-        preTGEOracle = _oracle;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EWMA — permissionless, at most one update per oracle round
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function updateEWMA(address token) external returns (uint256) {
+        address feed = tokenPriceFeeds[token];
+        if (feed == address(0)) return 0;
+        (, int256 answer, , uint256 updatedAt, ) = AggregatorV3Interface(feed).latestRoundData();
+        if (answer <= 0 || updatedAt <= lastEWMARoundTime[token]) return tokenEWMA[token];
+
+        uint256 spot = uint256(answer);
+        uint256 prev = tokenEWMA[token];
+        uint256 next = prev == 0 ? spot : (spot * ewmaAlphaBps + prev * (BPS - ewmaAlphaBps)) / BPS;
+        tokenEWMA[token] = next;
+        lastEWMARoundTime[token] = updatedAt;
+        return next;
     }
 
-    function setTokenMaxLiquidityBorrow(address token, uint256 maxBorrowUsd) external {
-        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
-        require(token != address(0), "token=0");
-        tokenMaxLiquidityBorrow[token] = maxBorrowUsd;
-        emit TokenMaxLiquidityBorrowUpdated(token, maxBorrowUsd);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Valuation views
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function rankOf(address vestingContract) public view returns (uint8) {
+        return registry.getRank(vestingContract);
     }
 
-    function reportFlashPump(address token, uint256 cooldownDuration) external {
-        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
-        require(token != address(0), "token=0");
-        require(cooldownDuration > 0 && cooldownDuration <= 7 days, "bad duration");
-        uint256 cooldownUntil = block.timestamp + cooldownDuration;
-        flashPumpCooldownUntil[token] = cooldownUntil;
-        emit FlashPumpCooldownSet(token, cooldownUntil);
+    /**
+     * @notice Origination valuation.
+     * @return pv     Discounted present value (6-dec USD), including Ω.
+     * @return ltvBps Maximum loan-to-value for this collateral.
+     */
+    function computeDPV(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+        public
+        view
+        returns (uint256 pv, uint256 ltvBps)
+    {
+        require(quantity > 0, "quantity=0");
+        require(unlockTime > block.timestamp, "already unlocked");
+        require(frozenUntil[token] <= block.timestamp, "token frozen");
+        require(!isQuarantined[token], "quarantined");
+
+        uint8 rank = rankOf(vestingContract);
+        require(rank >= 1 && rank <= 3, "unverified contract");
+
+        pv = _discountedValue(quantity, token, unlockTime, rank);
+        pv = (pv * _omega(token)) / BPS;
+
+        uint256 cap = tokenMaxBorrowUsd[token];
+        if (cap > 0 && pv > cap) pv = cap;
+
+        ltvBps = rankBaseLtvBps[rank];
+        uint256 hardCap = hardLTVCapBps[token];
+        if (hardCap > 0 && ltvBps > hardCap) ltvBps = hardCap;
     }
 
-    function clearFlashPumpCooldown(address token) external {
-        require(msg.sender == coprocessor || hasRole(GOVERNOR_ROLE, msg.sender), "unauthorized");
-        delete flashPumpCooldownUntil[token];
-        emit FlashPumpCooldownCleared(token);
+    /**
+     * @notice Health-check valuation: the same discounting as origination but without Ω,
+     *         freezes, quarantine or the per-loan cap. Works after unlock (T = 0).
+     */
+    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+        external
+        view
+        returns (uint256)
+    {
+        uint8 rank = rankOf(vestingContract);
+        if (rank == 0 || rank > 3) rank = 3; // a revoked contract is valued at the most conservative rank
+        return _discountedValue(quantity, token, unlockTime, rank);
     }
 
-    function setPreTGECap(address token, uint256 maxExposureUsd) external {
-        require(hasRole(GOVERNOR_ROLE, msg.sender) || msg.sender == coprocessor, "not owner or coprocessor");
-        preTGECaps[token] = maxExposureUsd;
-        emit PreTGECapUpdated(token, maxExposureUsd);
+    /// @notice Undiscounted market value of `quantity` tokens (6-dec USD). Used as the auction start price.
+    function spotValue(uint256 quantity, address token) external view returns (uint256) {
+        (uint256 price, uint8 feedDecimals) = _price(token);
+        return _toUsd(quantity, token, price, feedDecimals);
     }
 
-    function isFlashPumpFrozen(address token) public view returns (bool) {
-        return flashPumpCooldownUntil[token] > block.timestamp;
-    }
-    
-    function quarantineToken(address token, bool status, string calldata reason) external onlyGovernor {
-        isQuarantined[token] = status;
-        if (status) {
-            emit TokenQuarantined(token, reason);
-        }
+    /// @notice Price used for valuation, in the feed's decimals.
+    function getTWAP(address token) external view returns (uint256 price) {
+        (price, ) = _price(token);
     }
 
-    function setSequencerUptimeFeed(address feed) external onlyGovernor {
-        sequencerUptimeFeed = feed;
-        emit SequencerUptimeFeedUpdated(feed);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Internal
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function _omega(address token) internal view returns (uint256) {
+        return omegaSet[token] ? tokenOmegaBps[token] : BPS;
     }
 
-    function setGracePeriodTime(uint256 timeSeconds) external onlyGovernor {
-        gracePeriodTime = timeSeconds;
-        emit GracePeriodTimeUpdated(timeSeconds);
-    }
+    function _discountedValue(uint256 quantity, address token, uint256 unlockTime, uint8 rank)
+        internal
+        view
+        returns (uint256)
+    {
+        (uint256 price, uint8 feedDecimals) = _price(token);
+        uint256 base = _toUsd(quantity, token, price, feedDecimals);
 
-    function checkSequencerActive() public view {
-        if (sequencerUptimeFeed != address(0)) {
-            (, int256 answer, , uint256 updatedAt, ) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
-            require(answer == 0, "L2 Sequencer is down");
-            require(block.timestamp - updatedAt > gracePeriodTime, "Sequencer grace period active");
-        }
-    }
-
-    function setAdminTimelockConfig(bool enabled, uint256 delaySeconds) external onlyGovernor {
-        require(delaySeconds >= 1 minutes && delaySeconds <= 30 days, "bad delay");
-        adminTimelockEnabled = enabled;
-        adminTimelockDelay = delaySeconds;
-        emit AdminTimelockConfigUpdated(enabled, delaySeconds);
-    }
-
-    function _applyTokenPriceFeed(address token, address feed) internal {
-        require(token != address(0), "token=0");
-        tokenPriceFeeds[token] = feed;
-    }
-
-    function getPriceFeedForToken(address token) public view returns (address) {
-        address tokenFeed = tokenPriceFeeds[token];
-        require(tokenFeed != address(0), "no price feed");
-        return tokenFeed;
-    }
-
-    function setRiskFreeRate(uint256 newRate) external onlyGovernor {
-        require(newRate >= 1 && newRate <= 20, "rate out of range");
-        riskFreeRate = newRate;
-    }
-
-    function setVolatility(uint256 newVol) external onlyGovernor {
-        require(newVol <= 100, "vol too high");
-        volatility = newVol;
-    }
-
-    function setMaxPriceAge(uint256 newMaxPriceAge) external onlyGovernor {
-        require(newMaxPriceAge >= MIN_MAX_PRICE_AGE && newMaxPriceAge <= 365 days, "bad max age");
-        maxPriceAge = newMaxPriceAge;
-    }
-
-    function setTokenPriceBounds(
-        address token,
-        uint256 ath,
-        uint256 atl,
-        uint8 boundsDecimals
-    ) external onlyGovernor {
-        require(token != address(0), "token=0");
-        require(atl > 0 && ath >= atl, "invalid bounds");
-        tokenPriceBounds[token] = TokenPriceBounds({
-            ath: ath,
-            atl: atl,
-            decimals: boundsDecimals,
-            set: true
-        });
-        emit TokenPriceBoundsUpdated(token, ath, atl, boundsDecimals);
-    }
-
-    function clearTokenPriceBounds(address token) external onlyGovernor {
-        require(token != address(0), "token=0");
-        delete tokenPriceBounds[token];
-        emit TokenPriceBoundsUpdated(token, 0, 0, 0);
-    }
-
-    function setDrawdownParams(uint256 penaltyPerBps, uint256 maxPenaltyBps) external onlyGovernor {
-        require(penaltyPerBps <= 1000, "penalty too high");
-        require(maxPenaltyBps <= 5000, "max penalty too high");
-        drawdownPenaltyPerBps = penaltyPerBps;
-        maxDrawdownPenaltyBps = maxPenaltyBps;
-        emit DrawdownParamsUpdated(penaltyPerBps, maxPenaltyBps);
-    }
-
-    function setRangeVolWeight(uint256 weightBps) external onlyGovernor {
-        require(weightBps <= 1000, "weight too high");
-        rangeVolWeightBps = weightBps;
-        emit RangeVolWeightUpdated(weightBps);
-    }
-
-    function setTwapInterval(uint256 newInterval) external onlyGovernor {
-        require(newInterval >= 1 && newInterval <= 7 days, "interval out of range");
-        twapInterval = newInterval;
-    }
-
-    function setMaxTwapLookback(uint256 newMax) external onlyGovernor {
-        require(newMax >= 5 && newMax <= 500, "lookback out of range");
-        maxTwapLookback = newMax;
-    }
-
-    function setEWMAAlpha(uint256 newAlphaBps) external onlyGovernor {
-        require(newAlphaBps > 0 && newAlphaBps <= 10000, "alpha out of range");
-        ewmaAlpha = newAlphaBps;
-    }
-
-    function updateEWMA(address token) public returns (uint256) {
-        address feedAddress = tokenPriceFeeds[token];
-        if (feedAddress == address(0)) return 0;
-        
-        AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
-        (, int256 latestAnswer, , uint256 latestUpdatedAt, ) = feed.latestRoundData();
-        
-        if (latestAnswer <= 0 || isQuarantined[token]) return 0;
-
-        uint256 currentPrice = uint256(latestAnswer);
-        uint256 previousEWMAPrice = tokenEWMA[token];
-
-        if (previousEWMAPrice == 0) {
-            tokenEWMA[token] = currentPrice;
-            lastEWMATimestamp[token] = latestUpdatedAt;
-            return currentPrice;
+        // Time discount e^(−rT)
+        int128 m = ABDKMath64x64.fromUInt(1);
+        if (unlockTime > block.timestamp) {
+            int128 yearsT = ABDKMath64x64.divu(unlockTime - block.timestamp, 365 days);
+            int128 r = ABDKMath64x64.divu(rankDiscountRateBps[rank], BPS);
+            m = ABDKMath64x64.exp(r.mul(yearsT).neg());
         }
 
-        uint256 newEWMA = (currentPrice * ewmaAlpha + previousEWMAPrice * (BPS_DENOMINATOR - ewmaAlpha)) / BPS_DENOMINATOR;
-        tokenEWMA[token] = newEWMA;
-        lastEWMATimestamp[token] = latestUpdatedAt;
+        // Volatility (1 − σ/2), σ ∈ [0, 1] including ATH/ATL range adjustment
+        (uint256 effVol, uint256 drawdownPenalty) = _volAndDrawdown(token, price, feedDecimals);
+        m = m.mul(ABDKMath64x64.divu(200 - effVol, 200));
+        if (drawdownPenalty > 0) m = m.mul(ABDKMath64x64.divu(BPS - drawdownPenalty, BPS));
 
-        return newEWMA;
+        return m.mulu(base);
     }
 
-    function _readValidatedPrice(
-        address token
-    ) internal view returns (uint256 price, uint8 decimals, uint256 updatedAt) {
-        checkSequencerActive(); 
-        address primaryFeed = tokenPriceFeeds[token];
-        
-        if (primaryFeed == address(0)) {
+    function _volAndDrawdown(address token, uint256 price, uint8 feedDecimals)
+        internal
+        view
+        returns (uint256 effVol, uint256 penalty)
+    {
+        effVol = volatility;
+        TokenPriceBounds memory b = tokenPriceBounds[token];
+        if (b.set) {
+            uint256 p = price;
+            if (feedDecimals > b.decimals) p = price / (10 ** (feedDecimals - b.decimals));
+            else if (feedDecimals < b.decimals) p = price * (10 ** (b.decimals - feedDecimals));
+            if (p < b.ath) {
+                uint256 drawdownBps = ((b.ath - p) * BPS) / b.ath;
+                penalty = (drawdownBps * drawdownPenaltyPerBps) / 100;
+                if (penalty > maxDrawdownPenaltyBps) penalty = maxDrawdownPenaltyBps;
+            }
+            // Range ratio (ATH − ATL) / (ATH + ATL), in percent, weighted by rangeVolWeightBps
+            uint256 rangeRatioBps = ((b.ath - b.atl) * BPS) / (b.ath + b.atl);
+            effVol += (rangeRatioBps * rangeVolWeightBps) / (BPS * 100);
+        }
+        if (effVol > 100) effVol = 100;
+    }
+
+    function _toUsd(uint256 quantity, address token, uint256 price, uint8 feedDecimals)
+        internal
+        view
+        returns (uint256)
+    {
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+        return (quantity * price * 1e6) / (10 ** uint256(tokenDecimals)) / (10 ** uint256(feedDecimals));
+    }
+
+    /// @dev Valuation price for `token`. Reverts if no valid, fresh price exists.
+    function _price(address token) internal view returns (uint256 price, uint8 decimals) {
+        address feed = tokenPriceFeeds[token];
+        if (feed == address(0)) {
             require(preTGEOracle != address(0), "no price feed");
-            (price, decimals, updatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
-            require(block.timestamp >= updatedAt, "future round");
-            return (price, decimals, updatedAt);
+            uint256 syntheticUpdatedAt;
+            (price, decimals, syntheticUpdatedAt) = IPreTGEOracle(preTGEOracle).getLatestPrice(token);
+            require(price > 0, "no synthetic price");
+            require(
+                syntheticUpdatedAt <= block.timestamp && block.timestamp - syntheticUpdatedAt <= preTGEMaxAge,
+                "stale pre-TGE price"
+            );
+            price = (price * (BPS - preTGEHaircutBps)) / BPS;
+            require(price > 0, "price=0");
+            return (price, decimals);
         }
-        
-        return _fetchTWAP(token, primaryFeed);
+
+        _checkSequencer();
+        AggregatorV3Interface agg = AggregatorV3Interface(feed);
+        (uint80 roundId, int256 answer, , uint256 updatedAt, ) = agg.latestRoundData();
+        require(answer > 0, "invalid price");
+        require(updatedAt <= block.timestamp && block.timestamp - updatedAt <= maxPriceAge, "stale price");
+        decimals = agg.decimals();
+
+        uint256 spot = uint256(answer);
+        price = spot;
+
+        uint256 twap = _twap(agg, roundId, spot, updatedAt);
+        if (twap > 0 && twap < price) price = twap;
+
+        uint256 ewma = tokenEWMA[token];
+        if (ewma > 0 && block.timestamp - lastEWMARoundTime[token] <= ewmaMaxAge && ewma < price) price = ewma;
     }
 
-    function _fetchTWAP(address token, address feedAddress) internal view returns (uint256 price, uint8 decimals, uint256 updatedAt) {
-        AggregatorV3Interface feed = AggregatorV3Interface(feedAddress);
-        (uint80 latestRoundId, int256 latestAnswer, , uint256 latestUpdatedAt, ) = feed.latestRoundData();
-        
-        decimals = feed.decimals();
-        if (latestAnswer <= 0 || isQuarantined[token]) {
-            return (0, decimals);
-        }
-        
-        require(latestUpdatedAt > 0 && block.timestamp >= latestUpdatedAt, "bad timestamp");
-        updatedAt = latestUpdatedAt;
+    /// @dev Time-weighted average over `twapInterval`. Each round's answer is weighted by how
+    ///      long it was the live answer. Returns 0 (caller falls back to spot) if history is
+    ///      unavailable, instead of reverting and blocking borrows and liquidations.
+    function _twap(AggregatorV3Interface agg, uint80 latestRound, uint256 latestAnswer, uint256 latestUpdatedAt)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 windowStart = block.timestamp > twapInterval ? block.timestamp - twapInterval : 0;
+        uint256 segmentEnd = latestUpdatedAt > windowStart ? latestUpdatedAt : windowStart;
+        uint256 covered = block.timestamp - segmentEnd;
+        uint256 weighted = latestAnswer * covered;
+        uint80 id = latestRound;
 
-        uint256 cumulativePriceTime = 0;
-        uint256 totalWeightTime = 0;
-        uint80 currentRoundId = latestRoundId;
-        uint256 currentUpdatedAt = latestUpdatedAt;
-        int256 currentAnswer = latestAnswer;
-        uint256 targetTime = block.timestamp > twapInterval ? block.timestamp - twapInterval : 0;
-        
-        uint256 lookups = 0;
-        while (currentUpdatedAt > targetTime && currentRoundId > 0 && lookups < maxTwapLookback) {
-            lookups++;
-            uint80 nextRoundId = currentRoundId - 1;
-            try feed.getRoundData(nextRoundId) returns (uint80 roundId, int256 answer, uint256, uint256 updatedAt, uint80) {
-                if (updatedAt < targetTime || updatedAt == 0 || answer <= 0) {
-                    uint256 edgeSpan = currentUpdatedAt - targetTime;
-                    cumulativePriceTime += uint256(currentAnswer) * edgeSpan;
-                    totalWeightTime += edgeSpan;
-                    break;
-                }
-                uint256 timeSpan = currentUpdatedAt - updatedAt;
-                cumulativePriceTime += uint256(currentAnswer) * timeSpan;
-                totalWeightTime += timeSpan;
-                currentRoundId = roundId;
-                currentUpdatedAt = updatedAt;
-                currentAnswer = answer;
+        for (uint256 i = 0; i < maxTwapLookback && segmentEnd > windowStart && id > 0; i++) {
+            id -= 1;
+            try agg.getRoundData(id) returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
+                if (answer <= 0 || updatedAt == 0 || updatedAt > segmentEnd) break;
+                uint256 segmentStart = updatedAt < windowStart ? windowStart : updatedAt;
+                uint256 span = segmentEnd - segmentStart;
+                weighted += uint256(answer) * span;
+                covered += span;
+                segmentEnd = segmentStart;
             } catch {
                 break;
             }
         }
-        require(lookups >= 1, "insufficient oracle rounds");
-        require(totalWeightTime > (twapInterval / 2), "insufficient TWAP depth");
-        
-        uint256 twapPrice = cumulativePriceTime / totalWeightTime;
-        uint256 spotPrice = uint256(latestAnswer);
-
-        uint256 previousEWMA = tokenEWMA[token];
-        if (previousEWMA > 0) {
-            uint256 inlineEWMA = (spotPrice * ewmaAlpha + previousEWMA * (BPS_DENOMINATOR - ewmaAlpha)) / BPS_DENOMINATOR;
-            price = spotPrice < twapPrice ? spotPrice : twapPrice;
-            price = inlineEWMA < price ? inlineEWMA : price;
-        } else {
-            price = twapPrice < spotPrice ? twapPrice : spotPrice;
-        }
+        if (covered == 0 || covered < twapInterval / 2) return 0;
+        return weighted / covered;
     }
 
-    function computeDPV(
-        uint256 quantity,
-        address token,
-        uint256 unlockTime,
-        address vestingContract
-    ) public view returns (uint256 pv, uint256 ltvBps) {
-        require(quantity > 0, "quantity=0");
-        require(unlockTime > block.timestamp, "already unlocked");
-        require(!isFlashPumpFrozen(token), "token frozen");
-
-        uint8 rank = registry.getRank(vestingContract);
-        require(rank > 0 && rank <= 3, "unverified contract");
-
-        (uint256 price, uint8 decimals, uint256 updatedAt) = _readValidatedPrice(token);
-        require(block.timestamp - updatedAt <= maxPriceAge, "stale price");
-        uint8 tokenDecimals = IERC20Metadata(token).decimals();
-
-        uint256 baseValue = (quantity * price * 1e6) / (10 ** uint256(tokenDecimals)) / (10 ** uint256(decimals));
-
-        uint256 rankBaseLtv = rank == 1 ? 5000 : (rank == 2 ? 3500 : 2000);
-        uint256 rankRiskFreeRate = rank == 1 ? 2 : (rank == 2 ? 5 : 10);
-
-        uint256 timeToUnlock = unlockTime - block.timestamp;
-        int128 yearsToUnlock = ABDKMath64x64.divu(timeToUnlock, 365 days);
-        int128 rate = ABDKMath64x64.divu(rankRiskFreeRate, 100);
-        
-        int128 discount;
-        if (yearsToUnlock == 0) {
-            discount = ABDKMath64x64.fromInt(1);
-        } else {
-            int128 rateNeg = ABDKMath64x64.neg(rate);
-            int128 product = rateNeg.mul(yearsToUnlock);
-            discount = ABDKMath64x64.exp(product);
-        }
-
-        uint256 effectiveVol = volatility;
-        uint256 extraDiscountBps = 0;
-
-        TokenPriceBounds memory bounds = tokenPriceBounds[token];
-        if (bounds.set && bounds.ath >= bounds.atl && bounds.atl > 0) {
-            uint256 priceScaled = price;
-            if (decimals > bounds.decimals) {
-                priceScaled = price / (10 ** (decimals - bounds.decimals));
-            } else if (decimals < bounds.decimals) {
-                priceScaled = price * (10 ** (bounds.decimals - decimals));
-            }
-            if (bounds.ath > 0 && priceScaled <= bounds.ath) {
-                uint256 drawdownBps = ((bounds.ath - priceScaled) * BPS_DENOMINATOR) / bounds.ath;
-                uint256 penalty = (drawdownBps * drawdownPenaltyPerBps) / 100;
-                if (penalty > maxDrawdownPenaltyBps) penalty = maxDrawdownPenaltyBps;
-                extraDiscountBps = penalty;
-            }
-            uint256 mid = bounds.ath + bounds.atl;
-            if (mid > 0) {
-                uint256 rangeRatioBps = ((bounds.ath - bounds.atl) * BPS_DENOMINATOR) / mid;
-                uint256 volAdd = (rangeRatioBps * rangeVolWeightBps) / 100;
-                effectiveVol = volatility + volAdd;
-                if (effectiveVol > 100) effectiveVol = 100;
-            }
-        }
-
-        int128 liquidity = ABDKMath64x64.divu(9, 10); // 0.9
-        int128 shock = ABDKMath64x64.divu(95, 100); // 0.95
-        int128 volPenalty = ABDKMath64x64.divu(effectiveVol, 200); // 0.5 * vol
-        int128 volAdj = ABDKMath64x64.sub(ABDKMath64x64.fromInt(1), volPenalty);
-        if (volAdj < 0) volAdj = ABDKMath64x64.fromInt(0);
-        
-        uint256 currentOmega = tokenOmegaBps[token];
-        if (currentOmega == 0) currentOmega = 10000;
-        if (currentOmega > globalMaxOmegaBps) currentOmega = globalMaxOmegaBps;
-        uint256 hardCap = hardLTVCapBps[token];
-        if (hardCap > 0 && currentOmega > hardCap) currentOmega = hardCap;
-
-        if (openClawLighthouse != address(0)) {
-            uint256 consensusOmega = IOpenClawLighthouse(openClawLighthouse).getConsensusOmega(token);
-            if (currentOmega > consensusOmega) currentOmega = consensusOmega;
-        }
-
-        int128 omega = ABDKMath64x64.divu(currentOmega, 10000);
-        int128 cumulativeMultiplier = discount.mul(liquidity).mul(shock).mul(volAdj).mul(omega);
-        
-        if (extraDiscountBps > 0) {
-            cumulativeMultiplier = cumulativeMultiplier.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
-        }
-        
-        pv = cumulativeMultiplier.mulu(baseValue);
-
-        int128 ltv64 = ABDKMath64x64.fromUInt(rankBaseLtv).mul(liquidity).mul(shock).mul(volAdj).mul(omega);
-        if (extraDiscountBps > 0) {
-            ltv64 = ltv64.mul(ABDKMath64x64.divu(BPS_DENOMINATOR - extraDiscountBps, BPS_DENOMINATOR));
-        }
-        ltvBps = ABDKMath64x64.toUInt(ltv64);
-        if (ltvBps > BPS_DENOMINATOR) ltvBps = BPS_DENOMINATOR;
-
-        uint256 maxLiqBorrow = tokenMaxLiquidityBorrow[token];
-        if (maxLiqBorrow > 0 && pv > maxLiqBorrow) {
-            ltvBps = (ltvBps * maxLiqBorrow) / pv;
-            pv = maxLiqBorrow;
-        }
-    }
-
-    function getTWAP(address token) public view returns (uint256) {
-        address feed = tokenPriceFeeds[token];
-        if (feed == address(0)) return 0;
-        (uint256 price, , ) = _readValidatedPrice(token);
-        return price;
+    function _checkSequencer() internal view {
+        if (sequencerUptimeFeed == address(0)) return;
+        (, int256 answer, uint256 startedAt, , ) = AggregatorV3Interface(sequencerUptimeFeed).latestRoundData();
+        require(answer == 0, "sequencer down");
+        require(block.timestamp - startedAt > sequencerGracePeriod, "sequencer grace period");
     }
 }

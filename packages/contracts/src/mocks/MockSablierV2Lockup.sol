@@ -3,107 +3,114 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
-contract MockSablierV2Lockup {
+/**
+ * @notice Test double for a Sablier v2 Lockup Linear contract: an ERC-721 whose
+ *         owner is the stream recipient, exposing the same per-field getters,
+ *         cancel semantics and `withdraw` access rules as Sablier v2.1.
+ */
+contract MockSablierV2Lockup is ERC721 {
+    using SafeERC20 for IERC20;
+
     struct Stream {
-        address recipient;
+        address sender;
         address token;
         uint128 deposited;
         uint128 withdrawn;
-        uint40 start;
-        uint40 end;
+        uint128 refunded;
+        uint40  start;
+        uint40  end;
+        bool    cancelable;
+        bool    canceled;
     }
 
     uint256 public nextStreamId = 1;
     mapping(uint256 => Stream) public streams;
-    mapping(uint256 => mapping(address => bool)) public approved;
+
+    constructor() ERC721("Mock Sablier v2 Lockup", "MSAB") {}
 
     function createStream(
         address recipient,
         address token,
         uint128 deposited,
         uint40 start,
-        uint40 end
+        uint40 end,
+        bool cancelable
     ) external returns (uint256 streamId) {
         require(recipient != address(0), "recipient=0");
-        require(token != address(0), "token=0");
         require(deposited > 0, "deposit=0");
         require(end > start, "end<=start");
 
         streamId = nextStreamId++;
         streams[streamId] = Stream({
-            recipient: recipient,
+            sender: msg.sender,
             token: token,
             deposited: deposited,
             withdrawn: 0,
+            refunded: 0,
             start: start,
-            end: end
+            end: end,
+            cancelable: cancelable,
+            canceled: false
         });
-
-        require(
-            IERC20(token).transferFrom(msg.sender, address(this), deposited),
-            "transfer failed"
-        );
+        IERC20(token).safeTransferFrom(msg.sender, address(this), deposited);
+        _mint(recipient, streamId);
     }
 
-    function setApproved(uint256 streamId, address operator, bool isApproved) external {
-        Stream memory stream = streams[streamId];
-        require(stream.recipient != address(0), "unknown stream");
-        require(msg.sender == stream.recipient, "not recipient");
-        approved[streamId][operator] = isApproved;
+    // ── Sablier getters ──────────────────────────────────────────────────────
+    function getRecipient(uint256 id) external view returns (address) { return ownerOf(id); }
+    function getSender(uint256 id) external view returns (address) { return streams[id].sender; }
+    function getAsset(uint256 id) external view returns (address) { return streams[id].token; }
+    function getStartTime(uint256 id) external view returns (uint40) { return streams[id].start; }
+    function getEndTime(uint256 id) external view returns (uint40) { return streams[id].end; }
+    function getDepositedAmount(uint256 id) external view returns (uint128) { return streams[id].deposited; }
+    function getWithdrawnAmount(uint256 id) external view returns (uint128) { return streams[id].withdrawn; }
+    function getRefundedAmount(uint256 id) external view returns (uint128) { return streams[id].refunded; }
+    function isCancelable(uint256 id) external view returns (bool) { return streams[id].cancelable && !streams[id].canceled; }
+    function wasCanceled(uint256 id) external view returns (bool) { return streams[id].canceled; }
+
+    function streamedAmountOf(uint256 id) public view returns (uint128) {
+        Stream memory s = streams[id];
+        if (s.canceled) return s.deposited - s.refunded;
+        if (block.timestamp <= s.start) return 0;
+        if (block.timestamp >= s.end) return s.deposited;
+        return uint128((uint256(s.deposited) * (block.timestamp - s.start)) / (s.end - s.start));
     }
 
-    function getRecipient(uint256 streamId) external view returns (address) {
-        return streams[streamId].recipient;
+    function withdrawableAmountOf(uint256 id) public view returns (uint128) {
+        return streamedAmountOf(id) - streams[id].withdrawn;
     }
 
-    function getAsset(uint256 streamId) external view returns (address) {
-        return streams[streamId].token;
-    }
+    // ── Sablier actions ──────────────────────────────────────────────────────
 
-    function getStartTime(uint256 streamId) external view returns (uint40) {
-        return streams[streamId].start;
-    }
-
-    function getEndTime(uint256 streamId) external view returns (uint40) {
-        return streams[streamId].end;
-    }
-
-    function getDepositedAmount(uint256 streamId) external view returns (uint128) {
-        return streams[streamId].deposited;
-    }
-
-    function getWithdrawnAmount(uint256 streamId) external view returns (uint128) {
-        return streams[streamId].withdrawn;
-    }
-
-    function _vestedAmount(Stream memory stream, uint256 timestamp) internal pure returns (uint256) {
-        if (timestamp <= stream.start) {
-            return 0;
-        }
-        if (timestamp >= stream.end) {
-            return stream.deposited;
-        }
-        uint256 elapsed = timestamp - stream.start;
-        uint256 duration = stream.end - stream.start;
-        return (uint256(stream.deposited) * elapsed) / duration;
-    }
-
-    function withdraw(uint256 streamId, address to, uint128 amount) external {
-        Stream memory stream = streams[streamId];
-        require(stream.recipient != address(0), "unknown stream");
+    /// @dev As in Sablier v2.1: anyone may withdraw to the recipient; the recipient
+    ///      (or an approved operator) may withdraw anywhere.
+    function withdraw(uint256 id, address to, uint128 amount) public {
+        address recipient = ownerOf(id);
         require(to != address(0), "to=0");
         require(
-            msg.sender == stream.recipient || approved[streamId][msg.sender],
+            to == recipient || _isAuthorized(recipient, msg.sender, id),
             "not authorized"
         );
+        require(amount > 0 && amount <= withdrawableAmountOf(id), "amount>available");
+        streams[id].withdrawn += amount;
+        IERC20(streams[id].token).safeTransfer(to, amount);
+    }
 
-        uint256 vested = _vestedAmount(stream, block.timestamp);
-        require(vested >= stream.withdrawn, "overdrawn");
-        uint256 available = vested - stream.withdrawn;
-        require(amount > 0 && amount <= available, "amount>available");
+    function withdrawMax(uint256 id, address to) external returns (uint128 amount) {
+        amount = withdrawableAmountOf(id);
+        if (amount > 0) withdraw(id, to, amount);
+    }
 
-        streams[streamId].withdrawn += amount;
-        IERC20(stream.token).transfer(to, amount);
+    function cancel(uint256 id) external {
+        Stream storage s = streams[id];
+        require(msg.sender == s.sender, "not sender");
+        require(s.cancelable && !s.canceled, "not cancelable");
+        uint128 refund = s.deposited - streamedAmountOf(id);
+        s.refunded = refund;
+        s.canceled = true;
+        IERC20(s.token).safeTransfer(s.sender, refund);
     }
 }

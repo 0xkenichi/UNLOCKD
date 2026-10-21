@@ -1,387 +1,487 @@
 // SPDX-License-Identifier: BSL-1.1
-pragma solidity ^0.8.24;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Threat model:
-//   • Re-entrancy: CEI strictly followed; nonReentrant on borrow + repay.
-//   • Flash-loan oracle manipulation: dDPV via ValuationEngine uses EWMA price.
-//   • LTV overflow: enforced as bps hard cap (MAX_LTV_BPS = 7000).
-//   • Role escalation: GOVERNOR_ROLE never granted to automated contracts.
-//   • NFT burn race: loanId ownership verified before transfer on repay.
-//   • Underflow on repay: Solidity 0.8 checked arithmetic.
-//   • Bad debt: syncBadDebt path exists; insurance vault callable by GUARDIAN.
-// ─────────────────────────────────────────────────────────────────────────────
+// Copyright (c) 2026 Vestra Protocol. All rights reserved.
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./governance/VestraAccessControl.sol";
+import "./VestingAdapter.sol";
 
 interface IValuationEngine {
-    /// @return dpv  Discounted present value (6-dec USDC).
-    /// @return ltvBps Max LTV allowed (out of 10_000).
-    function computeDPV(
-        uint256 quantity,
-        address token,
-        uint256 unlockTime,
-        address borrower
-    ) external view returns (uint256 dpv, uint256 ltvBps);
+    function computeDPV(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+        external view returns (uint256 pv, uint256 ltvBps);
+    function liquidationValue(uint256 quantity, address token, uint256 unlockTime, address vestingContract)
+        external view returns (uint256);
+    function spotValue(uint256 quantity, address token) external view returns (uint256);
+    function rankOf(address vestingContract) external view returns (uint8);
+    function rankBaseLtvBps(uint256 rank) external view returns (uint256);
 }
 
 interface ILendingPool {
-    function getInterestRateBps(uint256 durationDays) external view returns (uint256);
+    function lend(address to, uint256 amount) external;
+    function repay(uint256 principal, uint256 interest) external;
+    function writeOff(uint256 principal) external;
+    function borrowRateAfter(uint256 amount) external view returns (uint256);
 }
 
-interface IVestingAdapter {
-    enum Protocol { SABLIER_V2, STREAMFLOW_EVM, GENERIC_ERC721 }
-    function escrow(uint256 streamId, address nftContract, Protocol protocol) external returns (uint256);
-    function linkLoan(uint256 escrowId, uint256 loanId) external;
-    function releaseEscrow(uint256 escrowId) external;
-    function liquidateEscrow(uint256 escrowId, address liquidator) external;
-}
-
-interface IVestraWrapperNFT {
-    function mint(
-        uint256 loanId,
-        address borrower,
-        address collateralToken,
-        uint256 principal,
-        uint256 unlockTime
-    ) external;
-    function burn(uint256 loanId) external;
-    function ownerOf(uint256 loanId) external view returns (address);
+interface IInsuranceVault {
+    function cover(uint256 amount) external returns (uint256 paid);
 }
 
 /**
  * @title  LoanManager
- * @notice Orchestrates the full Vestra borrow + repay lifecycle.
- *         Borrow: escrow vesting claim → compute dDPV → mint NFT → disburse USDC.
- *         Repay:  collect USDC → burn NFT → release vesting claim.
- * @dev    Threat model documented above. All state changes precede external calls.
- * @author Vestra Protocol — Olanrewaju Finch Animashaun
- * @custom:security-contact security@vestra.finance
+ * @notice The single loan lifecycle contract for Vestra.
+ *
+ *         borrow → (interest accrues per second) → repay → collateral returned
+ *         default → startLiquidation → Dutch auction → bid → settle
+ *
+ *         Loans are non-recourse: the escrowed vesting position is the only
+ *         collateral. Settlement order on liquidation:
+ *           1. proceeds repay the debt (principal first, then interest),
+ *           2. any surplus is credited to the borrower (pull via `claim`),
+ *           3. any shortfall is covered by the InsuranceVault up to its balance,
+ *           4. remaining principal is written off in the pool (pro-rata loss).
+ *
+ *         Repayment, liquidation and bidding are never pausable. Pausing only
+ *         stops new borrowing.
  */
-contract LoanManager is AccessControl, ReentrancyGuard, Pausable {
+contract LoanManager is VestraAccessControl, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Roles
-    // ─────────────────────────────────────────────────────────────────────────
-    bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
-    bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
-    bytes32 public constant PAUSER_ROLE   = keccak256("PAUSER_ROLE");
+    uint256 public constant BPS = 10_000;
+    uint256 public constant YEAR = 365 days;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constants
-    // ─────────────────────────────────────────────────────────────────────────
-    uint256 public constant MAX_LTV_BPS       = 7_000; // 70% hard ceiling
-    uint256 public constant BPS_DENOMINATOR   = 10_000;
-    uint256 public constant ORIGINATION_FEE   = 50;    // 0.50% of principal (bps)
-    uint256 public constant MIN_BORROW_USDC   = 10e6;  // 10 USDC (6-dec)
+    IERC20           public immutable usdc;
+    ILendingPool     public immutable pool;
+    VestingAdapter   public immutable adapter;
+    IValuationEngine public immutable valuation;
+    IInsuranceVault  public immutable insurance;
+    address          public feeRecipient;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // State
-    // ─────────────────────────────────────────────────────────────────────────
-    IERC20              public immutable usdc;
-    IValuationEngine    public immutable valuationEngine;
-    IVestingAdapter     public immutable vestingAdapter;
-    IVestraWrapperNFT   public immutable nft;
-    ILendingPool        public immutable lendingPool;
-    address             public           feeRecipient;
+    // ── Parameters ───────────────────────────────────────────────────────────
+    uint256 public originationFeeBps      = 50;      // 0.5%
+    uint256 public reserveFactorBps       = 1000;    // 10% of interest → insurance
+    uint256 public gracePeriod            = 3 days;  // after maturity
+    uint256 public auctionDuration        = 3 days;
+    uint256 public auctionStartPremiumBps = 12_000;  // start at 120% of max(spot value, debt)
+    uint256 public minBorrow              = 10e6;    // 10 USDC
+    uint256[4] public liqThresholdBps     = [uint256(0), 6500, 5000, 3500];
 
-    uint256 private _nextLoanId = 1;
-    uint256 public  totalOutstandingDebt; // 6-dec USDC
-
-    enum LoanStatus { Active, Repaid, Liquidated }
+    // ── Loans ────────────────────────────────────────────────────────────────
+    enum Status { None, Active, Auction, Repaid, Liquidated }
 
     struct Loan {
-        address  borrower;
-        address  collateralToken;
-        uint256  streamId;       // vesting stream identifier
-        uint256  principal;      // USDC disbursed (6-dec)
-        uint256  interest;       // accrued interest at repay (6-dec)
-        uint256  dpvAtOpen;      // dDPV snapshot at origination (6-dec)
-        uint256  unlockTime;     // seconds
-        uint64   openedAt;       // block.timestamp
-        uint64   closedAt;       // block.timestamp at repay/liquidation
-        uint256  escrowId;       // V11.0 VestingAdapter linkage
-        IVestingAdapter.Protocol protocol; // V11.0 VestingAdapter protocol
-        LoanStatus status;
+        address borrower;
+        address nftContract;
+        uint256 streamId;
+        uint256 escrowId;
+        address token;
+        uint256 quantity;
+        uint256 unlockTime;
+        uint256 principal;
+        uint256 interestOwed;
+        uint256 aprBps;
+        uint64  openedAt;
+        uint64  lastAccrual;
+        uint64  maturity;
+        uint8   rank;
+        Status  status;
     }
 
-    mapping(uint256 => Loan) public loans;
+    struct AuctionState {
+        uint64  startTime;
+        uint256 startPrice;
+        uint256 debt; // frozen at auction start
+    }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Events — indexed for subgraph + backend listener
-    // ─────────────────────────────────────────────────────────────────────────
+    uint256 public nextLoanId = 1;
+    mapping(uint256 => Loan) public loans;
+    mapping(uint256 => AuctionState) public auctions;
+    mapping(address => uint256[]) private _loansByBorrower;
+
+    /// Liquidation surpluses owed to borrowers (pull payment).
+    mapping(address => uint256) public claimable;
+
+    uint256 public totalPrincipalOutstanding;
+
     event LoanOpened(
         uint256 indexed loanId,
         address indexed borrower,
-        address indexed collateralToken,
-        uint256 streamId,
+        address indexed token,
+        uint256 escrowId,
         uint256 principal,
-        uint256 dpvAtOpen,
-        uint256 unlockTime,
-        uint256 fee
+        uint256 fee,
+        uint256 aprBps,
+        uint256 maturity,
+        uint256 pv
     );
-    event LoanRepaid(
-        uint256 indexed loanId,
-        address indexed repayer,
-        uint256 principal,
-        uint256 interest,
-        uint256 totalPaid
-    );
+    event LoanRepaid(uint256 indexed loanId, address indexed payer, uint256 principalPaid, uint256 interestPaid, bool closed);
+    event LiquidationStarted(uint256 indexed loanId, address indexed caller, uint256 debt, uint256 startPrice);
     event LoanLiquidated(
         uint256 indexed loanId,
-        address indexed liquidator,
-        uint256 recoveredAmount
+        address indexed winner,
+        uint256 price,
+        uint256 insuranceCovered,
+        uint256 principalWrittenOff,
+        uint256 borrowerSurplus
     );
-    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event SurplusClaimed(address indexed borrower, uint256 amount);
+    event FeeRecipientUpdated(address indexed recipient);
+    event ParamUpdated(bytes32 indexed name, uint256 value);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructor
-    // ─────────────────────────────────────────────────────────────────────────
     constructor(
-        address _usdc,
-        address _valuationEngine,
-        address _vestingAdapter,
-        address _nft,
-        address _lendingPool,
+        IERC20 _usdc,
+        ILendingPool _pool,
+        VestingAdapter _adapter,
+        IValuationEngine _valuation,
+        IInsuranceVault _insurance,
         address _feeRecipient,
-        address _admin
-    ) {
-        require(_usdc             != address(0), "usdc=0");
-        require(_valuationEngine  != address(0), "engine=0");
-        require(_vestingAdapter   != address(0), "adapter=0");
-        require(_nft              != address(0), "nft=0");
-        require(_lendingPool      != address(0), "pool=0");
-        require(_feeRecipient     != address(0), "fee=0");
-        require(_admin            != address(0), "admin=0");
-
-        usdc             = IERC20(_usdc);
-        valuationEngine  = IValuationEngine(_valuationEngine);
-        vestingAdapter   = IVestingAdapter(_vestingAdapter);
-        nft              = IVestraWrapperNFT(_nft);
-        lendingPool      = ILendingPool(_lendingPool);
-        feeRecipient     = _feeRecipient;
-
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(GOVERNOR_ROLE,      _admin);
-        _grantRole(GUARDIAN_ROLE,      _admin);
-        _grantRole(PAUSER_ROLE,        _admin);
+        address _governor
+    ) VestraAccessControl(_governor) {
+        require(
+            address(_usdc) != address(0) && address(_pool) != address(0) && address(_adapter) != address(0)
+                && address(_valuation) != address(0) && address(_insurance) != address(0) && _feeRecipient != address(0),
+            "zero address"
+        );
+        usdc = _usdc;
+        pool = _pool;
+        adapter = _adapter;
+        valuation = _valuation;
+        insurance = _insurance;
+        feeRecipient = _feeRecipient;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Core: Borrow
+    // Borrow
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Opens a loan against a vesting stream.
-     * @dev    Flow: escrow claim → compute dDPV → validate LTV → mint NFT →
-     *         debit fee → disburse USDC. CEI maintained; nonReentrant.
-     *         Reverts if: paused, borrowAmount < MIN_BORROW_USDC,
-     *         borrowAmount > maxAllowed (LTV cap), pool USDC insufficient.
-     * @param  collateralToken  Token address of the vesting asset.
-     * @param  streamId         Vesting stream identifier (Sablier/Streamflow/custom).
-     * @param  quantity         Locked token quantity (18-dec).
-     * @param  unlockTime       Epoch seconds of collateral unlock.
-     * @param  borrowAmount     USDC requested (6-dec).
-     * @return loanId           Newly created loan identifier.
+     * @notice Borrow USDC against a vesting-stream NFT.
+     * @dev    Approve the NFT to `adapter` first. Quantity, token and unlock time are
+     *         read from the stream. `maturity` = 0 means "at unlock".
+     * @return loanId The new loan.
      */
     function borrow(
-        address collateralToken,
+        address nftContract,
         uint256 streamId,
-        uint256 quantity,
-        uint256 unlockTime,
-        uint256 borrowAmount,
-        IVestingAdapter.Protocol protocol
+        VestingAdapter.Protocol protocol,
+        uint256 amount,
+        uint256 maturity
     ) external nonReentrant whenNotPaused returns (uint256 loanId) {
-        require(borrowAmount >= MIN_BORROW_USDC,    "below minimum");
-        require(unlockTime   >  block.timestamp,    "unlock in past");
-        require(collateralToken != address(0),      "token=0");
+        require(amount >= minBorrow, "below minimum");
 
-        // ── 1. Compute dDPV and max borrow ceiling ──────────────────────────
-        (uint256 dpv, uint256 ltvBps) = valuationEngine.computeDPV(
-            quantity, collateralToken, unlockTime, msg.sender
-        );
-        require(dpv > 0, "zero dpv");
+        loanId = nextLoanId++;
+        uint256 escrowId = adapter.escrowFor(msg.sender, nftContract, streamId, protocol, loanId);
+        (address token, uint256 quantity, uint256 unlockTime) = adapter.collateral(escrowId);
 
-        uint256 effectiveLtvBps = ltvBps > MAX_LTV_BPS ? MAX_LTV_BPS : ltvBps;
-        uint256 maxBorrow = (dpv * effectiveLtvBps) / BPS_DENOMINATOR;
-        require(borrowAmount <= maxBorrow, "exceeds LTV");
+        if (maturity == 0) maturity = unlockTime;
+        require(maturity > block.timestamp && maturity <= unlockTime, "bad maturity");
 
-        // ── 2. Assign loanId (state change first) ───────────────────────────
-        loanId = _nextLoanId++;
+        (uint256 pv, uint256 ltvBps) = valuation.computeDPV(quantity, token, unlockTime, nftContract);
+        uint8 rank = valuation.rankOf(nftContract);
+        require(ltvBps < liqThresholdBps[rank], "ltv >= liquidation threshold");
+        require(amount <= (pv * ltvBps) / BPS, "exceeds max borrow");
 
-        // ── 3. Write loan record (before any external calls) ─────────────────
+        uint256 apr = pool.borrowRateAfter(amount);
+
         loans[loanId] = Loan({
-            borrower:        msg.sender,
-            collateralToken: collateralToken,
-            streamId:        streamId,
-            principal:       borrowAmount,
-            interest:        0,
-            dpvAtOpen:       dpv,
-            unlockTime:      unlockTime,
-            openedAt:        uint64(block.timestamp),
-            closedAt:        0,
-            status:          LoanStatus.Active
+            borrower:     msg.sender,
+            nftContract:  nftContract,
+            streamId:     streamId,
+            escrowId:     escrowId,
+            token:        token,
+            quantity:     quantity,
+            unlockTime:   unlockTime,
+            principal:    amount,
+            interestOwed: 0,
+            aprBps:       apr,
+            openedAt:     uint64(block.timestamp),
+            lastAccrual:  uint64(block.timestamp),
+            maturity:     uint64(maturity),
+            rank:         rank,
+            status:       Status.Active
         });
+        _loansByBorrower[msg.sender].push(loanId);
+        totalPrincipalOutstanding += amount;
 
-        totalOutstandingDebt += borrowAmount;
+        pool.lend(address(this), amount);
+        uint256 fee = (amount * originationFeeBps) / BPS;
+        if (fee > 0) usdc.safeTransfer(feeRecipient, fee);
+        usdc.safeTransfer(msg.sender, amount - fee);
 
-        // ── 4. Escrow vesting claim (external call) ──────────────────────────
-        uint256 eid = vestingAdapter.escrow(streamId, collateralToken, protocol);
-        vestingAdapter.linkLoan(eid, loanId);
+        emit LoanOpened(loanId, msg.sender, token, escrowId, amount, fee, apr, maturity, pv);
+    }
 
-        // Update record with escrow details
-        loans[loanId].escrowId = eid;
-        loans[loanId].protocol = protocol;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Repay (anyone may repay on the borrower's behalf; collateral always returns to the borrower)
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // ── 5. Mint NFT loan position (external call) ────────────────────────
-        nft.mint(loanId, msg.sender, collateralToken, borrowAmount, unlockTime);
+    /**
+     * @notice Repay up to `amount` of a loan. Interest is paid before principal.
+     *         During an auction only a full repayment is accepted; it cancels the auction.
+     */
+    function repay(uint256 loanId, uint256 amount) external nonReentrant {
+        Loan storage loan = loans[loanId];
+        require(loan.status == Status.Active || loan.status == Status.Auction, "not repayable");
+        require(amount > 0, "amount=0");
 
-        // ── 6. Calculate and collect origination fee ─────────────────────────
-        uint256 fee = (borrowAmount * ORIGINATION_FEE) / BPS_DENOMINATOR;
-        uint256 disbursement = borrowAmount - fee;
-
-        require(
-            usdc.balanceOf(address(this)) >= borrowAmount,
-            "insufficient pool liquidity"
-        );
-
-        // ── 7. Transfer fee then principal (external calls last) ─────────────
-        if (fee > 0) {
-            usdc.safeTransfer(feeRecipient, fee);
+        if (loan.status == Status.Active) {
+            _accrue(loan);
+        } else {
+            // Debt is frozen at auction start; a full repayment cancels the auction.
+            uint256 frozen = auctions[loanId].debt;
+            require(amount >= frozen, "full repayment required during auction");
+            loan.interestOwed = frozen - loan.principal;
+            delete auctions[loanId];
+            loan.status = Status.Active;
         }
-        usdc.safeTransfer(msg.sender, disbursement);
 
-        emit LoanOpened(
-            loanId,
-            msg.sender,
-            collateralToken,
-            streamId,
-            borrowAmount,
-            dpv,
-            unlockTime,
-            fee
-        );
+        uint256 owed = loan.principal + loan.interestOwed;
+        uint256 pay = amount < owed ? amount : owed;
+        uint256 interestPart = pay < loan.interestOwed ? pay : loan.interestOwed;
+        uint256 principalPart = pay - interestPart;
+
+        loan.interestOwed -= interestPart;
+        loan.principal -= principalPart;
+        totalPrincipalOutstanding -= principalPart;
+        bool closed = loan.principal == 0 && loan.interestOwed == 0;
+        if (closed) loan.status = Status.Repaid;
+
+        usdc.safeTransferFrom(msg.sender, address(this), pay);
+
+        uint256 reserve = (interestPart * reserveFactorBps) / BPS;
+        if (reserve > 0) usdc.safeTransfer(address(insurance), reserve);
+        _repayPool(principalPart, interestPart - reserve);
+
+        if (closed) adapter.release(loan.escrowId, loan.borrower);
+
+        emit LoanRepaid(loanId, msg.sender, principalPart, interestPart, closed);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Core: Repay
+    // Liquidation (permissionless)
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Open the Dutch auction for a liquidatable loan.
+    function startLiquidation(uint256 loanId) external nonReentrant {
+        Loan storage loan = loans[loanId];
+        require(isLiquidatable(loanId), "not liquidatable");
+
+        _accrue(loan);
+        uint256 debt = loan.principal + loan.interestOwed;
+
+        uint256 reference_ = debt;
+        try valuation.spotValue(loan.quantity, loan.token) returns (uint256 spot) {
+            if (spot > reference_) reference_ = spot;
+        } catch {}
+        uint256 startPrice = (reference_ * auctionStartPremiumBps) / BPS;
+
+        loan.status = Status.Auction;
+        auctions[loanId] = AuctionState({startTime: uint64(block.timestamp), startPrice: startPrice, debt: debt});
+
+        emit LiquidationStarted(loanId, msg.sender, debt, startPrice);
+    }
 
     /**
-     * @notice Repays an open loan. Burns the NFT, releases collateral.
-     * @dev    Repayer must be the current NFT holder (secondary market aware).
-     *         interest is passed in by the backend oracle; validated it covers
-     *         at least the accrued minimum (TODO: upgrade to on-chain accrual).
-     *         Flow: collect USDC → update state → burn NFT → release collateral.
-     *         Reverts if: loan not Active, caller not NFT holder,
-     *         totalPayment does not cover principal + interest.
-     * @param  loanId    Loan identifier to repay.
-     * @param  interest  Interest amount in USDC (6-dec). Must be ≥ 0.
+     * @notice Buy the escrowed vesting position at the current auction price.
+     * @param  maxPrice Slippage guard: revert if the price is above this.
+     * @dev    After the auction window the price is 0 and anyone may take the position;
+     *         that only happens if nobody valued it above zero during the whole auction.
      */
-    function repay(
-        uint256 loanId,
-        uint256 interest
-    ) external nonReentrant {
+    function bid(uint256 loanId, uint256 maxPrice) external nonReentrant {
         Loan storage loan = loans[loanId];
-        require(loan.status == LoanStatus.Active, "not active");
+        require(loan.status == Status.Auction, "no auction");
+        uint256 price = currentPrice(loanId);
+        require(price <= maxPrice, "price above max");
 
-        // Validate NFT holder — secondary transfers honoured
-        require(nft.ownerOf(loanId) == msg.sender, "not loan holder");
+        if (price > 0) usdc.safeTransferFrom(msg.sender, address(this), price);
+        _settle(loanId, loan, price, msg.sender);
+    }
 
-        // ── 0. Validate minimum interest ───────────────────────────────────
-        uint256 durationSec = block.timestamp - loan.openedAt;
-        uint256 durationDays = (durationSec + 86399) / 86400; // Round up
-        uint256 expectedRateBps = lendingPool.getInterestRateBps(durationDays);
-        uint256 minInterest = (loan.principal * expectedRateBps) / BPS_DENOMINATOR;
-        require(interest >= minInterest, "insufficient interest");
-
-        uint256 totalOwed = loan.principal + interest;
-
-        // ── 1. Pull repayment from sender (approval required) ─────────────────
-        usdc.safeTransferFrom(msg.sender, address(this), totalOwed);
-
-        // ── 2. Update state (before external calls) ──────────────────────────
-        loan.status   = LoanStatus.Repaid;
-        loan.interest = interest;
-        loan.closedAt = uint64(block.timestamp);
-        totalOutstandingDebt -= loan.principal;
-
-        // ── 3. Burn NFT position (external call) ─────────────────────────────
-        nft.burn(loanId);
-
-        // ── 4. Release vesting claim back to repayer (external call) ─────────
-        vestingAdapter.releaseEscrow(loan.escrowId);
-
-        emit LoanRepaid(loanId, msg.sender, loan.principal, interest, totalOwed);
+    /// @notice Withdraw liquidation surplus owed to the caller.
+    function claim() external nonReentrant {
+        uint256 amount = claimable[msg.sender];
+        require(amount > 0, "nothing to claim");
+        claimable[msg.sender] = 0;
+        usdc.safeTransfer(msg.sender, amount);
+        emit SurplusClaimed(msg.sender, amount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Guardian: Emergency liquidation
+    // Views
     // ─────────────────────────────────────────────────────────────────────────
+
+    function debtOf(uint256 loanId) public view returns (uint256) {
+        Loan storage loan = loans[loanId];
+        if (loan.status == Status.Auction) return auctions[loanId].debt;
+        if (loan.status != Status.Active) return 0;
+        return loan.principal + loan.interestOwed + _pendingInterest(loan);
+    }
 
     /**
-     * @notice Marks a loan as liquidated. Called by GUARDIAN after staged auction.
-     * @dev    Security: only GUARDIAN_ROLE. Loan must be Active.
-     *         Burns NFT, updates debt. Collateral recovery handled off-chain
-     *         by VestingAdapter release to auction contract.
+     * @notice True if the loan is past maturity + grace, or its debt exceeds
+     *         liquidationValue × liquidation threshold. If valuation is unavailable
+     *         (e.g. stale oracle) only the maturity condition applies.
      */
-    function liquidate(
-        uint256 loanId,
-        address auctionRecipient,
-        uint256 recoveredAmount
-    ) external onlyRole(GUARDIAN_ROLE) nonReentrant {
+    function isLiquidatable(uint256 loanId) public view returns (bool) {
         Loan storage loan = loans[loanId];
-        require(loan.status == LoanStatus.Active, "not active");
-        require(auctionRecipient != address(0), "recipient=0");
-
-        loan.status   = LoanStatus.Liquidated;
-        loan.closedAt = uint64(block.timestamp);
-        totalOutstandingDebt -= loan.principal;
-
-        nft.burn(loanId);
-        vestingAdapter.liquidateEscrow(loan.escrowId, auctionRecipient);
-
-        emit LoanLiquidated(loanId, msg.sender, recoveredAmount);
+        if (loan.status != Status.Active) return false;
+        if (block.timestamp > uint256(loan.maturity) + gracePeriod) return true;
+        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.nftContract) returns (uint256 v) {
+            return debtOf(loanId) * BPS > v * liqThresholdBps[loan.rank];
+        } catch {
+            return false;
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Governor: Admin functions
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function setFeeRecipient(address newRecipient) external onlyRole(GOVERNOR_ROLE) {
-        require(newRecipient != address(0), "recipient=0");
-        emit FeeRecipientUpdated(feeRecipient, newRecipient);
-        feeRecipient = newRecipient;
+    /// @notice Health factor in bps (≥ 10_000 is healthy). Returns 0 if valuation is unavailable.
+    function healthFactorBps(uint256 loanId) external view returns (uint256) {
+        Loan storage loan = loans[loanId];
+        uint256 debt = debtOf(loanId);
+        if (debt == 0) return type(uint256).max;
+        try valuation.liquidationValue(loan.quantity, loan.token, loan.unlockTime, loan.nftContract) returns (uint256 v) {
+            return (v * liqThresholdBps[loan.rank]) / debt;
+        } catch {
+            return 0;
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Pauser
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function pause()   external onlyRole(PAUSER_ROLE) { _pause(); }
-    function unpause() external onlyRole(PAUSER_ROLE) { _unpause(); }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // View helpers
-    // ─────────────────────────────────────────────────────────────────────────
+    function currentPrice(uint256 loanId) public view returns (uint256) {
+        AuctionState storage a = auctions[loanId];
+        if (loans[loanId].status != Status.Auction) return 0;
+        uint256 elapsed = block.timestamp - a.startTime;
+        if (elapsed >= auctionDuration) return 0;
+        return (a.startPrice * (auctionDuration - elapsed)) / auctionDuration;
+    }
 
     function getLoan(uint256 loanId) external view returns (Loan memory) {
         return loans[loanId];
     }
 
-    function nextLoanId() external view returns (uint256) {
-        return _nextLoanId;
+    function loansOf(address borrower) external view returns (uint256[] memory) {
+        return _loansByBorrower[borrower];
     }
 
-    /**
-     * @notice Proxy to LendingPool for frontend convenience.
-     */
-    function getInterestRateBps(uint256 durationDays) external view returns (uint256) {
-        return lendingPool.getInterestRateBps(durationDays);
+    /// @notice Maximum borrowable for a stream right now (does not escrow anything).
+    function quoteMaxBorrow(address token, uint256 quantity, uint256 unlockTime, address nftContract)
+        external
+        view
+        returns (uint256 maxBorrow, uint256 pv, uint256 ltvBps, uint256 aprBps)
+    {
+        (pv, ltvBps) = valuation.computeDPV(quantity, token, unlockTime, nftContract);
+        maxBorrow = (pv * ltvBps) / BPS;
+        aprBps = pool.borrowRateAfter(maxBorrow);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Governance
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function setFeeRecipient(address recipient) external onlyGovernor {
+        require(recipient != address(0), "recipient=0");
+        feeRecipient = recipient;
+        emit FeeRecipientUpdated(recipient);
+    }
+
+    function setOriginationFeeBps(uint256 bps) external onlyGovernor {
+        require(bps <= 300, "max 3%");
+        originationFeeBps = bps;
+        emit ParamUpdated("originationFeeBps", bps);
+    }
+
+    function setReserveFactorBps(uint256 bps) external onlyGovernor {
+        require(bps <= 5000, "max 50%");
+        reserveFactorBps = bps;
+        emit ParamUpdated("reserveFactorBps", bps);
+    }
+
+    function setGracePeriod(uint256 secs) external onlyGovernor {
+        require(secs >= 1 days && secs <= 30 days, "grace");
+        gracePeriod = secs;
+        emit ParamUpdated("gracePeriod", secs);
+    }
+
+    function setAuctionParams(uint256 duration, uint256 startPremiumBps) external onlyGovernor {
+        require(duration >= 1 hours && duration <= 14 days, "duration");
+        require(startPremiumBps >= BPS && startPremiumBps <= 30_000, "premium");
+        auctionDuration = duration;
+        auctionStartPremiumBps = startPremiumBps;
+        emit ParamUpdated("auctionDuration", duration);
+    }
+
+    function setMinBorrow(uint256 amount) external onlyGovernor {
+        minBorrow = amount;
+        emit ParamUpdated("minBorrow", amount);
+    }
+
+    function setLiqThreshold(uint8 rank, uint256 bps) external onlyGovernor {
+        require(rank >= 1 && rank <= 3, "rank");
+        require(bps > valuation.rankBaseLtvBps(rank) && bps <= 9000, "threshold");
+        liqThresholdBps[rank] = bps;
+        emit ParamUpdated(keccak256(abi.encodePacked("liqThreshold", rank)), bps);
+    }
+
+    function pause() external {
+        require(hasRole(GUARDIAN_ROLE, msg.sender) || hasRole(PAUSER_ROLE, msg.sender), "not pauser");
+        _pause();
+    }
+
+    function unpause() external onlyGovernor {
+        _unpause();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Internal
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function _pendingInterest(Loan storage loan) internal view returns (uint256) {
+        uint256 dt = block.timestamp - loan.lastAccrual;
+        if (dt == 0 || loan.principal == 0) return 0;
+        return Math.mulDiv(loan.principal, loan.aprBps * dt, YEAR * BPS, Math.Rounding.Ceil);
+    }
+
+    function _accrue(Loan storage loan) internal {
+        loan.interestOwed += _pendingInterest(loan);
+        loan.lastAccrual = uint64(block.timestamp);
+    }
+
+    function _repayPool(uint256 principal, uint256 interest) internal {
+        uint256 total = principal + interest;
+        if (total == 0) return;
+        usdc.forceApprove(address(pool), total);
+        pool.repay(principal, interest);
+    }
+
+    function _settle(uint256 loanId, Loan storage loan, uint256 price, address winner) internal {
+        uint256 debt = auctions[loanId].debt;
+        uint256 principal = loan.principal;
+
+        uint256 toDebt = price < debt ? price : debt;
+        uint256 surplus = price - toDebt;
+        uint256 covered;
+        if (toDebt < debt) {
+            covered = insurance.cover(debt - toDebt);
+            toDebt += covered;
+        }
+
+        uint256 principalPaid = toDebt < principal ? toDebt : principal;
+        uint256 interestPaid = toDebt - principalPaid;
+        uint256 writtenOff = principal - principalPaid;
+
+        loan.principal = 0;
+        loan.interestOwed = 0;
+        loan.status = Status.Liquidated;
+        totalPrincipalOutstanding -= principal;
+        delete auctions[loanId];
+        if (surplus > 0) claimable[loan.borrower] += surplus;
+
+        _repayPool(principalPaid, interestPaid);
+        if (writtenOff > 0) pool.writeOff(writtenOff);
+        adapter.release(loan.escrowId, winner);
+
+        emit LoanLiquidated(loanId, winner, price, covered, writtenOff, surplus);
     }
 }
