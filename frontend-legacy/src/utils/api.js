@@ -199,21 +199,6 @@ export async function fetchPools({ chain, ownerWallet, status } = {}) {
   return data.pools || [];
 }
 
-export async function fetchCommunityPools({ walletAddress, limit } = {}) {
-  const params = new URLSearchParams();
-  if (walletAddress) params.set('wallet', walletAddress);
-  if (limit) params.set('limit', String(limit));
-  const query = params.toString();
-  const data = await apiGet(`/api/community-pools${query ? `?${query}` : ''}`);
-  return data.items || [];
-}
-
-export async function fetchCommunityPool(poolId, walletAddress) {
-  const query = walletAddress ? `?wallet=${encodeURIComponent(walletAddress)}` : '';
-  const data = await apiGet(`/api/community-pools/${poolId}${query}`);
-  return data.item || null;
-}
-
 export async function fetchIdentity(walletAddress) {
   if (!walletAddress) {
     return { ok: false, error: 'Wallet address required' };

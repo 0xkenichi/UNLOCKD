@@ -55,9 +55,6 @@ export default function Features() {
           <button className="button ghost" type="button" onClick={() => navigate('/lender')}>
             Lender flow
           </button>
-          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
-            Community pools
-          </button>
           <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=technical-spec')}>
             Technical docs
           </button>
@@ -115,19 +112,19 @@ export default function Features() {
         <div className="holo-card">
           <h3 className="holo-title">Lender perspective</h3>
           <ul className="feature-bullet-list muted">
-            <li>Define risk appetite, LTV caps, and unlock windows at pool level.</li>
-            <li>Allocate liquidity while keeping non-custodial execution posture.</li>
-            <li>Observe utilization and match quality from transparent pool metrics.</li>
-            <li>Enforce repayment pathways with contract-level settlement rules.</li>
+            <li>Deposit USDC into a single ERC-4626 lending pool and receive vault shares.</li>
+            <li>Earn a variable rate driven by pool utilization (kink rate model).</li>
+            <li>Observe utilization and borrow rate from on-chain pool metrics.</li>
+            <li>Withdraw or redeem shares at any time, subject to idle liquidity.</li>
           </ul>
         </div>
         <div className="holo-card">
-          <h3 className="holo-title">Community pooling</h3>
+          <h3 className="holo-title">Default handling</h3>
           <ul className="feature-bullet-list muted">
-            <li>Groups can fund together and activate lending when thresholds are reached.</li>
-            <li>Rewards can be weighted by contribution size or building participation.</li>
-            <li>State machine handles fundraising, active phase, refunds, and closeout.</li>
-            <li>Members can contribute, claim rewards, or claim refunds on-chain.</li>
+            <li>Loans become liquidatable after maturity + grace period or when debt exceeds the liquidation threshold.</li>
+            <li>Anyone can start a Dutch auction of the escrowed stream NFT; buyers pay the current price.</li>
+            <li>Proceeds repay the pool first; any surplus is claimable by the borrower.</li>
+            <li>Shortfalls are covered by the Insurance Vault, then shared by lenders via the share price.</li>
           </ul>
         </div>
         <div className="holo-card">
@@ -151,7 +148,6 @@ export default function Features() {
           <button className="button" type="button" onClick={() => navigate('/borrow')}>I am a borrower</button>
           <button className="button ghost" type="button" onClick={() => navigate('/repay')}>Repayment tools</button>
           <button className="button ghost" type="button" onClick={() => navigate('/lender')}>I am a lender</button>
-          <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>Community pooling</button>
           <button className="button ghost" type="button" onClick={() => navigate('/docs')}>Read docs</button>
           <button className="button ghost" type="button" onClick={() => navigate('/about')}>Team and roadmap</button>
         </div>

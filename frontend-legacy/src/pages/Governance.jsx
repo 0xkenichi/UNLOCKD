@@ -107,9 +107,6 @@ export default function Governance() {
             <button className="button ghost" type="button" onClick={() => navigate('/about')}>
               Team and roadmap
             </button>
-            <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
-              Community pools
-            </button>
           </div>
         </div>
       </div>
@@ -119,7 +116,7 @@ export default function Governance() {
           <div className="stat-value">
             {isVotingPowerLoading ? '...' : `${formatUnits(votingPower || 0n, 18)} CRDT`}
           </div>
-          <div className="stat-delta">Stake to activate</div>
+          <div className="stat-delta">Token balance (voting not active)</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Active Proposals</div>

@@ -10,43 +10,44 @@ import {
 } from 'viem/chains';
 import { flowEvm, flowEvmTestnet, asiTestnet } from './chains.js';
 
-// Localhost (chainId 31337) - matches deployments/localhost from hardhat node
+// Core contract addresses (Vestra v1 core: LoanManager, LendingPool, VestingAdapter,
+// ValuationEngine, InsuranceVault). The previous hardcoded Sepolia/localhost addresses
+// pointed at the pre-rebuild contracts, whose ABI is incompatible with v1 core, so core
+// entries are left blank until packages/contracts/script/DeployCore.s.sol is run.
+// Set them per chain with env vars, e.g. VITE_LOANMANAGER_ADDRESS_11155111,
+// VITE_LENDINGPOOL_ADDRESS_11155111, VITE_VESTINGADAPTER_ADDRESS_11155111,
+// VITE_VALUATIONENGINE_ADDRESS_11155111, VITE_INSURANCEVAULT_ADDRESS_11155111
+// (or the chain-agnostic VITE_<NAME>_ADDRESS). See getContractAddress below.
 const LOCALHOST_CHAIN_ID = 31337;
 const LOCALHOST_CONTRACTS = {
-  valuationEngine: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
-  loanManager: '0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e',
-  lendingPool: '0x0165878A594ca255338adfa4d48449f69242Eb8F',
-  termVault: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
-  vestingAdapter: '0x5FC8d32690cc91D4c39d9d3abcBD16989F875707',
+  valuationEngine: '',
+  loanManager: '',
+  lendingPool: '',
+  vestingAdapter: '',
+  insuranceVault: '',
   usdc: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  insuranceVault: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512', // placeholder for local
-  demoFaucet: '0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8'
+  testnetPriceFeed: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
 };
 
 export const CONTRACTS = {
   [LOCALHOST_CHAIN_ID]: LOCALHOST_CONTRACTS,
   [sepolia.id]: {
-    valuationEngine: '0xB45f5d411A03d113fd6dDB7ed3F6800138a52760',
-    loanManager: '0x3E6ce9289c20EC7822296aaBf8A48A6a2a857B56',
-    lendingPool: '0x0914E18f160700d9ee70d0584F5E869e4CA2b6b6',
-    termVault: '0x7cB24A9eA6bA427Ec9B57752fc9f8A4DB51d2919',
-    vestingAdapter: '0xA8743ABc6BCD80633171Af6AF7091Cf240e77910',
+    valuationEngine: '',
+    loanManager: '',
+    lendingPool: '',
+    vestingAdapter: '',
+    insuranceVault: '',
     usdc: '0x3dF11e82a5aBe55DE936418Cf89373FDAE1579C8',
     testnetPriceFeed: '0x96e09de2bF0Eb5Cc26Fc332d2350FBE9c8c5A57F',
-    insuranceVault: '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
-    demoFaucet: '0x6EE0a9B7972f43100B9c0757D88BF5A8c7F0bF2E',
     vestToken: '0xA9d67A08595FCADbB9A4cbF8032f13fFC9837A6d',
-    loanNFT: '0x82229adE4dd2Cf8c41b02cfA19EE7b812954602a',
-    vestingRegistry: '0x0090123bfa5dc5885c6b940D1ada3e908fF6c962',
     sampleVestingWallet: ''
   },
   [asiTestnet.id]: {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -56,8 +57,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -67,8 +68,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -78,8 +79,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '0x032ef137119E92e9A7091D57F0C850A2e30f1dEE',
     testnetPriceFeed: '',
     vestToken: '',
@@ -89,8 +90,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -100,8 +101,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -111,8 +112,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -122,8 +123,8 @@ export const CONTRACTS = {
     valuationEngine: '',
     loanManager: '',
     lendingPool: '',
-    termVault: '',
     vestingAdapter: '',
+    insuranceVault: '',
     usdc: '',
     testnetPriceFeed: '',
     vestToken: '',
@@ -131,19 +132,25 @@ export const CONTRACTS = {
   }
 };
 
-export const sablierV2FlowWrapperAbi = [
-  "constructor(address _flowContract, bytes32 _flowId, address _beneficiary)",
-  "function flowContract() view returns (address)",
-  "function flowId() view returns (bytes32)",
-  "function beneficiary() view returns (address)",
-  "function operator() view returns (address)",
-  "function ratePerSecond() view returns (uint128)",
-  "function token() view returns (address)",
-  "function setOperator(address newOperator)",
-  "function releaseTo(address to, uint256 amount)",
-  "event OperatorUpdated(address indexed operator)"
-];
+/** VestingAdapter.Protocol enum, passed to LoanManager.borrow(). */
+export const VESTING_PROTOCOL = {
+  SABLIER_V2: 0,
+  STREAMFLOW_EVM: 1,
+  GENERIC_ERC721: 2
+};
 
+/** LoanManager.Status enum, as returned in getLoan(loanId).status. */
+export const LOAN_STATUS = {
+  NONE: 0,
+  ACTIVE: 1,
+  AUCTION: 2,
+  REPAID: 3,
+  LIQUIDATED: 4
+};
+
+export const LOAN_STATUS_LABELS = ['None', 'Active', 'Auction', 'Repaid', 'Liquidated'];
+
+/** ValuationEngine: computeDPV / liquidationValue / spotValue (generated from packages/contracts/abi/ValuationEngine.json) */
 export const valuationEngineAbi = [
   {
     "inputs": [
@@ -151,20 +158,19 @@ export const valuationEngineAbi = [
         "internalType": "address",
         "name": "_registry",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_initialGovernor",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      }
-    ],
-    "name": "OwnableInvalidOwner",
+    "inputs": [],
+    "name": "AccessControlBadConfirmation",
     "type": "error"
   },
   {
@@ -173,9 +179,14 @@ export const valuationEngineAbi = [
         "internalType": "address",
         "name": "account",
         "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
       }
     ],
-    "name": "OwnableUnauthorizedAccount",
+    "name": "AccessControlUnauthorizedAccount",
     "type": "error"
   },
   {
@@ -183,63 +194,12 @@ export const valuationEngineAbi = [
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "delaySeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "AdminTimelockConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
         "internalType": "address",
-        "name": "coprocessor",
+        "name": "governor",
         "type": "address"
       }
     ],
-    "name": "CoprocessorUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "penaltyPerBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "maxPenaltyBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "DrawdownParamsUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "FlashPumpCooldownCleared",
+    "name": "GovernanceInitialised",
     "type": "event"
   },
   {
@@ -254,24 +214,11 @@ export const valuationEngineAbi = [
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "cooldownUntil",
+        "name": "capBps",
         "type": "uint256"
       }
     ],
-    "name": "FlashPumpCooldownSet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timeSeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "GracePeriodTimeUpdated",
+    "name": "HardLTVCapUpdated",
     "type": "event"
   },
   {
@@ -298,18 +245,18 @@ export const valuationEngineAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "previousOwner",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "name",
+        "type": "bytes32"
       },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
       }
     ],
-    "name": "OwnershipTransferred",
+    "name": "ParamUpdated",
     "type": "event"
   },
   {
@@ -318,30 +265,11 @@ export const valuationEngineAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "token",
+        "name": "oracle",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "maxProtocolExposure",
-        "type": "uint256"
       }
     ],
-    "name": "PreTGECapUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "rangeVolWeightBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "RangeVolWeightUpdated",
+    "name": "PreTGEOracleUpdated",
     "type": "event"
   },
   {
@@ -363,11 +291,153 @@ export const valuationEngineAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "feed",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ewmaPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "lambda",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "v30d",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "v90d",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "vImplied",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "dexLiquidityUsd",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tokenPremiumBps",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "liquidityPremiumBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "RiskParamsUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
         "type": "address"
       }
     ],
-    "name": "SequencerUptimeFeedUpdated",
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "until",
+        "type": "uint256"
+      }
+    ],
+    "name": "TokenFrozen",
     "type": "event"
   },
   {
@@ -386,7 +456,7 @@ export const valuationEngineAbi = [
         "type": "uint256"
       }
     ],
-    "name": "TokenMaxLiquidityBorrowUpdated",
+    "name": "TokenMaxBorrowUpdated",
     "type": "event"
   },
   {
@@ -428,34 +498,15 @@ export const valuationEngineAbi = [
         "internalType": "address",
         "name": "token",
         "type": "address"
-      }
-    ],
-    "name": "TokenPriceFeedCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
       },
       {
         "indexed": true,
         "internalType": "address",
         "name": "feed",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
       }
     ],
-    "name": "TokenPriceFeedQueued",
+    "name": "TokenPriceFeedUpdated",
     "type": "event"
   },
   {
@@ -466,6 +517,12 @@ export const valuationEngineAbi = [
         "internalType": "address",
         "name": "token",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "status",
+        "type": "bool"
       },
       {
         "indexed": false,
@@ -479,7 +536,7 @@ export const valuationEngineAbi = [
   },
   {
     "inputs": [],
-    "name": "BASE_LTV_BPS",
+    "name": "BPS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -492,7 +549,59 @@ export const valuationEngineAbi = [
   },
   {
     "inputs": [],
-    "name": "BPS_DENOMINATOR",
+    "name": "DEFAULT_ADMIN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GOVERNOR_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GUARDIAN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "KEEPER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_MAX_PRICE_AGE",
     "outputs": [
       {
         "internalType": "uint256",
@@ -505,25 +614,12 @@ export const valuationEngineAbi = [
   },
   {
     "inputs": [],
-    "name": "adminTimelockDelay",
+    "name": "PAUSER_ROLE",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "bytes32",
         "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "adminTimelockEnabled",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -537,27 +633,7 @@ export const valuationEngineAbi = [
         "type": "address"
       }
     ],
-    "name": "cancelQueuedTokenPriceFeed",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "checkSequencerActive",
-    "outputs": [],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "clearFlashPumpCooldown",
+    "name": "clearOmega",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -616,19 +692,6 @@ export const valuationEngineAbi = [
   },
   {
     "inputs": [],
-    "name": "coprocessor",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "drawdownPenaltyPerBps",
     "outputs": [
       {
@@ -641,14 +704,45 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "ewmaAlphaBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ewmaMaxAge",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
         "name": "token",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "duration",
+        "type": "uint256"
       }
     ],
-    "name": "executeQueuedTokenPriceFeed",
+    "name": "freezeToken",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -661,7 +755,7 @@ export const valuationEngineAbi = [
         "type": "address"
       }
     ],
-    "name": "flashPumpCooldownUntil",
+    "name": "frozenUntil",
     "outputs": [
       {
         "internalType": "uint256",
@@ -675,30 +769,17 @@ export const valuationEngineAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       }
     ],
-    "name": "getPriceFeedForToken",
+    "name": "getRoleAdmin",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "bytes32",
         "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "gracePeriodTime",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -712,7 +793,68 @@ export const valuationEngineAbi = [
         "type": "address"
       }
     ],
-    "name": "isFlashPumpFrozen",
+    "name": "getTWAP",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "hardLTVCapBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "hasRole",
     "outputs": [
       {
         "internalType": "bool",
@@ -737,6 +879,59 @@ export const valuationEngineAbi = [
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "lastEWMARoundTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "quantity",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "unlockTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "rank",
+        "type": "uint8"
+      }
+    ],
+    "name": "liquidationValue",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -782,19 +977,6 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -802,21 +984,11 @@ export const valuationEngineAbi = [
         "type": "address"
       }
     ],
-    "name": "pendingTokenFeeds",
+    "name": "omegaSet",
     "outputs": [
       {
-        "internalType": "address",
-        "name": "feed",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
         "internalType": "bool",
-        "name": "exists",
+        "name": "",
         "type": "bool"
       }
     ],
@@ -824,14 +996,21 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
-    "inputs": [
+    "inputs": [],
+    "name": "preTGEHaircutBps",
+    "outputs": [
       {
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
       }
     ],
-    "name": "preTGECaps",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "preTGEMaxAge",
     "outputs": [
       {
         "internalType": "uint256",
@@ -879,24 +1058,6 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "feed",
-        "type": "address"
-      }
-    ],
-    "name": "queueTokenPriceFeed",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "rangeVolWeightBps",
     "outputs": [
@@ -904,6 +1065,63 @@ export const valuationEngineAbi = [
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "rankBaseLtvBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "rankDiscountRateBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "vestingContract",
+        "type": "address"
+      }
+    ],
+    "name": "rankOf",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -923,8 +1141,19 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "renounceOwnership",
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "callerConfirmation",
+        "type": "address"
+      }
+    ],
+    "name": "renounceRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -932,24 +1161,24 @@ export const valuationEngineAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType": "uint256",
-        "name": "cooldownDuration",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name": "reportFlashPump",
+    "name": "revokeRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "riskFreeRate",
+    "name": "sequencerGracePeriod",
     "outputs": [
       {
         "internalType": "uint256",
@@ -976,37 +1205,6 @@ export const valuationEngineAbi = [
   {
     "inputs": [
       {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "delaySeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "setAdminTimelockConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_coprocessor",
-        "type": "address"
-      }
-    ],
-    "name": "setCoprocessor",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint256",
         "name": "penaltyPerBps",
         "type": "uint256"
@@ -1014,6 +1212,11 @@ export const valuationEngineAbi = [
       {
         "internalType": "uint256",
         "name": "maxPenaltyBps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "rangeWeightBps",
         "type": "uint256"
       }
     ],
@@ -1026,37 +1229,16 @@ export const valuationEngineAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "timeSeconds",
+        "name": "alphaBps",
         "type": "uint256"
-      }
-    ],
-    "name": "setGracePeriodTime",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
+      },
       {
         "internalType": "uint256",
-        "name": "newMaxPriceAge",
+        "name": "maxAge",
         "type": "uint256"
       }
     ],
-    "name": "setMaxPriceAge",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "newMax",
-        "type": "uint256"
-      }
-    ],
-    "name": "setMaxTwapLookback",
+    "name": "setEWMAParams",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1070,11 +1252,24 @@ export const valuationEngineAbi = [
       },
       {
         "internalType": "uint256",
-        "name": "maxExposureUsd",
+        "name": "capBps",
         "type": "uint256"
       }
     ],
-    "name": "setPreTGECap",
+    "name": "setHardLTVCap",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "newMaxPriceAge",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxPriceAge",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1096,11 +1291,39 @@ export const valuationEngineAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "weightBps",
+        "name": "haircutBps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxAge",
         "type": "uint256"
       }
     ],
-    "name": "setRangeVolWeight",
+    "name": "setPreTGEParams",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "rank",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "baseLtvBps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "discountRateBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "setRankParams",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1121,22 +1344,14 @@ export const valuationEngineAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "newRate",
-        "type": "uint256"
-      }
-    ],
-    "name": "setRiskFreeRate",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "feed",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "gracePeriod",
+        "type": "uint256"
       }
     ],
     "name": "setSequencerUptimeFeed",
@@ -1157,7 +1372,7 @@ export const valuationEngineAbi = [
         "type": "uint256"
       }
     ],
-    "name": "setTokenMaxLiquidityBorrow",
+    "name": "setTokenMaxBorrowUsd",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1212,11 +1427,16 @@ export const valuationEngineAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "newInterval",
+        "name": "interval",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "lookback",
         "type": "uint256"
       }
     ],
-    "name": "setTwapInterval",
+    "name": "setTwapParams",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1237,12 +1457,74 @@ export const valuationEngineAbi = [
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "quantity",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "spotValue",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
+    "name": "supportsInterface",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "",
         "type": "address"
       }
     ],
-    "name": "tokenMaxLiquidityBorrow",
+    "name": "tokenEWMA",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "tokenMaxBorrowUsd",
     "outputs": [
       {
         "internalType": "uint256",
@@ -1326,19 +1608,6 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "twapInterval",
     "outputs": [
@@ -1349,6 +1618,25 @@ export const valuationEngineAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "updateEWMA",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1370,6 +1658,59 @@ export const valuationEngineAbi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ewmaPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "lambda",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "v30d",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "v90d",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "vImplied",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "dexLiquidityUsd",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenPremiumBps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "liquidityPremiumBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "updateRiskParams",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "volatility",
     "outputs": [
@@ -1384,53 +1725,44 @@ export const valuationEngineAbi = [
   }
 ];
 
+/** LoanManager: borrow / repay / liquidation auction / claim (generated from packages/contracts/abi/LoanManager.json) */
 export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_valuation",
+        "internalType": "contract IERC20",
+        "name": "_usdc",
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "_adapter",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
+        "internalType": "contract ILendingPool",
         "name": "_pool",
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "_identityVerifier",
+        "internalType": "contract VestingAdapter",
+        "name": "_adapter",
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "_identityBoostBps",
-        "type": "uint256"
+        "internalType": "contract IValuationEngine",
+        "name": "_valuation",
+        "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "_auctionFactory",
+        "internalType": "contract IInsuranceVault",
+        "name": "_insurance",
         "type": "address"
       },
       {
         "internalType": "address",
-        "name": "_uniswapRouter",
+        "name": "_feeRecipient",
         "type": "address"
       },
       {
-        "internalType": "uint24",
-        "name": "_poolFee",
-        "type": "uint24"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_slippageBps",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "_governor",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -1438,113 +1770,34 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "AutoRepayDisabled",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "BadSlippage",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "CircuitBreakerTripped",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "EnforcedPause",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ExceedsLTV",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ExpectedPause",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "GlobalExposureCapExceeded",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "InvalidProof",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "InvalidToken",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "InvalidToken",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "LengthMismatch",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "LoanAlreadyPaid",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "LoanInactive",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "LoanOutlastsVesting",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "MissingRepayPermissions",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NoCollateralToBuy",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NoQueuedConfig",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NoVerifier",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "OTCWindowClosed",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "OTCWindowExpired",
+    "name": "AccessControlBadConfirmation",
     "type": "error"
   },
   {
     "inputs": [
       {
         "internalType": "address",
-        "name": "owner",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AccessControlUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
         "type": "address"
       }
     ],
-    "name": "OwnableInvalidOwner",
+    "name": "AddressEmptyCode",
     "type": "error"
   },
   {
@@ -1555,12 +1808,27 @@ export const loanManagerAbi = [
         "type": "address"
       }
     ],
-    "name": "OwnableUnauthorizedAccount",
+    "name": "AddressInsufficientBalance",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "PriorityOrder",
+    "name": "EnforcedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ExpectedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FailedInnerCall",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MathOverflowedMulDiv",
     "type": "error"
   },
   {
@@ -1580,76 +1848,22 @@ export const loanManagerAbi = [
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "TimelockDisabled",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "TimelockPending",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "TokenNotAllowed",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "TooManyTokens",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "Unauthorized",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "UnauthorizedTreasury",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ZeroAmount",
-    "type": "error"
-  },
-  {
     "anonymous": false,
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
+        "internalType": "uint256",
+        "name": "borrowIndex",
+        "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "delaySeconds",
+        "name": "rateBps",
         "type": "uint256"
       }
     ],
-    "name": "AdminTimelockConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "vault",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "bps",
-        "type": "uint256"
-      }
-    ],
-    "name": "AutoHedgeConfigured",
+    "name": "Accrued",
     "type": "event"
   },
   {
@@ -1664,72 +1878,139 @@ export const loanManagerAbi = [
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "AutoHedgeDiverted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "ltvBoostBps",
+        "name": "startPrice",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "interestDiscountBps",
+        "name": "floorPrice",
         "type": "uint256"
       }
     ],
-    "name": "AutoRepayConfigUpdated",
+    "name": "AuctionRestarted",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      }
+    ],
+    "name": "FeeRecipientUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "governor",
+        "type": "address"
+      }
+    ],
+    "name": "GovernanceInitialised",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "debt",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "startPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "mark",
+        "type": "uint256"
+      }
+    ],
+    "name": "LiquidationStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "winner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "insuranceCovered",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "lenderLoss",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "borrowerSurplus",
+        "type": "uint256"
+      }
+    ],
+    "name": "LoanLiquidated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
       {
         "indexed": true,
         "internalType": "address",
         "name": "borrower",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "name": "AutoRepayOptInUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      }
-    ],
-    "name": "AutoRepayRequiredTokensUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
       },
       {
         "indexed": true,
@@ -1740,17 +2021,35 @@ export const loanManagerAbi = [
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "seizedAmount",
+        "name": "escrowId",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "usdcReceived",
+        "name": "principal",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "fee",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maturity",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "pv",
         "type": "uint256"
       }
     ],
-    "name": "CollateralLiquidated",
+    "name": "LoanOpened",
     "type": "event"
   },
   {
@@ -1765,164 +2064,26 @@ export const loanManagerAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "token",
+        "name": "payer",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amountSeized",
+        "name": "principalPaid",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "usdcValue",
-        "type": "uint256"
-      }
-    ],
-    "name": "DeficitSwept",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "verifier",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "boostBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "IdentityConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "borrower",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "boostBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "IdentityLinked",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "LiquidationConfigCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint24",
-        "name": "poolFee",
-        "type": "uint24"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "slippageBps",
+        "name": "interestPaid",
         "type": "uint256"
       },
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      }
-    ],
-    "name": "LiquidationConfigQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint24",
-        "name": "poolFee",
-        "type": "uint24"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "slippageBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "LiquidationConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "borrower",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "LoanCreated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
+        "internalType": "bool",
+        "name": "closed",
+        "type": "bool"
       }
     ],
     "name": "LoanRepaid",
@@ -1933,131 +2094,18 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "tokenIn",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "name",
+        "type": "bytes32"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "usdcReceived",
+        "name": "value",
         "type": "uint256"
       }
     ],
-    "name": "LoanRepaidWithSwap",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "defaulted",
-        "type": "bool"
-      }
-    ],
-    "name": "LoanSettled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "treasury",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amountPaid",
-        "type": "uint256"
-      }
-    ],
-    "name": "OTCBuybackExecuted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
-      }
-    ],
-    "name": "OTCBuybackInitiated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "originationFeeBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "OriginationFeeUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "previousOwner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "OwnershipTransferred",
+    "name": "ParamUpdated",
     "type": "event"
   },
   {
@@ -2078,43 +2126,24 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "vault",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
       },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "PrivateLoanCreated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
       }
     ],
-    "name": "PrivateLoanRepaid",
+    "name": "RoleAdminChanged",
     "type": "event"
   },
   {
@@ -2122,36 +2151,10 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "defaulted",
-        "type": "bool"
-      }
-    ],
-    "name": "PrivateLoanSettled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      }
-    ],
-    "name": "RepayTokenPriorityUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
       {
         "indexed": true,
         "internalType": "address",
@@ -2159,13 +2162,38 @@ export const loanManagerAbi = [
         "type": "address"
       },
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "passed",
-        "type": "bool"
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
       }
     ],
-    "name": "SanctionsStatusUpdated",
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
     "type": "event"
   },
   {
@@ -2174,67 +2202,17 @@ export const loanManagerAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "treasury",
-        "type": "address"
-      }
-    ],
-    "name": "TokenTreasurySet",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "TreasuryConfigCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "issuanceTreasury",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "returnsTreasury",
+        "name": "borrower",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "TreasuryConfigQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "issuanceTreasury",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "returnsTreasury",
-        "type": "address"
-      }
-    ],
-    "name": "TreasuryConfigUpdated",
+    "name": "SurplusClaimed",
     "type": "event"
   },
   {
@@ -2252,7 +2230,7 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "BPS_DENOMINATOR",
+    "name": "BPS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2261,6 +2239,117 @@ export const loanManagerAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "DEFAULT_ADMIN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GOVERNOR_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GUARDIAN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "KEEPER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "NO_PRICE_START_MULTIPLE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PAUSER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "RAY",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "YEAR",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "accrue",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -2278,7 +2367,7 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "adminTimelockDelay",
+    "name": "auctionDuration",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2291,33 +2380,7 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "adminTimelockEnabled",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "auctionFactory",
-    "outputs": [
-      {
-        "internalType": "contract AuctionFactory",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "autoHedgeBps",
+    "name": "auctionFloorBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2330,20 +2393,7 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "autoRepayInterestDiscountBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "autoRepayLtvBoostBps",
+    "name": "auctionStartPremiumBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2357,204 +2407,52 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
       }
     ],
-    "name": "autoRepayOptIn",
+    "name": "auctions",
     "outputs": [
       {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "autoRepayRequiredTokens",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cancelQueuedLiquidationConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cancelQueuedTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
+        "internalType": "uint64",
+        "name": "startTime",
+        "type": "uint64"
       },
       {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
+        "internalType": "uint64",
+        "name": "duration",
+        "type": "uint64"
       },
       {
         "internalType": "uint256",
-        "name": "borrowAmount",
+        "name": "startPrice",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "durationDays",
-        "type": "uint256"
-      }
-    ],
-    "name": "createLoan",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "borrowAmount",
+        "name": "floorPrice",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "collateralAmount",
+        "name": "debt",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "durationDays",
-        "type": "uint256"
-      }
-    ],
-    "name": "createLoanWithCollateralAmount",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "borrowAmount",
+        "name": "principal",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "durationDays",
-        "type": "uint256"
-      }
-    ],
-    "name": "createPrivateLoan",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "borrowAmount",
+        "name": "claim",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "collateralAmount",
+        "name": "mark",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "durationDays",
-        "type": "uint256"
-      }
-    ],
-    "name": "createPrivateLoanWithCollateralAmount",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "currentGlobalExposure",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "distressedDebtBond",
-    "outputs": [
-      {
-        "internalType": "contract DistressedDebtBond",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -2566,201 +2464,65 @@ export const loanManagerAbi = [
         "internalType": "uint256",
         "name": "loanId",
         "type": "uint256"
-      }
-    ],
-    "name": "executeOTCBuyback",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executeQueuedLiquidationConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executeQueuedTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getAutoRepayRequiredTokens",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
+      },
       {
         "internalType": "uint256",
-        "name": "loanId",
+        "name": "maxPrice",
         "type": "uint256"
       }
     ],
-    "name": "getRemainingDebt",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getRepayTokenPriority",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
+    "name": "bid",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
       {
         "internalType": "address",
-        "name": "borrower",
+        "name": "nftContract",
         "type": "address"
-      }
-    ],
-    "name": "hasAutoRepayPermissions",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "identityBoostBps",
-    "outputs": [
+      },
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "streamId",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
+      },
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "identityLinked",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "identityVerifier",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "inOTCBuyback",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "insuranceVault",
-    "outputs": [
-      {
-        "internalType": "contract InsuranceVault",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      }
-    ],
-    "name": "isPrivateLoan",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint8",
-        "name": "",
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "protocol",
         "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maturity",
+        "type": "uint256"
       }
     ],
-    "name": "isolatedPools",
+    "name": "borrow",
     "outputs": [
       {
-        "internalType": "contract IsolatedLendingPool",
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "borrowIndex",
+    "outputs": [
+      {
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -2768,7 +2530,84 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "issuanceTreasury",
+    "name": "claim",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "claimable",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "currentPrice",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "currentRateBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "debtOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeRecipient",
     "outputs": [
       {
         "internalType": "address",
@@ -2782,12 +2621,153 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "bytes",
-        "name": "proof",
-        "type": "bytes"
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
       }
     ],
-    "name": "linkIdentity",
+    "name": "getLoan",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "borrower",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "nftContract",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "streamId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "escrowId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "quantity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "unlockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "principal",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "scaledDebt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint64",
+            "name": "openedAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint64",
+            "name": "maturity",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "rank",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum LoanManager.Status",
+            "name": "status",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct LoanManager.Loan",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRoleAdmin",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "gracePeriod",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "hasRole",
     "outputs": [
       {
         "internalType": "bool",
@@ -2795,12 +2775,18 @@ export const loanManagerAbi = [
         "type": "bool"
       }
     ],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "liquidationSlippageBps",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "healthFactorBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2813,7 +2799,52 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "loanCount",
+    "name": "insurance",
+    "outputs": [
+      {
+        "internalType": "contract IInsuranceVault",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isLiquidatable",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastIndexUpdate",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lenderClaim",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2832,7 +2863,7 @@ export const loanManagerAbi = [
         "type": "uint256"
       }
     ],
-    "name": "loanDeficits",
+    "name": "liqThresholdBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2859,28 +2890,28 @@ export const loanManagerAbi = [
         "type": "address"
       },
       {
+        "internalType": "address",
+        "name": "nftContract",
+        "type": "address"
+      },
+      {
         "internalType": "uint256",
-        "name": "principal",
+        "name": "streamId",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "interest",
+        "name": "escrowId",
         "type": "uint256"
       },
       {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "collateralAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "loanDuration",
+        "name": "quantity",
         "type": "uint256"
       },
       {
@@ -2890,13 +2921,78 @@ export const loanManagerAbi = [
       },
       {
         "internalType": "uint256",
-        "name": "hedgeAmount",
+        "name": "principal",
         "type": "uint256"
       },
       {
-        "internalType": "bool",
-        "name": "active",
-        "type": "bool"
+        "internalType": "uint256",
+        "name": "scaledDebt",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint64",
+        "name": "openedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maturity",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint8",
+        "name": "rank",
+        "type": "uint8"
+      },
+      {
+        "internalType": "enum LoanManager.Status",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "borrower",
+        "type": "address"
+      }
+    ],
+    "name": "loansOf",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "minBorrow",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextLoanId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -2910,38 +3006,6 @@ export const loanManagerAbi = [
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "otcBuybackDeadline",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -2969,86 +3033,12 @@ export const loanManagerAbi = [
   },
   {
     "inputs": [],
-    "name": "pendingLiquidationConfig",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "internalType": "uint24",
-        "name": "poolFee",
-        "type": "uint24"
-      },
-      {
-        "internalType": "uint256",
-        "name": "slippageBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingTreasuryConfig",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "issuanceTreasury",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsTreasury",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "pool",
     "outputs": [
       {
-        "internalType": "contract LendingPool",
+        "internalType": "contract ILendingPool",
         "name": "",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "poolFee",
-    "outputs": [
-      {
-        "internalType": "uint24",
-        "name": "",
-        "type": "uint24"
       }
     ],
     "stateMutability": "view",
@@ -3057,41 +3047,13 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "privateLoans",
-    "outputs": [
-      {
         "internalType": "address",
-        "name": "vault",
+        "name": "token",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "principal",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "interest",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "collateralAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "loanDuration",
+        "name": "quantity",
         "type": "uint256"
       },
       {
@@ -3100,78 +3062,26 @@ export const loanManagerAbi = [
         "type": "uint256"
       },
       {
-        "internalType": "uint256",
-        "name": "hedgeAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "active",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "internalType": "uint24",
-        "name": "newPoolFee",
-        "type": "uint24"
-      },
-      {
-        "internalType": "uint256",
-        "name": "slippageBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "queueLiquidationConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "issuance",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsAddr",
+        "name": "nftContract",
         "type": "address"
       }
     ],
-    "name": "queueTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "tokenIn",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      }
-    ],
-    "name": "quoteMinUsdcOut",
+    "name": "quoteMaxBorrow",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "maxBorrow",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pv",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ltvBps",
         "type": "uint256"
       }
     ],
@@ -3179,8 +3089,19 @@ export const loanManagerAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "renounceOwnership",
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "callerConfirmation",
+        "type": "address"
+      }
+    ],
+    "name": "renounceRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3198,205 +3119,19 @@ export const loanManagerAbi = [
         "type": "uint256"
       }
     ],
-    "name": "repayLoan",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "repayLoanFor",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "repayPrivateLoan",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "repayTokenPriority",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "repayTokens",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "tokenIn",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minUsdcOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "repayWithSwap",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "amounts",
-        "type": "uint256[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "minUsdcOut",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "repayWithSwapBatch",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "amounts",
-        "type": "uint256[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "minUsdcOut",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "repayWithSwapBatchFor",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "tokenIn",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minUsdcOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "repayWithSwapFor",
+    "name": "repay",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "returnsTreasury",
+    "name": "reserveFactorBps",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -3405,36 +3140,30 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "restartAuction",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
         "internalType": "address",
-        "name": "",
+        "name": "account",
         "type": "address"
       }
     ],
-    "name": "sanctionsPass",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "delaySeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "setAdminTimelockConfig",
+    "name": "revokeRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3443,42 +3172,21 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "ltvBoostBps",
+        "name": "duration",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "interestDiscountBps",
+        "name": "startPremiumBps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "floorBps",
         "type": "uint256"
       }
     ],
-    "name": "setAutoRepayConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "name": "setAutoRepayOptIn",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      }
-    ],
-    "name": "setAutoRepayRequiredTokens",
+    "name": "setAuctionParams",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3487,16 +3195,11 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "verifier",
+        "name": "recipient",
         "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "boostBps",
-        "type": "uint256"
       }
     ],
-    "name": "setIdentityConfig",
+    "name": "setFeeRecipient",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3504,9 +3207,22 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "vault",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "secs",
+        "type": "uint256"
+      }
+    ],
+    "name": "setGracePeriod",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "rank",
+        "type": "uint8"
       },
       {
         "internalType": "uint256",
@@ -3514,7 +3230,7 @@ export const loanManagerAbi = [
         "type": "uint256"
       }
     ],
-    "name": "setInsuranceVault",
+    "name": "setLiqThreshold",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3522,22 +3238,12 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "internalType": "uint24",
-        "name": "newPoolFee",
-        "type": "uint24"
-      },
-      {
         "internalType": "uint256",
-        "name": "slippageBps",
+        "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "setLiquidationConfig",
+    "name": "setMinBorrow",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3546,7 +3252,7 @@ export const loanManagerAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "feeBps",
+        "name": "bps",
         "type": "uint256"
       }
     ],
@@ -3558,66 +3264,12 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
+        "internalType": "uint256",
+        "name": "bps",
+        "type": "uint256"
       }
     ],
-    "name": "setRepayTokenPriority",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "account",
-        "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "status",
-        "type": "bool"
-      }
-    ],
-    "name": "setSanctionsPass",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "treasury",
-        "type": "address"
-      }
-    ],
-    "name": "setTokenTreasury",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "issuance",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsAddr",
-        "type": "address"
-      }
-    ],
-    "name": "setTreasuries",
+    "name": "setReserveFactorBps",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3630,7 +3282,7 @@ export const loanManagerAbi = [
         "type": "uint256"
       }
     ],
-    "name": "settleAtUnlock",
+    "name": "startLiquidation",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -3638,74 +3290,69 @@ export const loanManagerAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
       }
     ],
-    "name": "settlePrivateAtUnlock",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "loanId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address[]",
-        "name": "tokens",
-        "type": "address[]"
-      }
-    ],
-    "name": "sweepSecondaryAssets",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "tokenTreasuries",
+    "name": "supportsInterface",
     "outputs": [
       {
-        "internalType": "address",
+        "internalType": "bool",
         "name": "",
-        "type": "address"
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [
+    "inputs": [],
+    "name": "totalAuctionMarks",
+    "outputs": [
       {
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "uniswapRouter",
+    "name": "totalLosses",
     "outputs": [
       {
-        "internalType": "contract ISwapRouter",
+        "internalType": "uint256",
         "name": "",
-        "type": "address"
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalPrincipal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalScaledDebt",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -3736,7 +3383,7 @@ export const loanManagerAbi = [
     "name": "valuation",
     "outputs": [
       {
-        "internalType": "contract ValuationEngine",
+        "internalType": "contract IValuationEngine",
         "name": "",
         "type": "address"
       }
@@ -3767,12 +3414,22 @@ export const sablierV2LockupAbi = [
   { name: 'setApproved', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'streamId', type: 'uint256' }, { name: 'operator', type: 'address' }, { name: 'isApproved', type: 'bool' }], outputs: [] }
 ];
 
+/** Minimal ERC-721 ABI for approving a vesting-stream NFT to the VestingAdapter. */
+export const erc721Abi = [
+  { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'tokenId', type: 'uint256' }], outputs: [] },
+  { name: 'getApproved', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] },
+  { name: 'isApprovedForAll', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'operator', type: 'address' }], outputs: [{ name: '', type: 'bool' }] },
+  { name: 'setApprovalForAll', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'operator', type: 'address' }, { name: 'approved', type: 'bool' }], outputs: [] },
+  { name: 'ownerOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] }
+];
+
+/** VestingAdapter: escrows vesting-stream NFTs (generated from packages/contracts/abi/VestingAdapter.json) */
 export const vestingAdapterAbi = [
   {
     "inputs": [
       {
         "internalType": "address",
-        "name": "_registry",
+        "name": "_governor",
         "type": "address"
       }
     ],
@@ -3780,14 +3437,35 @@ export const vestingAdapterAbi = [
     "type": "constructor"
   },
   {
+    "inputs": [],
+    "name": "AccessControlBadConfirmation",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
-        "name": "owner",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AccessControlUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
         "type": "address"
       }
     ],
-    "name": "OwnableInvalidOwner",
+    "name": "AddressEmptyCode",
     "type": "error"
   },
   {
@@ -3798,140 +3476,219 @@ export const vestingAdapterAbi = [
         "type": "address"
       }
     ],
-    "name": "OwnableUnauthorizedAccount",
+    "name": "AddressInsufficientBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nftContract",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "AlreadyEscrowed",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "name": "AlreadyReleased",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "name": "EscrowNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FailedInnerCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "unlockTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvalidUnlockTime",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "LoanManagerAlreadySet",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "expected",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "NotOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nftContract",
+        "type": "address"
+      }
+    ],
+    "name": "NotWhitelisted",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "NothingLocked",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      }
+    ],
+    "name": "OnlyLoanManager",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "StreamCancelable",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "StreamCancelled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
     "type": "error"
   },
   {
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "borrower",
+        "type": "address"
+      },
+      {
         "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
+        "internalType": "address",
+        "name": "nftContract",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "delaySeconds",
+        "name": "streamId",
         "type": "uint256"
-      }
-    ],
-    "name": "AdminTimelockConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      }
-    ],
-    "name": "AllowedVestingContractQueueCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "protocol",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "quantity",
         "type": "uint256"
-      }
-    ],
-    "name": "AllowedVestingContractQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
-      }
-    ],
-    "name": "AllowedVestingContractUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      }
-    ],
-    "name": "AuthorizedCallerQueueCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "unlockTime",
         "type": "uint256"
       }
     ],
-    "name": "AuthorizedCallerQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
-      }
-    ],
-    "name": "AuthorizedCallerUpdated",
+    "name": "EscrowCreated",
     "type": "event"
   },
   {
@@ -3940,48 +3697,29 @@ export const vestingAdapterAbi = [
       {
         "indexed": true,
         "internalType": "uint256",
-        "name": "collateralId",
+        "name": "escrowId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
         "type": "uint256"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "oldOwner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "CollateralTransferred",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "LoanManagerQueueCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "manager",
+        "name": "recipient",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "vestedTokens",
         "type": "uint256"
       }
     ],
-    "name": "LoanManagerQueued",
+    "name": "EscrowReleased",
     "type": "event"
   },
   {
@@ -3994,7 +3732,7 @@ export const vestingAdapterAbi = [
         "type": "address"
       }
     ],
-    "name": "LoanManagerUpdated",
+    "name": "LoanManagerSet",
     "type": "event"
   },
   {
@@ -4002,18 +3740,74 @@ export const vestingAdapterAbi = [
     "inputs": [
       {
         "indexed": true,
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "protocol",
+        "type": "uint8"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
-        "name": "previousOwner",
+        "name": "nftContract",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "approved",
+        "type": "bool"
+      }
+    ],
+    "name": "ProtocolWhitelisted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
         "type": "address"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "newOwner",
+        "name": "sender",
         "type": "address"
       }
     ],
-    "name": "OwnershipTransferred",
+    "name": "RoleGranted",
     "type": "event"
   },
   {
@@ -4021,60 +3815,53 @@ export const vestingAdapterAbi = [
     "inputs": [
       {
         "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
-        "name": "registry",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
         "type": "address"
       }
     ],
-    "name": "RegistryUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "UseWhitelistQueueCancelled",
+    "name": "RoleRevoked",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "UseWhitelistQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "name": "UseWhitelistUpdated",
+    "name": "VestedCollected",
     "type": "event"
   },
   {
     "inputs": [],
-    "name": "adminTimelockDelay",
+    "name": "DEFAULT_ADMIN_ROLE",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "bytes32",
         "name": "",
-        "type": "uint256"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -4082,169 +3869,272 @@ export const vestingAdapterAbi = [
   },
   {
     "inputs": [],
-    "name": "adminTimelockEnabled",
+    "name": "GOVERNOR_ROLE",
     "outputs": [
       {
-        "internalType": "bool",
+        "internalType": "bytes32",
         "name": "",
-        "type": "bool"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "auction",
-        "type": "address"
-      }
-    ],
-    "name": "authorizeAuction",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "authorizedCallers",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      }
-    ],
-    "name": "cancelQueuedAuthorizedCaller",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cancelQueuedLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "escrowId",
         "type": "uint256"
       }
     ],
-    "name": "collaterals",
+    "name": "collateral",
     "outputs": [
-      {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
       {
         "internalType": "address",
         "name": "token",
         "type": "address"
       },
-      {
-        "internalType": "uint256",
-        "name": "totalAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "unlockTime",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "vestingContract",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "borrower",
-        "type": "address"
-      }
-    ],
-    "name": "escrow",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      }
-    ],
-    "name": "executeQueuedAuthorizedCaller",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executeQueuedLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getDetails",
-    "outputs": [
       {
         "internalType": "uint256",
         "name": "quantity",
         "type": "uint256"
       },
       {
+        "internalType": "uint256",
+        "name": "unlockTime",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "name": "collectVested",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
-        "name": "token",
+        "name": "borrower",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "nftContract",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "unlockTime",
+        "name": "streamId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "protocol",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "escrowFor",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEscrow",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "nftContract",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "streamId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "borrower",
+            "type": "address"
+          },
+          {
+            "internalType": "enum VestingAdapter.Protocol",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "quantity",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "withdrawnAtEscrow",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "paidOut",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "unlockTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "loanId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "released",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct VestingAdapter.EscrowRecord",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nftContract",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "streamId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEscrowId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRoleAdmin",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "hasRole",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "escrowId",
+        "type": "uint256"
+      }
+    ],
+    "name": "heldTokens",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
         "type": "uint256"
       }
     ],
@@ -4295,167 +4185,6 @@ export const vestingAdapterAbi = [
         "type": "bytes4"
       }
     ],
-    "stateMutability": "pure",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "pendingAllowedVestingContracts",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "value",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "pendingAuthorizedCallers",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "value",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingLoanManager",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "manager",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingUseWhitelist",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "value",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "caller",
-        "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
-      }
-    ],
-    "name": "queueAuthorizedCaller",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "manager",
-        "type": "address"
-      }
-    ],
-    "name": "queueLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "registry",
-    "outputs": [
-      {
-        "internalType": "contract IVestingRegistry",
-        "name": "",
-        "type": "address"
-      }
-    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -4463,28 +4192,16 @@ export const vestingAdapterAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "collateralId",
+        "name": "escrowId",
         "type": "uint256"
       },
       {
         "internalType": "address",
         "name": "to",
         "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
       }
     ],
-    "name": "releaseTo",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "renounceOwnership",
+    "name": "release",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -4492,35 +4209,35 @@ export const vestingAdapterAbi = [
   {
     "inputs": [
       {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
-      {
-        "internalType": "uint256",
-        "name": "delaySeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "setAdminTimelockConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
       {
         "internalType": "address",
-        "name": "caller",
+        "name": "callerConfirmation",
         "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "allowed",
-        "type": "bool"
       }
     ],
-    "name": "setAuthorizedCaller",
+    "name": "renounceRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "revokeRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -4529,7 +4246,7 @@ export const vestingAdapterAbi = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "manager",
+        "name": "_loanManager",
         "type": "address"
       }
     ],
@@ -4541,30 +4258,22 @@ export const vestingAdapterAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_registry",
-        "type": "address"
-      }
-    ],
-    "name": "setRegistry",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "collateralId",
-        "type": "uint256"
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "protocol",
+        "type": "uint8"
       },
       {
         "internalType": "address",
-        "name": "newOwner",
+        "name": "nftContract",
         "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "approved",
+        "type": "bool"
       }
     ],
-    "name": "transferCollateral",
+    "name": "setWhitelisted",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -4572,30 +4281,41 @@ export const vestingAdapterAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
       }
     ],
-    "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "vestingContracts",
+    "name": "supportsInterface",
     "outputs": [
       {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum VestingAdapter.Protocol",
+        "name": "",
+        "type": "uint8"
+      },
+      {
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "name": "whitelisted",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -4650,17 +4370,236 @@ export const usdcAbi = [
   }
 ];
 
+/** LendingPool: ERC-4626 USDC vault (generated from packages/contracts/abi/LendingPool.json) */
 export const lendingPoolAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IERC20",
         "name": "_usdc",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_governor",
         "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
     "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "AccessControlBadConfirmation",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AccessControlUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
+        "type": "address"
+      }
+    ],
+    "name": "AddressEmptyCode",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "AddressInsufficientBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "allowance",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "needed",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC20InsufficientAllowance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "balance",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "needed",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC20InsufficientBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "approver",
+        "type": "address"
+      }
+    ],
+    "name": "ERC20InvalidApprover",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      }
+    ],
+    "name": "ERC20InvalidReceiver",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "ERC20InvalidSender",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      }
+    ],
+    "name": "ERC20InvalidSpender",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "max",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC4626ExceededMaxDeposit",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "max",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC4626ExceededMaxMint",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "max",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC4626ExceededMaxRedeem",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "max",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC4626ExceededMaxWithdraw",
+    "type": "error"
   },
   {
     "inputs": [],
@@ -4673,25 +4612,13 @@ export const lendingPoolAbi = [
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      }
-    ],
-    "name": "OwnableInvalidOwner",
+    "inputs": [],
+    "name": "FailedInnerCall",
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "account",
-        "type": "address"
-      }
-    ],
-    "name": "OwnableUnauthorizedAccount",
+    "inputs": [],
+    "name": "MathOverflowedMulDiv",
     "type": "error"
   },
   {
@@ -4714,82 +4641,25 @@ export const lendingPoolAbi = [
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "delaySeconds",
-        "type": "uint256"
-      }
-    ],
-    "name": "AdminTimelockConfigUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amountMovedToLiquidity",
-        "type": "uint256"
-      }
-    ],
-    "name": "CommunityPoolActivated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "name": "CommunityPoolClosed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "contributor",
+        "name": "spender",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "buildingUnits",
+        "name": "value",
         "type": "uint256"
       }
     ],
-    "name": "CommunityPoolContribution",
+    "name": "Approval",
     "type": "event"
   },
   {
@@ -4797,76 +4667,52 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "creator",
+        "name": "owner",
         "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "indexed": false,
         "internalType": "uint256",
-        "name": "targetAmount",
+        "name": "assets",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "maxAmount",
+        "name": "shares",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "rewardsByBuildingSize",
-        "type": "bool"
       }
     ],
-    "name": "CommunityPoolCreated",
+    "name": "Deposit",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256",
-        "name": "poolId",
+        "name": "cap",
         "type": "uint256"
       }
     ],
-    "name": "CommunityPoolMarkedRefunding",
+    "name": "DepositCapUpdated",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "contributor",
+        "name": "from",
         "type": "address"
       },
       {
@@ -4876,7 +4722,20 @@ export const lendingPoolAbi = [
         "type": "uint256"
       }
     ],
-    "name": "CommunityPoolRefunded",
+    "name": "Donated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "governor",
+        "type": "address"
+      }
+    ],
+    "name": "GovernanceInitialised",
     "type": "event"
   },
   {
@@ -4884,14 +4743,8 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
         "internalType": "address",
-        "name": "contributor",
+        "name": "to",
         "type": "address"
       },
       {
@@ -4901,70 +4754,7 @@ export const lendingPoolAbi = [
         "type": "uint256"
       }
     ],
-    "name": "CommunityPoolRewardsClaimed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "funder",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "CommunityPoolRewardsFunded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "coprocessor",
-        "type": "address"
-      }
-    ],
-    "name": "CoprocessorUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "LoanManagerQueueCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "manager",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      }
-    ],
-    "name": "LoanManagerQueued",
+    "name": "Lent",
     "type": "event"
   },
   {
@@ -4977,26 +4767,7 @@ export const lendingPoolAbi = [
         "type": "address"
       }
     ],
-    "name": "LoanManagerUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "previousOwner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "OwnershipTransferred",
+    "name": "LoanManagerSet",
     "type": "event"
   },
   {
@@ -5018,93 +4789,25 @@ export const lendingPoolAbi = [
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "windowEndTime",
-        "type": "uint256"
-      }
-    ],
-    "name": "RagequitTriggered",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [],
-    "name": "RateModelCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "lowThresholdBps",
+        "name": "baseRateBps",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "highThresholdBps",
+        "name": "slope1Bps",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "lowRateBps",
+        "name": "slope2Bps",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "midRateBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "highRateBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      }
-    ],
-    "name": "RateModelQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "lowThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "highThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "lowRateBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "midRateBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "highRateBps",
+        "name": "kinkBps",
         "type": "uint256"
       }
     ],
@@ -5113,52 +4816,115 @@ export const lendingPoolAbi = [
   },
   {
     "anonymous": false,
-    "inputs": [],
-    "name": "TreasuryConfigCancelled",
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "Repaid",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
-        "name": "issuanceTreasury",
+        "name": "account",
         "type": "address"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
-        "name": "returnsTreasury",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "executeAfter",
+        "name": "value",
         "type": "uint256"
       }
     ],
-    "name": "TreasuryConfigQueued",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "issuanceTreasury",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "returnsTreasury",
-        "type": "address"
-      }
-    ],
-    "name": "TreasuryConfigUpdated",
+    "name": "Transfer",
     "type": "event"
   },
   {
@@ -5178,18 +4944,42 @@ export const lendingPoolAbi = [
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
         "indexed": false,
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
       }
     ],
-    "name": "UpgradeVetoed",
+    "name": "Withdraw",
     "type": "event"
   },
   {
     "inputs": [],
-    "name": "BPS_DENOMINATOR",
+    "name": "BPS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -5202,7 +4992,83 @@ export const lendingPoolAbi = [
   },
   {
     "inputs": [],
-    "name": "REWARD_PRECISION",
+    "name": "DEFAULT_ADMIN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GOVERNOR_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GUARDIAN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "KEEPER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PAUSER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      }
+    ],
+    "name": "allowance",
     "outputs": [
       {
         "internalType": "uint256",
@@ -5216,37 +5082,35 @@ export const lendingPoolAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "name": "activateCommunityPool",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "adminTimelockDelay",
-    "outputs": [
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      },
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "value",
         "type": "uint256"
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "adminTimelockEnabled",
+    "name": "approve",
     "outputs": [
       {
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "asset",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -5266,86 +5130,27 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "cancelQueuedLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cancelQueuedRateModel",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cancelQueuedTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimCommunityPoolRefund",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimCommunityPoolRewards",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
-        "name": "to",
+        "name": "account",
         "type": "address"
-      },
+      }
+    ],
+    "name": "balanceOf",
+    "outputs": [
       {
         "internalType": "uint256",
-        "name": "amount",
+        "name": "",
         "type": "uint256"
       }
     ],
-    "name": "claimInsurance",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "name": "closeCommunityPool",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
-    "name": "communityPoolCount",
+    "name": "baseRateBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -5360,70 +5165,79 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "borrowRateAfter",
+    "outputs": [
+      {
+        "internalType": "uint256",
         "name": "",
         "type": "uint256"
       }
     ],
-    "name": "communityPools",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "borrowRateBps",
     "outputs": [
       {
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "internalType": "address",
-        "name": "creator",
-        "type": "address"
-      },
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
         "internalType": "uint256",
-        "name": "targetAmount",
+        "name": "shares",
         "type": "uint256"
-      },
+      }
+    ],
+    "name": "convertToAssets",
+    "outputs": [
       {
         "internalType": "uint256",
-        "name": "maxAmount",
+        "name": "",
         "type": "uint256"
-      },
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
         "internalType": "uint256",
-        "name": "deadline",
+        "name": "assets",
         "type": "uint256"
-      },
+      }
+    ],
+    "name": "convertToShares",
+    "outputs": [
       {
         "internalType": "uint256",
-        "name": "totalContributed",
+        "name": "",
         "type": "uint256"
-      },
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "decimals",
+    "outputs": [
       {
-        "internalType": "uint256",
-        "name": "totalBuildingUnits",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "participantCount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "accRewardPerWeight",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "totalRewardFunded",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "rewardsByBuildingSize",
-        "type": "bool"
-      },
-      {
-        "internalType": "enum LendingPool.CommunityPoolState",
-        "name": "state",
+        "internalType": "uint8",
+        "name": "",
         "type": "uint8"
       }
     ],
@@ -5434,143 +5248,29 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "assets",
         "type": "uint256"
       },
       {
         "internalType": "address",
-        "name": "",
+        "name": "receiver",
         "type": "address"
-      }
-    ],
-    "name": "communityPositions",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "contributed",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "buildingUnits",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "rewardDebt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "pendingRewards",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "joined",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "buildingUnits",
-        "type": "uint256"
-      }
-    ],
-    "name": "contributeToCommunityPool",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "coprocessor",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "internalType": "uint256",
-        "name": "targetAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "maxAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "rewardsByBuildingSize",
-        "type": "bool"
-      }
-    ],
-    "name": "createCommunityPool",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
       }
     ],
     "name": "deposit",
-    "outputs": [],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "deposits",
+    "inputs": [],
+    "name": "depositCap",
     "outputs": [
       {
         "internalType": "uint256",
@@ -5582,40 +5282,14 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "executeQueuedLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executeQueuedRateModel",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executeQueuedTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "poolId",
-        "type": "uint256"
-      },
       {
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "fundCommunityPoolRewards",
+    "name": "donate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -5623,69 +5297,85 @@ export const lendingPoolAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "durationDays",
-        "type": "uint256"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       }
     ],
-    "name": "getInterestRateBps",
+    "name": "getRoleAdmin",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "bytes32",
         "name": "",
-        "type": "uint256"
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "highUtilizationRateBps",
-    "outputs": [
+    "inputs": [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "highUtilizationThresholdBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "insuranceReserve",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "issuanceTreasury",
-    "outputs": [
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
       {
         "internalType": "address",
-        "name": "",
+        "name": "account",
         "type": "address"
+      }
+    ],
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "hasRole",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "idleAssets",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "kinkBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -5723,52 +5413,113 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "lowUtilizationRateBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "lowUtilizationThresholdBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "midUtilizationRateBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "name": "maxDeposit",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      }
+    ],
+    "name": "maxMint",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "maxRedeem",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "maxWithdraw",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      }
+    ],
+    "name": "mint",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "name",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -5798,16 +5549,11 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "poolId",
+        "name": "assets",
         "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
       }
     ],
-    "name": "pendingCommunityPoolRewards",
+    "name": "previewDeposit",
     "outputs": [
       {
         "internalType": "uint256",
@@ -5819,179 +5565,14 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "pendingLoanManager",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "manager",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingRateModel",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "lowThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "highThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "lowRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "midRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "highRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingTreasuryConfig",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "issuanceTreasury",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsTreasury",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "executeAfter",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "exists",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "manager",
-        "type": "address"
-      }
-    ],
-    "name": "queueLoanManager",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "lowThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "highThresholdBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "lowRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "midRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "highRateBps",
+        "name": "shares",
         "type": "uint256"
       }
     ],
-    "name": "queueRateModel",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "issuance",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsAddr",
-        "type": "address"
-      }
-    ],
-    "name": "queueTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "ragequitActive",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "ragequitEndTime",
+    "name": "previewMint",
     "outputs": [
       {
         "internalType": "uint256",
@@ -6003,8 +5584,105 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "renounceOwnership",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      }
+    ],
+    "name": "previewRedeem",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      }
+    ],
+    "name": "previewWithdraw",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "u",
+        "type": "uint256"
+      }
+    ],
+    "name": "rateAt",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "shares",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "redeem",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "callerConfirmation",
+        "type": "address"
+      }
+    ],
+    "name": "renounceRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -6015,11 +5693,6 @@ export const lendingPoolAbi = [
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "interestAmount",
-        "type": "uint256"
       }
     ],
     "name": "repay",
@@ -6028,32 +5701,32 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "returnsTreasury",
-    "outputs": [
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
       {
         "internalType": "address",
-        "name": "",
+        "name": "account",
         "type": "address"
       }
     ],
-    "stateMutability": "view",
+    "name": "revokeRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
       {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      },
-      {
         "internalType": "uint256",
-        "name": "delaySeconds",
+        "name": "cap",
         "type": "uint256"
       }
     ],
-    "name": "setAdminTimelockConfig",
+    "name": "setDepositCap",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -6062,20 +5735,7 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "_coprocessor",
-        "type": "address"
-      }
-    ],
-    "name": "setCoprocessor",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "manager",
+        "name": "_loanManager",
         "type": "address"
       }
     ],
@@ -6088,27 +5748,22 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "lowThresholdBps",
+        "name": "base",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "highThresholdBps",
+        "name": "s1",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "lowRateBps",
+        "name": "s2",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "midRateBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "highRateBps",
+        "name": "kink",
         "type": "uint256"
       }
     ],
@@ -6118,21 +5773,74 @@ export const lendingPoolAbi = [
     "type": "function"
   },
   {
-    "inputs": [
+    "inputs": [],
+    "name": "slope1Bps",
+    "outputs": [
       {
-        "internalType": "address",
-        "name": "issuance",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "returnsAddr",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "name": "setTreasuries",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "slope2Bps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
+    "name": "supportsInterface",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "symbol",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalAssets",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -6150,7 +5858,7 @@ export const lendingPoolAbi = [
   },
   {
     "inputs": [],
-    "name": "totalDeposits",
+    "name": "totalSupply",
     "outputs": [
       {
         "internalType": "uint256",
@@ -6165,19 +5873,52 @@ export const lendingPoolAbi = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "newOwner",
+        "name": "to",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
       }
     ],
-    "name": "transferOwnership",
-    "outputs": [],
+    "name": "transfer",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "triggerRagequit",
-    "outputs": [],
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferFrom",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
@@ -6190,20 +5931,60 @@ export const lendingPoolAbi = [
   },
   {
     "inputs": [],
-    "name": "usdc",
+    "name": "utilizationBps",
     "outputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "uint256",
         "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "borrowed",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "idle",
+        "type": "uint256"
+      }
+    ],
+    "name": "utilizationFor",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
         "type": "address"
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "utilizationRateBps",
+    "name": "withdraw",
     "outputs": [
       {
         "internalType": "uint256",
@@ -6211,48 +5992,23 @@ export const lendingPoolAbi = [
         "type": "uint256"
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
-      }
-    ],
-    "name": "vetoUpgrade",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "withdraw",
-    "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   }
 ];
 
-export const termVaultAbi = [
+/** InsuranceVault: reserve-factor backstop for lenders (generated from packages/contracts/abi/InsuranceVault.json) */
+export const insuranceVaultAbi = [
   {
     "inputs": [
       {
-        "internalType": "address",
+        "internalType": "contract IERC20",
         "name": "_usdc",
         "type": "address"
       },
       {
         "internalType": "address",
-        "name": "_feeRecipient",
+        "name": "_governor",
         "type": "address"
       }
     ],
@@ -6261,23 +6017,34 @@ export const termVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "EnforcedPause",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ExpectedPause",
+    "name": "AccessControlBadConfirmation",
     "type": "error"
   },
   {
     "inputs": [
       {
         "internalType": "address",
-        "name": "owner",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "AccessControlUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
         "type": "address"
       }
     ],
-    "name": "OwnableInvalidOwner",
+    "name": "AddressEmptyCode",
     "type": "error"
   },
   {
@@ -6288,12 +6055,12 @@ export const termVaultAbi = [
         "type": "address"
       }
     ],
-    "name": "OwnableUnauthorizedAccount",
+    "name": "AddressInsufficientBalance",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "ReentrancyGuardReentrantCall",
+    "name": "FailedInnerCall",
     "type": "error"
   },
   {
@@ -6311,37 +6078,19 @@ export const termVaultAbi = [
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "payout",
+        "name": "requested",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "fee",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "forfeitedInterest",
+        "name": "paid",
         "type": "uint256"
       }
     ],
-    "name": "EarlyWithdrawn",
+    "name": "Covered",
     "type": "event"
   },
   {
@@ -6349,18 +6098,12 @@ export const termVaultAbi = [
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "earlyExitFeeBps",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
         "internalType": "address",
-        "name": "feeRecipient",
+        "name": "governor",
         "type": "address"
       }
     ],
-    "name": "FeeConfigUpdated",
+    "name": "GovernanceInitialised",
     "type": "event"
   },
   {
@@ -6368,366 +6111,237 @@ export const termVaultAbi = [
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "loanManager",
+        "type": "address"
+      }
+    ],
+    "name": "LoanManagerSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "owner",
+        "name": "account",
         "type": "address"
       },
       {
-        "indexed": false,
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "DEFAULT_ADMIN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GOVERNOR_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GUARDIAN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "KEEPER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PAUSER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "balance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "InterestClaimed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
+    "name": "cover",
+    "outputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "previousOwner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "paid",
+        "type": "uint256"
       }
     ],
-    "name": "OwnershipTransferred",
-    "type": "event"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRoleAdmin",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
         "internalType": "address",
         "name": "account",
         "type": "address"
       }
     ],
-    "name": "Paused",
-    "type": "event"
+    "name": "grantRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "from",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "RewardsFunded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint32",
-        "name": "trancheId",
-        "type": "uint32"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "TermDeposited",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint32",
-        "name": "trancheId",
-        "type": "uint32"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "termSeconds",
-        "type": "uint64"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint32",
-        "name": "minApyBps",
-        "type": "uint32"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "name": "TrancheUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
         "internalType": "address",
         "name": "account",
         "type": "address"
       }
     ],
-    "name": "Unpaused",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "principal",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "interest",
-        "type": "uint256"
-      }
-    ],
-    "name": "WithdrawnAtMaturity",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "BPS_DENOMINATOR",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SECONDS_PER_YEAR",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "availableRewardBudget",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimInterest",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimableInterest",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint32",
-        "name": "trancheId",
-        "type": "uint32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "depositTerm",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "earlyExitFeeBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "name": "earlyWithdraw",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "feeRecipient",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "fundRewards",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "nextPositionId",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "owner",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pause",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "paused",
+    "name": "hasRole",
     "outputs": [
       {
         "internalType": "bool",
@@ -6739,19 +6353,13 @@ export const termVaultAbi = [
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "name": "positionStatus",
+    "inputs": [],
+    "name": "loanManager",
     "outputs": [
       {
-        "internalType": "string",
+        "internalType": "address",
         "name": "",
-        "type": "string"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -6760,51 +6368,65 @@ export const termVaultAbi = [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "positions",
-    "outputs": [
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
       {
         "internalType": "address",
-        "name": "owner",
+        "name": "callerConfirmation",
         "type": "address"
+      }
+    ],
+    "name": "renounceRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType": "uint32",
-        "name": "trancheId",
-        "type": "uint32"
-      },
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "revokeRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
-        "internalType": "uint64",
-        "name": "startTime",
-        "type": "uint64"
-      },
+        "internalType": "address",
+        "name": "_loanManager",
+        "type": "address"
+      }
+    ],
+    "name": "setLoanManager",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
-        "internalType": "uint64",
-        "name": "endTime",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint256",
-        "name": "principal",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "guaranteedInterest",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "interestClaimed",
-        "type": "uint256"
-      },
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
+    "name": "supportsInterface",
+    "outputs": [
       {
         "internalType": "bool",
-        "name": "closed",
+        "name": "",
         "type": "bool"
       }
     ],
@@ -6813,14 +6435,7 @@ export const termVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "renounceOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "reservedRewards",
+    "name": "totalCovered",
     "outputs": [
       {
         "internalType": "uint256",
@@ -6829,114 +6444,6 @@ export const termVaultAbi = [
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_earlyExitFeeBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_feeRecipient",
-        "type": "address"
-      }
-    ],
-    "name": "setFeeConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint32",
-        "name": "trancheId",
-        "type": "uint32"
-      },
-      {
-        "internalType": "uint64",
-        "name": "termSeconds",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint32",
-        "name": "minApyBps",
-        "type": "uint32"
-      },
-      {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "name": "setTranche",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "totalPrincipalLocked",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint32",
-        "name": "",
-        "type": "uint32"
-      }
-    ],
-    "name": "tranches",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "termSeconds",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint32",
-        "name": "minApyBps",
-        "type": "uint32"
-      },
-      {
-        "internalType": "bool",
-        "name": "enabled",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "unpause",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -6950,19 +6457,6 @@ export const termVaultAbi = [
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "positionId",
-        "type": "uint256"
-      }
-    ],
-    "name": "withdrawAtMaturity",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   }
 ];
@@ -6998,23 +6492,6 @@ export const erc20Abi = [
   }
 ];
 
-export const auctionFactoryAbi = [
-  {
-    name: 'auctions',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'string' }],
-    outputs: [{ name: '', type: 'address' }]
-  },
-  {
-    name: 'createDutchAuction',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }]
-  }
-];
-
 export const testnetPriceFeedAbi = [
   {
     name: 'decimals',
@@ -7035,36 +6512,6 @@ export const testnetPriceFeedAbi = [
       { name: '', type: 'uint256' },
       { name: '', type: 'uint80' }
     ]
-  }
-];
-
-export const demoFaucetAbi = [
-  {
-    "inputs": [
-      { "internalType": "address", "name": "registry_", "type": "address" }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "address", "name": "borrower", "type": "address" },
-      { "indexed": false, "internalType": "address", "name": "vestingContract", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "collateralId", "type": "uint256" }
-    ],
-    "name": "DemoPositionMinted",
-    "type": "event"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "allocation", "type": "uint256" },
-      { "internalType": "uint64", "name": "durationMonths", "type": "uint64" }
-    ],
-    "name": "mintDemoPosition",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
   }
 ];
 

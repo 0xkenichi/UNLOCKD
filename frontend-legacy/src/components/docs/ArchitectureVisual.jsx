@@ -59,7 +59,7 @@ const ProNode = ({ id, icon: Icon, title, subtitle, colorVar, activeNode, onHove
                                 position: 'absolute',
                                 inset: -15,
                                 borderRadius: '50%',
-                                background: `radial-gradient(circle, var(${colorVar}, rgba(59, 130, 246, 0.4)) 0%, transparent 70%)`,
+                                background: `radial-gradient(circle, var(${colorVar}, rgba(196, 162, 108, 0.4)) 0%, transparent 70%)`,
                                 filter: 'blur(8px)',
                                 opacity: isActive ? 0.5 : 0.2,
                                 zIndex: -1
@@ -157,7 +157,7 @@ export default function ArchitectureVisual() {
         valuator: { id: 'valuator', title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, colorVar: "--primary-400", x: 50, y: 18 },
         core: { id: 'core', title: "Vestra Core", subtitle: "Settlement", icon: Shield, colorVar: "--primary-400", x: 85, y: 18 },
         lenders: { id: 'lenders', title: "Liquidity Providers", subtitle: "Assets", icon: Coins, colorVar: "--success-400", x: 15, y: 52 },
-        pool: { id: 'pool', title: "Community Pools", subtitle: "Management", icon: Repeat, colorVar: "--success-400", x: 50, y: 52 },
+        pool: { id: 'pool', title: "Lending Pool", subtitle: "ERC-4626", icon: Repeat, colorVar: "--success-400", x: 50, y: 52 },
         vault: { id: 'vault', title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, colorVar: "--warning-400", x: 85, y: 52 },
     };
 
@@ -210,7 +210,7 @@ export default function ArchitectureVisual() {
                             onClick={() => { setViewState(key); setActiveNode(null); }}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderRadius: 'var(--radius-md)',
-                                background: viewState === key ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                                background: viewState === key ? 'rgba(196, 162, 108, 0.1)' : 'transparent',
                                 border: `1px solid ${viewState === key ? 'var(--primary-400)' : 'transparent'}`,
                                 color: viewState === key ? '#fff' : 'var(--text-muted)',
                                 fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left'
@@ -316,7 +316,7 @@ export default function ArchitectureVisual() {
                 {/* Ambient background glow */}
                 <div style={{
                     position: 'absolute', inset: 0,
-                    background: 'radial-gradient(circle at 70% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 60%)',
+                    background: 'radial-gradient(circle at 70% 50%, rgba(196, 162, 108, 0.05) 0%, transparent 60%)',
                     pointerEvents: 'none', zIndex: 0
                 }} />
             </div>

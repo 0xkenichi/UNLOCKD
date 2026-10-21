@@ -17,8 +17,12 @@ export default function ValuationForm({ onUpdate, prefill, compact = false }) {
   const tokenDecimals = Number(prefill?.tokenDecimals ?? 18);
   const quantityUnits = prefill?.quantity ? BigInt(prefill.quantity) : 0n;
   const unlockTime = prefill?.unlockTime ? Number(prefill.unlockTime) : 0;
+  const vestingContract = /^0x[a-fA-F0-9]{40}$/.test(prefill?.vestingContract || '')
+    ? prefill.vestingContract
+    : DEFAULT_TOKEN;
   const hasCollateralInputs =
     tokenAddress !== DEFAULT_TOKEN &&
+    vestingContract !== DEFAULT_TOKEN &&
     quantityUnits > 0n &&
     unlockTime > 0;
 
@@ -26,10 +30,12 @@ export default function ValuationForm({ onUpdate, prefill, compact = false }) {
     address: valuationEngine,
     abi: valuationEngineAbi,
     functionName: 'computeDPV',
+    // computeDPV(quantity, token, unlockTime, vestingContract) -> (pv, ltvBps); pv is in USDC (6 decimals)
     args: [
       quantityUnits,
       tokenAddress,
-      unlockTime
+      BigInt(unlockTime),
+      vestingContract
     ],
     query: {
       enabled: Boolean(valuationEngine && hasCollateralInputs)
@@ -71,7 +77,7 @@ export default function ValuationForm({ onUpdate, prefill, compact = false }) {
       </div>
       {!hasCollateralInputs && (
         <div className="muted" style={{ marginBottom: 16 }}>
-          Enter collateral ID + vesting contract in Borrow Actions to load real on-chain valuation inputs.
+          Enter a stream NFT contract + stream ID in Borrow Actions to load real on-chain valuation inputs.
         </div>
       )}
       {!compact && (
@@ -93,18 +99,18 @@ export default function ValuationForm({ onUpdate, prefill, compact = false }) {
       <div className={`stat-row ${compact ? 'compact' : ''}`}>
         <div className="stat-card">
           <div className="stat-label">Present Value</div>
-          <div className="stat-value">{pv.toString()}</div>
-          <div className="stat-delta">Raw on-chain PV</div>
+          <div className="stat-value">{formatValue(pv, 6)}</div>
+          <div className="stat-delta">USDC (on-chain dDPV)</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">LTV</div>
           <div className="stat-value">{ltvPercent}%</div>
-          <div className="stat-delta">Risk-adjusted</div>
+          <div className="stat-delta">Per-rank base LTV</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Max Borrow</div>
-          <div className="stat-value">{maxBorrow.toString()}</div>
-          <div className="stat-delta">Raw units</div>
+          <div className="stat-value">{formatValue(maxBorrow, 6)}</div>
+          <div className="stat-delta">USDC (PV × LTV)</div>
         </div>
       </div>
     </div>

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { decodeEventLog } from 'viem';
 import EssentialsPanel from '../components/common/EssentialsPanel.jsx';
 import SmartWalletOnboardingCard from '../components/lender/SmartWalletOnboardingCard.jsx';
 import {
@@ -15,7 +14,13 @@ import {
   requestChainSupport,
   updatePoolPreferences
 } from '../utils/api.js';
-import { getContractAddress, lendingPoolAbi, termVaultAbi, usdcAbi } from '../utils/contracts.js';
+import {
+  getContractAddress,
+  insuranceVaultAbi,
+  lendingPoolAbi,
+  loanManagerAbi,
+  usdcAbi
+} from '../utils/contracts.js';
 import { formatValue, toUnits } from '../utils/format.js';
 
 const DEFAULT_PREFS = {
@@ -46,7 +51,8 @@ export default function Lender() {
   const depositSectionRef = useRef(null);
   const [smartWalletAddress, setSmartWalletAddress] = useState('');
   const lendingPool = getContractAddress(chainId, 'lendingPool');
-  const termVault = getContractAddress(chainId, 'termVault');
+  const loanManager = getContractAddress(chainId, 'loanManager');
+  const insuranceVault = getContractAddress(chainId, 'insuranceVault');
   const usdc = getContractAddress(chainId, 'usdc');
   const [pools, setPools] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,15 +60,11 @@ export default function Lender() {
   const [error, setError] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [termDepositAmount, setTermDepositAmount] = useState('');
-  const [termTrancheId, setTermTrancheId] = useState('0');
-  const [termPositionId, setTermPositionId] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [updateState, setUpdateState] = useState('idle');
   const [actionLogs, setActionLogs] = useState([]);
   const [projectionState, setProjectionState] = useState({ status: 'idle', data: null, error: '' });
   const [portfolioLightState, setPortfolioLightState] = useState({ status: 'idle', data: null, error: '' });
-  const [termVaultRequestState, setTermVaultRequestState] = useState({ status: 'idle', error: '' });
 
   const [poolName, setPoolName] = useState('Vestra Pool');
   const [poolChain, setPoolChain] = useState('base');
@@ -98,29 +100,12 @@ export default function Lender() {
   const walletSource = smartWalletAddress ? 'smart_wallet' : address ? 'browser_wallet' : 'none';
   const depositUnits = useMemo(() => toUnits(depositAmount, 6), [depositAmount]);
   const withdrawUnits = useMemo(() => toUnits(withdrawAmount, 6), [withdrawAmount]);
-  const termDepositUnits = useMemo(() => toUnits(termDepositAmount, 6), [termDepositAmount]);
 
   const formatUsd = useCallback((value) => {
     const num = Number(value);
     if (!Number.isFinite(num)) return '--';
     return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }, []);
-
-  const submitTermVaultRequest = async () => {
-    setTermVaultRequestState({ status: 'submitting', error: '' });
-    try {
-      await requestChainSupport({
-        chainId,
-        feature: 'term_vault',
-        page: 'lender',
-        walletAddress: address || undefined,
-        message: 'User requested TermVault deployment on this chain'
-      });
-      setTermVaultRequestState({ status: 'submitted', error: '' });
-    } catch (error) {
-      setTermVaultRequestState({ status: 'error', error: error?.message || 'Unable to submit request' });
-    }
-  };
 
   const { data: usdcBalance } = useReadContract({
     address: usdc,
@@ -141,21 +126,11 @@ export default function Lender() {
     query: { enabled: Boolean(usdc && lendingPool && address) }
   });
 
-  const { data: termAllowance } = useReadContract({
-    address: usdc,
-    abi: usdcAbi,
-    functionName: 'allowance',
-    args: [
-      address || '0x0000000000000000000000000000000000000000',
-      termVault || '0x0000000000000000000000000000000000000000'
-    ],
-    query: { enabled: Boolean(usdc && termVault && address) }
-  });
-
-  const { data: totalDeposits } = useReadContract({
+  const ZERO = '0x0000000000000000000000000000000000000000';
+  const { data: totalAssets, refetch: refetchTotalAssets } = useReadContract({
     address: lendingPool,
     abi: lendingPoolAbi,
-    functionName: 'totalDeposits',
+    functionName: 'totalAssets',
     query: { enabled: Boolean(lendingPool) }
   });
 
@@ -166,55 +141,80 @@ export default function Lender() {
     query: { enabled: Boolean(lendingPool) }
   });
 
-  const { data: utilizationRate } = useReadContract({
+  const { data: availableLiquidity } = useReadContract({
     address: lendingPool,
     abi: lendingPoolAbi,
-    functionName: 'utilizationRateBps',
+    functionName: 'availableLiquidity',
     query: { enabled: Boolean(lendingPool) }
   });
 
-  const { data: poolRate } = useReadContract({
+  const { data: utilizationBps } = useReadContract({
     address: lendingPool,
     abi: lendingPoolAbi,
-    functionName: 'getInterestRateBps',
+    functionName: 'utilizationBps',
     query: { enabled: Boolean(lendingPool) }
   });
 
-  const { data: termRewardBudget } = useReadContract({
-    address: termVault,
-    abi: termVaultAbi,
-    functionName: 'availableRewardBudget',
-    query: { enabled: Boolean(termVault) }
+  const { data: borrowRateBps } = useReadContract({
+    address: lendingPool,
+    abi: lendingPoolAbi,
+    functionName: 'borrowRateBps',
+    query: { enabled: Boolean(lendingPool) }
   });
 
-  const { data: tranche0 } = useReadContract({
-    address: termVault,
-    abi: termVaultAbi,
-    functionName: 'tranches',
-    args: [0],
-    query: { enabled: Boolean(termVault) }
+  const { data: reserveFactorBps } = useReadContract({
+    address: loanManager,
+    abi: loanManagerAbi,
+    functionName: 'reserveFactorBps',
+    query: { enabled: Boolean(loanManager) }
   });
-  const { data: tranche1 } = useReadContract({
-    address: termVault,
-    abi: termVaultAbi,
-    functionName: 'tranches',
-    args: [1],
-    query: { enabled: Boolean(termVault) }
+
+  const { data: walletShares, refetch: refetchShares } = useReadContract({
+    address: lendingPool,
+    abi: lendingPoolAbi,
+    functionName: 'balanceOf',
+    args: [address || ZERO],
+    query: { enabled: Boolean(lendingPool && address) }
   });
-  const { data: tranche2 } = useReadContract({
-    address: termVault,
-    abi: termVaultAbi,
-    functionName: 'tranches',
-    args: [2],
-    query: { enabled: Boolean(termVault) }
+
+  const { data: walletShareAssets } = useReadContract({
+    address: lendingPool,
+    abi: lendingPoolAbi,
+    functionName: 'convertToAssets',
+    args: [walletShares ?? 0n],
+    query: { enabled: Boolean(lendingPool && walletShares !== undefined) }
   });
-  const { data: tranche3 } = useReadContract({
-    address: termVault,
-    abi: termVaultAbi,
-    functionName: 'tranches',
-    args: [3],
-    query: { enabled: Boolean(termVault) }
+
+  const { data: maxWithdrawable, refetch: refetchMaxWithdraw } = useReadContract({
+    address: lendingPool,
+    abi: lendingPoolAbi,
+    functionName: 'maxWithdraw',
+    args: [address || ZERO],
+    query: { enabled: Boolean(lendingPool && address) }
   });
+
+  const { data: insuranceBalance } = useReadContract({
+    address: insuranceVault,
+    abi: insuranceVaultAbi,
+    functionName: 'balance',
+    query: { enabled: Boolean(insuranceVault) }
+  });
+
+  const { data: insuranceCovered } = useReadContract({
+    address: insuranceVault,
+    abi: insuranceVaultAbi,
+    functionName: 'totalCovered',
+    query: { enabled: Boolean(insuranceVault) }
+  });
+
+  // Supply APY is not stored on-chain. Lenders earn the borrow rate on the borrowed share of the
+  // pool, net of the reserve factor that goes to the InsuranceVault. It moves with utilization.
+  const supplyApyPct = useMemo(() => {
+    if (borrowRateBps === undefined || utilizationBps === undefined) return null;
+    const rf = reserveFactorBps !== undefined ? Number(reserveFactorBps) : 0;
+    const apyBps = (Number(borrowRateBps) * Number(utilizationBps)) / 10000 * (1 - rf / 10000);
+    return apyBps / 100;
+  }, [borrowRateBps, utilizationBps, reserveFactorBps]);
 
   const {
     data: approveHash,
@@ -236,24 +236,6 @@ export default function Lender() {
   } = useWriteContract();
 
   const {
-    data: approveTermHash,
-    writeContract: writeApproveTerm,
-    isPending: isApproveTermPending,
-    error: approveTermError
-  } = useWriteContract();
-
-  const {
-    data: termActionHash,
-    writeContract: writeTermAction,
-    isPending: isTermActionPending,
-    error: termActionError
-  } = useWriteContract();
-
-  // When we call `depositTerm`, the returned hash can be correlated with the next
-  // position id for this client session so the user can manage the position.
-  const [lastTermPositionId, setLastTermPositionId] = useState(null);
-
-  const {
     isLoading: approveMining,
     isSuccess: approveConfirmed,
     error: approveReceiptError
@@ -268,27 +250,6 @@ export default function Lender() {
     isSuccess: withdrawConfirmed,
     error: withdrawReceiptError
   } = useWaitForTransactionReceipt({ hash: withdrawHash });
-
-  const {
-    isLoading: approveTermMining,
-    isSuccess: approveTermConfirmed,
-    error: approveTermReceiptError
-  } = useWaitForTransactionReceipt({ hash: approveTermHash });
-
-  const {
-    isLoading: termActionMining,
-    isSuccess: termActionConfirmed,
-    data: termActionReceipt,
-    error: termActionReceiptError
-  } = useWaitForTransactionReceipt({ hash: termActionHash });
-
-  const { data: walletDeposits } = useReadContract({
-    address: lendingPool,
-    abi: lendingPoolAbi,
-    functionName: 'deposits',
-    args: [address || '0x0000000000000000000000000000000000000000'],
-    query: { enabled: Boolean(lendingPool && address) }
-  });
 
   const loadPools = async () => {
     if (!ownerWallet) return;
@@ -574,7 +535,7 @@ export default function Lender() {
       address: lendingPool,
       abi: lendingPoolAbi,
       functionName: 'deposit',
-      args: [depositUnits]
+      args: [depositUnits, address]
     });
   };
 
@@ -593,8 +554,8 @@ export default function Lender() {
       return;
     }
     if (!withdrawEnough) {
-      setError('Withdraw amount exceeds your pool deposits.');
-      pushActionLog('Withdraw', 'blocked', 'Insufficient pool deposits for withdrawal.');
+      setError('Withdraw amount exceeds what you can withdraw now (your position or idle liquidity).');
+      pushActionLog('Withdraw', 'blocked', 'Amount above maxWithdraw.');
       return;
     }
     pushActionLog('Withdraw', 'started', `Submitting withdrawal for ${withdrawAmount} USDC`);
@@ -602,131 +563,27 @@ export default function Lender() {
       address: lendingPool,
       abi: lendingPoolAbi,
       functionName: 'withdraw',
-      args: [withdrawUnits]
+      args: [withdrawUnits, address, address]
     });
   };
 
-  const handleTermApprove = () => {
-    if (!address) {
-      const msg = smartWalletAddress
-        ? 'Smart wallet connected. Connect an EVM wallet to execute term vault actions in this MVP.'
-        : 'Connect wallet first.';
-      setError(msg);
-      pushActionLog('Approve (Term)', 'blocked', msg);
+  const handleRedeemAll = () => {
+    if (!address || !lendingPool) {
+      setError('Connect wallet first.');
+      pushActionLog('Redeem', 'blocked', 'Wallet or pool missing.');
       return;
     }
-    if (!usdc || !termVault) {
-      const msg = 'Term vault is not deployed for this chain yet.';
-      setError(msg);
-      pushActionLog('Approve (Term)', 'blocked', msg);
+    if (!walletShares || walletShares <= 0n) {
+      setError('You have no pool shares to redeem.');
+      pushActionLog('Redeem', 'blocked', 'No shares.');
       return;
     }
-    if (!termDepositUnits) {
-      const msg = 'Enter a valid term deposit amount.';
-      setError(msg);
-      pushActionLog('Approve (Term)', 'blocked', msg);
-      return;
-    }
-    pushActionLog('Approve (Term)', 'started', `Submitting approval for ${termDepositAmount} USDC`);
-    writeApproveTerm({
-      address: usdc,
-      abi: usdcAbi,
-      functionName: 'approve',
-      args: [termVault, termDepositUnits]
-    });
-  };
-
-  const handleTermDeposit = () => {
-    if (!address) {
-      const msg = smartWalletAddress
-        ? 'Smart wallet connected. Connect an EVM wallet to execute term vault actions in this MVP.'
-        : 'Connect wallet first.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    if (!termVault || !termDepositUnits) {
-      const msg = 'Unsupported network or invalid term amount.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    if (!termAllowanceEnough) {
-      const msg = 'Approve USDC for the term vault before depositing.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    pushActionLog('Term vault', 'started', `Depositing ${termDepositAmount} USDC into tranche ${termTrancheId}`);
-    // Best-effort UX hint: current `nextPositionId` is not exposed, so we show the
-    // position id returned by the tx receipt (if decoded by the wallet UI) or let
-    // the user paste it. This local hint is still useful for most flows.
-    setLastTermPositionId(null);
-    writeTermAction({
-      address: termVault,
-      abi: termVaultAbi,
-      functionName: 'depositTerm',
-      args: [Number(termTrancheId), termDepositUnits]
-    });
-  };
-
-  const parsePositionId = () => {
-    try {
-      if (!termPositionId.trim()) return null;
-      return BigInt(termPositionId.trim());
-    } catch {
-      return null;
-    }
-  };
-
-  const handleTermClaim = () => {
-    const id = parsePositionId();
-    if (id === null) {
-      const msg = 'Enter a valid position id.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    pushActionLog('Term vault', 'started', `Claiming interest for position ${termPositionId}`);
-    writeTermAction({
-      address: termVault,
-      abi: termVaultAbi,
-      functionName: 'claimInterest',
-      args: [id]
-    });
-  };
-
-  const handleTermWithdrawMatured = () => {
-    const id = parsePositionId();
-    if (id === null) {
-      const msg = 'Enter a valid position id.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    pushActionLog('Term vault', 'started', `Withdrawing at maturity for position ${termPositionId}`);
-    writeTermAction({
-      address: termVault,
-      abi: termVaultAbi,
-      functionName: 'withdrawAtMaturity',
-      args: [id]
-    });
-  };
-
-  const handleTermEarlyWithdraw = () => {
-    const id = parsePositionId();
-    if (id === null) {
-      const msg = 'Enter a valid position id.';
-      setError(msg);
-      pushActionLog('Term vault', 'blocked', msg);
-      return;
-    }
-    pushActionLog('Term vault', 'started', `Early withdrawal for position ${termPositionId}`);
-    writeTermAction({
-      address: termVault,
-      abi: termVaultAbi,
-      functionName: 'earlyWithdraw',
-      args: [id]
+    pushActionLog('Redeem', 'started', 'Redeeming all pool shares');
+    writeWithdraw({
+      address: lendingPool,
+      abi: lendingPoolAbi,
+      functionName: 'redeem',
+      args: [walletShares, address, address]
     });
   };
 
@@ -734,13 +591,9 @@ export default function Lender() {
     allowance !== null && allowance !== undefined && depositUnits
       ? allowance >= depositUnits
       : false;
-  const termAllowanceEnough =
-    termAllowance !== null && termAllowance !== undefined && termDepositUnits
-      ? termAllowance >= termDepositUnits
-      : false;
   const withdrawEnough =
-    walletDeposits !== null && walletDeposits !== undefined && withdrawUnits
-      ? walletDeposits >= withdrawUnits
+    maxWithdrawable !== null && maxWithdrawable !== undefined && withdrawUnits
+      ? maxWithdrawable >= withdrawUnits
       : false;
 
   useEffect(() => {
@@ -752,26 +605,6 @@ export default function Lender() {
       );
     }
   }, [approveHash, pushActionLog]);
-
-  useEffect(() => {
-    if (approveTermHash) {
-      pushActionLog(
-        'Approve (Term)',
-        'submitted',
-        `Term vault approval tx submitted (${approveTermHash.slice(0, 10)}...${approveTermHash.slice(-6)})`
-      );
-    }
-  }, [approveTermHash, pushActionLog]);
-
-  useEffect(() => {
-    if (termActionHash) {
-      pushActionLog(
-        'Term vault',
-        'submitted',
-        `Term vault tx submitted (${termActionHash.slice(0, 10)}...${termActionHash.slice(-6)})`
-      );
-    }
-  }, [termActionHash, pushActionLog]);
 
   useEffect(() => {
     if (depositHash) {
@@ -798,70 +631,24 @@ export default function Lender() {
   }, [approveConfirmed, pushActionLog]);
 
   useEffect(() => {
-    if (approveTermConfirmed) {
-      pushActionLog('Approve (Term)', 'confirmed', 'Term vault approval confirmed onchain.');
-    }
-  }, [approveTermConfirmed, pushActionLog]);
+    if (!depositConfirmed) return;
+    pushActionLog('Deposit', 'confirmed', 'Deposit confirmed onchain.');
+    refetchShares();
+    refetchMaxWithdraw();
+    refetchTotalAssets();
+  }, [depositConfirmed, pushActionLog, refetchShares, refetchMaxWithdraw, refetchTotalAssets]);
 
   useEffect(() => {
-    if (depositConfirmed) pushActionLog('Deposit', 'confirmed', 'Deposit confirmed onchain.');
-  }, [depositConfirmed, pushActionLog]);
-
-  useEffect(() => {
-    if (withdrawConfirmed) pushActionLog('Withdraw', 'confirmed', 'Withdrawal confirmed onchain.');
-  }, [withdrawConfirmed, pushActionLog]);
-
-  useEffect(() => {
-    if (termActionConfirmed) {
-      pushActionLog('Term vault', 'confirmed', 'Term vault tx confirmed onchain.');
-    }
-  }, [termActionConfirmed, pushActionLog]);
-
-  useEffect(() => {
-    if (!termActionReceipt?.logs?.length) return;
-    // Best-effort decode of `TermDeposited` to surface the position id in-app.
-    try {
-      for (const log of termActionReceipt.logs) {
-        const decoded = decodeEventLog({
-          abi: [
-            {
-              type: 'event',
-              name: 'TermDeposited',
-              inputs: [
-                { name: 'positionId', type: 'uint256', indexed: true },
-                { name: 'owner', type: 'address', indexed: true },
-                { name: 'trancheId', type: 'uint32', indexed: true },
-                { name: 'amount', type: 'uint256', indexed: false }
-              ]
-            }
-          ],
-          data: log.data,
-          topics: log.topics
-        });
-        if (decoded?.eventName === 'TermDeposited') {
-          const positionId = decoded.args?.positionId;
-          if (positionId !== undefined && positionId !== null) {
-            const asString = typeof positionId === 'bigint' ? positionId.toString() : String(positionId);
-            setLastTermPositionId(asString);
-            setTermPositionId(asString);
-            break;
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, [termActionReceipt]);
+    if (!withdrawConfirmed) return;
+    pushActionLog('Withdraw', 'confirmed', 'Withdrawal confirmed onchain.');
+    refetchShares();
+    refetchMaxWithdraw();
+    refetchTotalAssets();
+  }, [withdrawConfirmed, pushActionLog, refetchShares, refetchMaxWithdraw, refetchTotalAssets]);
 
   useEffect(() => {
     if (approveError) pushActionLog('Approve', 'failed', approveError.message || 'Approve failed.');
   }, [approveError, pushActionLog]);
-
-  useEffect(() => {
-    if (approveTermError) {
-      pushActionLog('Approve (Term)', 'failed', approveTermError.message || 'Approve failed.');
-    }
-  }, [approveTermError, pushActionLog]);
 
   useEffect(() => {
     if (depositError) pushActionLog('Deposit', 'failed', depositError.message || 'Deposit failed.');
@@ -872,22 +659,10 @@ export default function Lender() {
   }, [withdrawError, pushActionLog]);
 
   useEffect(() => {
-    if (termActionError) {
-      pushActionLog('Term vault', 'failed', termActionError.message || 'Term vault tx failed.');
-    }
-  }, [termActionError, pushActionLog]);
-
-  useEffect(() => {
     if (approveReceiptError) {
       pushActionLog('Approve', 'failed', approveReceiptError.message || 'Approve receipt failed.');
     }
   }, [approveReceiptError, pushActionLog]);
-
-  useEffect(() => {
-    if (approveTermReceiptError) {
-      pushActionLog('Approve (Term)', 'failed', approveTermReceiptError.message || 'Approve receipt failed.');
-    }
-  }, [approveTermReceiptError, pushActionLog]);
 
   useEffect(() => {
     if (depositReceiptError) {
@@ -900,12 +675,6 @@ export default function Lender() {
       pushActionLog('Withdraw', 'failed', withdrawReceiptError.message || 'Withdraw receipt failed.');
     }
   }, [withdrawReceiptError, pushActionLog]);
-
-  useEffect(() => {
-    if (termActionReceiptError) {
-      pushActionLog('Term vault', 'failed', termActionReceiptError.message || 'Tx receipt failed.');
-    }
-  }, [termActionReceiptError, pushActionLog]);
 
   const jumpToDepositSection = () => {
     if (!depositSectionRef.current) return;
@@ -961,8 +730,8 @@ export default function Lender() {
         <div>
           <h1>Lender Pools</h1>
           <p className="muted">
-            Configure liquidity pools and matching preferences. Advisory matching active based
-            on risk tier parameter sets.
+            Supply USDC to the on-chain lending pool. Pool preferences below are advisory and only
+            feed the offchain matcher; all loans draw from the single pool at its floating rate.
           </p>
           <div className="inline-actions" style={{ marginTop: 8 }}>
             <span className="chip">Lender mode</span>
@@ -973,9 +742,6 @@ export default function Lender() {
               <button className="button ghost" type="button" onClick={() => navigate('/docs?doc=risk-models')}>
                 Risk docs
               </button>
-              <button className="button ghost" type="button" onClick={() => navigate('/community-pools')}>
-                Community pools
-              </button>
             </div>
           </div>
           <EssentialsPanel />
@@ -985,14 +751,14 @@ export default function Lender() {
           <div className="section-head">
             <div>
               <h3 className="section-title">Lender operating flow</h3>
-              <div className="section-subtitle">Configure appetite, fund pool, monitor utilization</div>
+              <div className="section-subtitle">Fund the pool, monitor utilization and rates</div>
             </div>
           </div>
           <div className="card-list">
-            <div className="pill">Set risk tier, LTV bounds, and borrower access policy</div>
-            <div className="pill">Approve and deposit USDC to activate supply</div>
-            <div className="pill">Track utilization, borrow demand, and settlement outcomes</div>
-            <div className="pill">Iterate pool preferences as market and collateral mix evolves</div>
+            <div className="pill">Approve and deposit USDC into the ERC-4626 lending pool</div>
+            <div className="pill">Earn a variable rate that follows pool utilization</div>
+            <div className="pill">Track utilization, borrow demand, and liquidation outcomes</div>
+            <div className="pill">Withdraw or redeem shares when idle liquidity allows</div>
           </div>
         </div>
 
@@ -1000,15 +766,17 @@ export default function Lender() {
           <div className="holo-card" style={{ border: '1px solid rgba(56, 189, 248, 0.4)' }}>
             <div className="section-head">
               <div>
-                <h3 className="section-title" style={{ color: '#38bdf8' }}>Institutional Insurance Vault</h3>
-                <div className="section-subtitle">Vestra Core Protection</div>
+                <h3 className="section-title" style={{ color: '#c4a26c' }}>Insurance Vault</h3>
+                <div className="section-subtitle">Reserve-factor backstop</div>
               </div>
-              <span className="tag" style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8' }}>Active</span>
+              <span className="tag" style={{ background: 'rgba(56,189,248,0.1)', color: '#c4a26c' }}>On-chain</span>
             </div>
             <p className="muted" style={{ marginTop: 8 }}>
-              A portion of all protocol yields are routed to the Insurance Vault.
-              If a borrower defaults and secondary asset sweeps fail to cover the full deficit,
-              the Vault automatically covers the difference for lenders.
+              The reserve-factor share of borrower interest
+              ({reserveFactorBps !== undefined ? `${Number(reserveFactorBps) / 100}%` : '--'}) is routed to the
+              Insurance Vault. If a liquidation auction recovers less than the debt, the vault covers
+              the shortfall up to its balance; any remaining loss is shared by all lenders through the
+              share price.
             </p>
             <div className="data-table" style={{ marginTop: 12 }}>
               <div className="table-row header">
@@ -1016,41 +784,27 @@ export default function Lender() {
                 <div>Value</div>
               </div>
               <div className="table-row">
-                <div>Total Vault Reserves</div>
-                <div>$50,000.00 USDC</div>
+                <div>Vault reserves</div>
+                <div>{insuranceVault ? `${formatValue(insuranceBalance, 6)} USDC` : 'Not deployed on this chain'}</div>
               </div>
               <div className="table-row">
-                <div>Deficits Covered (30d)</div>
-                <div>$0.00</div>
+                <div>Shortfalls covered (all time)</div>
+                <div>{insuranceVault ? `${formatValue(insuranceCovered, 6)} USDC` : '--'}</div>
               </div>
             </div>
           </div>
 
-          <div className="holo-card" style={{ border: '1px solid rgba(255, 77, 79, 0.4)' }}>
+          <div className="holo-card">
             <div className="section-head">
               <div>
-                <h3 className="section-title" style={{ color: '#ff4d4f' }}>Strict Recourse Sweeper</h3>
-                <div className="section-subtitle">Omega AI Risk Agent</div>
+                <h3 className="section-title">Lender risk</h3>
+                <div className="section-subtitle">What backs your deposit</div>
               </div>
-              <span className="tag danger">Active</span>
             </div>
-            <p className="muted" style={{ marginTop: 8 }}>
-              Lending on Vestra is strictly <strong>full-recourse</strong>. If a borrower defaults on an underwater loan,
-              the Omega AI agent automatically penalizes the borrower and seizes reserve assets (WETH/USDC) directly from their wallet.
-            </p>
-            <div className="data-table" style={{ marginTop: 12 }}>
-              <div className="table-row header">
-                <div>Metric</div>
-                <div>Status</div>
-              </div>
-              <div className="table-row">
-                <div>Agent Heartbeat</div>
-                <div style={{ color: '#52c41a' }}>Online</div>
-              </div>
-              <div className="table-row">
-                <div>Active Bounties</div>
-                <div>0</div>
-              </div>
+            <div className="card-list">
+              <div className="pill">Loans are non-recourse: each loan is backed only by an escrowed vesting stream.</div>
+              <div className="pill">Defaulted loans are sold in a Dutch auction; expected losses lower the share price when liquidation starts.</div>
+              <div className="pill">Withdrawals are limited to idle liquidity; at high utilization you may need to wait for repayments.</div>
             </div>
           </div>
         </div>
@@ -1470,7 +1224,10 @@ export default function Lender() {
             <div className="section-head">
               <div>
                 <h3 className="section-title">Deposit Liquidity</h3>
-                <div className="section-subtitle">USDC is deposited into the protocol pool.</div>
+                <div className="section-subtitle">
+                  USDC is deposited into the ERC-4626 lending pool; you receive vault shares whose
+                  value grows as borrowers pay interest.
+                </div>
               </div>
               <span className="tag">Onchain</span>
             </div>
@@ -1494,8 +1251,13 @@ export default function Lender() {
                 <div className="form-value">{formatValue(usdcBalance, 6)} USDC</div>
               </label>
               <label className="form-field">
-                Your pool deposits
-                <div className="form-value">{formatValue(walletDeposits, 6)} USDC</div>
+                Your position
+                <div className="form-value">{formatValue(walletShareAssets, 6)} USDC</div>
+                <div className="muted">{formatValue(walletShares, 6)} vault shares</div>
+              </label>
+              <label className="form-field">
+                Withdrawable now
+                <div className="form-value">{formatValue(maxWithdrawable, 6)} USDC</div>
               </label>
               <label className="form-field">
                 Withdraw amount (USDC)
@@ -1543,6 +1305,14 @@ export default function Lender() {
                 }
               >
                 {withdrawMining || isWithdrawPending ? 'Withdrawing...' : 'Withdraw'}
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                onClick={handleRedeemAll}
+                disabled={!walletShares || isWithdrawPending || withdrawMining}
+              >
+                Redeem all shares
               </button>
               <div className="muted">
                 {allowanceEnough ? 'Allowance ready.' : 'Approve USDC before depositing.'}
@@ -1599,163 +1369,6 @@ export default function Lender() {
               )}
             </div>
 
-            <div className="holo-card" style={{ marginTop: 14 }}>
-              <div className="section-head">
-                <div>
-                  <h4 className="section-title">Fixed-term tranches (minimum return)</h4>
-                  <div className="section-subtitle">
-                    Treasury-prefunded minimum returns. Deposits revert if reward budget is insufficient.
-                  </div>
-                </div>
-                <span className="tag">Term vault</span>
-              </div>
-
-              {!termVault && (
-                <>
-                  <div className="muted">
-                    Term vault is not deployed on this chain yet. Set `VITE_TERMVAULT_ADDRESS` (or `VITE_TERMVAULT_ADDRESS_{chainId}`) once deployed.
-                  </div>
-                  {termVaultRequestState.status === 'error' && (
-                    <div className="error-banner" style={{ marginTop: 10 }}>
-                      {termVaultRequestState.error}
-                    </div>
-                  )}
-                  <div className="inline-actions" style={{ marginTop: 10 }}>
-                    <button
-                      className="button ghost"
-                      type="button"
-                      onClick={submitTermVaultRequest}
-                      disabled={termVaultRequestState.status === 'submitting' || termVaultRequestState.status === 'submitted'}
-                    >
-                      {termVaultRequestState.status === 'submitted'
-                        ? 'Request submitted'
-                        : termVaultRequestState.status === 'submitting'
-                          ? 'Submitting…'
-                          : 'Request chain support'}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {termVault && (
-                <>
-                  {(approveTermError || termActionError) && (
-                    <div className="error-banner">{approveTermError?.message || termActionError?.message}</div>
-                  )}
-                  <div className="form-grid">
-                    <label className="form-field">
-                      Term deposit amount (USDC)
-                      <input
-                        className="form-input"
-                        value={termDepositAmount}
-                        onChange={(event) => setTermDepositAmount(event.target.value)}
-                        inputMode="decimal"
-                      />
-                    </label>
-                    <label className="form-field">
-                      Tranche
-                      <select
-                        className="form-select"
-                        value={termTrancheId}
-                        onChange={(event) => setTermTrancheId(event.target.value)}
-                      >
-                        <option value="0">
-                          1 month (min APY: {tranche0 ? `${Number(tranche0[1] || 0)} bps` : '--'})
-                        </option>
-                        <option value="1">
-                          1 year (min APY: {tranche1 ? `${Number(tranche1[1] || 0)} bps` : '--'})
-                        </option>
-                        <option value="2">
-                          4 years (min APY: {tranche2 ? `${Number(tranche2[1] || 0)} bps` : '--'})
-                        </option>
-                        <option value="3">
-                          5 years (min APY: {tranche3 ? `${Number(tranche3[1] || 0)} bps` : '--'})
-                        </option>
-                      </select>
-                    </label>
-                    <label className="form-field">
-                      Reward budget (USDC)
-                      <div className="form-value">{formatValue(termRewardBudget, 6)}</div>
-                    </label>
-                  </div>
-                  <div className="inline-actions">
-                    <button
-                      className="button ghost"
-                      type="button"
-                      onClick={handleTermApprove}
-                      disabled={!termDepositUnits || isApproveTermPending || approveTermMining}
-                    >
-                      {approveTermMining || isApproveTermPending ? 'Approving…' : 'Approve (term)'}
-                    </button>
-                    <button
-                      className="button"
-                      type="button"
-                      onClick={handleTermDeposit}
-                      disabled={!termDepositUnits || !termAllowanceEnough || isTermActionPending || termActionMining}
-                    >
-                      {termActionMining || isTermActionPending ? 'Depositing…' : 'Deposit (term)'}
-                    </button>
-                    <div className="muted">
-                      {termAllowanceEnough ? 'Allowance ready.' : 'Approve USDC for term vault before depositing.'}
-                    </div>
-                  </div>
-
-                  <div className="holo-card" style={{ marginTop: 12 }}>
-                    <div className="section-head">
-                      <div>
-                        <h4 className="section-title">Manage a position</h4>
-                        <div className="section-subtitle">Use your position id from the deposit tx.</div>
-                      </div>
-                      <span className="tag">Actions</span>
-                    </div>
-                    {lastTermPositionId && (
-                      <div className="pill" style={{ marginBottom: 10 }}>
-                        Latest position id: {lastTermPositionId}
-                      </div>
-                    )}
-                    <div className="form-grid">
-                      <label className="form-field">
-                        Position id
-                        <input
-                          className="form-input"
-                          value={termPositionId}
-                          onChange={(event) => setTermPositionId(event.target.value)}
-                          inputMode="numeric"
-                          placeholder="0"
-                        />
-                      </label>
-                    </div>
-                    <div className="inline-actions">
-                      <button
-                        className="button ghost"
-                        type="button"
-                        onClick={handleTermClaim}
-                        disabled={!termPositionId || isTermActionPending || termActionMining}
-                      >
-                        Claim interest
-                      </button>
-                      <button
-                        className="button ghost"
-                        type="button"
-                        onClick={handleTermWithdrawMatured}
-                        disabled={!termPositionId || isTermActionPending || termActionMining}
-                      >
-                        Withdraw at maturity
-                      </button>
-                      <button
-                        className="button ghost"
-                        type="button"
-                        onClick={handleTermEarlyWithdraw}
-                        disabled={!termPositionId || isTermActionPending || termActionMining}
-                      >
-                        Early withdraw (fee)
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
             <div className="action-log-panel" data-testid="lender-action-log">
               <div className="section-head">
                 <div>
@@ -1801,13 +1414,17 @@ export default function Lender() {
               <div className="error-banner">{portfolioLightState.error}</div>
             )}
             <div className="card-list">
-              <div className="pill">Total deposits: {formatValue(totalDeposits, 6)} USDC</div>
+              <div className="pill">Total pool assets: {formatValue(totalAssets, 6)} USDC</div>
               <div className="pill">Total borrowed: {formatValue(totalBorrowed, 6)} USDC</div>
+              <div className="pill">Available liquidity: {formatValue(availableLiquidity, 6)} USDC</div>
               <div className="pill">
-                Utilization: {utilizationRate ? `${Number(utilizationRate) / 100}%` : '--'}
+                Utilization: {utilizationBps !== undefined ? `${(Number(utilizationBps) / 100).toFixed(2)}%` : '--'}
               </div>
               <div className="pill">
-                Current pool rate: {poolRate ? `${Number(poolRate)} bps` : '--'}
+                Borrow rate (floating): {borrowRateBps !== undefined ? `${(Number(borrowRateBps) / 100).toFixed(2)}%` : '--'}
+              </div>
+              <div className="pill">
+                Supply APY (variable): {supplyApyPct !== null ? `${supplyApyPct.toFixed(2)}%` : '--'}
               </div>
               {portfolioLightState.status === 'ready' && portfolioLightState.data?.exposure && (
                 <>

@@ -46,7 +46,6 @@ const AdminRisk = lazy(routeImports.adminRisk);
 const Airdrop = lazy(routeImports.airdrop);
 const Feedback = lazy(routeImports.feedback);
 const FundraiseOnboard = lazy(routeImports.fundraiseOnboard);
-const CommunityPools = lazy(routeImports.communityPools);
 const Demo = lazy(routeImports.demo);
 const Admin = lazy(routeImports.admin);
 const Treasury = lazy(routeImports.treasury);
@@ -197,7 +196,7 @@ function AppShell() {
                                 { path: '/dashboard', label: 'Dashboard' },
                                 { path: '/borrow', label: 'Borrow' },
                                 { path: '/portfolio', label: 'Portfolio' },
-                                { path: '/community-pools', label: 'Community' },
+                                { path: '/lender', label: 'Lend' },
                                 { path: '/treasury', label: 'Treasury' },
                                 { path: '/identity', label: 'Identity' },
                             ].map((navItem) => {
@@ -221,7 +220,7 @@ function AppShell() {
                                                     right: '10%',
                                                     height: '2px',
                                                     background: 'var(--primary-400)',
-                                                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.8)',
+                                                    boxShadow: 'none',
                                                     borderRadius: '2px'
                                                 }}
                                                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
@@ -262,9 +261,9 @@ function AppShell() {
                                     gap: 6,
                                     padding: '6px 12px',
                                     borderRadius: 'var(--radius-full)',
-                                    border: `1px solid ${solConnected ? 'rgba(153,69,255,0.5)' : 'rgba(153,69,255,0.25)'}`,
-                                    background: solConnected ? 'rgba(153,69,255,0.15)' : 'rgba(153,69,255,0.06)',
-                                    color: solConnected ? '#c084fc' : 'var(--text-secondary)',
+                                    border: `1px solid ${solConnected ? 'rgba(176,141,87,0.5)' : 'rgba(176,141,87,0.25)'}`,
+                                    background: solConnected ? 'rgba(176,141,87,0.15)' : 'rgba(176,141,87,0.06)',
+                                    color: solConnected ? '#d6bb8b' : 'var(--text-secondary)',
                                     fontSize: 13,
                                     fontWeight: 600,
                                     cursor: 'pointer',
@@ -275,7 +274,7 @@ function AppShell() {
                                 <span style={{ fontSize: 15 }}>◎</span>
                                 {solConnected ? 'Phantom' : 'Phantom'}
                                 {solConnected && (
-                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#a855f7', display: 'inline-block', boxShadow: '0 0 6px #a855f7' }} />
+                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#b08d57', display: 'inline-block', boxShadow: '0 0 6px #b08d57' }} />
                                 )}
                             </button>
 
@@ -303,10 +302,10 @@ function AppShell() {
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={location.pathname}
-                        initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
-                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                        exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
-                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
                         style={{ width: '100%', minHeight: '100%' }}
                     >
                         <Suspense fallback={<RouteFallback />}>
@@ -328,7 +327,6 @@ function AppShell() {
                                 <Route path="/admin/risk" element={<AdminRisk />} />
                                 <Route path="/airdrop" element={<Airdrop />} />
                                 <Route path="/feedback" element={<Feedback />} />
-                                <Route path="/community-pools" element={<CommunityPools />} />
                                 {FEATURE_FUNDRAISE_ONBOARD && (
                                     <Route path="/fundraise" element={<FundraiseOnboard />} />
                                 )}
@@ -344,20 +342,23 @@ function AppShell() {
                position="bottom-right" 
                toastOptions={{ 
                   style: { 
-                     background: 'rgba(10, 14, 26, 0.85)', 
-                     color: '#fff', 
-                     border: '1px solid rgba(59, 130, 246, 0.4)', 
-                     backdropFilter: 'blur(12px)',
-                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)'
+                     background: 'var(--surface-raised)', 
+                     color: 'var(--text-primary)', 
+                     border: '1px solid var(--border-strong)', 
+                     borderRadius: '3px',
+                     fontFamily: 'var(--font-body)',
+                     fontSize: '13px',
+                     boxShadow: 'var(--shadow-md)'
                   },
-                  success: { iconTheme: { primary: '#3b82f6', secondary: '#fff' } }
+                  success: { iconTheme: { primary: '#9db896', secondary: '#11100d' } },
+                  error: { iconTheme: { primary: '#cc7a6e', secondary: '#11100d' } }
                }} 
             />
             <OnboardingModal />
             {!isLanding && <AIBubble />}
             {!isImmersiveDashboard && !isLanding && (
                 <footer className="app-footer">
-                    Mainnet Beta • VestraProtocol.io • Not financial advice
+                    Testnet • Contracts not yet audited • Not financial advice
                 </footer>
             )}
             {isConnecting && !isReconnecting && (

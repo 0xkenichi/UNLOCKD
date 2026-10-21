@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import React, { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId, usePublicClient } from 'wagmi';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid,
     Tooltip, ResponsiveContainer, ReferenceLine
@@ -10,7 +10,7 @@ import { useMarketSimulation } from './useMarketSimulation.js';
 import { formatUnits, parseUnits } from 'viem';
 import { logSimulationEvent } from '../../utils/supabaseClient.js';
 import DecryptedViewportText from '../common/DecryptedViewportText.jsx';
-import { CONTRACTS, loanManagerAbi } from '../../utils/contracts.js';
+import { erc721Abi, getContractAddress, loanManagerAbi, VESTING_PROTOCOL } from '../../utils/contracts.js';
 
 const DURATIONS = {
     1: { label: '1 Month', days: 30, premiumBps: 50 },
@@ -115,9 +115,14 @@ export default function DemoDashboard({ vestingContract }) {
     const [selectedVest, setSelectedVest] = useState(null);
 
     const chainId = useChainId();
-    const contractAddresses = CONTRACTS[chainId] || CONTRACTS[11155111]; // Fallback to Sepolia
+    const publicClient = usePublicClient();
+    const contractAddresses = {
+        loanManager: getContractAddress(chainId, 'loanManager'),
+        vestingAdapter: getContractAddress(chainId, 'vestingAdapter'),
+        usdc: getContractAddress(chainId, 'usdc')
+    };
 
-    const { data: hash, writeContract, isPending: isWritePending, error: writeError } = useWriteContract();
+    const { data: hash, writeContract, writeContractAsync, isPending: isWritePending, error: writeError } = useWriteContract();
     const { isLoading: isTxLoading, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({ hash });
 
     const fetchPortfolio = async () => {
@@ -244,21 +249,45 @@ export default function DemoDashboard({ vestingContract }) {
         return () => clearInterval(interval);
     }, [isRunning, debt, metrics.borrowApr, status, isFastForwarding]);
 
-    const handleBorrow = () => {
-        if (address && selectedVest) {
-            // Real On-Chain Borrowing
-            const collateralId = BigInt(Math.floor(Date.now() / 1000)); // Simple unique ID
+    // A detected position can be borrowed against on-chain only if it is a vesting-stream NFT
+    // (nftContract + numeric streamId) and the v1 core contracts are configured on this chain.
+    const canBorrowOnchain = Boolean(
+        address &&
+        selectedVest &&
+        /^0x[a-fA-F0-9]{40}$/.test(String(selectedVest.vestingContract || '')) &&
+        /^\d+$/.test(String(selectedVest.collateralId ?? selectedVest.streamId ?? '')) &&
+        contractAddresses.loanManager &&
+        contractAddresses.vestingAdapter
+    );
+
+    const handleBorrow = async () => {
+        if (canBorrowOnchain) {
+            // Real on-chain borrowing: approve the stream NFT to the VestingAdapter, then borrow.
+            const nftContract = selectedVest.vestingContract;
+            const streamId = BigInt(selectedVest.collateralId ?? selectedVest.streamId);
             const amount = parseUnits(Math.floor(borrowLimit).toString(), 6);
-            const duration = BigInt(durationMonths * 30); // Approximate days
+            // Maturity must be <= the stream unlock time; the contract reverts otherwise.
+            const maturity = BigInt(Math.floor(Date.now() / 1000) + DURATIONS[durationMonths].days * 86400);
+            try {
+                const approveHash = await writeContractAsync({
+                    address: nftContract,
+                    abi: erc721Abi,
+                    functionName: 'approve',
+                    args: [contractAddresses.vestingAdapter, streamId]
+                });
+                if (publicClient) await publicClient.waitForTransactionReceipt({ hash: approveHash });
+                await writeContractAsync({
+                    address: contractAddresses.loanManager,
+                    abi: loanManagerAbi,
+                    functionName: 'borrow',
+                    args: [nftContract, streamId, VESTING_PROTOCOL.SABLIER_V2, amount, maturity]
+                });
+            } catch (e) {
+                console.error(e);
+                return;
+            }
 
-            writeContract({
-                address: contractAddresses.loanManager,
-                abi: loanManagerAbi,
-                functionName: 'createLoan',
-                args: [collateralId, selectedVest.vestingContract, amount, duration]
-            });
-
-            // Optimistic update for UI feel (debt set but disabled until tx success)
+            // Optimistic update for UI feel
             setDebt(borrowLimit);
             setDaysRemaining(DURATIONS[durationMonths].days);
             injectMarketImpact(-0.02, "Loan Originated (Slippage)");

@@ -19,7 +19,6 @@ import TestnetPointsBadge from '../components/rewards/TestnetPointsBadge.jsx';
 import { IsometricVaultHero } from '../components/visuals/IsometricHeroes.jsx';
 import {
   ShieldCheck,
-  TrendingUp,
   LineChart,
   Users,
   Search,
@@ -42,7 +41,6 @@ const IdentityPage = lazy(routeImports.identity);
 const FeaturesPage = lazy(routeImports.features);
 const DocsPage = lazy(routeImports.docs);
 const AboutPage = lazy(routeImports.about);
-const CommunityPoolsPage = lazy(routeImports.communityPools);
 const TestnetLeaderboard = lazy(() => import('../components/rewards/TestnetLeaderboard.jsx'));
 
 const modules = [
@@ -56,7 +54,6 @@ const modules = [
   { id: 'features', title: 'Features', subtitle: 'Protocol architecture map', component: FeaturesPage, icon: Search },
   { id: 'docs', title: 'Docs', subtitle: 'Tech + integration references', component: DocsPage, icon: Library },
   { id: 'about', title: 'About', subtitle: 'Mission + team context', component: AboutPage, icon: Info },
-  { id: 'communityPools', title: 'Community Pools', subtitle: 'Group capital formation rails', component: CommunityPoolsPage, icon: TrendingUp },
   { id: 'testnet', title: 'Testnet Rewards', subtitle: 'Pioneer leaderboard + $CREDT allocation', component: TestnetLeaderboard, icon: Trophy }
 ];
 
@@ -71,7 +68,6 @@ const moduleLoaders = {
   features: routeImports.features,
   docs: routeImports.docs,
   about: routeImports.about,
-  communityPools: routeImports.communityPools,
   testnet: () => import('../components/rewards/TestnetLeaderboard.jsx')
 };
 
@@ -83,7 +79,7 @@ function ModuleMiniPreview({ moduleId }) {
   // A sleek, subtle preview block representing the module's nature
   return (
     <div className="immersive-preview-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '64px', background: 'rgba(10, 14, 20, 0.4)' }}>
-      <Icon size={32} strokeWidth={1.5} color="var(--primary-400)" style={{ filter: 'drop-shadow(0 0 12px rgba(59, 130, 246, 0.6))' }} />
+      <Icon size={32} strokeWidth={1.5} color="var(--primary-400)" style={{ filter: 'drop-shadow(0 0 12px rgba(196, 162, 108, 0.6))' }} />
     </div>
   );
 }
@@ -139,10 +135,11 @@ export default function Dashboard() {
   const transitionFrameRef = useRef(null);
   const transitionCommitRef = useRef(null);
 
-  const { data: loanCount } = useReadContract({
+  // Loan ids start at 1, so the number of loans ever opened is nextLoanId - 1.
+  const { data: nextLoanId } = useReadContract({
     address: loanManager,
     abi: loanManagerAbi,
-    functionName: 'loanCount',
+    functionName: 'nextLoanId',
     query: { enabled: Boolean(loanManager) }
   });
 
@@ -155,7 +152,7 @@ export default function Dashboard() {
   });
 
   const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
-  const loanCountValue = loanCount ? loanCount.toString() : '0';
+  const loanCountValue = nextLoanId && nextLoanId > 0n ? (nextLoanId - 1n).toString() : '0';
   const activeWalletAddress = isSolanaSession
     ? session.solanaWalletAddress || ''
     : address || '';
@@ -379,17 +376,17 @@ export default function Dashboard() {
         <div className="immersive-core-card holo-card">
           <div className="stat-row" style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--border-primary)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
             <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(59, 130, 246, 0.4)' }}>{loanCountValue}</div>
+              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(196, 162, 108, 0.4)' }}>{loanCountValue}</div>
               <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Loans</div>
             </div>
             <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(59, 130, 246, 0.4)' }}>{formattedBalance}</div>
+              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(196, 162, 108, 0.4)' }}>{formattedBalance}</div>
               <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>USDC</div>
             </div>
             <button
               className="stat-card stat-card-minimal immersive-network-card"
               type="button"
-              style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', transition: 'all 0.2s', textAlign: 'left' }}
+              style={{ background: 'rgba(196, 162, 108, 0.08)', border: '1px solid rgba(196, 162, 108, 0.2)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', transition: 'all 0.2s', textAlign: 'left' }}
               onClick={() => {
                 if (isSolanaSession) {
                   setSolanaModalVisible(true);

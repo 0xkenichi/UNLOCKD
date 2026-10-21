@@ -77,10 +77,10 @@ export default function Repay() {
     >
       <div className="page-header">
         <h1 className="page-title holo-glow">Repay</h1>
-        <p className="page-subtitle">Reduce debt or settle at unlock.</p>
+        <p className="page-subtitle">Reduce or close floating-rate debt before maturity.</p>
         <div className="inline-actions" style={{ marginTop: 8 }}>
           <span className="chip">Testnet execution</span>
-          <span className="chip">{privacyMode ? 'Private mode: relayed actions' : 'Use borrower wallet only'}</span>
+          <span className="chip">Floating-rate debt</span>
         </div>
         <div className="inline-actions" style={{ marginTop: 10 }}>
           <PrivacyModeToggle />
@@ -126,7 +126,6 @@ export default function Repay() {
       <RepayActions
         fundingStatus={fundingStatus}
         initialLoanId={loanIdPrefill}
-        privacyMode={privacyMode}
       />
 
       <AdvancedSection title="Schedule">

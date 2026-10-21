@@ -14,9 +14,9 @@ import {
 } from 'lucide-react';
 import {
     getContractAddress,
+    insuranceVaultAbi,
     lendingPoolAbi,
-    termVaultAbi,
-    usdcAbi
+    loanManagerAbi
 } from '../utils/contracts.js';
 import TreasuryVaultCard from '../components/treasury/TreasuryVaultCard.jsx';
 
@@ -36,58 +36,78 @@ export default function Treasury() {
     const chainId = useChainId();
 
     const lendingPoolAddress = getContractAddress(chainId, 'lendingPool');
-    const termVaultAddress = getContractAddress(chainId, 'termVault');
+    const loanManagerAddress = getContractAddress(chainId, 'loanManager');
     const insuranceVaultAddress = getContractAddress(chainId, 'insuranceVault');
-    const usdcAddress = getContractAddress(chainId, 'usdc');
+    const deployed = Boolean(lendingPoolAddress && loanManagerAddress);
 
     const { data: results, isLoading, isError, refetch } = useReadContracts({
-        contracts: [
-            { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'totalDeposits' },
-            { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'totalBorrowed' },
-            { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'utilizationRateBps' },
-            { address: termVaultAddress, abi: termVaultAbi, functionName: 'totalPrincipalLocked' },
-            { address: termVaultAddress, abi: termVaultAbi, functionName: 'reservedRewards' },
-            {
-                address: usdcAddress,
-                abi: usdcAbi,
-                functionName: 'balanceOf',
-                args: [insuranceVaultAddress],
-            },
-        ],
+        contracts: deployed
+            ? [
+                { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'totalAssets' },
+                { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'totalBorrowed' },
+                { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'utilizationBps' },
+                { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'borrowRateBps' },
+                { address: lendingPoolAddress, abi: lendingPoolAbi, functionName: 'availableLiquidity' },
+                { address: loanManagerAddress, abi: loanManagerAbi, functionName: 'reserveFactorBps' },
+                ...(insuranceVaultAddress
+                    ? [
+                        { address: insuranceVaultAddress, abi: insuranceVaultAbi, functionName: 'balance' },
+                        { address: insuranceVaultAddress, abi: insuranceVaultAbi, functionName: 'totalCovered' }
+                    ]
+                    : [])
+            ]
+            : [],
+        query: { enabled: deployed }
     });
 
     const treasuryData = useMemo(() => {
         if (!results) return null;
         const [
-            totalDeposits,
+            totalAssets,
             totalBorrowed,
-            utilizationRateBps,
-            totalPrincipalLocked,
-            reservedRewards,
-            insuranceBalance
+            utilizationBps,
+            borrowRateBps,
+            availableLiquidity,
+            reserveFactorBps,
+            insuranceBalance,
+            insuranceCovered
         ] = results.map(r => r?.result ?? 0n);
 
-        const lendingRaw = BigInt(totalDeposits ?? 0n);
+        const lendingRaw = BigInt(totalAssets ?? 0n);
         const borrowedRaw = BigInt(totalBorrowed ?? 0n);
-        const utilizBps = BigInt(utilizationRateBps ?? 0n);
-        const principalRaw = BigInt(totalPrincipalLocked ?? 0n);
-        const rewardsRaw = BigInt(reservedRewards ?? 0n);
+        const utilizBps = BigInt(utilizationBps ?? 0n);
+        const borrowBps = BigInt(borrowRateBps ?? 0n);
+        const liquidityRaw = BigInt(availableLiquidity ?? 0n);
         const insuranceRaw = BigInt(insuranceBalance ?? 0n);
+        const coveredRaw = BigInt(insuranceCovered ?? 0n);
+        const rf = Number(reserveFactorBps ?? 0n);
 
-        const termRaw = principalRaw + rewardsRaw;
-        const totalRaw = lendingRaw + termRaw + insuranceRaw;
+        // Variable supply APY: borrow rate on the borrowed share, net of the reserve factor.
+        const supplyApyBps = (Number(borrowBps) * Number(utilizBps)) / 10000 * (1 - rf / 10000);
 
         return {
-            totalRaw,
+            totalRaw: lendingRaw + insuranceRaw,
             lendingRaw,
             borrowedRaw,
             utilizBps,
-            termRaw,
+            borrowBps,
+            liquidityRaw,
             insuranceRaw,
-            lendingApy: 12.5,
-            termApy: 8.0,
+            coveredRaw,
+            lendingApy: Number((supplyApyBps / 100).toFixed(2))
         };
     }, [results]);
+
+    if (!deployed) {
+        return (
+            <div className="stack">
+                <div className="holo-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+                    <h2 className="section-title" style={{ marginBottom: 8 }}>Treasury</h2>
+                    <p className="muted">Vestra contracts are not deployed on this network yet.</p>
+                </div>
+            </div>
+        );
+    }
 
     if (isLoading) {
         return (
@@ -114,7 +134,7 @@ export default function Treasury() {
         );
     }
 
-    const { totalRaw, lendingRaw, borrowedRaw, utilizBps, termRaw, insuranceRaw, lendingApy, termApy } = treasuryData;
+    const { totalRaw, lendingRaw, borrowedRaw, utilizBps, borrowBps, liquidityRaw, insuranceRaw, coveredRaw, lendingApy } = treasuryData;
 
     return (
         <div className="stack">
@@ -144,7 +164,7 @@ export default function Treasury() {
                     </div>
                     <div className="stat-label">Total AUM</div>
                     <div className="stat-value" style={{ fontSize: 26 }}>{fmtUsd(totalRaw)}</div>
-                    <div className="stat-delta">Across 3 defensive layers</div>
+                    <div className="stat-delta">Lending pool + insurance vault</div>
                 </motion.div>
 
                 <motion.div
@@ -154,11 +174,11 @@ export default function Treasury() {
                     transition={{ delay: 0.08 }}
                 >
                     <div style={{ marginBottom: 8 }}>
-                        <Zap size={20} style={{ color: '#f97316' }} />
+                        <Zap size={20} style={{ color: '#b07f3a' }} />
                     </div>
                     <div className="stat-label">Active Debt</div>
                     <div className="stat-value" style={{ fontSize: 26 }}>{fmtUsd(borrowedRaw)}</div>
-                    <div className="stat-delta">Interest-bearing credit</div>
+                    <div className="stat-delta">Floating rate {fmtPct(borrowBps)} APR</div>
                 </motion.div>
 
                 <motion.div
@@ -172,7 +192,7 @@ export default function Treasury() {
                     </div>
                     <div className="stat-label">Safety Buffer</div>
                     <div className="stat-value" style={{ fontSize: 26 }}>{fmtUsd(insuranceRaw)}</div>
-                    <div className="stat-delta">Zero-Deficit reserve</div>
+                    <div className="stat-delta">Insurance vault · {fmtUsd(coveredRaw)} covered to date</div>
                 </motion.div>
             </div>
 
@@ -196,14 +216,6 @@ export default function Treasury() {
                     status: 'Active'
                 }} />
                 <TreasuryVaultCard vault={{
-                    name: 'Term Vault',
-                    type: 'Term',
-                    aumRaw: termRaw,
-                    utilizPct: 0,
-                    apy: termApy,
-                    status: 'Active'
-                }} />
-                <TreasuryVaultCard vault={{
                     name: 'Insurance Reserve',
                     type: 'Insurance',
                     aumRaw: insuranceRaw,
@@ -220,7 +232,7 @@ export default function Treasury() {
                         <Shield size={18} style={{ color: 'var(--primary-400)' }} />
                         <div>
                             <h3 className="section-title">Security Forensics</h3>
-                            <div className="section-subtitle">All protocol assets are held in Non-Custodial Sovereign Vaults.</div>
+                            <div className="section-subtitle">Live pool liquidity and rate metrics.</div>
                         </div>
                     </div>
                 </div>
@@ -228,18 +240,12 @@ export default function Treasury() {
                     style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginTop: 16 }}
                 >
                     <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div className="stat-label" style={{ marginBottom: 6 }}>Reserve Ratio</div>
-                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>1.24x</div>
-                        <div style={{ height: 4, background: 'var(--bg-card)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: '82%', background: 'var(--primary-500)', borderRadius: 4 }} />
-                        </div>
+                        <div className="stat-label" style={{ marginBottom: 6 }}>Available Liquidity</div>
+                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>{fmtUsd(liquidityRaw)}</div>
                     </div>
                     <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div className="stat-label" style={{ marginBottom: 6 }}>Liquidity Efficiency</div>
-                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>94.2%</div>
-                        <div style={{ height: 4, background: 'var(--bg-card)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: '94%', background: 'var(--primary-500)', borderRadius: 4 }} />
-                        </div>
+                        <div className="stat-label" style={{ marginBottom: 6 }}>Supply APY (variable)</div>
+                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>{lendingApy.toFixed(2)}%</div>
                     </div>
                     <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
                         <div className="stat-label" style={{ marginBottom: 6 }}>Utilization Rate</div>

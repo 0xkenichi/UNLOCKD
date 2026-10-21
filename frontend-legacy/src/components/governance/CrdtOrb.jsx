@@ -40,7 +40,7 @@ function AnimatedOrb({ hovered }) {
 export default function CrdtOrb() {
   const [hovered, setHovered] = useState(false);
 
-  const handleStake = () => {
+  const handleOpenFeed = () => {
     const target = document.getElementById('governance-feed');
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -53,7 +53,7 @@ export default function CrdtOrb() {
         <div>
           <h3 className="section-title holo-glow">CRDT Identity Orb</h3>
           <div className="section-subtitle">
-            Stake CRDT to unlock committee privileges.
+            Governance preview. On-chain voting is not active yet.
           </div>
         </div>
         <span className="chip">ZK Power</span>
@@ -63,7 +63,7 @@ export default function CrdtOrb() {
         className="relative w-full h-[300px] cursor-pointer"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={handleStake}
+        onClick={handleOpenFeed}
       >
         <Canvas camera={{ position: [0, 0, 4], fov: 50 }}>
           <ambientLight intensity={0.5} />

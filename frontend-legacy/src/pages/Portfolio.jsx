@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useChainId, useReadContract, useReadContracts } from 'wagmi';
-import { getContractAddress, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
+import { getContractAddress, LOAN_STATUS, loanManagerAbi, usdcAbi } from '../utils/contracts.js';
 import { formatValue } from '../utils/format.js';
 import {
   apiDownload,
@@ -179,11 +179,12 @@ export default function Portfolio() {
     };
   }, [isSolanaSession]);
 
-  const { data: loanCount } = useReadContract({
+  const { data: myLoanIds } = useReadContract({
     address: loanManager,
     abi: loanManagerAbi,
-    functionName: 'loanCount',
-    query: { enabled: Boolean(loanManager) }
+    functionName: 'loansOf',
+    args: [address || '0x0000000000000000000000000000000000000000'],
+    query: { enabled: Boolean(loanManager && address) }
   });
 
   const { data: usdcBalance } = useReadContract({
@@ -196,79 +197,59 @@ export default function Portfolio() {
 
   const formattedBalance = useMemo(() => formatValue(usdcBalance, 6), [usdcBalance]);
   const recentIds = useMemo(() => {
-    if (!loanCount || loanCount === 0n) return [];
-    const count = Number(loanCount);
-    const start = Math.max(count - MAX_POSITIONS, 0);
-    return Array.from({ length: count - start }, (_, idx) => BigInt(start + idx));
-  }, [loanCount]);
-
-  const { data: privateFlags } = useReadContracts({
-    contracts: recentIds.map((id) => ({
-      address: loanManager,
-      abi: loanManagerAbi,
-      functionName: 'isPrivateLoan',
-      args: [id]
-    })),
-    query: { enabled: Boolean(loanManager && recentIds.length) }
-  });
+    if (!Array.isArray(myLoanIds) || !myLoanIds.length) return [];
+    return myLoanIds.slice(-MAX_POSITIONS);
+  }, [myLoanIds]);
 
   const { data: loanReads } = useReadContracts({
     contracts: recentIds.map((id) => ({
       address: loanManager,
       abi: loanManagerAbi,
-      functionName: 'loans',
+      functionName: 'getLoan',
       args: [id]
     })),
     query: { enabled: Boolean(loanManager && recentIds.length) }
   });
 
-  const { data: privateLoanReads } = useReadContracts({
+  const { data: debtReads } = useReadContracts({
     contracts: recentIds.map((id) => ({
       address: loanManager,
       abi: loanManagerAbi,
-      functionName: 'privateLoans',
+      functionName: 'debtOf',
       args: [id]
     })),
     query: { enabled: Boolean(loanManager && recentIds.length) }
   });
 
   const evmPositions = useMemo(() => {
-    if (!loanReads || !privateFlags || !privateLoanReads) return [];
+    if (!loanReads) return [];
     return recentIds.map((id, i) => {
-      const privateFlagRow = privateFlags[i];
-      const isPrivate =
-        privateFlagRow?.status === 'success' ? Boolean(privateFlagRow.result) : false;
       const loanRow = loanReads[i];
-      const privateLoanRow = privateLoanReads[i];
-
+      const debtRow = debtReads?.[i];
       const loan = loanRow?.status === 'success' ? loanRow.result : null;
-      const priv = privateLoanRow?.status === 'success' ? privateLoanRow.result : null;
+      const debt = debtRow?.status === 'success' ? debtRow.result : 0n;
 
-      // Loan struct:
-      // 0 borrower, 1 principal, 2 interest, 3 collateralId, 4 collateralAmount, 5 unlockTime, 6 active
-      const unlockTs = isPrivate
-        ? priv
-          ? Number(priv[5])
-          : 0
-        : loan
-          ? Number(loan[5])
-          : 0;
-      const active = isPrivate ? Boolean(priv?.[6]) : Boolean(loan?.[6]);
-      const principal = (isPrivate ? (priv?.[1] ?? 0n) : (loan?.[1] ?? 0n)) || 0n;
-      const interest = (isPrivate ? (priv?.[2] ?? 0n) : (loan?.[2] ?? 0n)) || 0n;
+      // getLoan -> { borrower, nftContract, streamId, escrowId, token, quantity, unlockTime,
+      //              principal, scaledDebt, openedAt, maturity, rank, status }
+      // status: 1 Active, 2 Auction (both still repayable)
+      const maturityTs = loan ? Number(loan.maturity) : 0;
+      const status = loan ? Number(loan.status) : 0;
+      const active = status === LOAN_STATUS.ACTIVE || status === LOAN_STATUS.AUCTION;
+      const principal = loan?.principal ?? 0n;
+      const interest = debt > principal ? debt - principal : 0n;
       const loanId = id?.toString?.() || String(i);
 
       return {
         loanId,
-        id: `${isPrivate ? 'PrivateLoan' : 'Loan'}-${loanId}`,
-        principal: principal.toString(),
-        interest: interest.toString(),
-        unlock: unlockTs ? new Date(unlockTs * 1000).toLocaleDateString() : '--',
-        unlockTimestamp: unlockTs,
+        id: `Loan-${loanId}`,
+        principal: formatValue(principal, 6),
+        interest: formatValue(interest, 6),
+        unlock: maturityTs ? new Date(maturityTs * 1000).toLocaleDateString() : '--',
+        unlockTimestamp: maturityTs,
         active
       };
     });
-  }, [loanReads, privateFlags, privateLoanReads, recentIds]);
+  }, [loanReads, debtReads, recentIds]);
 
   const positions = evmPositions;
 

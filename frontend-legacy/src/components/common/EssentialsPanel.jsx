@@ -13,11 +13,12 @@ export default function EssentialsPanel() {
   const loanManager = getContractAddress(chainId, 'loanManager');
   const usdc = getContractAddress(chainId, 'usdc');
 
-  const { data: loanCount } = useReadContract({
+  const { data: myLoanIds } = useReadContract({
     address: loanManager,
     abi: loanManagerAbi,
-    functionName: 'loanCount',
-    query: { enabled: Boolean(loanManager) }
+    functionName: 'loansOf',
+    args: [address || '0x0000000000000000000000000000000000000000'],
+    query: { enabled: Boolean(loanManager && address) }
   });
 
   const { data: usdcBalance } = useReadContract({
@@ -52,9 +53,9 @@ export default function EssentialsPanel() {
       </div>
       <div className="stat-row essentials-stats">
         <div className="stat-card">
-          <div className="stat-label">Active Loans</div>
-          <div className="stat-value">{loanCount ? loanCount.toString() : '0'}</div>
-          <div className="stat-delta">On-chain count</div>
+          <div className="stat-label">Your Loans</div>
+          <div className="stat-value">{Array.isArray(myLoanIds) ? myLoanIds.length : 0}</div>
+          <div className="stat-delta">Opened by this wallet</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">USDC Balance</div>
