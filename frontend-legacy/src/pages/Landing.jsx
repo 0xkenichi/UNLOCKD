@@ -1,905 +1,481 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
-import { Suspense, lazy, useState, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { useNavigate } from 'react-router-dom';
-import {
-  motion, useScroll, useTransform, useSpring, useVelocity, useMotionValue, useAnimationFrame,
-  AnimatePresence
-} from 'framer-motion';
-import { Sparkles, Shield, Zap, Lock, TrendingUp, Clock, Award, ChevronDown, Rocket, Briefcase, Landmark, ExternalLink } from 'lucide-react';
-import ChainStatus from '../components/common/ChainStatus.jsx';
-import MarketTicker from '../components/landing/MarketTicker.jsx';
-import Footer from '../components/common/Footer.jsx';
-import useIdleMount from '../utils/useIdleMount.js';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import Guilloche from '../components/landing/Guilloche.jsx';
+import Seal from '../components/landing/Seal.jsx';
+import '../styles/landing.css';
 
-const LandingScene = lazy(() => import('../components/landing/LandingScene.jsx'));
+/*
+ * Every figure on this page is derived from the protocol's actual parameters
+ * (packages/contracts: ValuationEngine, LoanManager) and the worked example in
+ * whitepaper v4.1 §2. No invented statistics, testimonials or partner logos.
+ */
+const EXAMPLE = (() => {
+  const quantity = 100_000;
+  const price = 1;
+  const years = 1;
+  const rate = 0.05; // rank II discount rate
+  const sigma = 0.6;
+  const ltv = 0.35; // rank II
+  const fee = 0.005;
+  const pv = quantity * price * Math.exp(-rate * years) * (1 - sigma / 2);
+  const maxCredit = pv * ltv;
+  return { quantity, pv, maxCredit, received: maxCredit * (1 - fee) };
+})();
 
-const NavDropdown = ({ title, items, isOpen, onMouseEnter, onMouseLeave }) => {
-  return (
-    <div
-      style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', pointerEvents: 'auto' }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <button
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: isOpen ? 'var(--text-primary)' : 'var(--text-secondary)',
-          fontSize: '15px',
-          fontWeight: 600,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '8px 12px',
-          borderRadius: 'var(--radius-md)',
-          transition: 'all var(--motion-fast)'
-        }}
-        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-        onMouseLeave={e => { if (!isOpen) e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
-      >
-        {title}
-      </button>
+const usd = (v) =>
+  v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              marginTop: '4px',
-              width: 'max-content',
-              minWidth: '240px',
-              background: 'var(--surface-strong)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: 'var(--radius-lg)',
-              boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
-              backdropFilter: 'blur(20px)',
-              padding: '6px',
-              zIndex: 100
-            }}
-          >
-            {items.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={item.onClick}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  padding: '12px',
-                  borderRadius: 'var(--radius-md)',
-                  cursor: 'pointer',
-                  transition: 'background var(--motion-fast)'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                {item.icon && (
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '8px',
-                    background: 'var(--surface-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    border: '1px solid rgba(255,255,255,0.05)'
-                  }}>
-                    {item.icon}
-                  </div>
-                )}
-                <div>
-                  <div style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {item.label}
-                    {item.external && <ExternalLink size={12} strokeWidth={2} style={{ opacity: 0.5 }} />}
-                  </div>
-                  {item.description && (
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.4 }}>
-                      {item.description}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
+const RANKS = [
+  { rank: 'I', name: 'Flagship', ltv: '50%', threshold: '65%', discount: '2%' },
+  { rank: 'II', name: 'Premium', ltv: '35%', threshold: '50%', discount: '5%' },
+  { rank: 'III', name: 'Standard', ltv: '20%', threshold: '35%', discount: '10%' }
+];
 
-const fadeInUp = {
-  initial: { opacity: 0, y: 24 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-};
+const ARTICLES = [
+  {
+    numeral: 'I',
+    title: 'Escrow',
+    body:
+      'You deposit the vesting stream itself — the NFT that represents it — into the VestingAdapter contract. No person or company holds it. Only streams that cannot be cancelled by their sender are admitted, so the collateral cannot be clawed back mid-loan.'
+  },
+  {
+    numeral: 'II',
+    title: 'Valuation',
+    body:
+      'The ValuationEngine prices what the locked tokens are worth today: the lowest of spot, time-weighted and smoothed price, discounted for the time until unlock and for volatility. The result sets the most you can borrow.'
+  },
+  {
+    numeral: 'III',
+    title: 'Credit',
+    body:
+      'USDC is drawn from an ERC-4626 lending pool funded by lenders. The rate floats with how much of the pool is in use. A one-time 0.5% origination fee is the only charge beyond interest.'
+  },
+  {
+    numeral: 'IV',
+    title: 'Settlement',
+    body:
+      'Repay at any time and the stream returns to you, together with anything that vested while it was held. If a loan becomes unsafe or passes maturity, the stream is sold by open Dutch auction; anything above the debt is yours to claim.'
+  }
+];
 
-const stagger = {
-  animate: {
-    transition: {
-      staggerChildren: 0.08
+const PRINCIPLES = [
+  {
+    title: 'Non-recourse',
+    body: 'The escrowed stream is the only collateral. The protocol has no claim on anything else in your wallet.'
+  },
+  {
+    title: 'No discretionary seizure',
+    body:
+      'Risk controls can stop new credit against a token. They can never make an existing loan liquidatable or block a liquidation.'
+  },
+  {
+    title: 'Losses are shared in the open',
+    body:
+      'A shortfall is met first by the insurance reserve, then by all lenders pro rata. A loan entering liquidation is marked down at once, so no lender exits at par ahead of others.'
+  },
+  {
+    title: 'No promised yield',
+    body: 'Lenders earn what borrowers pay, net of a 10% reserve. There are no emissions, no boosted rates, no points.'
+  }
+];
+
+const FAQ = [
+  {
+    q: 'How is this different from selling OTC?',
+    a: 'OTC buyers of locked tokens typically demand a steep discount and take your upside with them. Borrowing against the stream keeps the tokens yours: repay, and every unlock is still yours.'
+  },
+  {
+    q: 'What happens if the token price falls?',
+    a: 'Each loan has a liquidation threshold above its maximum loan-to-value. If the debt rises above that share of the collateral’s value, anyone may start a Dutch auction of the stream. You can still repay the full debt during the auction to cancel it.'
+  },
+  {
+    q: 'Which vesting contracts are supported?',
+    a: 'Sablier v2 Lockup streams that are not cancelable, Streamflow EVM wrappers, and ERC-721 vesting claims individually approved by governance. Each supported contract is assigned a risk rank before it can be used.'
+  },
+  {
+    q: 'Is it audited? Is it live?',
+    a: 'Not yet. The contracts have been rebuilt, reviewed internally and covered by tests, and an independent audit is required before mainnet. Until then, Vestra runs on testnet only.'
+  },
+  {
+    q: 'Can I borrow against tokens that have not launched?',
+    a: 'In limited form. Pre-TGE prices are underwriting judgements, not market prices, so they carry a mandatory 90% haircut and a per-loan cap.'
+  }
+];
+
+function useReveal() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return undefined;
+    const items = root.querySelectorAll('.vx-reveal');
+    if (!('IntersectionObserver' in window)) {
+      items.forEach((el) => el.classList.add('is-visible'));
+      return undefined;
     }
-  }
-};
-
-const TypewriterText = ({ text, delay = 0, showCursor = true }) => {
-  return (
-    <motion.span
-      initial="hidden"
-      animate="visible"
-      style={{ display: 'inline-block', whiteSpace: 'nowrap' }}
-    >
-      {text.split('').map((char, index) => (
-        <motion.span
-          key={`${char}-${index}`}
-          style={{ display: 'inline-block', whiteSpace: 'pre' }}
-          variants={{
-            hidden: { opacity: 0, display: 'none' },
-            visible: { opacity: 1, display: 'inline-block' }
-          }}
-          transition={{
-            duration: 0.05,
-            delay: delay + index * 0.1,
-            ease: "linear"
-          }}
-        >
-          {char}
-        </motion.span>
-      ))}
-      {showCursor && (
-        <motion.span
-          animate={{ opacity: [1, 0, 1] }}
-          transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-          style={{ display: 'inline-block', color: 'var(--primary-400)', fontWeight: 300, marginLeft: '4px' }}
-        >
-          |
-        </motion.span>
-      )}
-    </motion.span>
-  );
-};
-
-function AbstractShape() {
-  const meshRef = useRef();
-
-  useFrame((state, delta) => {
-    meshRef.current.rotation.x += delta * 0.05;
-    meshRef.current.rotation.y += delta * 0.08;
-  });
-
-  return (
-    <mesh ref={meshRef}>
-      <octahedronGeometry args={[2.5, 2]} />
-      <meshBasicMaterial
-        color="#3b82f6"
-        wireframe={true}
-        transparent={true}
-        opacity={0.15}
-      />
-    </mesh>
-  );
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('is-visible');
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0.05 }
+    );
+    items.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+  return ref;
 }
 
-function DynamicParallaxBackground() {
-  const { scrollY } = useScroll();
-  const y1 = useTransform(scrollY, [0, 2000], [0, 400]); // Moves slower than scroll (parallax)
-
+function Masthead() {
   return (
-    <div className="dynamic-bg-container">
-      <motion.div className="dynamic-gradient" style={{ y: y1 }} />
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
-        <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-          <AbstractShape />
-        </Canvas>
+    <header className="lx-masthead">
+      <div className="lx-wrap lx-masthead__row">
+        <Link to="/" className="lx-wordmark" aria-label="Vestra Protocol home">
+          <span className="lx-wordmark__name">Vestra</span>
+          <span className="lx-wordmark__sub">Vesting Credit</span>
+        </Link>
+        <nav className="lx-nav" aria-label="Primary">
+          <a href="#method">Method</a>
+          <a href="#valuation">Valuation</a>
+          <a href="#lenders">Lenders</a>
+          <a href="#principles">Principles</a>
+          <Link to="/docs">Documents</Link>
+        </nav>
+        <Link to="/borrow" className="button lx-masthead__cta">
+          Open the app
+        </Link>
       </div>
-    </div>
+    </header>
   );
 }
 
-const HoverTiltCard = ({ feature }) => {
-  const x = useMotionValue(0.5);
-  const y = useMotionValue(0.5);
-
-  const rotateX = useTransform(y, [0, 1], [8, -8]);
-  const rotateY = useTransform(x, [0, 1], [-8, 8]);
-
-  function handleMouseMove(event) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    x.set((event.clientX - rect.left) / rect.width);
-    y.set((event.clientY - rect.top) / rect.height);
-  }
-
-  function handleMouseLeave() {
-    x.set(0.5);
-    y.set(0.5);
-  }
-
+function Instrument() {
   return (
-    <motion.div
-      variants={fadeInUp}
-      style={{
-        perspective: 1200,
-        transformStyle: 'preserve-3d',
-        height: '100%'
-      }}
-    >
-      <motion.div
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        style={{
-          rotateX,
-          rotateY,
-          cursor: 'default',
-          padding: 'var(--space-6)',
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-          position: 'relative'
-        }}
-        className="glass-card"
-        whileHover={{ scale: 1.02, z: 20, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderColor: 'rgba(59, 130, 246, 0.4)' }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      >
-        <div style={{
-          width: '56px',
-          height: '56px',
-          borderRadius: 'var(--radius-md)',
-          background: 'var(--gradient-icon)',
-          border: '1px solid rgba(139, 92, 246, 0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 'var(--space-5)',
-          transform: 'translateZ(30px)'
-        }}>
-          <feature.icon size={28} strokeWidth={1.5} color="var(--primary-400)" />
+    <figure className="lx-instrument vx-certificate">
+      <div className="lx-instrument__head">
+        <span className="vx-eyebrow">Vesting credit note</span>
+        <span className="vx-serial">No. 0001 · Specimen</span>
+      </div>
+      <div className="lx-instrument__amount">
+        <span className="lx-instrument__label">Credit available</span>
+        <span className="vx-figure lx-instrument__figure">{usd(EXAMPLE.maxCredit)}</span>
+      </div>
+      <dl className="lx-instrument__terms">
+        <div>
+          <dt>Collateral</dt>
+          <dd>100,000 tokens, unlocking in 12 months</dd>
         </div>
-        <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: 'var(--space-2)', color: 'var(--text-primary)', fontFamily: 'var(--font-display)', transform: 'translateZ(20px)' }}>
-          {feature.title}
-        </h3>
-        <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0, transform: 'translateZ(10px)' }}>
-          {feature.description}
-        </p>
-
-        <motion.div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.03) 25%, transparent 30%)',
-            pointerEvents: 'none',
-            borderRadius: 'inherit'
-          }}
-          animate={{ backgroundPosition: ['200% auto', '-200% auto'] }}
-          transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
-        />
-      </motion.div>
-    </motion.div>
+        <div>
+          <dt>Present value</dt>
+          <dd className="mono">{usd(EXAMPLE.pv)}</dd>
+        </div>
+        <div>
+          <dt>Rank · max LTV</dt>
+          <dd>II · 35%</dd>
+        </div>
+        <div>
+          <dt>You receive</dt>
+          <dd className="mono">{usd(EXAMPLE.received)}</dd>
+        </div>
+      </dl>
+      <figcaption className="lx-instrument__foot">
+        <span>Specimen. Token at $1.00, volatility 60%. Whitepaper v4.1, §2.</span>
+        <Seal size={64} />
+      </figcaption>
+    </figure>
   );
-};
+}
 
 export default function Landing() {
   const navigate = useNavigate();
-  const showScene = useIdleMount({ timeout: 1000 });
-  const [openFaq, setOpenFaq] = useState(null);
-  const [activeDropdown, setActiveDropdown] = useState(null);
-
-  const handleDropdownEnter = (menu) => {
-    setActiveDropdown(menu);
-  };
-
-  const handleDropdownLeave = () => {
-    setActiveDropdown(null);
-  };
-
-  const navItems = {
-    products: [
-      {
-        label: 'Vestra Web App',
-        description: 'The full power of decentralized credit.',
-        icon: <span style={{ fontSize: '18px' }}>📱</span>,
-        onClick: () => navigate('/dashboard')
-      },
-      {
-        label: 'Community Pools',
-        description: 'Lend and earn continuous APY yields.',
-        icon: <span style={{ fontSize: '18px' }}>💧</span>,
-        onClick: () => navigate('/community-pools')
-      }
-    ],
-    resources: [
-      {
-        label: 'Documentation',
-        description: 'Guides and technical details.',
-        onClick: () => navigate('/docs')
-      },
-      {
-        label: 'Governance',
-        description: 'The Vestra protocol governance.',
-        onClick: () => navigate('/governance')
-      },
-      {
-        label: 'Airdrop Info',
-        description: 'Details and eligibility criteria.',
-        onClick: () => navigate('/airdrop')
-      }
-    ],
-    developers: [
-      {
-        label: 'Build',
-        description: 'Integrate Vestra into your platform.',
-        onClick: () => navigate('/docs')
-      },
-      {
-        label: 'Github',
-        description: 'Explore the open source repositories.',
-        external: true,
-        onClick: () => window.open('https://github.com/0xkenichi/UNLOCKD', '_blank')
-      }
-    ],
-    about: [
-      {
-        label: 'About Vestra',
-        description: 'Learn about the vision and the team.',
-        onClick: () => navigate('/about')
-      }
-    ]
-  };
-
-  const features = [
-    {
-      icon: Shield,
-      title: 'Non-Custodial',
-      description: 'Keep full control of your vested assets. No custody, no counterparty risk.'
-    },
-    {
-      icon: Zap,
-      title: 'Instant Liquidity',
-      description: 'Unlock liquidity from locked tokens in minutes, not months.'
-    },
-    {
-      icon: Lock,
-      title: 'Auto-Settled',
-      description: 'Loans automatically settle at unlock. No manual intervention needed.'
-    },
-    {
-      icon: TrendingUp,
-      title: 'Fair Valuation',
-      description: 'DPV (Discounted Present Value) ensures fair, transparent pricing.'
-    },
-    {
-      icon: Clock,
-      title: 'Time-Optimized',
-      description: 'LTV caps calibrated to your specific unlock timeline.'
-    },
-    {
-      icon: Award,
-      title: 'Battle-Tested',
-      description: 'Monte Carlo simulations power our risk model.'
-    }
-  ];
-
-  const steps = [
-    {
-      number: '01',
-      title: 'Connect & Verify',
-      description: 'Connect your wallet and verify your vesting contract ownership.',
-      time: '< 1 min'
-    },
-    {
-      number: '02',
-      title: 'Get Valuation',
-      description: 'Our engine computes your DPV based on unlock schedule and market conditions.',
-      time: '~ 30 sec'
-    },
-    {
-      number: '03',
-      title: 'Borrow USDC',
-      description: 'Receive USDC instantly at conservative LTV (20-40%).',
-      time: 'Instant'
-    },
-    {
-      number: '04',
-      title: 'Auto-Settle',
-      description: 'At unlock, your loan settles automatically. Keep your upside.',
-      time: 'Automated'
-    }
-  ];
-
-  const useCases = [
-    {
-      icon: Rocket,
-      title: 'Project Teams',
-      description: 'Access liquidity without selling team allocations. Retain full upside while covering operational costs.'
-    },
-    {
-      icon: Briefcase,
-      title: 'Contributors',
-      description: 'Convert locked compensation into liquid capital for personal needs or reinvestment opportunities.'
-    },
-    {
-      icon: Landmark,
-      title: 'Investors',
-      description: 'Leverage vested positions without triggering tax events or breaking lock-up terms.'
-    }
-  ];
-
-  const faqs = [
-    {
-      question: 'How is Vestra different from selling OTC?',
-      answer: 'OTC deals often involve 20-70% discounts and permanent loss of upside. Vestra lets you borrow at fair LTV (20-40%) while keeping your tokens and all future gains.'
-    },
-    {
-      question: 'What happens if token price drops?',
-      answer: 'Our conservative LTV caps (calibrated via Monte Carlo simulations) provide buffer against volatility. At unlock, you can repay and reclaim your tokens, or let the protocol settle automatically.'
-    },
-    {
-      question: 'Which vesting contracts are supported?',
-      answer: 'We support OpenZeppelin VestingWallet, Sablier, Superfluid, TokenTimelock, and more. Custom integrations available for DAOs and protocols.'
-    },
-    {
-      question: 'Is this audited?',
-      answer: 'Full smart contract audits are planned with leading firms (PeckShield, Quantstamp). Current deployment is testnet-only for development and testing.'
-    }
-  ];
+  const rootRef = useReveal();
+  const [open, setOpen] = useState(0);
 
   return (
-    <div className="landing-page">
-      <DynamicParallaxBackground />
-      {/* Hero Section */}
-      <section className="landing-hero-simple" aria-labelledby="hero-title" style={{ justifyContent: 'flex-start', minHeight: '100vh', position: 'relative' }}>
-        <div className="landing-hero-canvas" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100vw', right: 0, left: 'auto' }}>
-          {showScene ? (
-            <Suspense
-              fallback={
-                <div className="loading-row landing-scene-loading">
-                  <div className="spinner" />
-                </div>
-              }
-            >
-              <LandingScene />
-            </Suspense>
-          ) : (
-            <div className="landing-scene-placeholder" />
-          )}
+    <div className="lx" ref={rootRef}>
+      <Masthead />
+
+      {/* Hero */}
+      <section className="lx-hero" aria-labelledby="lx-hero-title">
+        <Guilloche className="lx-hero__guilloche" size={760} />
+        <div className="lx-wrap lx-hero__grid">
+          <div className="lx-hero__copy">
+            <p className="vx-eyebrow">Credit against vesting tokens</p>
+            <h1 id="lx-hero-title" className="lx-hero__title">
+              Liquidity for what you have <em>already earned.</em>
+            </h1>
+            <p className="lx-hero__lede">
+              Borrow USDC against your vesting stream without selling a single token. The stream is held by a contract,
+              not a company, and it comes back to you — with everything that vested — the day you repay.
+            </p>
+            <div className="lx-hero__actions">
+              <button type="button" className="button" onClick={() => navigate('/borrow')}>
+                Value my vesting
+              </button>
+              <button type="button" className="button ghost" onClick={() => navigate('/lender')}>
+                Lend USDC
+              </button>
+            </div>
+            <p className="lx-hero__status">
+              <span className="lx-dot" aria-hidden="true" /> Testnet · Contracts not yet audited
+            </p>
+          </div>
+          <Instrument />
+        </div>
+      </section>
+
+      {/* Preface */}
+      <section className="lx-section lx-preface">
+        <div className="lx-wrap lx-preface__grid vx-reveal">
+          <p className="lx-preface__drop">
+            Vesting aligns the people who build a network with its future. It also leaves them wealthy on paper and
+            short of cash for years. The usual ways out — selling locked allocations to OTC desks at a steep discount,
+            or selling the day the tokens unlock — give up the very upside the vesting was meant to protect.
+          </p>
+          <p className="lx-preface__aside">
+            Vestra is a third way: a loan secured only by the stream itself, priced conservatively, settled in the open.
+          </p>
+        </div>
+      </section>
+
+      {/* Method */}
+      <section id="method" className="lx-section" aria-labelledby="lx-method-title">
+        <div className="lx-wrap">
+          <div className="lx-section__head vx-reveal">
+            <p className="vx-eyebrow">The method</p>
+            <h2 id="lx-method-title">Four articles. Nothing hidden between them.</h2>
+          </div>
+          <ol className="lx-articles">
+            {ARTICLES.map((a) => (
+              <li key={a.numeral} className="lx-article vx-reveal">
+                <span className="lx-article__numeral" aria-hidden="true">
+                  {a.numeral}
+                </span>
+                <h3>{a.title}</h3>
+                <p>{a.body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Valuation */}
+      <section id="valuation" className="lx-section lx-valuation" aria-labelledby="lx-val-title">
+        <div className="lx-wrap lx-valuation__grid">
+          <div className="vx-reveal">
+            <p className="vx-eyebrow">The valuation</p>
+            <h2 id="lx-val-title">A price for time, set down in full.</h2>
+            <p className="lx-muted-copy">
+              Collateral that cannot be sold today is worth less than the same tokens unlocked. The engine says by how
+              much, with every term public and every parameter bounded in the contract.
+            </p>
+          </div>
+          <div className="lx-formula vx-certificate vx-reveal">
+            <p className="lx-formula__eq" aria-label="pv equals Q times P times e to the minus r T times one minus sigma over two times omega">
+              <var>pv</var> = <var>Q</var> · <var>P</var> · <var>e</var>
+              <sup>−rT</sup> · (1 − <var>σ</var>⁄2) · <var>Ω</var>
+            </p>
+            <dl className="lx-formula__terms">
+              <div>
+                <dt>Q</dt>
+                <dd>Tokens still locked in the stream, read from the stream — never from you.</dd>
+              </div>
+              <div>
+                <dt>P</dt>
+                <dd>The lowest of spot, time-weighted average and smoothed price. Stale prices are refused.</dd>
+              </div>
+              <div>
+                <dt>
+                  e<sup>−rT</sup>
+                </dt>
+                <dd>Discount for the time T until unlock, at a rate fixed by the stream’s rank.</dd>
+              </div>
+              <div>
+                <dt>1 − σ⁄2</dt>
+                <dd>Volatility haircut, bounded so it can never exceed half the value.</dd>
+              </div>
+              <div>
+                <dt>Ω</dt>
+                <dd>A risk control between 0 and 1. It can only reduce new credit; it never touches open loans.</dd>
+              </div>
+            </dl>
+          </div>
         </div>
 
-        {/* Hero Content Overlay */}
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-
-          {/* Top Row: Title (Left) + Network Status (Right) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', marginBottom: 'var(--space-8)', zIndex: 20 }}>
-
-            {/* Top Left: Main Title + Nav Links */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                style={{ pointerEvents: 'auto' }}
-              >
-                <h1 id="hero-title" className="landing-glow" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 3vw, 32px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', margin: 0 }}>
-                  <span style={{ color: '#ffffff', display: 'inline-block' }}>
-                    <TypewriterText text="VESTRA PROTOCOL" delay={0.4} />
-                  </span>
-                </h1>
-              </motion.div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <NavDropdown title="Products" items={navItems.products} isOpen={activeDropdown === 'products'} onMouseEnter={() => handleDropdownEnter('products')} onMouseLeave={handleDropdownLeave} />
-                <NavDropdown title="Resources" items={navItems.resources} isOpen={activeDropdown === 'resources'} onMouseEnter={() => handleDropdownEnter('resources')} onMouseLeave={handleDropdownLeave} />
-                <NavDropdown title="Developers" items={navItems.developers} isOpen={activeDropdown === 'developers'} onMouseEnter={() => handleDropdownEnter('developers')} onMouseLeave={handleDropdownLeave} />
-                <NavDropdown title="About" items={navItems.about} isOpen={activeDropdown === 'about'} onMouseEnter={() => handleDropdownEnter('about')} onMouseLeave={handleDropdownLeave} />
-              </div>
-            </div>
-
-            {/* Top Right: Network Status */}
-            <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                <ChainStatus />
-              </div>
-            </div>
-
-          </div>
-
-          {/* Bottom Row: Info/Pills (Left) + Actions (Right) */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', width: '100%', paddingBottom: 'calc(var(--space-10) + 40px)' }}>
-
-            {/* Bottom Left: Subtitle & Pills */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
-            >
-              <p className="landing-hero-subtitle" style={{ fontSize: '16px', color: 'var(--text-secondary)', maxWidth: '400px', margin: 0, lineHeight: 1.5, pointerEvents: 'auto' }}>
-                Credit against vested tokens.<br />
-                <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Non-custodial. Auto-settled. Institutional-grade.</strong>
+        <div className="lx-wrap">
+          <div className="lx-ranks-wrap vx-reveal">
+            <div className="lx-ranks__caption">
+              <span className="vx-eyebrow">Admission ranks</span>
+              <p>
+                Collateral is admitted, not merely accepted. Each vesting contract is reviewed and ranked by governance
+                before a single loan can be written against it.
               </p>
+            </div>
+            <table className="lx-ranks">
+              <thead>
+                <tr>
+                  <th scope="col">Rank</th>
+                  <th scope="col">Class</th>
+                  <th scope="col">Max LTV</th>
+                  <th scope="col">Liquidation at</th>
+                  <th scope="col">Time discount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {RANKS.map((r) => (
+                  <tr key={r.rank}>
+                    <th scope="row" className="lx-ranks__rank">
+                      {r.rank}
+                    </th>
+                    <td>{r.name}</td>
+                    <td className="mono">{r.ltv}</td>
+                    <td className="mono">{r.threshold}</td>
+                    <td className="mono">{r.discount} / yr</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
-              <div className="landing-pills" style={{ display: 'flex', gap: 'var(--space-3)', pointerEvents: 'auto' }}>
-                <span className="pill" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--primary-300)' }}>
-                  <Sparkles size={14} />
-                  $300B+ Locked Value
-                </span>
-                <span className="pill">
-                  <TrendingUp size={14} />
-                  Monte Carlo Validated
-                </span>
+      {/* Lenders */}
+      <section id="lenders" className="lx-section" aria-labelledby="lx-lend-title">
+        <div className="lx-wrap lx-lenders">
+          <div className="vx-reveal">
+            <p className="vx-eyebrow">For lenders</p>
+            <h2 id="lx-lend-title">One pool. Plain accounting.</h2>
+            <p className="lx-muted-copy">
+              Deposit USDC into a standard ERC-4626 vault. Interest accrues into the share price every second, not when
+              it happens to be paid. Withdraw whatever is not lent out, whenever you like — pausing the protocol never
+              locks withdrawals.
+            </p>
+            <button type="button" className="button ghost" onClick={() => navigate('/lender')}>
+              View the pool
+            </button>
+          </div>
+          <ol className="lx-waterfall vx-reveal" aria-label="Order in which a loss is absorbed">
+            <li>
+              <span className="vx-serial">01</span>
+              <div>
+                <strong>Auction proceeds</strong>
+                <p>The stream is sold; proceeds repay the loan first.</p>
               </div>
-            </motion.div>
+            </li>
+            <li>
+              <span className="vx-serial">02</span>
+              <div>
+                <strong>Insurance reserve</strong>
+                <p>Funded by 10% of all interest. It can pay only the pool — no one can withdraw it.</p>
+              </div>
+            </li>
+            <li>
+              <span className="vx-serial">03</span>
+              <div>
+                <strong>All lenders, pro rata</strong>
+                <p>Any remaining shortfall lowers the share price for every lender equally.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
 
-            {/* Bottom Right: Buttons */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8, delay: 0.7, ease: [0.22, 1, 0.36, 1] }}
-              className="landing-hero-actions"
-              style={{ display: 'flex', gap: 'var(--space-4)', pointerEvents: 'auto', margin: 0 }}
-            >
-              <motion.button
-                onClick={() => navigate('/dashboard')}
-                className="landing-primary-button"
-                type="button"
-                data-testid="landing-cta"
-                aria-label="Launch and register"
-                style={{ background: 'var(--gradient-button)', border: 'none', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)' }}
-                whileHover={{ scale: 1.05, boxShadow: '0 8px 32px rgba(59, 130, 246, 0.6)' }}
-                whileTap={{ scale: 0.95 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-              >
-                Launch & Register
-              </motion.button>
-              <motion.button
-                onClick={() => navigate('/docs')}
-                className="landing-secondary-button"
-                type="button"
-                style={{ background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)' }}
-                whileHover={{ scale: 1.05, background: 'rgba(255,255,255,0.1)' }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Read Docs
-              </motion.button>
-            </motion.div>
-
+      {/* Principles */}
+      <section id="principles" className="lx-section lx-principles" aria-labelledby="lx-pr-title">
+        <div className="lx-wrap">
+          <div className="lx-section__head vx-reveal">
+            <p className="vx-eyebrow">Principles</p>
+            <h2 id="lx-pr-title">What Vestra will not do.</h2>
+          </div>
+          <div className="lx-principles__grid">
+            {PRINCIPLES.map((p) => (
+              <article key={p.title} className="lx-principle vx-reveal">
+                <h3>{p.title}</h3>
+                <p>{p.body}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      <motion.section
-        className="landing-section"
-        style={{ position: 'relative' }}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true, margin: '-100px' }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="landing-section-content" style={{ position: 'relative', zIndex: 1 }}>
-          <h2 className="landing-section-title">Why Vestra Protocol?</h2>
-          <p className="landing-section-subtitle">
-            The first protocol to provide credit against non-transferable vesting claims with DPV valuation and auto-settlement.
-          </p>
-
-          <motion.div
-            className="grid-3"
-            variants={stagger}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true, margin: '-50px' }}
-            style={{ marginTop: 'var(--space-10)' }}
-          >
-            {features.map((feature, index) => (
-              <HoverTiltCard key={feature.title} feature={feature} index={index} />
-            ))}
-          </motion.div>
-        </div>
-      </motion.section>
-
-      {/* Market Ticker Section */}
-      <section style={{ position: 'relative', zIndex: 10, marginTop: '-40px', marginBottom: 'var(--space-10)' }}>
-        <MarketTicker />
-      </section>
-
-      {/* How It Works */}
-      <motion.section
-        className="landing-section"
-        style={{ background: 'radial-gradient(circle at center, rgba(30, 41, 59, 0.4), transparent)' }}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true, margin: '-100px' }}
-      >
-        <div className="landing-section-content">
-          <h2 className="landing-section-title">How It Works</h2>
-          <p className="landing-section-subtitle">
-            Four simple steps to unlock liquidity from your vested tokens.
-          </p>
-
-          <div style={{
-            display: 'grid',
-            gap: 'var(--space-6)',
-            marginTop: 'var(--space-12)',
-            maxWidth: '900px',
-            marginLeft: 'auto',
-            marginRight: 'auto'
-          }}>
-            {steps.map((step, index) => (
-              <motion.div
-                key={step.number}
-                initial={{ opacity: 0, x: -24 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1, duration: 0.5 }}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr',
-                  gap: 'var(--space-6)',
-                  alignItems: 'start',
-                  padding: 'var(--space-6)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--glass-border)',
-                  background: 'var(--glass-bg)',
-                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.2)',
-                  backdropFilter: 'blur(16px)',
-                  transition: 'border-color var(--motion-fast)',
-                  cursor: 'default',
-                  position: 'relative'
-                }}
-                whileHover={{ borderColor: 'var(--primary-500)' }}
-              >
-                {index < steps.length - 1 && (
-                  <div style={{ position: 'absolute', left: '55px', top: '90px', bottom: '-40px', width: '2px', background: 'linear-gradient(to bottom, rgba(59, 130, 246, 0.4), rgba(59, 130, 246, 0))', zIndex: -1 }} />
-                )}
-                <div style={{
-                  width: '64px',
-                  height: '64px',
-                  borderRadius: '50%',
-                  border: '1px solid var(--border-strong)',
-                  background: 'var(--surface-strong)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: 'var(--font-display)',
-                  fontSize: '24px',
-                  fontWeight: '700',
-                  color: 'var(--primary-400)',
-                  flexShrink: 0,
-                  boxShadow: '0 0 20px rgba(59, 130, 246, 0.15)'
-                }}>
-                  {step.number}
-                </div>
-                <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
-                  <h3 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                    {step.title}
-                  </h3>
-                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0 }}>
-                    {step.description}
-                  </p>
-                  <div style={{
-                    fontSize: '13px',
-                    color: 'var(--primary-400)',
-                    fontWeight: '600',
-                    marginTop: 'var(--space-1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <Clock size={14} />
-                    {step.time}
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+      {/* FAQ */}
+      <section className="lx-section" aria-labelledby="lx-faq-title">
+        <div className="lx-wrap lx-faq">
+          <div className="vx-reveal">
+            <p className="vx-eyebrow">Questions</p>
+            <h2 id="lx-faq-title">Asked, and answered plainly.</h2>
           </div>
-        </div>
-      </motion.section>
-
-      {/* Use Cases — simple static grid */}
-      <motion.section
-        className="landing-section"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true, margin: '-100px' }}
-      >
-        <div className="landing-section-content">
-          <h2 className="landing-section-title">Built For Everyone</h2>
-          <p className="landing-section-subtitle">
-            Whether you're a team, contributor, or investor — unlock your potential.
-          </p>
-          <div className="grid-3" style={{ marginTop: 'var(--space-12)' }}>
-            {useCases.map((useCase, index) => {
-              const Icon = useCase.icon;
+          <div className="lx-faq__list vx-reveal">
+            {FAQ.map((item, i) => {
+              const isOpen = open === i;
               return (
-                <motion.div
-                  key={useCase.title}
-                  className="glass-card"
-                  initial={{ opacity: 0, y: 24 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: index * 0.1, duration: 0.5 }}
-                  whileHover={{ y: -4, borderColor: 'var(--primary-500)', boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15)' }}
-                  style={{ cursor: 'default', padding: 'var(--space-6)', transition: 'all var(--motion-fast)' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
-                    <div style={{
-                      width: '48px', height: '48px', borderRadius: 'var(--radius-md)',
-                      background: 'var(--gradient-icon)', border: '1px solid rgba(59, 130, 246, 0.2)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-                    }}>
-                      <Icon size={24} strokeWidth={1.5} color="var(--primary-400)" />
-                    </div>
-                    <h3 style={{ fontSize: '20px', fontWeight: '700', margin: 0, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                      {useCase.title}
-                    </h3>
+                <div key={item.q} className={`lx-faq__item ${isOpen ? 'is-open' : ''}`}>
+                  <h3>
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      aria-controls={`lx-faq-${i}`}
+                      onClick={() => setOpen(isOpen ? -1 : i)}
+                    >
+                      <span>{item.q}</span>
+                      <span className="lx-faq__mark" aria-hidden="true">
+                        {isOpen ? '−' : '+'}
+                      </span>
+                    </button>
+                  </h3>
+                  <div id={`lx-faq-${i}`} role="region" hidden={!isOpen}>
+                    <p>{item.a}</p>
                   </div>
-                  <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-secondary)', margin: 0 }}>
-                    {useCase.description}
-                  </p>
-                </motion.div>
+                </div>
               );
             })}
           </div>
         </div>
-      </motion.section>
+      </section>
 
-      {/* FAQ */}
-      <motion.section
-        className="landing-section"
-        style={{ background: 'radial-gradient(circle at center, rgba(30, 41, 59, 0.3), transparent)' }}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true, margin: '-100px' }}
-      >
-        <div className="landing-section-content">
-          <h2 className="landing-section-title">Frequently Asked Questions</h2>
-
-          <div style={{
-            display: 'grid',
-            gap: 'var(--space-3)',
-            marginTop: 'var(--space-12)',
-            maxWidth: '800px',
-            marginLeft: 'auto',
-            marginRight: 'auto'
-          }}>
-            {faqs.map((faq, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 16 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.05 }}
-                style={{
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--glass-border)',
-                  background: 'var(--glass-bg)',
-                  overflow: 'hidden',
-                  backdropFilter: 'blur(16px)',
-                  transition: 'border-color var(--motion-fast), box-shadow var(--motion-fast)'
-                }}
-                whileHover={{ borderColor: 'rgba(59, 130, 246, 0.4)', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.1)' }}
-              >
-                <button
-                  onClick={() => setOpenFaq(openFaq === index ? null : index)}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--space-4) var(--space-5)',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-primary)',
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    fontFamily: 'var(--font-display)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--space-3)',
-                    transition: 'background var(--motion-fast)'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(88, 166, 255, 0.06)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <motion.div
-                    animate={{ rotate: openFaq === index ? 180 : 0 }}
-                    transition={{ duration: 0.3 }}
-                    style={{ color: 'var(--primary-500)', flexShrink: 0 }}
-                  >
-                    <ChevronDown size={18} />
-                  </motion.div>
-                  <span>{faq.question}</span>
-                </button>
-                {openFaq === index && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    style={{
-                      padding: '0 var(--space-5) var(--space-5) calc(var(--space-5) + 18px + var(--space-3))',
-                      fontSize: '15px',
-                      lineHeight: '1.6',
-                      color: 'var(--text-secondary)'
-                    }}
-                  >
-                    {faq.answer}
-                  </motion.div>
-                )}
-              </motion.div>
-            ))}
+      {/* Closing */}
+      <section className="lx-section lx-close">
+        <div className="lx-wrap lx-close__inner vx-reveal">
+          <Seal size={96} />
+          <h2>Keep the tokens. Use the time.</h2>
+          <div className="lx-hero__actions">
+            <button type="button" className="button" onClick={() => navigate('/borrow')}>
+              Value my vesting
+            </button>
+            <button type="button" className="button ghost" onClick={() => navigate('/docs')}>
+              Read the documents
+            </button>
           </div>
         </div>
-      </motion.section>
+      </section>
 
-      {/* CTA Section */}
-      <motion.section
-        className="landing-section"
-        style={{
-          background: 'radial-gradient(ellipse at bottom, rgba(59, 130, 246, 0.15), rgba(10, 14, 26, 1) 70%)',
-          borderTop: '1px solid rgba(59, 130, 246, 0.1)',
-          textAlign: 'center',
-          padding: 'var(--space-24) var(--space-6)'
-        }}
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-      >
-        <div className="landing-section-content">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            <h2 className="landing-section-title" style={{ fontSize: 'clamp(36px, 5vw, 56px)', marginBottom: 'var(--space-4)' }}>
-              Ready to Unlock?
-            </h2>
-            <p className="landing-section-subtitle" style={{ fontSize: 'clamp(18px, 2.5vw, 22px)', marginBottom: 'var(--space-10)' }}>
-              Join the future of vesting credit. Non-custodial, auto-settled, fair.
+      <footer className="lx-colophon">
+        <div className="lx-wrap lx-colophon__grid">
+          <div>
+            <span className="lx-wordmark__name">Vestra</span>
+            <p className="lx-colophon__fine">
+              Credit against vesting tokens. Testnet. Not financial advice. Borrowing against volatile collateral can
+              result in the loss of that collateral.
             </p>
-
-            <div style={{ display: 'flex', gap: 'var(--space-5)', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <motion.button
-                onClick={() => navigate('/dashboard')}
-                className="landing-primary-button"
-                type="button"
-                style={{ background: 'var(--gradient-button)', border: 'none', boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)', fontSize: '18px', padding: '16px 32px' }}
-                whileHover={{ scale: 1.05, y: -3, boxShadow: '0 8px 32px rgba(59, 130, 246, 0.6)' }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Launch & Register
-              </motion.button>
-              <motion.button
-                onClick={() => navigate('/docs')}
-                className="landing-secondary-button"
-                type="button"
-                whileHover={{ scale: 1.05, y: -3 }}
-                whileTap={{ scale: 0.95 }}
-                style={{ fontSize: '18px', padding: '16px 32px' }}
-              >
-                Explore Docs
-              </motion.button>
-              <motion.button
-                onClick={() => navigate('/airdrop')}
-                className="landing-secondary-button"
-                type="button"
-                whileHover={{ scale: 1.05, y: -3 }}
-                whileTap={{ scale: 0.95 }}
-                style={{ fontSize: '18px', padding: '16px 32px' }}
-              >
-                Airdrop Info
-              </motion.button>
-            </div>
-
-            <div style={{ marginTop: 'var(--space-10)', display: 'flex', justifyContent: 'center' }}>
-              <ChainStatus />
-            </div>
-          </motion.div>
+          </div>
+          <nav aria-label="Footer">
+            <Link to="/docs">Documents</Link>
+            <Link to="/about">About</Link>
+            <Link to="/governance">Governance</Link>
+            <a href="https://github.com/0xkenichi/UNLOCKD" target="_blank" rel="noreferrer">
+              Source
+            </a>
+          </nav>
+          <p className="lx-colophon__fine lx-colophon__set">
+            Set in Instrument Serif, Inter Tight and IBM Plex Mono. Contracts licensed BSL 1.1.
+          </p>
         </div>
-      </motion.section>
-
-      <Footer />
+      </footer>
     </div>
   );
 }

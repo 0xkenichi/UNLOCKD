@@ -1,0 +1,729 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Engraved layer — loaded after styles.css.
+ *
+ * Restyles the shared components every page uses (cards, buttons, stats, tables,
+ * forms, header/footer) into the Vestra "Engraved" language, and defines the
+ * new primitives (.vx-*) used by the landing page and page headers.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+html {
+  background: var(--bg-primary);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+  font-feature-settings: 'ss01', 'cv11';
+  font-variant-numeric: tabular-nums lining-nums;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Paper grain over everything, never intercepts input */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background-image: var(--grain);
+  opacity: var(--grain-opacity);
+  mix-blend-mode: overlay;
+}
+
+::selection {
+  background: rgba(196, 162, 108, 0.32);
+  color: var(--text-primary);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+h4,
+h5,
+h6 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+a {
+  color: var(--text-accent);
+  text-decoration-color: rgba(196, 162, 108, 0.4);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 1px solid var(--brass-400);
+  outline-offset: 3px;
+}
+
+hr {
+  border: 0;
+  height: 3px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border-secondary);
+  margin: var(--space-8) 0;
+}
+
+code,
+kbd,
+.font-mono,
+.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero';
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-600) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-600);
+  border-radius: 0;
+}
+
+/* ── Typography roles ──────────────────────────────────────────────────────── */
+.page-title,
+.section-title,
+.holo-title {
+  font-family: var(--font-display) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  text-shadow: none !important;
+}
+
+.page-title {
+  font-size: clamp(34px, 4.6vw, 54px);
+  line-height: 1.02;
+}
+
+.section-title {
+  font-size: clamp(22px, 2.4vw, 28px);
+  line-height: 1.15;
+}
+
+.holo-title {
+  font-size: 22px;
+}
+
+.page-subtitle,
+.section-subtitle {
+  color: var(--text-secondary);
+  max-width: var(--measure);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+/* Small caps labels — the "engraved legend" voice */
+.stat-label,
+.vx-eyebrow,
+.table-row.header,
+.form-field > label,
+.form-field label:first-child {
+  font-family: var(--font-body);
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Figures: serif numerals read as engraved values */
+.stat-value {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: 0;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+
+.stat-delta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--success-400);
+}
+
+/* ── Surfaces ─────────────────────────────────────────────────────────────── */
+.holo-card,
+.glass-card,
+.stat-card,
+.stat-card-minimal,
+.doc-card,
+.data-table,
+.legal-doc-container,
+.feature-diagram,
+.action-log-item,
+.ai-bubble {
+  background: var(--surface) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 4px var(--border-secondary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.holo-card:hover,
+.glass-card:hover,
+.stat-card:hover {
+  border-color: var(--border-strong) !important;
+  transform: none !important;
+}
+
+.holo-glow {
+  text-shadow: none !important;
+}
+
+/* Remove decorative neon/gradient blobs wherever they appear */
+.dynamic-gradient,
+.landing-glow::after,
+.holo-card::before,
+.glass-card::before {
+  background: none !important;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.button {
+  min-height: 42px;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brass-400);
+  background: var(--brass-400);
+  color: #15120c;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 0 rgba(0, 0, 0, 0.35);
+  transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+
+.button:hover {
+  background: var(--brass-300);
+  border-color: var(--brass-300);
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.button:active {
+  background: var(--brass-500);
+}
+
+.button.ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+.button.ghost:hover {
+  background: rgba(196, 162, 108, 0.06);
+  border-color: var(--brass-400);
+  color: var(--brass-200);
+  transform: none;
+  box-shadow: none;
+}
+
+.button.ghost.active,
+.button.ghost.active-nav {
+  color: var(--brass-300);
+  border-color: transparent;
+  background: transparent;
+}
+
+.button.wallet-connected {
+  background: transparent;
+  color: var(--brass-300);
+  border-color: var(--border-accent);
+  box-shadow: none;
+}
+
+:root[data-theme='light'] .button {
+  color: #fbf8f1;
+}
+
+:root[data-theme='light'] .button.ghost {
+  color: var(--text-primary);
+}
+
+/* ── Tags, pills, chips — stamped marks ──────────────────────────────────── */
+.tag,
+.pill,
+.chip {
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.pill.active,
+.chip.active {
+  color: var(--brass-200);
+  border-color: var(--brass-400);
+  background: rgba(196, 162, 108, 0.08);
+}
+
+.tag.success {
+  color: var(--success-400);
+  border-color: rgba(127, 156, 120, 0.4);
+  background: transparent;
+}
+
+.tag.warn {
+  color: var(--warning-400);
+  border-color: rgba(194, 148, 68, 0.4);
+  background: transparent;
+}
+
+/* ── Forms ────────────────────────────────────────────────────────────────── */
+.form-input,
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select,
+textarea {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.form-input:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--brass-400);
+  box-shadow: 0 0 0 3px rgba(196, 162, 108, 0.12);
+}
+
+input[type='range'],
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--brass-400);
+}
+
+/* ── Tables — set like a ledger ───────────────────────────────────────────── */
+.table-row {
+  border-bottom: 1px solid var(--border-secondary) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-row.header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--rule) !important;
+}
+
+.table-row:not(.header):hover {
+  background: rgba(196, 162, 108, 0.035);
+}
+
+/* ── Banners ──────────────────────────────────────────────────────────────── */
+.error-banner {
+  background: rgba(178, 86, 75, 0.08) !important;
+  border: 1px solid rgba(178, 86, 75, 0.35) !important;
+  color: var(--danger-400) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.chain-warning {
+  background: rgba(194, 148, 68, 0.1);
+  color: var(--warning-400);
+  border-bottom: 1px solid rgba(194, 148, 68, 0.3);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 8px;
+}
+
+/* ── Spinners ─────────────────────────────────────────────────────────────── */
+.spinner,
+.vault-spinner {
+  border-color: var(--ink-600) !important;
+  border-top-color: var(--brass-400) !important;
+  box-shadow: none !important;
+}
+
+/* ── App header & footer ──────────────────────────────────────────────────── */
+.app-header {
+  background: color-mix(in srgb, var(--bg-primary) 94%, transparent) !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--rule) !important;
+}
+
+.app-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: var(--border-secondary);
+  pointer-events: none;
+}
+
+.app-header .button.ghost {
+  border-color: transparent;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+}
+
+.app-header .button.ghost:hover {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: transparent;
+}
+
+.app-header .button.ghost.active-nav {
+  color: var(--brass-300);
+}
+
+.app-footer {
+  background: var(--bg-primary) !important;
+  border-top: 1px solid var(--rule) !important;
+  color: var(--text-muted) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase;
+  backdrop-filter: none !important;
+}
+
+/* ── Page header (all app pages) ──────────────────────────────────────────── */
+.page-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-8);
+  position: relative;
+}
+
+.page-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: var(--border-secondary);
+}
+
+.section-head {
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: var(--space-3);
+}
+
+/* ── Utility classes used across pages (no Tailwind in this app) ──────────── */
+.text-white { color: var(--text-primary); }
+.text-blue-400,
+.text-blue-300,
+.text-indigo-400,
+.text-purple-400,
+.text-cyan-400 { color: var(--brass-300); }
+.text-slate-300 { color: var(--text-secondary); }
+.text-slate-400,
+.text-slate-500,
+.text-gray-400,
+.text-gray-500 { color: var(--text-muted); }
+.text-emerald-400,
+.text-green-400 { color: var(--success-400); }
+.text-red-400 { color: var(--danger-400); }
+.text-amber-400,
+.text-yellow-400 { color: var(--warning-400); }
+.text-xs { font-size: 12px; }
+.text-\[10px\] { font-size: 10px; }
+.text-\[9px\] { font-size: 9px; }
+.uppercase { text-transform: uppercase; }
+.tracking-widest { letter-spacing: 0.16em; }
+.font-black,
+.font-bold { font-weight: 600; }
+.italic { font-style: italic; }
+.text-center { text-align: center; }
+.border { border: 1px solid var(--border-primary); }
+.border-slate-800 { border-color: var(--border-primary); }
+.rounded-xl,
+.rounded-2xl { border-radius: var(--radius-lg); }
+.rounded-full { border-radius: var(--radius-full); }
+.w-full { width: 100%; }
+.relative { position: relative; }
+.overflow-hidden { overflow: hidden; }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.grid { display: grid; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-2 { gap: 8px; }
+.gap-4 { gap: 16px; }
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-4 { margin-bottom: 16px; }
+.p-3 { padding: 12px; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * New primitives
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.vx-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--brass-300);
+}
+
+.vx-eyebrow::before {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.vx-serial {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  font-feature-settings: 'zero';
+}
+
+.vx-rule {
+  height: 4px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.vx-figure {
+  font-family: var(--font-display);
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--text-primary);
+}
+
+.vx-figure em {
+  font-style: italic;
+  color: var(--brass-300);
+}
+
+/* Certificate frame: outer hairline, inset second rule, corner ornaments */
+.vx-certificate {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  padding: clamp(24px, 4vw, 48px);
+  box-shadow: inset 0 0 0 6px var(--surface), inset 0 0 0 7px var(--border-primary);
+}
+
+.vx-certificate::before,
+.vx-certificate::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--brass-500);
+  opacity: 0.7;
+}
+
+.vx-certificate::before {
+  top: 12px;
+  left: 12px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.vx-certificate::after {
+  bottom: 12px;
+  right: 12px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* Guilloche — banknote linework, drawn by an inline SVG component; this is the frame */
+.vx-guilloche {
+  color: var(--brass-500);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+:root[data-theme='light'] .vx-guilloche {
+  opacity: 0.4;
+}
+
+/* Hallmark seal */
+.vx-seal {
+  color: var(--brass-400);
+}
+
+/* Reveal on scroll (JS adds .is-visible). Respect reduced motion. */
+.vx-reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity var(--motion-slow) var(--ease-smooth), transform var(--motion-slow) var(--ease-smooth);
+}
+
+.vx-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vx-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── App header: set wordmark, untruncated small-caps nav ──────────────────── */
+.app-header {
+  padding: 0 clamp(16px, 3vw, 40px) !important;
+  height: var(--header-height);
+  gap: 24px;
+}
+
+.app-header .brand {
+  gap: 12px;
+  align-items: baseline;
+}
+
+.app-header .brand img {
+  display: none;
+}
+
+.app-header .brand-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--text-primary);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.app-header .brand-title::first-letter {
+  color: var(--brass-300);
+}
+
+.app-header .brand-subtitle {
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.app-header .header-actions {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.app-header .header-actions > .button.ghost {
+  white-space: nowrap;
+  overflow: visible;
+  max-width: none;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+}
+
+/* Privacy toggle: keep the chip, drop the explanatory sentence in the header */
+.app-header .inline-actions .muted {
+  display: none;
+}
+
+.app-header .inline-actions .chip {
+  font-size: 9.5px;
+  padding: 4px 8px;
+}
+
+/* Solana connect button (inline-styled in App.jsx) */
+.app-header button[title*='Phantom'],
+.app-header button[title*='Solana'] {
+  background: transparent !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text-secondary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-header button[title*='Phantom'] span:last-child,
+.app-header button[title*='Solana'] span:last-child {
+  background: var(--success-500) !important;
+  box-shadow: none !important;
+}
+
+/* RainbowKit connect button */
+.app-header [data-testid='rk-connect-button'] {
+  border-radius: var(--radius-sm) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px !important;
+}
+
+@media (max-width: 1280px) {
+  .app-header .brand-subtitle {
+    display: none;
+  }
+}
+
+/* ── Page container (the route-transition wrapper sits between .app-main and .stack) ── */
+.app-main:not(.app-main--landing):not(.app-main--immersive) {
+  padding: clamp(28px, 4vw, 56px) clamp(16px, 4vw, 48px) 96px;
+}
+
+.app-main:not(.app-main--landing):not(.app-main--immersive) > div > .stack,
+.app-main:not(.app-main--landing):not(.app-main--immersive) > div > div > .stack {
+  width: min(var(--page-max), 100%);
+  margin-left: auto;
+  margin-right: auto;
+}

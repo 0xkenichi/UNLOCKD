@@ -20,6 +20,7 @@ import {
 } from '@rainbow-me/rainbowkit/wallets';
 import '@rainbow-me/rainbowkit/styles.css';
 import '@solana/wallet-adapter-react-ui/styles.css';
+import './styles/engraved.css';
 import { ALL_EVM_CHAINS, DEFAULT_EVM_CHAIN } from './utils/chains.js';
 import { getContractAddress } from './utils/contracts.js';
 
@@ -85,11 +86,11 @@ function BootSplash() {
 
 // RainbowKit custom dark theme matching Vestra design
 const vestraTheme = darkTheme({
-  accentColor: '#3b82f6',
-  accentColorForeground: 'white',
-  borderRadius: 'medium',
+  accentColor: '#c4a26c',
+  accentColorForeground: '#15120c',
+  borderRadius: 'small',
   fontStack: 'system',
-  overlayBlur: 'small',
+  overlayBlur: 'none',
 });
 
 const runtimeAddresses = {

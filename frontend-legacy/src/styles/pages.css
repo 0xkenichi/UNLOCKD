@@ -1,0 +1,189 @@
+/* Shared editorial layouts for content pages (About, Hiring, Docs intros). */
+
+.px-page {
+  gap: clamp(48px, 7vw, 96px) !important;
+}
+
+.px-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  align-items: end;
+}
+
+.px-hero .page-title {
+  max-width: 16ch;
+  margin: 18px 0 20px;
+}
+
+.px-hero .page-title em {
+  font-style: italic;
+  color: var(--brass-300);
+}
+
+.px-hero .inline-actions {
+  margin-top: 28px;
+}
+
+.px-hero__seal {
+  opacity: 0.85;
+}
+
+/* Facts ledger */
+.px-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.px-fact {
+  padding: 24px 24px 24px 0;
+}
+
+.px-fact + .px-fact {
+  padding-left: 24px;
+  border-left: 1px solid var(--border-secondary);
+}
+
+.px-fact dd {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.px-fact .stat-value {
+  font-size: clamp(22px, 2.2vw, 28px);
+}
+
+.px-fact__note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Two-column section: heading left, body right */
+.px-split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(32px, 6vw, 80px);
+  align-items: start;
+}
+
+.px-split .section-title {
+  margin-top: 14px;
+  max-width: 14ch;
+}
+
+.px-prose p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+  max-width: 60ch;
+  margin: 0 0 18px;
+}
+
+.px-prose p:first-child::first-letter {
+  font-family: var(--font-display);
+  float: left;
+  font-size: 3.2em;
+  line-height: 0.85;
+  padding: 6px 10px 0 0;
+  color: var(--brass-300);
+}
+
+/* Dated record */
+.px-record {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.px-record li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 20px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.px-record h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+
+.px-record p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14.5px;
+}
+
+.px-record .vx-serial {
+  padding-top: 6px;
+  color: var(--brass-400);
+}
+
+.px-join {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.px-join p {
+  max-width: 48ch;
+}
+
+.px-join .inline-actions {
+  justify-content: center;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .px-hero,
+  .px-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .px-hero__seal {
+    display: none;
+  }
+
+  .px-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .px-fact:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .px-fact:nth-child(n + 3) {
+    border-top: 1px solid var(--border-secondary);
+  }
+}
+
+@media (max-width: 520px) {
+  .px-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .px-fact,
+  .px-fact + .px-fact {
+    padding: 18px 0;
+    border-left: 0;
+  }
+
+  .px-fact + .px-fact {
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  .px-record li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}

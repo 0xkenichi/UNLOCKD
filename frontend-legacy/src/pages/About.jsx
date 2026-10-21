@@ -1,193 +1,133 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Zap, Shield, Lock, BarChart3, Globe, ArrowRight, ExternalLink } from 'lucide-react';
+import Seal from '../components/landing/Seal.jsx';
+import '../styles/pages.css';
 
-const fadeUp = {
-  initial: { opacity: 0, y: 24 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.5 } }
-};
-
-const stagger = { animate: { transition: { staggerChildren: 0.09 } } };
-
-const PILLARS = [
+const FACTS = [
   {
-    icon: Lock,
-    color: '139, 92, 246',
-    title: 'Vesting-Backed Credit',
-    desc: 'Unlock liquidity from locked token positions before they vest — without selling. Vestra creates real lending markets around on-chain vesting schedules.'
+    label: 'Collateral',
+    value: 'Vesting streams',
+    note: 'Sablier v2 Lockup (non-cancelable), Streamflow EVM, governance-approved ERC-721 claims.'
   },
-  {
-    icon: BarChart3,
-    color: '59, 130, 246',
-    title: 'Dynamic Present Value Engine',
-    desc: 'Our DPV engine prices vesting collateral using time-adjusted, volatility-weighted models — giving borrowers fair LTVs and lenders precise risk exposure.'
-  },
-  {
-    icon: Shield,
-    color: '16, 185, 129',
-    title: 'Strict Recourse Architecture',
-    desc: 'Every loan is backed by real collateral escrow, tiered liquidation, insurance vaults, and staged auction mechanics. Zero-emission guarantees.'
-  },
-  {
-    icon: Globe,
-    color: '251, 146, 60',
-    title: 'Institutional Grade',
-    desc: 'Built for funds, DAOs, and serious builders. Distressed Debt Bonds, isolated lending tiers, KYC-gated instruments, and auditor-ready contracts.'
-  }
+  { label: 'Loans', value: 'Non-recourse', note: 'The escrowed stream is the only collateral.' },
+  { label: 'Lending pool', value: 'ERC-4626', note: 'Floating rate; interest accrues into the share price.' },
+  { label: 'Stage', value: 'Testnet', note: 'Independent audit required before mainnet.' }
 ];
 
-const STATS = [
-  { label: 'Market Opportunity', value: '$300B+', sub: 'Locked vesting tokens globally' },
-  { label: 'Architecture', value: 'V7.0', sub: 'Citadel hardening' },
-  { label: 'Contracts', value: 'EIP-170 Safe', sub: 'Facet-split verified' },
-  { label: 'Stage', value: 'Pre-Mainnet', sub: 'Testnet live & shipping' }
+const STATUS = [
+  {
+    date: 'Oct 2026',
+    title: 'Core contracts rebuilt',
+    body: 'A single LoanManager, an ERC-4626 lending pool, a fixed vesting adapter, valuation engine and insurance vault, covered by 35 tests including regressions for every finding of an internal adversarial review.'
+  },
+  {
+    date: 'Oct 2026',
+    title: 'Whitepaper v4.1',
+    body: 'Rewritten to describe exactly what the contracts do. Mechanisms that are not built — AI-driven risk signals, staged tranche auctions — are labelled as roadmap.'
+  },
+  {
+    date: 'Next',
+    title: 'Independent audit',
+    body: 'An external audit of the core contracts, published in full, before any mainnet deployment.'
+  }
 ];
 
 export default function About() {
   const navigate = useNavigate();
 
   return (
-    <div className="stack">
-      {/* Hero */}
-      <motion.div
-        variants={stagger}
-        initial="initial"
-        animate="animate"
-        style={{ marginBottom: '4rem' }}
-      >
-        <motion.div variants={fadeUp}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
-            borderRadius: '20px', padding: '4px 14px', marginBottom: '20px'
-          }}>
-            <Zap size={13} color="#a78bfa" />
-            <span style={{ color: '#a78bfa', fontSize: '13px', fontWeight: 600 }}>The Protocol</span>
-          </div>
-          <h1 className="page-title holo-glow" style={{ maxWidth: '720px', marginBottom: '1.2rem' }}>
-            The credit layer for the vesting economy
+    <div className="stack px-page">
+      <header className="page-header px-hero">
+        <div>
+          <p className="vx-eyebrow">The protocol</p>
+          <h1 className="page-title">
+            A credit market for time that has <em>not yet passed.</em>
           </h1>
-          <p className="page-subtitle" style={{ maxWidth: '600px', margin: '0 0 2rem' }}>
-            Vestra Protocol is building the infrastructure that lets token holders access liquidity against their vesting positions — before unlock, without selling, with institutional-grade risk controls.
+          <p className="page-subtitle">
+            Vestra lets people who hold vesting tokens borrow against them before they unlock — without selling, and
+            without handing the tokens to anyone. It is built to be legible: every rule is in a contract, and every
+            parameter is public.
           </p>
           <div className="inline-actions">
-            <button className="button" type="button" onClick={() => navigate('/docs?doc=whitepaper')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-              Read Whitepaper <ArrowRight size={14} />
+            <button className="button" type="button" onClick={() => navigate('/docs?doc=whitepaper')}>
+              Read the whitepaper
             </button>
             <button className="button ghost" type="button" onClick={() => navigate('/hiring')}>
-              We're Hiring
+              Join the build
             </button>
           </div>
-        </motion.div>
-      </motion.div>
+        </div>
+        <Seal size={132} className="px-hero__seal" />
+      </header>
 
-      {/* Stats */}
-      <div className="stat-row" style={{ marginBottom: '4rem' }}>
-        {STATS.map(s => (
-          <div key={s.label} className="stat-card">
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-value">{s.value}</div>
-            <div className="stat-delta">{s.sub}</div>
+      <dl className="px-facts">
+        {FACTS.map((f) => (
+          <div key={f.label} className="px-fact">
+            <dt className="stat-label">{f.label}</dt>
+            <dd>
+              <span className="stat-value">{f.value}</span>
+              <span className="px-fact__note">{f.note}</span>
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
 
-      {/* Mission */}
-      <motion.div
-        variants={fadeUp}
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        className="holo-card"
-        style={{
-          marginBottom: '3rem',
-          background: 'linear-gradient(135deg, rgba(139,92,246,0.07), rgba(59,130,246,0.05))',
-          border: '1px solid rgba(139,92,246,0.2)',
-          padding: '2.5rem'
-        }}
-      >
-        <h2 className="holo-title" style={{ marginBottom: '1rem' }}>Why we exist</h2>
-        <p style={{ color: '#94a3b8', fontSize: '16px', lineHeight: 1.85, maxWidth: '700px', margin: 0 }}>
-          Hundreds of billions of dollars in token value sit locked in vesting schedules — illiquid to the people who earned them. The options today are bad: OTC sales at steep discounts, opaque dealer desks, or simply waiting. Vestra Protocol changes this with a transparent, on-chain credit market that respects vesting mechanics, prices collateral fairly, and enforces strict recourse without human intermediaries.
+      <section className="px-split">
+        <div>
+          <p className="vx-eyebrow">Why it exists</p>
+          <h2 className="section-title">Paper wealth, real obligations.</h2>
+        </div>
+        <div className="px-prose">
+          <p>
+            Vesting is how networks keep the people who build them aligned with their future. It also means those
+            people often hold most of their net worth in tokens they cannot touch for years, while rent, payroll and
+            taxes arrive on schedule.
+          </p>
+          <p>
+            Today the choices are poor: sell the locked allocation to an OTC desk at a steep discount, or wait and sell
+            on unlock day alongside everyone else. Both give away the upside the vesting was meant to protect.
+          </p>
+          <p>
+            Vestra offers a loan instead — secured only by the stream itself, priced conservatively for the time left
+            to unlock, and settled by open auction if it ever goes wrong.
+          </p>
+        </div>
+      </section>
+
+      <section className="px-split">
+        <div>
+          <p className="vx-eyebrow">Where it stands</p>
+          <h2 className="section-title">The record, as it is.</h2>
+        </div>
+        <ol className="px-record">
+          {STATUS.map((s) => (
+            <li key={s.title}>
+              <span className="vx-serial">{s.date}</span>
+              <div>
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="vx-certificate px-join">
+        <h2 className="section-title">Join the build</h2>
+        <p className="muted">
+          A small team, working in the open. If careful credit infrastructure is the kind of work you want to do, we
+          would like to hear from you.
         </p>
-      </motion.div>
-
-      {/* Pillars */}
-      <motion.div
-        variants={stagger}
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: '16px',
-          marginBottom: '4rem'
-        }}
-      >
-        {PILLARS.map(p => (
-          <motion.div
-            key={p.title}
-            variants={fadeUp}
-            style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: `1px solid rgba(${p.color}, 0.15)`,
-              borderRadius: '16px',
-              padding: '28px 24px',
-              transition: 'border-color 0.2s'
-            }}
-          >
-            <div style={{
-              width: '44px', height: '44px', borderRadius: '12px',
-              background: `rgba(${p.color}, 0.1)`,
-              border: `1px solid rgba(${p.color}, 0.2)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginBottom: '16px'
-            }}>
-              <p.icon size={20} color={`rgb(${p.color})`} />
-            </div>
-            <h3 style={{ color: '#fff', fontWeight: 700, fontSize: '16px', marginBottom: '10px', fontFamily: 'var(--font-display)' }}>
-              {p.title}
-            </h3>
-            <p style={{ color: '#64748b', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>
-              {p.desc}
-            </p>
-          </motion.div>
-        ))}
-      </motion.div>
-
-      {/* Join CTA */}
-      <motion.div
-        variants={fadeUp}
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        className="holo-card"
-        style={{ textAlign: 'center', padding: '3.5rem 2rem' }}
-      >
-        <h3 className="holo-title" style={{ marginBottom: '0.75rem' }}>Join the build</h3>
-        <p className="muted" style={{ marginBottom: '1.8rem', maxWidth: '480px', margin: '0 auto 1.8rem' }}>
-          We're a lean, high-conviction team assembling the core builders for Vestra Protocol. If this resonates, we want to hear from you.
-        </p>
-        <div className="inline-actions" style={{ justifyContent: 'center' }}>
-          <button className="button" type="button" onClick={() => navigate('/hiring')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            View Open Roles <ArrowRight size={14} />
+        <div className="inline-actions">
+          <button className="button" type="button" onClick={() => navigate('/hiring')}>
+            View open roles
           </button>
-          <a
-            href="https://tally.so/r/vestra-apply"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="button ghost"
-            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-          >
-            Open Application <ExternalLink size={13} />
+          <a href="https://tally.so/r/vestra-apply" target="_blank" rel="noopener noreferrer" className="button ghost">
+            Apply
           </a>
         </div>
-      </motion.div>
+      </section>
     </div>
   );
 }

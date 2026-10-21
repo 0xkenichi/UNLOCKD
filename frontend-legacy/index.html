@@ -29,13 +29,13 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.bunny.net" />
   <link
-    href="https://fonts.bunny.net/css?family=sora:400,600,700|syne:400,600,700,800|flow-circular:400|dotgothic16:400|rubik-glitch:400"
+    href="https://fonts.bunny.net/css?family=instrument-serif:400,400i|inter-tight:400,500,600|ibm-plex-mono:400,500|flow-circular:400|dotgothic16:400|rubik-glitch:400&display=swap"
     rel="stylesheet" />
   <title>Vestra Protocol — Vesting Credit</title>
   <style>
     body {
-      background: #0a0e14;
-      color: #e6e8eb;
+      background: #0b0a08;
+      color: #f2ecdf;
       margin: 0;
       min-height: 100vh
     }
@@ -46,11 +46,11 @@
 
     /* Static boot shell: painted before any JS loads; React's first render replaces #root's children. */
     .boot-shell {
-      --boot-bg: #0a0e14;
-      --boot-fg: #e6e8eb;
-      --boot-muted: #8b93a1;
-      --boot-accent: #3b82f6;
-      --boot-track: rgba(59, 130, 246, 0.18);
+      --boot-bg: #0b0a08;
+      --boot-fg: #f2ecdf;
+      --boot-muted: #8a8170;
+      --boot-accent: #c4a26c;
+      --boot-track: rgba(196, 162, 108, 0.16);
       position: fixed;
       inset: 0;
       z-index: 1;
@@ -63,26 +63,26 @@
       box-sizing: border-box;
       background: var(--boot-bg);
       color: var(--boot-fg);
-      font-family: Sora, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       text-align: center;
     }
 
     @media (prefers-color-scheme: light) {
       :root:not([data-theme="dark"]) .boot-shell {
-        --boot-bg: #f6f7f9;
-        --boot-fg: #0f172a;
-        --boot-muted: #5b6473;
-        --boot-accent: #2563eb;
-        --boot-track: rgba(37, 99, 235, 0.16);
+        --boot-bg: #f3eee3;
+        --boot-fg: #1c1913;
+        --boot-muted: #6d6452;
+        --boot-accent: #8a6b39;
+        --boot-track: rgba(122, 92, 46, 0.18);
       }
     }
 
     :root[data-theme="light"] .boot-shell {
-      --boot-bg: #f6f7f9;
-      --boot-fg: #0f172a;
-      --boot-muted: #5b6473;
-      --boot-accent: #2563eb;
-      --boot-track: rgba(37, 99, 235, 0.16);
+      --boot-bg: #f3eee3;
+      --boot-fg: #1c1913;
+      --boot-muted: #6d6452;
+      --boot-accent: #8a6b39;
+      --boot-track: rgba(122, 92, 46, 0.18);
     }
 
     .boot-shell__mark {
@@ -95,7 +95,7 @@
       position: absolute;
       inset: 0;
       border-radius: 50%;
-      border: 3px solid var(--boot-track);
+      border: 1px solid var(--boot-track);
       border-top-color: var(--boot-accent);
       animation: boot-spin 1s linear infinite;
     }
@@ -106,17 +106,19 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 26px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 30px;
+      font-weight: 400;
+      letter-spacing: 0;
+      color: var(--boot-accent);
       animation: boot-pulse 1.6s ease-in-out infinite;
     }
 
     .boot-shell__title {
       margin: 0;
-      font-size: 18px;
+      font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.3em;
       text-transform: uppercase;
     }
 
