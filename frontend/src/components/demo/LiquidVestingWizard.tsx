@@ -25,7 +25,6 @@ import {
   getContract, 
   demoFaucetAbi, 
   usdcAbi,
-  loanManagerAbi,
   sepolia
 } from '@/config/contracts';
 import { toast } from 'react-hot-toast';
@@ -50,7 +49,6 @@ export function LiquidVestingWizard({ isOpen, onClose }: LiquidVestingWizardProp
   // Contract Addresses
   const usdcAddr = getContract(chainId, 'usdc');
   const faucetAddr = getContract(chainId, 'demoFaucet');
-  const loanManagerAddr = getContract(chainId, 'loanManager');
 
   // Wagmi Hooks
   const { data: usdcBalance } = useReadContract({

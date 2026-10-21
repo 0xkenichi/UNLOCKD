@@ -176,7 +176,7 @@ export default function ArchitectureVisual() {
     valuator: { id: 'valuator', title: "DPV Valuator", subtitle: "Risk Engine", icon: Cpu, colorVar: "#2EBEB5", x: 50, y: 25 },
     core: { id: 'core', title: "Vestra Core", subtitle: "Settlement", icon: Shield, colorVar: "#2EBEB5", x: 85, y: 25 },
     lenders: { id: 'lenders', title: "Liquidity Providers", subtitle: "Assets", icon: Coins, colorVar: "#40E0FF", x: 15, y: 65 },
-    pool: { id: 'pool', title: "Community Pools", subtitle: "Management", icon: Repeat, colorVar: "#40E0FF", x: 50, y: 65 },
+    pool: { id: 'pool', title: "Lending Pool", subtitle: "ERC-4626", icon: Repeat, colorVar: "#40E0FF", x: 50, y: 65 },
     vault: { id: 'vault', title: "Insurance Vault", subtitle: "Backstop", icon: Landmark, colorVar: "#FF4D4D", x: 85, y: 65 },
   };
 
@@ -184,7 +184,7 @@ export default function ArchitectureVisual() {
     borrowers: { title: "Vesting Asset Holders", desc: "Unlock liquidity from locked tokens (Sablier, Streamflow, etc.) without selling your long-term upside." },
     lenders: { title: "Liquidity Providers", desc: "Supply stable assets into the protocol to earn optimized, risk-adjusted yield from borrowing activities." },
     valuator: { title: "DPV Risk Engine", desc: "Advanced Monte Carlo calculations determine the Discounted Present Value of vesting claims in real-time." },
-    pool: { title: "ERC-4626 Pools", desc: "Standardized liquidity vaults that optimize capital allocation and ensure deep liquidity for borrowers." },
+    pool: { title: "ERC-4626 Lending Pool", desc: "A single USDC vault. Lenders hold shares whose price rises with accrued floating interest." },
     core: { title: "Vestra Settlement Core", desc: "The definitive engine managing loan states, automated unlock captures, and non-custodial debt settlement." },
     vault: { title: "Protocol Safety Vault", desc: "A robust backstop funded by protocol fees to ensure lender security and internal debt liquidation." },
     all: { title: "Vestra V2 Engine", desc: "A streamlined credit infrastructure for the next generation of on-chain assets. Hover nodes to explore." }

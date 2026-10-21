@@ -1,50 +1,67 @@
 /**
  * app/api/loans/route.ts  — Next.js App Router
  * ─────────────────────────────────────────────────────────────────────────────
- * Endpoints:
- *   GET  /api/loans?wallet=0x...&chainId=11155111   → list wallet's loans
- *   GET  /api/loans?loanId=1&chainId=11155111       → single loan + events
- *   POST /api/loans/quote                           → compute borrow quote (off-chain dDPV preview)
+ * Endpoints (all read straight from the Vestra LoanManager, no indexer):
+ *   GET  /api/loans?wallet=0x...&chainId=11155111   → wallet's loans (LoanManager.loansOf)
+ *   GET  /api/loans?loanId=1&chainId=11155111       → single loan + live debt / health
+ *   POST /api/loans                                 → borrow quote (LoanManager.quoteMaxBorrow)
  *
  * The actual borrow / repay transactions are submitted client-side via wagmi.
- * These routes provide the data layer only (quotes + Supabase reads).
+ * All USDC amounts are 6-decimal integer strings; rates are bps.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getLoan, getLoansByWallet } from '@/services/loanService';
 import { createPublicClient, http, getAddress, isAddress } from 'viem';
 import { sepolia } from 'viem/chains';
+import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
+import { CONTRACTS } from '@/config/contracts';
 
-// ── ABI fragment for off-chain dDPV preview ───────────────────────────────────
-const VALUATION_ENGINE_ABI = [
-  {
-    name: 'computeDPV',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'quantity',   type: 'uint256' },
-      { name: 'token',      type: 'address' },
-      { name: 'unlockTime', type: 'uint256' },
-      { name: 'borrower',   type: 'address' },
-    ],
-    outputs: [
-      { name: 'dpv',    type: 'uint256' },
-      { name: 'ltvBps', type: 'uint256' },
-    ],
-  },
-] as const;
+const STATUS = ['none', 'active', 'auction', 'repaid', 'liquidated'] as const;
 
-const CHAIN_CONFIGS: Record<number, { rpc: string; valuationEngine: `0x${string}` }> = {
+const CHAIN_CONFIGS: Record<number, { rpc: string; loanManager: `0x${string}` }> = {
   11155111: {
-    rpc:              process.env.RPC_SEPOLIA              ?? '',
-    valuationEngine:  (process.env.VALUATION_ENGINE_SEPOLIA ?? '0x0') as `0x${string}`,
-  },
-  8453: {
-    rpc:              process.env.RPC_BASE                 ?? '',
-    valuationEngine:  (process.env.VALUATION_ENGINE_BASE   ?? '0x0') as `0x${string}`,
+    rpc:         process.env.RPC_SEPOLIA ?? process.env.NEXT_PUBLIC_SEPOLIA_RPC ?? 'https://ethereum-sepolia-rpc.publicnode.com',
+    loanManager: CONTRACTS[11155111].loanManager,
   },
 };
+
+const makeClient = (rpc: string) => createPublicClient({ chain: sepolia, transport: http(rpc) });
+type Client = ReturnType<typeof makeClient>;
+
+function clientFor(chainId: number): { client: Client; loanManager: `0x${string}` } | null {
+  const cfg = CHAIN_CONFIGS[chainId];
+  if (!cfg || !cfg.rpc) return null;
+  return { client: makeClient(cfg.rpc), loanManager: cfg.loanManager };
+}
+
+async function readLoan(client: Client, loanManager: `0x${string}`, loanId: bigint) {
+  const lm = { address: loanManager, abi: LOAN_MANAGER_ABI } as const;
+  const [loan, debt, healthFactorBps, isLiquidatable] = await Promise.all([
+    client.readContract({ ...lm, functionName: 'getLoan', args: [loanId] }),
+    client.readContract({ ...lm, functionName: 'debtOf', args: [loanId] }),
+    client.readContract({ ...lm, functionName: 'healthFactorBps', args: [loanId] }),
+    client.readContract({ ...lm, functionName: 'isLiquidatable', args: [loanId] }),
+  ]);
+  return {
+    loanId:          loanId.toString(),
+    borrower:        loan.borrower,
+    nftContract:     loan.nftContract,
+    streamId:        loan.streamId.toString(),
+    escrowId:        loan.escrowId.toString(),
+    token:           loan.token,
+    quantity:        loan.quantity.toString(),
+    unlockTime:      Number(loan.unlockTime),
+    principal:       loan.principal.toString(),
+    debt:            debt.toString(),
+    openedAt:        Number(loan.openedAt),
+    maturity:        Number(loan.maturity),
+    rank:            loan.rank,
+    status:          STATUS[loan.status] ?? 'unknown',
+    healthFactorBps: healthFactorBps.toString(),
+    isLiquidatable,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/loans
@@ -55,9 +72,14 @@ export async function GET(req: NextRequest) {
   const loanId  = searchParams.get('loanId');
   const chainId = parseInt(searchParams.get('chainId') ?? '11155111', 10);
 
+  const ctx = clientFor(chainId);
+  if (!ctx) return NextResponse.json({ error: 'Unsupported chainId' }, { status: 400 });
+
   try {
     if (loanId) {
-      const loan = await getLoan(parseInt(loanId, 10), chainId);
+      if (!/^\d+$/.test(loanId)) return NextResponse.json({ error: 'Invalid loanId' }, { status: 400 });
+      const loan = await readLoan(ctx.client, ctx.loanManager, BigInt(loanId));
+      if (loan.status === 'none') return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
       return NextResponse.json({ loan });
     }
 
@@ -65,71 +87,67 @@ export async function GET(req: NextRequest) {
       if (!isAddress(wallet)) {
         return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
       }
-      const loans = await getLoansByWallet(wallet, chainId);
+      const ids = await ctx.client.readContract({
+        address: ctx.loanManager,
+        abi: LOAN_MANAGER_ABI,
+        functionName: 'loansOf',
+        args: [getAddress(wallet)],
+      });
+      const loans = await Promise.all(ids.map((id) => readLoan(ctx.client, ctx.loanManager, id)));
       return NextResponse.json({ loans });
     }
 
     return NextResponse.json({ error: 'Provide wallet or loanId' }, { status: 400 });
   } catch (err: any) {
     console.error('[GET /api/loans]', err);
-    return NextResponse.json({ error: err.message ?? 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: err.shortMessage ?? err.message ?? 'Internal error' }, { status: 500 });
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/loans/quote  — borrow quote (reads on-chain dDPV, no state change)
-// Body: { collateralToken, quantity, unlockTime, borrower, chainId }
+// POST /api/loans  — borrow quote (reads on-chain dDPV, no state change)
+// Body: { collateralToken, quantity, unlockTime, nftContract, chainId }
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { collateralToken, quantity, unlockTime, borrower, chainId = 11155111 } = body;
+    const { collateralToken, quantity, unlockTime, nftContract, chainId = 11155111 } = body;
 
     // Input validation
     if (!isAddress(collateralToken)) return NextResponse.json({ error: 'Invalid collateralToken' }, { status: 400 });
-    if (!isAddress(borrower))        return NextResponse.json({ error: 'Invalid borrower' }, { status: 400 });
+    if (!isAddress(nftContract))     return NextResponse.json({ error: 'Invalid nftContract' }, { status: 400 });
     if (!quantity || BigInt(quantity) === 0n) return NextResponse.json({ error: 'quantity=0' }, { status: 400 });
     if (!unlockTime || unlockTime <= Math.floor(Date.now() / 1000)) {
       return NextResponse.json({ error: 'unlockTime in past' }, { status: 400 });
     }
 
-    const cfg = CHAIN_CONFIGS[chainId];
-    if (!cfg || !cfg.rpc) {
-      return NextResponse.json({ error: 'Unsupported chainId' }, { status: 400 });
-    }
+    const ctx = clientFor(Number(chainId));
+    if (!ctx) return NextResponse.json({ error: 'Unsupported chainId' }, { status: 400 });
 
-    const client = createPublicClient({ chain: sepolia, transport: http(cfg.rpc) });
+    const lm = { address: ctx.loanManager, abi: LOAN_MANAGER_ABI } as const;
+    const [[maxBorrow, pv, ltvBps], feeBps, rateBps] = await Promise.all([
+      ctx.client.readContract({
+        ...lm,
+        functionName: 'quoteMaxBorrow',
+        args: [getAddress(collateralToken), BigInt(quantity), BigInt(unlockTime), getAddress(nftContract)],
+      }),
+      ctx.client.readContract({ ...lm, functionName: 'originationFeeBps' }),
+      ctx.client.readContract({ ...lm, functionName: 'currentRateBps' }),
+    ]);
 
-    const [dpv, ltvBps] = await client.readContract({
-      address:      cfg.valuationEngine,
-      abi:          VALUATION_ENGINE_ABI,
-      functionName: 'computeDPV',
-      args: [
-        BigInt(quantity),
-        getAddress(collateralToken),
-        BigInt(unlockTime),
-        getAddress(borrower),
-      ],
-    }) as [bigint, bigint];
-
-    const MAX_LTV_BPS = 7_000n;
-    const effectiveLtv = ltvBps > MAX_LTV_BPS ? MAX_LTV_BPS : ltvBps;
-    const maxBorrow    = (dpv * effectiveLtv) / 10_000n;
-
-    // Origination fee preview (50 bps)
-    const fee          = (maxBorrow * 50n) / 10_000n;
+    const fee          = (maxBorrow * feeBps) / 10_000n;
     const disbursement = maxBorrow - fee;
 
     return NextResponse.json({
-      dpvUsdc:        dpv.toString(),        // 6-dec USDC
-      ltvBps:         ltvBps.toString(),
-      effectiveLtvBps: effectiveLtv.toString(),
-      maxBorrowUsdc:  maxBorrow.toString(),  // pre-fee
-      disbursementUsdc: disbursement.toString(), // post-fee
+      pvUsdc:             pv.toString(),
+      ltvBps:             ltvBps.toString(),
+      maxBorrowUsdc:      maxBorrow.toString(),     // pre-fee
+      disbursementUsdc:   disbursement.toString(),  // post-fee
       originationFeeUsdc: fee.toString(),
+      borrowRateBps:      rateBps.toString(),       // floating APR
     });
   } catch (err: any) {
-    console.error('[POST /api/loans/quote]', err);
-    return NextResponse.json({ error: err.message ?? 'Internal error' }, { status: 500 });
+    console.error('[POST /api/loans]', err);
+    return NextResponse.json({ error: err.shortMessage ?? err.message ?? 'Internal error' }, { status: 500 });
   }
 }

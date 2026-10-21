@@ -35,8 +35,12 @@ interface ScoreHistoryPoint {
 
 const TIER_CONFIG: Record<VcsTier, { label: string; color: string; bg: string; ring: string }> = {
   TITAN:    { label: "TITAN",    color: "#EF9F27", bg: "#412402", ring: "#EF9F27" },
-  PREMIUM:  { label: "PREMIUM",  color: "#5DCAA5", bg: "#04342C", ring: "#1D9E75" },
-  STANDARD: { label: "STANDARD", color: "#9C9A92", bg: "#2C2C2A", ring: "#5F5E5A" },
+  SAPPHIRE: { label: "SAPPHIRE", color: "#4169E1", bg: "#0B1B3F", ring: "#0F52BA" },
+  DIAMOND:  { label: "DIAMOND",  color: "#B0C4DE", bg: "#1E2630", ring: "#E0E0E0" },
+  GOLD:     { label: "GOLD",     color: "#DAA520", bg: "#3A2C05", ring: "#DAA520" },
+  SILVER:   { label: "SILVER",   color: "#A9A9A9", bg: "#2A2A2A", ring: "#C0C0C0" },
+  BRONZE:   { label: "BRONZE",   color: "#CD7F32", bg: "#3A220C", ring: "#CD7F32" },
+  SCOUT:    { label: "SCOUT",    color: "#9C9A92", bg: "#2C2C2A", ring: "#5F5E5A" },
 };
 
 const EFFORT_COLOR = { LOW: "#1D9E75", MEDIUM: "#BA7517", HIGH: "#A32D2D" };
@@ -241,8 +245,7 @@ Category breakdown:
 - Identity & Reputation: ${vcs.breakdown.identity.earned}/${vcs.breakdown.identity.max}
 - On-chain Activity: ${vcs.breakdown.activity.earned}/${vcs.breakdown.activity.max}
 - Credit History: ${vcs.breakdown.creditHistory.earned}/${vcs.breakdown.creditHistory.max}
-- Governance: ${vcs.breakdown.governance.earned}/${vcs.breakdown.governance.max}
-- Penalties: ${vcs.breakdown.penalties.earned} (deducted)
+- Vesting: ${vcs.breakdown.vesting.earned}/${vcs.breakdown.vesting.max}
 
 Top upgrade hints: ${vcs.upgradeHints.map(h => `${h.action} (+${h.pointsGain}pts, ${h.effort} effort)`).join("; ")}
 
@@ -458,7 +461,7 @@ export default function VcsProfilePage() {
             { cat: vcs.breakdown.identity,      color: "#1D9E75" },
             { cat: vcs.breakdown.activity,       color: "#185FA5" },
             { cat: vcs.breakdown.creditHistory,  color: "#EF9F27" },
-            { cat: vcs.breakdown.governance,     color: "#5DCAA5" },
+            { cat: vcs.breakdown.vesting,        color: "#5DCAA5" },
           ].map(({ cat, color }) => (
             <div key={cat.label}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
@@ -470,17 +473,6 @@ export default function VcsProfilePage() {
               ))}
             </div>
           ))}
-          <div style={{ borderTop: "0.5px solid rgba(255,255,255,0.06)", paddingTop: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#9C9A92" }}>{vcs.breakdown.penalties.label}</span>
-              <span style={{ fontSize: 12, fontFamily: "monospace", color: "#A32D2D" }}>
-                −{vcs.breakdown.penalties.earned}/{vcs.breakdown.penalties.max}
-              </span>
-            </div>
-            {vcs.breakdown.penalties.factors.map(f => (
-              <FactorBar key={f.label} label={f.label} earned={f.earned} max={f.max} color="#A32D2D" />
-            ))}
-          </div>
         </div>
       )}
 
@@ -493,12 +485,12 @@ export default function VcsProfilePage() {
               {/* Progress bar */}
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#5F5E5A", marginBottom: 6 }}>
                 <span>{vcs.score} pts</span>
-                <span>{vcs.tier === "STANDARD" ? 650 : 800} pts</span>
+                <span>{vcs.tier === "SCOUT" ? 650 : 800} pts</span>
               </div>
               <div style={{ height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 99, marginBottom: 16, overflow: "hidden" }}>
                 <div style={{
                   height: "100%", borderRadius: 99, background: "#1D9E75",
-                  width: `${Math.min(((vcs.score - (vcs.tier === "STANDARD" ? 0 : 650)) / (vcs.nextTierDelta + (vcs.tier === "STANDARD" ? vcs.score - 0 : vcs.score - 650))) * 100, 100).toFixed(1)}%`,
+                  width: `${Math.min(((vcs.score - (vcs.tier === "SCOUT" ? 0 : 650)) / (vcs.nextTierDelta + (vcs.tier === "SCOUT" ? vcs.score - 0 : vcs.score - 650))) * 100, 100).toFixed(1)}%`,
                   transition: "width 0.8s",
                 }} />
               </div>

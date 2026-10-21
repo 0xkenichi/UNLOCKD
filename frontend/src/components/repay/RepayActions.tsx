@@ -1,149 +1,169 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { 
-  useAccount, 
-  useChainId, 
-  useReadContract, 
-  useWriteContract, 
+import React, { useEffect } from 'react';
+import {
+  useAccount,
+  useReadContract,
+  useWriteContract,
   useWaitForTransactionReceipt
 } from 'wagmi';
-import { formatUnits, parseUnits } from 'viem';
+import { formatUnits } from 'viem';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { toast } from 'react-hot-toast';
-import { 
-  Zap, 
-  ShieldCheck, 
-  ArrowRight, 
-  Coins, 
-  Loader2, 
-  RefreshCw, 
+import {
+  Zap,
+  ShieldCheck,
+  ArrowRight,
+  Coins,
+  Loader2,
   CreditCard,
-  Lock,
-  Wallet
+  Wallet,
+  Gift
 } from 'lucide-react';
-import { getContract, loanManagerAbi, usdcAbi } from '@/config/contracts';
+import { loanManagerAbi, usdcAbi } from '@/config/contracts';
+import { useContracts } from '@/hooks/useVestraContracts';
+import { useLoanData, LOAN_STATUS, LOAN_STATUS_LABELS } from '@/hooks/useLoanData';
+import { parseUsdc } from '@/lib/utils';
 
 const USDC_DECIMALS = 6;
-const ASSETS = [
-  { symbol: 'USDC', address: '0xfc02c9a40d847da372fa8ee05346e3c38c1a8c14', decimals: 6 },
-  { symbol: 'ETH',  address: '0x0000000000000000000000000000000000000000', decimals: 18 },
-  { symbol: 'WBTC', address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', decimals: 8 }
-];
 
-export const RepayActions = ({ initialLoanId = '' }) => {
+/**
+ * Full-repayment buffer. Debt keeps accruing between the read and the transaction,
+ * so we pass a little more than debtOf(); LoanManager.repay() caps the payment at the
+ * live debt and only transfers that amount, so the buffer is never charged.
+ */
+const withAccrualBuffer = (debt: bigint) => debt + debt / 1000n + 1n; // +0.1%
+
+type RepayActionsProps = {
+    loanId: string;
+    onLoanIdChange: (id: string) => void;
+    isStealthMode?: boolean;
+};
+
+export const RepayActions = ({ loanId, onLoanIdChange }: RepayActionsProps) => {
     const { address } = useAccount();
-    const chainId = useChainId();
+    const contracts = useContracts();
 
-    const [loanId, setLoanId] = useState(initialLoanId || '1');
-    const [repayAmount, setRepayAmount] = useState('');
-    const [repayMode, setRepayMode] = useState<'FULL' | 'PARTIAL' | 'ASSET'>('FULL');
-    const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
+    const [repayAmount, setRepayAmount] = React.useState('');
+    const [repayMode, setRepayMode] = React.useState<'FULL' | 'PARTIAL'>('FULL');
 
-    const loanManager = getContract(chainId, 'loanManager');
-    const usdc = getContract(chainId, 'usdc');
+    const loanManager = contracts.loanManager;
+    const parsedId = /^\d+$/.test(loanId) ? BigInt(loanId) : null;
 
     // --- Data Fetching ---
-    const { data: loan, refetch: refetchLoan } = useReadContract({
+    const { loan, status, debt, refetch: refetchLoan } = useLoanData(parsedId);
+
+    const { data: usdcAddress } = useReadContract({
         address: loanManager,
         abi: loanManagerAbi,
-        functionName: 'loans',
-        args: [BigInt(loanId || 0)],
-        query: { enabled: !!loanManager && !!loanId }
+        functionName: 'usdc',
+    });
+    const usdc = (usdcAddress as `0x${string}` | undefined) ?? contracts.usdc;
+
+    const { data: myLoans } = useReadContract({
+        address: loanManager,
+        abi: loanManagerAbi,
+        functionName: 'loansOf',
+        args: address ? [address] : undefined,
+        query: { enabled: !!address }
     });
 
-    const { data: totalDue, refetch: refetchQuote } = useReadContract({
+    const { data: claimable, refetch: refetchClaimable } = useReadContract({
         address: loanManager,
         abi: loanManagerAbi,
-        functionName: 'quoteRepayment',
-        args: [BigInt(loanId || 0)],
-        query: { enabled: !!loanManager && !!loanId }
+        functionName: 'claimable',
+        args: address ? [address] : undefined,
+        query: { enabled: !!address }
     });
 
     const { data: allowance, refetch: refetchAllowance } = useReadContract({
         address: usdc,
         abi: usdcAbi,
         functionName: 'allowance',
-        args: address && loanManager ? [address, loanManager] : undefined,
-        query: { enabled: !!usdc && !!loanManager && !!address }
+        args: address ? [address, loanManager] : undefined,
+        query: { enabled: !!address }
     });
+
+    const isActive  = status === LOAN_STATUS.ACTIVE;
+    const isAuction = status === LOAN_STATUS.AUCTION;
+    const isRepayable = isActive || isAuction;
+
+    // During an auction only a full repayment is accepted (it cancels the auction).
+    const mode = isAuction ? 'FULL' : repayMode;
+    const amountToSend = mode === 'FULL' ? withAccrualBuffer(debt) : parseUsdc(repayAmount);
+    const needsApproval = (allowance ?? 0n) < amountToSend;
 
     // --- Contract Writes ---
     const { data: approveHash, writeContract: writeApprove, isPending: isApprovePending } = useWriteContract();
     const { data: repayHash, writeContract: writeRepay, isPending: isRepayPending } = useWriteContract();
-    const { data: vPayHash, writeContract: writeVPay, isPending: isVPayPending } = useWriteContract();
+    const { data: claimHash, writeContract: writeClaim, isPending: isClaimPending } = useWriteContract();
 
     const { isLoading: isApproveMining, isSuccess: approveConfirmed } = useWaitForTransactionReceipt({ hash: approveHash });
     const { isLoading: isRepayMining, isSuccess: repayConfirmed } = useWaitForTransactionReceipt({ hash: repayHash });
-    const { isLoading: vPayMining, isSuccess: vPayConfirmed } = useWaitForTransactionReceipt({ hash: vPayHash });
+    const { isLoading: isClaimMining, isSuccess: claimConfirmed } = useWaitForTransactionReceipt({ hash: claimHash });
 
     useEffect(() => {
         if (approveConfirmed) {
             toast.success('USDC Allowance updated');
             refetchAllowance();
         }
-        if (repayConfirmed || vPayConfirmed) {
-            toast.success(repayConfirmed ? 'Repayment successful!' : 'Vestra Pay status updated');
+    }, [approveConfirmed, refetchAllowance]);
+
+    useEffect(() => {
+        if (repayConfirmed) {
+            toast.success('Repayment successful!');
             refetchLoan();
-            refetchQuote();
+            refetchAllowance();
             window.dispatchEvent(new Event('refresh-portfolio'));
         }
-    }, [approveConfirmed, repayConfirmed, vPayConfirmed]);
+    }, [repayConfirmed, refetchLoan, refetchAllowance]);
+
+    useEffect(() => {
+        if (claimConfirmed) {
+            toast.success('Surplus claimed');
+            refetchClaimable();
+        }
+    }, [claimConfirmed, refetchClaimable]);
 
     // --- Handlers ---
     const handleApprove = () => {
-        if (!usdc || !loanManager) return;
+        if (amountToSend === 0n) return;
         writeApprove({
             address: usdc,
             abi: usdcAbi,
             functionName: 'approve',
-            args: [loanManager, parseUnits('1000000', 6)]
+            args: [loanManager, amountToSend]
         });
     };
 
-    const handleAction = async () => {
-        if (!loanManager) return;
-
-        if (repayMode === 'FULL') {
-            writeRepay({
-                address: loanManager,
-                abi: loanManagerAbi as any,
-                functionName: 'repay',
-                args: [BigInt(loanId)]
-            });
-        } else if (repayMode === 'PARTIAL') {
-            writeRepay({
-                address: loanManager,
-                abi: loanManagerAbi as any,
-                functionName: 'repayPartial',
-                args: [BigInt(loanId), parseUnits(repayAmount, USDC_DECIMALS)]
-            });
-        } else if (repayMode === 'ASSET') {
-            writeRepay({
-                address: loanManager,
-                abi: loanManagerAbi as any,
-                functionName: 'settleWithAsset',
-                args: [BigInt(loanId), selectedAsset.address as `0x${string}`, parseUnits(repayAmount, selectedAsset.decimals)]
-            });
-        }
-    };
-
-    const toggleVestraPay = () => {
-        if (!loanManager) return;
-        writeVPay({
+    const handleRepay = () => {
+        if (parsedId === null || amountToSend === 0n) return;
+        writeRepay({
             address: loanManager,
-            abi: loanManagerAbi as any,
-            functionName: 'authorizeVestraPay',
-            args: [BigInt(loanId), !loan?.[7]] // vestraPayEnabled is at index 7
+            abi: loanManagerAbi,
+            functionName: 'repay',
+            args: [parsedId, amountToSend]
+        }, {
+            onError: (err: any) => toast.error(err?.shortMessage || 'Repayment failed')
         });
     };
 
-    const isRepayVisible = (loan?.[6]); // active is at index 6
+    const handleClaim = () => {
+        writeClaim({
+            address: loanManager,
+            abi: loanManagerAbi,
+            functionName: 'claim',
+        });
+    };
+
+    const fmt = (v: bigint) => Number(formatUnits(v, USDC_DECIMALS)).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    const principal = loan?.principal ?? 0n;
+    const interest = debt > principal ? debt - principal : 0n;
 
     return (
         <Card variant="glass" className="border border-white/5 bg-surface/30 backdrop-blur-md shadow-2xl overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-accent-cyan/10 blur-[80px] -mr-16 -mt-16 pointer-events-none" />
-            
+
             <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-white/5">
                 <div>
                     <CardTitle className="text-xl font-black uppercase italic tracking-tighter text-accent-cyan flex items-center gap-2">
@@ -151,19 +171,20 @@ export const RepayActions = ({ initialLoanId = '' }) => {
                         Settlement Hub
                     </CardTitle>
                     <p className="text-[10px] text-secondary font-medium italic opacity-70">
-                        Select repayment strategy for active loan positions.
+                        Repay in full to release your stream NFT, or pay down part of the debt.
                     </p>
                 </div>
                 <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
-                    {['FULL', 'PARTIAL', 'ASSET'].map((mode) => (
+                    {(['FULL', 'PARTIAL'] as const).map((m) => (
                         <button
-                            key={mode}
-                            onClick={() => setRepayMode(mode as any)}
-                            className={`px-3 py-1 text-[10px] font-black tracking-widest rounded-lg transition-all ${
-                                repayMode === mode ? 'bg-accent-cyan text-background' : 'text-white/50 hover:text-white'
+                            key={m}
+                            onClick={() => setRepayMode(m)}
+                            disabled={isAuction && m === 'PARTIAL'}
+                            className={`px-3 py-1 text-[10px] font-black tracking-widest rounded-lg transition-all disabled:opacity-30 ${
+                                mode === m ? 'bg-accent-cyan text-background' : 'text-white/50 hover:text-white'
                             }`}
                         >
-                            {mode}
+                            {m}
                         </button>
                     ))}
                 </div>
@@ -174,27 +195,20 @@ export const RepayActions = ({ initialLoanId = '' }) => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5">
                         <div className="text-[10px] uppercase font-black text-secondary tracking-widest mb-1">Total Due</div>
-                        <div className="text-sm font-mono font-bold text-white">${formatUnits(totalDue || 0n, USDC_DECIMALS)}</div>
+                        <div className="text-sm font-mono font-bold text-white">${fmt(debt)}</div>
                     </div>
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5">
                         <div className="text-[10px] uppercase font-black text-secondary tracking-widest mb-1">Principal</div>
-                        <div className="text-sm font-mono font-bold text-white/70">${formatUnits(loan?.[2] || 0n, USDC_DECIMALS)}</div>
+                        <div className="text-sm font-mono font-bold text-white/70">${fmt(principal)}</div>
                     </div>
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5">
-                        <div className="text-[10px] uppercase font-black text-secondary tracking-widest mb-1">Vestra Pay</div>
-                        <button 
-                            onClick={toggleVestraPay}
-                            disabled={vPayMining || isVPayPending}
-                            className={`text-sm font-bold flex items-center gap-2 ${loan?.[7] ? 'text-accent-cyan' : 'text-white/30'}`}
-                        >
-                            {loan?.[7] ? <RefreshCw className="w-3 h-3 animate-spin-slow" /> : <Lock className="w-3 h-3" />}
-                            {loan?.[7] ? 'ENABLED' : 'DISABLED'}
-                        </button>
+                        <div className="text-[10px] uppercase font-black text-secondary tracking-widest mb-1">Interest</div>
+                        <div className="text-sm font-mono font-bold text-white/70">${fmt(interest)}</div>
                     </div>
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5">
                         <div className="text-[10px] uppercase font-black text-secondary tracking-widest mb-1">Status</div>
-                        <div className={`text-sm font-bold ${isRepayVisible ? 'text-accent-teal' : 'text-white/20'}`}>
-                            {isRepayVisible ? 'ACTIVE' : 'SETTLED'}
+                        <div className={`text-sm font-bold ${isActive ? 'text-accent-teal' : isAuction ? 'text-accent-red' : 'text-white/20'}`}>
+                            {LOAN_STATUS_LABELS[status] ?? 'UNKNOWN'}
                         </div>
                     </div>
                 </div>
@@ -206,70 +220,100 @@ export const RepayActions = ({ initialLoanId = '' }) => {
                             <label className="text-[10px] uppercase font-black text-secondary tracking-widest flex items-center gap-2">
                                 <CreditCard className="w-3 h-3" /> Loan ID
                             </label>
-                            <input 
-                                className="w-full bg-surface border border-white/10 rounded-2xl px-4 py-4 text-sm focus:border-accent-cyan outline-none font-mono text-white transition-all shadow-inner" 
+                            <input
+                                className="w-full bg-surface border border-white/10 rounded-2xl px-4 py-4 text-sm focus:border-accent-cyan outline-none font-mono text-white transition-all shadow-inner"
                                 value={loanId}
-                                onChange={(e) => setLoanId(e.target.value)}
-                                placeholder="0"
+                                onChange={(e) => onLoanIdChange(e.target.value)}
+                                placeholder="1"
                             />
+                            {myLoans && myLoans.length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-1">
+                                    {myLoans.map((id) => (
+                                        <button
+                                            key={id.toString()}
+                                            onClick={() => onLoanIdChange(id.toString())}
+                                            className="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-mono text-secondary hover:text-white"
+                                        >
+                                            #{id.toString()}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        {repayMode !== 'FULL' && (
+                        {mode === 'PARTIAL' && (
                             <div className="space-y-1">
                                 <label className="text-[10px] uppercase font-black text-secondary tracking-widest flex items-center gap-2">
-                                    <Coins className="w-3 h-3" /> {repayMode === 'ASSET' ? 'Asset Amount' : 'USDC Amount'}
+                                    <Coins className="w-3 h-3" /> USDC Amount
                                 </label>
-                                <div className="relative">
-                                    <input 
-                                        className="w-full bg-surface border border-white/10 rounded-2xl px-4 py-4 text-sm focus:border-accent-cyan outline-none font-mono text-accent-cyan transition-all" 
-                                        value={repayAmount}
-                                        onChange={(e) => setRepayAmount(e.target.value)}
-                                        placeholder="0.00"
-                                    />
-                                    {repayMode === 'ASSET' && (
-                                        <select 
-                                            value={selectedAsset.symbol}
-                                            onChange={(e) => setSelectedAsset(ASSETS.find(a => a.symbol === e.target.value)!)}
-                                            className="absolute right-2 top-2 bottom-2 bg-white/5 border border-white/10 rounded-xl px-2 text-[10px] font-black text-white outline-none"
-                                        >
-                                            {ASSETS.map(a => <option key={a.symbol} value={a.symbol}>{a.symbol}</option>)}
-                                        </select>
-                                    )}
-                                </div>
+                                <input
+                                    className="w-full bg-surface border border-white/10 rounded-2xl px-4 py-4 text-sm focus:border-accent-cyan outline-none font-mono text-accent-cyan transition-all"
+                                    value={repayAmount}
+                                    onChange={(e) => setRepayAmount(e.target.value)}
+                                    placeholder="0.00"
+                                />
                             </div>
                         )}
                     </div>
                 </div>
 
                 {/* Info Card */}
-                {repayMode === 'PARTIAL' && (
+                {mode === 'PARTIAL' && (
                     <div className="p-4 rounded-2xl bg-accent-cyan/5 border border-accent-cyan/10 flex items-start gap-4">
                         <ShieldCheck className="w-5 h-5 text-accent-cyan flex-shrink-0" />
                         <div>
-                            <div className="text-[10px] font-black text-accent-cyan uppercase tracking-widest">Interest-First Model</div>
-                            <p className="text-[11px] text-accent-cyan/70 font-medium">Your payment will clear accrued interest first, then reduce principal. VCS score will be updated upon settlement.</p>
+                            <div className="text-[10px] font-black text-accent-cyan uppercase tracking-widest">Interest-First</div>
+                            <p className="text-[11px] text-accent-cyan/70 font-medium">Your payment clears accrued interest first, then reduces principal. The NFT is released only when the debt reaches zero.</p>
                         </div>
                     </div>
+                )}
+                {isAuction && (
+                    <div className="p-4 rounded-2xl bg-accent-red/5 border border-accent-red/20 text-[11px] text-secondary">
+                        This loan is in liquidation. Repaying the full debt now cancels the auction and returns your NFT.
+                    </div>
+                )}
+                {mode === 'FULL' && isRepayable && (
+                    <p className="text-[10px] text-secondary/60 italic">
+                        Sends up to ${fmt(amountToSend)} (debt + 0.1% accrual buffer). Only the live debt is charged.
+                    </p>
                 )}
 
                 {/* Actions */}
                 <div className="flex gap-4">
-                    <button 
+                    <button
                         onClick={handleApprove}
-                        disabled={isApprovePending || isApproveMining || (allowance || 0n) > parseUnits('1000', 6)}
+                        disabled={isApprovePending || isApproveMining || !needsApproval || amountToSend === 0n}
                         className="flex-1 py-5 bg-surface border border-white/10 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all flex items-center justify-center gap-2 disabled:opacity-30 text-xs"
                     >
                         {isApprovePending || isApproveMining ? <Loader2 className="w-4 h-4 animate-spin text-accent-cyan" /> : <Wallet className="w-4 h-4" />}
-                        { (allowance || 0n) > parseUnits('1000', 6) ? 'USDC Authorized' : 'Authorize USDC'}
+                        {!needsApproval && amountToSend > 0n ? 'USDC Authorized' : 'Authorize USDC'}
                     </button>
-                    <button 
-                        onClick={handleAction}
-                        disabled={isRepayPending || isRepayMining || !isRepayVisible}
+                    <button
+                        onClick={handleRepay}
+                        disabled={isRepayPending || isRepayMining || !isRepayable || needsApproval || amountToSend === 0n}
                         className="flex-1 py-5 bg-accent-cyan text-background font-black uppercase tracking-widest rounded-2xl hover:bg-white transition-all flex items-center justify-center gap-2 shadow-glow-cyan disabled:opacity-30 text-xs"
                     >
                         {isRepayPending || isRepayMining ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-                        {repayMode === 'FULL' ? 'Settle Full' : repayMode === 'PARTIAL' ? 'Pay Partial' : 'Settle via Asset'}
+                        {mode === 'FULL' ? 'Settle Full' : 'Pay Partial'}
                     </button>
                 </div>
+
+                {/* Liquidation surplus */}
+                {(claimable ?? 0n) > 0n && (
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-accent-teal/5 border border-accent-teal/20">
+                        <div className="text-[11px] text-secondary">
+                            <span className="font-black text-accent-teal uppercase tracking-widest mr-2">Auction Surplus</span>
+                            ${fmt(claimable ?? 0n)} USDC is claimable from a liquidated loan.
+                        </div>
+                        <button
+                            onClick={handleClaim}
+                            disabled={isClaimPending || isClaimMining}
+                            className="px-4 py-2 rounded-xl bg-accent-teal text-background text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-30"
+                        >
+                            {isClaimPending || isClaimMining ? <Loader2 className="w-3 h-3 animate-spin" /> : <Gift className="w-3 h-3" />}
+                            Claim
+                        </button>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

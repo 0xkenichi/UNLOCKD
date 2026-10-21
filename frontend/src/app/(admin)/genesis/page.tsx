@@ -93,9 +93,9 @@ export default function GenesisPortal() {
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
               <div className="grid grid-cols-3 gap-6">
-                <MetricCard label="Total Vested Value" value="$24.2B" change={12} trend="up" />
-                <MetricCard label="Active Loans" value="1,492" change={5} trend="up" />
-                <MetricCard label="Protocol Revenue" value="$420k" change={18} trend="up" />
+                <MetricCard label="Total Vested Value" value="$24.2B" subValue="+12%" trend="up" />
+                <MetricCard label="Active Loans" value="1,492" subValue="+5%" trend="up" />
+                <MetricCard label="Protocol Revenue" value="$420k" subValue="+18%" trend="up" />
               </div>
 
               <div className="grid grid-cols-2 gap-8">

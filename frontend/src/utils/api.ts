@@ -90,17 +90,12 @@ export const api = {
     body: JSON.stringify(payload)
   }),
   fetchIdentity: (walletAddress: string) => fetchApi(`/api/identity/${walletAddress}`),
-  fetchLoans: (walletAddress: string) => fetchApi(`/api/loans?wallet=${walletAddress}`),
-  fetchDeposits: (walletAddress: string) => fetchApi(`/api/lend?wallet=${walletAddress}`),
-  depositCapital: (payload: { wallet: string, amount: string, apyBps: number, durationDays?: number }) => 
-    fetchApi('/api/lend/deposit', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    }),
-  withdrawDeposit: (id: string, wallet: string) => fetchApi('/api/lend/withdraw', {
-    method: 'POST',
-    body: JSON.stringify({ id, walletAddress: wallet })
-  }),
+  // Served by this Next.js app (app/api/loans/route.ts), read live from LoanManager.
+  fetchLoans: async (walletAddress: string, chainId = 11155111) => {
+    const res = await fetch(`/api/loans?wallet=${walletAddress}&chainId=${chainId}`);
+    if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+    return res.json() as Promise<{ loans: LoanSummary[] }>;
+  },
   fetchPortfolio: (walletAddress: string, _chain = 'all') => fetchApi(`/api/portfolio/${walletAddress}`),
   warpTime: (seconds: number) => fetchApi('/api/faucet/warp', {
     method: 'POST',
@@ -112,8 +107,6 @@ export const api = {
   }),
   fetchVestingFeed: (limit = 10) => fetchApi(`/api/vesting/feed?limit=${limit}`),
   fetchVestingAll: (limit = 50) => fetchApi(`/api/vesting/all?limit=${limit}`),
-  fetchOpenVestingClaims: () => fetchApi('/api/vesting/open-claims'),
-  fetchLendingPositions: (walletAddress: string) => fetchApi(`/api/lend/positions?wallet=${walletAddress}`),
   verifyIdentity: (walletAddress: string) => fetchApi('/api/identity/verify', {
     method: 'POST',
     body: JSON.stringify({ walletAddress })
@@ -123,14 +116,6 @@ export const api = {
     body: JSON.stringify({ contractAddress, name })
   }),
   fetchRepaySchedule: () => fetchApi('/api/exports/repay-schedule'),
-  repayLoan: (payload: { loanId: string, amount: string }) => fetchApi('/api/relayer/evm/repay-private-loan', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  }),
-  settlePrivateLoan: (payload: { loanId: string }) => fetchApi('/api/relayer/evm/settle-private-loan', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  }),
   fetchAdminAirdropLeaderboard: (windowDays = 30, limit = 200, phase = 'all') => 
     fetchApi(`/api/admin/airdrop/leaderboard?windowDays=${windowDays}&limit=${limit}&phase=${phase}`),
   fetchAdminRiskFlags: (wallet?: string, token?: string) => {
@@ -152,20 +137,26 @@ export const api = {
     fetchApi(`/api/agent/replay?windowHours=${windowHours}`),
   fetchOmegaAlerts: () => fetchApi('/api/omega/alerts'),
   fetchSimulationState: () => fetchApi('/api/simulation/state'),
-  fetchCommunityPools: (params: { walletAddress?: string } = {}) => {
-    const query = new URLSearchParams();
-    if (params.walletAddress) query.set('wallet', params.walletAddress);
-    return fetchApi(`/api/community/pools?${query.toString()}`);
-  },
-  fetchCommunityPool: (poolId: string, walletAddress?: string) => {
-    const query = new URLSearchParams();
-    if (walletAddress) query.set('wallet', walletAddress);
-    return fetchApi(`/api/community/pools/${poolId}?${query.toString()}`);
-  },
   downloadAdminAirdropLeaderboard: (windowDays = 30, limit = 200, phase = 'all') => {
     window.open(`${API_URL}/api/admin/airdrop/leaderboard/export?windowDays=${windowDays}&limit=${limit}&phase=${phase}`, '_blank');
   }
 };
+
+export interface LoanSummary {
+  loanId: string;
+  borrower: string;
+  nftContract: string;
+  streamId: string;
+  token: string;
+  quantity: string;
+  unlockTime: number;
+  principal: string;   // USDC, 6 decimals
+  debt: string;        // USDC, 6 decimals (LoanManager.debtOf)
+  maturity: number;
+  status: 'none' | 'active' | 'auction' | 'repaid' | 'liquidated' | 'unknown';
+  healthFactorBps: string;
+  isLiquidatable: boolean;
+}
 
 export interface Message {
   role: 'user' | 'assistant';

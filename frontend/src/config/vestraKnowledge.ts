@@ -2,7 +2,7 @@ export const KNOWLEDGE_ENTRIES = [
   {
     keywords: ['how to use', 'how do i use this app', 'getting started', 'walkthrough', 'explain app'],
     answer:
-      'Start with wallet + network, then follow this flow: Borrow (escrow vesting collateral and create loan), Repay (fund gas/USDC, approve USDC, then repay by loan ID), and Portfolio (monitor active loans and unlock timelines). For repay errors, confirm the connected wallet is the original borrower and the loan is still active on the current chain.'
+      'Start with wallet + network, then follow this flow: Borrow (approve your vesting-stream NFT to the VestingAdapter, then borrow USDC against it), Repay (approve USDC to the LoanManager, then repay by loan ID; anyone may repay a loan), and Portfolio (monitor active loans and unlock timelines). For repay errors, confirm the loan is still active (or in auction, where only a full repayment is accepted) on the current chain.'
   },
   {
     keywords: ['dpv', 'discounted present value', 'present value'],
@@ -27,12 +27,12 @@ export const KNOWLEDGE_ENTRIES = [
   {
     keywords: ['pool', 'lender', 'match'],
     answer:
-      'Pool matching in Vestra is preference-aware. Offers are ranked by risk tier, effective LTV, and policy constraints (loan size, unlock windows, access controls). If no offers match, reduce desired borrow or broaden acceptable pool preferences.'
+      'Vestra has one USDC lending pool (an ERC-4626 vault). Lenders deposit USDC for shares; borrowers pay a floating, utilization-based rate, and interest accrues into the share price. There are no lock-ups, fixed terms or separate pools; withdrawals are limited only by idle liquidity.'
   },
   {
     keywords: ['repay', 'repayment', 'interest'],
     answer:
-      'Repayment includes principal plus configured interest terms. To reduce liquidation/default pressure, monitor unlock progress and maintain collateral safety buffers, especially during volatile windows.'
+      'Debt is principal plus interest at the pool\'s floating rate; check the live amount with debtOf. Partial repayments pay interest first. Repay before maturity plus the grace period and keep the health factor above 1.0, or the loan can be sold in a Dutch auction.'
   }
 ];
 

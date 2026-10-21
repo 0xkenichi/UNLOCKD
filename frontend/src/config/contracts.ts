@@ -1,5 +1,6 @@
 import { sepolia as viemSepolia } from 'viem/chains';
-import { VESTRA_PROTOCOL_ABI } from '@/abis/VestraProtocol';
+import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
+import { LENDING_POOL_ABI } from '@/abis/LendingPool';
 
 export const usdcAbi = [
   {
@@ -48,37 +49,34 @@ export const usdcAbi = [
   }
 ] as const;
 
+// Legacy demo faucet (packages/contracts/legacy/src/mocks/DemoFaucet.sol) — testnet demo only,
+// not part of the Vestra v1 core.
 export const demoFaucetAbi = [
   {
     "inputs": [
-      { "internalType": "address", "name": "registry_", "type": "address" }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "address", "name": "borrower", "type": "address" },
-      { "indexed": false, "internalType": "address", "name": "vestingContract", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "collateralId", "type": "uint256" }
-    ],
-    "name": "DemoPositionMinted",
-    "type": "event"
-  },
-  {
-    "inputs": [
       { "internalType": "uint256", "name": "allocation", "type": "uint256" },
-      { "internalType": "uint64", "name": "durationMonths", "type": "uint64" }
+      { "internalType": "uint256", "name": "durationMonths", "type": "uint256" },
+      { "internalType": "uint256", "name": "cliffMonths", "type": "uint256" }
     ],
     "name": "mintDemoPosition",
-    "outputs": [],
+    "outputs": [{ "internalType": "address", "name": "vestingWallet", "type": "address" }],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "amount", "type": "uint256" },
+      { "internalType": "uint256", "name": "durationMonths", "type": "uint256" }
+    ],
+    "name": "lockUSDCAndMint",
+    "outputs": [{ "internalType": "address", "name": "vestingWallet", "type": "address" }],
     "stateMutability": "nonpayable",
     "type": "function"
   }
 ] as const;
 
-export const loanManagerAbi = VESTRA_PROTOCOL_ABI;
+export const loanManagerAbi = LOAN_MANAGER_ABI;
+export const lendingPoolAbi = LENDING_POOL_ABI;
 export const sepolia = viemSepolia;
 
 export function getContract(chainId: number, name: string): `0x${string}` {
@@ -91,19 +89,23 @@ export function getContract(chainId: number, name: string): `0x${string}` {
   return (chainContracts[name as keyof typeof chainContracts] || '0x0000000000000000000000000000000000000000') as `0x${string}`;
 }
 
+type Address = `0x${string}`;
+
+// Vestra v1 core addresses, set per deployment with NEXT_PUBLIC_<CONTRACT>_SEPOLIA
+// (same naming as NEXT_PUBLIC_LOAN_MANAGER_SEPOLIA) after running
+// packages/contracts/script/DeployCore.s.sol. The previous Sepolia deployment is not
+// ABI-compatible with v1, so core contracts have no hardcoded fallback.
+const NOT_DEPLOYED = '0x0000000000000000000000000000000000000000';
 export const CONTRACTS = {
   11155111: {
-    usdc:            '0x1c7D4B196Cb0232b30444390089CcEF33C06573D', // Real Circle USDC on Sepolia
-    lendingPool:     '0x3ae02658c2f4928fa9a84c2b5fac41de78b67ef5',
-    loanManager:     '0xf70a3b29cf5f806b4b7d2d397376ea7161339b1d',
-    valuationEngine: '0x83bb6887085b34a14fe685a59ce1ae71be3432d8',
-    vestingAdapter:  '0xA8743ABc6BCD80633171Af6AF7091Cf240e77910',
-    vestToken:       '0x6a7abfa27ec2654c3103df2e6d22c36423af8b2d',
-    vestingWallet:   '0xAF5976bC206b784B3c43896Ed799c084A140583a',
-    insuranceVault:  '0xf344c85C08cA62442380f59f7D3187655e6C4F9a',
-    isolatedPool:    '0xDE743ABc8BEF00633171Af6AF7091Cf240e77dE', // High-Yield Vault
-    registry:        '0xCE743ABc9CE980633171Af6AF7091Cf240e77cE', // VCS Registry
-    auctionFactory:  '0x10269d602DFCC9180927F54dE32657a572c0F432',
-    sablierV2Lockup: '0x70bc777800bac10145c2b1a1339ce93c07f8b824', // Official Sablier V2 Lockup Linear
+    usdc:            (process.env.NEXT_PUBLIC_USDC_SEPOLIA             || '0x1c7D4B196Cb0232b30444390089CcEF33C06573D') as Address, // Real Circle USDC on Sepolia
+    lendingPool:     (process.env.NEXT_PUBLIC_LENDING_POOL_SEPOLIA     || NOT_DEPLOYED) as Address,
+    loanManager:     (process.env.NEXT_PUBLIC_LOAN_MANAGER_SEPOLIA     || NOT_DEPLOYED) as Address,
+    valuationEngine: (process.env.NEXT_PUBLIC_VALUATION_ENGINE_SEPOLIA || NOT_DEPLOYED) as Address,
+    vestingAdapter:  (process.env.NEXT_PUBLIC_VESTING_ADAPTER_SEPOLIA  || NOT_DEPLOYED) as Address,
+    insuranceVault:  (process.env.NEXT_PUBLIC_INSURANCE_VAULT_SEPOLIA  || NOT_DEPLOYED) as Address,
+    vestToken:       '0x6a7abfa27ec2654c3103df2e6d22c36423af8b2d' as Address,
+    vestingWallet:   '0xAF5976bC206b784B3c43896Ed799c084A140583a' as Address,
+    sablierV2Lockup: (process.env.NEXT_PUBLIC_SABLIER_V2_LOCKUP_SEPOLIA || '0x70bc777800bac10145c2b1a1339ce93c07f8b824') as Address, // Official Sablier V2 Lockup Linear
   }
 } as const;

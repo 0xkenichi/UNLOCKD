@@ -1,41 +1,151 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { 
-  Lock, 
-  Gavel, 
-  ShieldAlert, 
-  Zap, 
-  ArrowRight,
-  Sparkles,
-  BarChart3,
-  Clock
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { formatUnits } from "viem";
+import { toast } from "react-hot-toast";
+import { Gavel, ShieldAlert, RotateCcw, Loader2, Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
+import { useContracts } from "@/hooks/useVestraContracts";
+import { LOAN_MANAGER_ABI } from "@/abis/LoanManager";
+import { ERC20_ABI } from "@/abis/ERC20";
+import { LOAN_STATUS, type LoanStruct } from "@/hooks/useLoanData";
+import { formatAddress } from "@/lib/utils";
+
+/** How many of the most recent loan ids to scan for liquidations / auctions. */
+const SCAN_WINDOW = 100n;
+
+type Row = {
+  loanId: bigint;
+  loan: LoanStruct;
+  liquidatable: boolean;
+  price: bigint;
+  auction?: { startTime: bigint; duration: bigint; startPrice: bigint; floorPrice: bigint; debt: bigint };
+};
+
+const usd = (v: bigint) =>
+  `$${Number(formatUnits(v, 6)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function AuctionsPage() {
+  const { address } = useAccount();
+  const contracts = useContracts();
+  const lm = { address: contracts.loanManager, abi: LOAN_MANAGER_ABI } as const;
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 5_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ─── Loan id range ──────────────────────────────────────────────────────────
+  const { data: nextLoanId } = useReadContract({ ...lm, functionName: "nextLoanId" });
+  const { data: usdcAddress } = useReadContract({ ...lm, functionName: "usdc" });
+  const usdc = (usdcAddress as `0x${string}` | undefined) ?? contracts.usdc;
+
+  const ids = useMemo(() => {
+    const next = (nextLoanId as bigint | undefined) ?? 1n; // ids start at 1
+    const first = next > SCAN_WINDOW + 1n ? next - SCAN_WINDOW : 1n;
+    const out: bigint[] = [];
+    for (let i = next - 1n; i >= first; i--) out.push(i);
+    return out;
+  }, [nextLoanId]);
+
+  const { data: reads, refetch, isLoading } = useReadContracts({
+    contracts: ids.flatMap((id) => [
+      { ...lm, functionName: "getLoan" as const, args: [id] as const },
+      { ...lm, functionName: "isLiquidatable" as const, args: [id] as const },
+      { ...lm, functionName: "currentPrice" as const, args: [id] as const },
+      { ...lm, functionName: "auctions" as const, args: [id] as const },
+    ]),
+    query: { enabled: ids.length > 0, refetchInterval: 15_000 },
+  });
+
+  const rows: Row[] = useMemo(() => {
+    if (!reads) return [];
+    const out: Row[] = [];
+    ids.forEach((loanId, i) => {
+      const loanRes = reads[i * 4];
+      if (loanRes?.status !== "success") return;
+      const loan = loanRes.result as unknown as LoanStruct;
+      const liquidatable = Boolean(reads[i * 4 + 1]?.result);
+      if (loan.status !== LOAN_STATUS.AUCTION && !liquidatable) return;
+      const a = reads[i * 4 + 3]?.result as readonly bigint[] | undefined;
+      out.push({
+        loanId,
+        loan,
+        liquidatable,
+        price: (reads[i * 4 + 2]?.result as bigint | undefined) ?? 0n,
+        auction: a && a[0] > 0n
+          ? { startTime: a[0], duration: a[1], startPrice: a[2], floorPrice: a[3], debt: a[4] }
+          : undefined,
+      });
+    });
+    return out;
+  }, [reads, ids]);
+
+  const auctions = rows.filter((r) => r.loan.status === LOAN_STATUS.AUCTION);
+  const pending = rows.filter((r) => r.loan.status === LOAN_STATUS.ACTIVE && r.liquidatable);
+
+  // ─── USDC allowance for bids ───────────────────────────────────────────────
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: usdc,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: address ? [address, contracts.loanManager] : undefined,
+    query: { enabled: !!address },
+  });
+
+  // ─── Writes ─────────────────────────────────────────────────────────────────
+  const { writeContract, data: txHash, isPending } = useWriteContract();
+  const { isLoading: isMining, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const busy = isPending || isMining;
+
+  useEffect(() => {
+    if (isSuccess) {
+      toast.success("Transaction confirmed");
+      refetch();
+      refetchAllowance();
+    }
+  }, [isSuccess, refetch, refetchAllowance]);
+
+  const onError = (err: any) => toast.error(err?.shortMessage || "Transaction failed");
+
+  const startLiquidation = (loanId: bigint) =>
+    writeContract({ ...lm, functionName: "startLiquidation", args: [loanId] }, { onError });
+
+  const restartAuction = (loanId: bigint) =>
+    writeContract({ ...lm, functionName: "restartAuction", args: [loanId] }, { onError });
+
+  // The price only falls during a round, so the price read now is a safe max-price guard.
+  const approveBid = (maxPrice: bigint) =>
+    writeContract({ address: usdc, abi: ERC20_ABI, functionName: "approve", args: [contracts.loanManager, maxPrice] }, { onError });
+
+  const bid = (loanId: bigint, maxPrice: bigint) =>
+    writeContract({ ...lm, functionName: "bid", args: [loanId, maxPrice] }, { onError });
+
   return (
     <div className="space-y-12 pb-20 max-w-5xl">
       <header>
         <div className="flex items-center gap-2 text-risk-high mb-4">
           <span className="w-8 h-[1px] bg-risk-high/40" />
-          <span className="text-[10px] font-black uppercase tracking-[0.3em]">Protocol Phase III</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.3em]">Liquidations</span>
         </div>
         <h1 className="text-5xl font-black font-display text-glow-cyan mb-6">LIQUIDATION AUCTIONS</h1>
         <p className="text-secondary text-lg leading-relaxed max-w-2xl">
-          Deep liquidity for distressed vesting debt. Automated recovery rails for protocol solvency. 
-          Currently undergoing security auditing for mainnet release.
+          Defaulted loans are sold as linear Dutch auctions of the escrowed vesting NFT, from 120% of the
+          collateral&apos;s spot value down to a floor. The winning bidder pays the current price and receives the
+          stream NFT plus any vested tokens held in escrow.
         </p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
-          { icon: Gavel, label: "Dutch Auctions", desc: "Descending price discovery for non-custodial debt recovery." },
-          { icon: ShieldAlert, label: "Quarantine", desc: "Privileged OTC buyback windows for protocol stakeholders." },
-          { icon: BarChart3, label: "Market Depth", desc: "Institutional-grade interfaces for distressed asset trading." },
+          { icon: ShieldAlert, label: "1 · Start", desc: "Anyone can start a liquidation once a loan is past maturity + grace period, or its debt exceeds the liquidation threshold." },
+          { icon: Gavel, label: "2 · Bid", desc: "Approve USDC, then bid. You pay the price at execution time, never above your max price." },
+          { icon: RotateCcw, label: "3 · Restart", desc: "If a round ends without a bid, anyone can restart it from the previous floor." },
         ].map((item, i) => (
-          <Card key={i} variant="glass" className="p-8 group hover:border-accent-cyan/30 transition-all duration-500">
-            <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
+          <Card key={i} variant="glass" className="p-8">
+            <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mb-6">
               <item.icon className="w-6 h-6 text-accent-cyan" />
             </div>
             <h4 className="text-sm font-black text-foreground mb-2 uppercase">{item.label}</h4>
@@ -44,87 +154,110 @@ export default function AuctionsPage() {
         ))}
       </div>
 
-      <div className="relative">
-        {/* Placeholder / Coming Soon UI */}
-        <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[8px] bg-black/40 rounded-[32px] border border-white/5">
-            <motion.div 
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-center p-12 bg-surface-soft border border-white/10 rounded-[40px] shadow-2xl max-w-md mx-auto"
-            >
-                <div className="w-20 h-20 rounded-full bg-accent-cyan/10 flex items-center justify-center mx-auto mb-8 animate-pulse">
-                    <Lock className="w-10 h-10 text-accent-cyan" />
+      {/* Live auctions */}
+      <section className="space-y-4">
+        <h2 className="text-xs font-black uppercase tracking-widest text-secondary">Live Auctions ({auctions.length})</h2>
+        {isLoading && <div className="text-secondary text-sm animate-pulse">Scanning loans...</div>}
+        {!isLoading && auctions.length === 0 && (
+          <Card variant="glass" hoverable={false} className="p-8 text-center text-secondary text-sm">No loans are in auction.</Card>
+        )}
+        {auctions.map((r) => {
+          const roundOver = !!r.auction && now >= Number(r.auction.startTime + r.auction.duration);
+          const needsApproval = (allowance ?? 0n) < r.price;
+          return (
+            <Card key={r.loanId.toString()} variant="glass" hoverable={false} className="p-6">
+              <CardContent className="p-0 grid grid-cols-2 md:grid-cols-6 gap-4 items-center">
+                <div>
+                  <div className="text-[10px] uppercase text-secondary font-black">Loan</div>
+                  <div className="font-mono text-white">#{r.loanId.toString()}</div>
                 </div>
-                <h2 className="text-2xl font-black font-display text-foreground mb-4 items-center gap-2 flex justify-center">
-                    <Sparkles className="w-6 h-6 text-accent-teal" />
-                    BETA ACCESS ONLY
-                </h2>
-                <p className="text-secondary text-sm font-medium mb-8 leading-relaxed">
-                    The liquidation engine is currently in a closed beta on Sepolia. 
-                    Whitelisted participants only. Request access via the Governance portal.
-                </p>
-                <div className="flex flex-col gap-3">
-                    <button className="w-full py-4 rounded-2xl bg-gradient-to-tr from-accent-cyan to-accent-teal text-background font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(64,224,255,0.2)] hover:scale-105 transition-all">
-                        Request Whitelist
+                <div>
+                  <div className="text-[10px] uppercase text-secondary font-black">Collateral</div>
+                  <div className="font-mono text-xs text-white">
+                    {Number(formatUnits(r.loan.quantity, 18)).toLocaleString()} · {formatAddress(r.loan.token)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-secondary font-black">Debt</div>
+                  <div className="font-mono text-white">{usd(r.auction?.debt ?? 0n)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-secondary font-black">Current Price</div>
+                  <div className="font-mono text-accent-cyan font-bold">{usd(r.price)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase text-secondary font-black flex items-center gap-1"><Clock className="w-3 h-3" /> Round</div>
+                  <div className="font-mono text-xs text-white">
+                    {roundOver
+                      ? "At floor"
+                      : `${Math.max(0, Math.ceil((Number(r.auction!.startTime + r.auction!.duration) - now) / 3600))}h left`}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {needsApproval ? (
+                    <button
+                      onClick={() => approveBid(r.price)}
+                      disabled={busy || !address || r.price === 0n}
+                      className="py-2 rounded-xl border border-white/10 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+                    >
+                      {busy ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : "Approve USDC"}
                     </button>
-                    <button className="w-full py-4 rounded-2xl border border-white/5 text-secondary font-bold text-xs uppercase tracking-widest hover:bg-white/5 transition-all">
-                        Read Technical Specs
+                  ) : (
+                    <button
+                      onClick={() => bid(r.loanId, r.price)}
+                      disabled={busy || !address || r.price === 0n}
+                      className="py-2 rounded-xl bg-accent-cyan text-background text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+                    >
+                      {busy ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : "Bid"}
                     </button>
+                  )}
+                  {roundOver && (
+                    <button
+                      onClick={() => restartAuction(r.loanId)}
+                      disabled={busy || !address}
+                      className="py-2 rounded-xl border border-white/10 text-secondary text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+                    >
+                      Restart
+                    </button>
+                  )}
                 </div>
-            </motion.div>
-        </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
 
-        {/* Blurred Background Content (Simulating a real page) */}
-        <div className="opacity-20 pointer-events-none select-none">
-            <div className="bg-surface-soft p-10 rounded-[32px] border border-white/5 space-y-10">
-                <div className="flex justify-between items-center border-b border-white/5 pb-6">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-lg bg-white/5" />
-                        <div>
-                            <div className="h-4 w-32 bg-white/10 rounded mb-2" />
-                            <div className="h-3 w-16 bg-white/5 rounded" />
-                        </div>
-                    </div>
-                    <div className="h-10 w-24 bg-white/10 rounded-xl" />
-                </div>
-                <div className="grid grid-cols-4 gap-4">
-                    {[1,2,3,4].map(i => <div key={i} className="h-24 bg-white/5 rounded-2xl" />)}
-                </div>
-                <div className="space-y-4">
-                    {[1,2,3].map(i => (
-                        <div key={i} className="h-16 w-full bg-white/[0.02] border border-white/5 rounded-xl" />
-                    ))}
-                </div>
-            </div>
-        </div>
-      </div>
+      {/* Liquidatable, not yet started */}
+      <section className="space-y-4">
+        <h2 className="text-xs font-black uppercase tracking-widest text-secondary">Liquidatable Loans ({pending.length})</h2>
+        {!isLoading && pending.length === 0 && (
+          <Card variant="glass" hoverable={false} className="p-8 text-center text-secondary text-sm">No loans are currently liquidatable.</Card>
+        )}
+        {pending.map((r) => (
+          <Card key={r.loanId.toString()} variant="glass" hoverable={false} className="p-6">
+            <CardContent className="p-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="text-sm text-white">
+                <span className="font-mono">Loan #{r.loanId.toString()}</span>
+                <span className="text-secondary text-xs ml-3">
+                  Borrower {formatAddress(r.loan.borrower)} · matured {new Date(Number(r.loan.maturity) * 1000).toLocaleDateString()}
+                </span>
+              </div>
+              <button
+                onClick={() => startLiquidation(r.loanId)}
+                disabled={busy || !address}
+                className="px-6 py-2 rounded-xl bg-accent-red/20 border border-accent-red/30 text-accent-red text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+              >
+                Start Liquidation
+              </button>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
 
-      <footer className="grid grid-cols-1 md:grid-cols-2 gap-8">
-         <Card variant="glass" className="p-8 flex items-start gap-6">
-            <div className="w-12 h-12 rounded-full bg-accent-teal/10 flex items-center justify-center shrink-0">
-                <Clock className="w-6 h-6 text-accent-teal" />
-            </div>
-            <div>
-                <h4 className="text-xs font-black uppercase tracking-widest text-foreground mb-2">Internal Testing</h4>
-                <p className="text-[11px] text-secondary leading-relaxed font-medium">
-                    Automated liquidations are running on Testnet v2.4a. 
-                    Security audits by Vestra Shield begin Q3 2026.
-                </p>
-            </div>
-         </Card>
-         <Card variant="glass" className="p-8 flex items-start gap-6">
-            <div className="w-12 h-12 rounded-full bg-accent-cyan/10 flex items-center justify-center shrink-0">
-                <Zap className="w-6 h-6 text-accent-cyan" />
-            </div>
-            <div>
-                <h4 className="text-xs font-black uppercase tracking-widest text-foreground mb-2">Protocol Revenue</h4>
-                <p className="text-[11px] text-secondary leading-relaxed font-medium">
-                    10% of liquidation penalties are redirected to the Vestra Treasury. 
-                    Read more in the Tokenomics doc.
-                </p>
-            </div>
-         </Card>
-      </footer>
+      <p className="text-[10px] text-secondary/60 italic">
+        Showing the {SCAN_WINDOW.toString()} most recent loans. Proceeds repay lenders first; any surplus is claimable by the
+        borrower and any shortfall is covered by the insurance vault, then shared by lenders.
+      </p>
     </div>
   );
 }

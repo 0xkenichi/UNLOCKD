@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { formatUnits, parseUnits } from 'viem';
+import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { formatUnits, isAddress } from 'viem';
 import { useContracts } from '@/hooks/useVestraContracts';
 import { usePassportSnapshot } from '@/hooks/usePassportSnapshot';
-import { VESTRA_PROTOCOL_ABI } from '@/abis/VestraProtocol';
-import { SABLIER_V2_LOCKUP_ABI } from '@/abis/SablierV2Lockup';
-import { VESTRA_CREDIT_REGISTRY_ABI } from '@/abis/VestraCreditRegistry';
+import { useStreamCollateral } from '@/hooks/useStreamCollateral';
+import { LOAN_MANAGER_ABI } from '@/abis/LoanManager';
+import { VESTING_ADAPTER_ABI } from '@/abis/VestingAdapter';
+import { ERC721_ABI } from '@/abis/ERC721';
+import { VESTING_PROTOCOL, VESTING_PROTOCOL_LABELS, type VestingProtocolId } from '@/abis/VestingProtocols';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TxButton } from '@/components/ui/TxButton';
 import { VcsBadge } from '@/components/VcsBadge';
@@ -15,104 +17,108 @@ import { DpvDisplay } from '@/components/DpvDisplay';
 import { BorrowProgress } from '@/components/borrow/BorrowProgress';
 import { StreamSelector } from '@/components/borrow/StreamSelector';
 import { InfoRow } from '@/components/InfoRow';
-import { formatUsd, formatAddress, cn } from '@/lib/utils';
+import { formatUsd, formatAddress, cn, parseUsdc } from '@/lib/utils';
 
 type BorrowStep = 'select-stream' | 'approve-operator' | 'review' | 'borrow' | 'success';
 
+const ZERO = '0x0000000000000000000000000000000000000000';
+const DAY = 86_400;
+
 export default function BorrowPage() {
-  const { address, isConnected } = useAccount();
+  const { address } = useAccount();
   const contracts = useContracts();
   const passport = usePassportSnapshot(address);
 
-  const [step,          setStep]          = useState<BorrowStep>('select-stream');
+  const [step,           setStep]           = useState<BorrowStep>('select-stream');
   const [selectedStream, setSelectedStream] = useState<number | null>(null);
-  const [requestAmount, setRequestAmount] = useState('');
-  const [durationDays,  setDurationDays]  = useState('30');
-  const [maxBorrowVal,  setMaxBorrowVal]  = useState(0);
+  const [protocol,       setProtocol]       = useState<VestingProtocolId>(VESTING_PROTOCOL.SABLIER_V2);
+  const [nftInput,       setNftInput]       = useState<string>(contracts.sablierV2Lockup);
+  const [requestAmount,  setRequestAmount]  = useState('');
+  const [maturityDays,   setMaturityDays]   = useState<number | null>(null); // null = at unlock
+  const [maxBorrowVal,   setMaxBorrowVal]   = useState(0);
 
-  // ─── Fetch Borrower's VCS Status ──────────────────────────────────────────────
-  // ─── Fetch Borrower's VCS Status (On-Chain) ──────────────────────────────────
-  const { data: vcsTier } = useReadContract({
-    address:      contracts.registry,
-    abi:          VESTRA_CREDIT_REGISTRY_ABI,
-    functionName: 'getTier',
-    args:         [address!],
-    query:        { enabled: !!address },
-  });
+  const nftContract = isAddress(nftInput) ? (nftInput as `0x${string}`) : undefined;
+  const streamId = selectedStream !== null ? BigInt(selectedStream) : null;
 
-  // ─── Fetch Stream Details (after selection) ─────────────────────────────────
-  const { data: streamResults } = useReadContracts({
+  // ─── Stream collateral (read exactly as VestingAdapter will) ─────────────────
+  const stream = useStreamCollateral(protocol, nftContract, streamId);
+
+  // ─── Ownership / approval / whitelist checks ─────────────────────────────────
+  const { data: checks, refetch: refetchChecks } = useReadContracts({
     contracts: [
-      {
-        address:      contracts.sablierV2Lockup,
-        abi:          SABLIER_V2_LOCKUP_ABI,
-        functionName: 'getAsset',
-        args:         [BigInt(selectedStream ?? 0)],
-      },
-      {
-        address:      contracts.sablierV2Lockup,
-        abi:          SABLIER_V2_LOCKUP_ABI,
-        functionName: 'getDepositedAmount',
-        args:         [BigInt(selectedStream ?? 0)],
-      },
-      {
-        address:      contracts.sablierV2Lockup,
-        abi:          SABLIER_V2_LOCKUP_ABI,
-        functionName: 'getEndTime',
-        args:         [BigInt(selectedStream ?? 0)],
-      },
+      { address: nftContract ?? ZERO, abi: ERC721_ABI, functionName: 'ownerOf', args: [streamId ?? 0n] },
+      { address: nftContract ?? ZERO, abi: ERC721_ABI, functionName: 'getApproved', args: [streamId ?? 0n] },
+      { address: nftContract ?? ZERO, abi: ERC721_ABI, functionName: 'isApprovedForAll', args: [(address ?? ZERO) as `0x${string}`, contracts.vestingAdapter] },
+      { address: contracts.vestingAdapter, abi: VESTING_ADAPTER_ABI, functionName: 'whitelisted', args: [protocol, (nftContract ?? ZERO) as `0x${string}`] },
+      { address: contracts.loanManager, abi: LOAN_MANAGER_ABI, functionName: 'minBorrow' },
     ],
-    query: { enabled: selectedStream !== null },
+    query: { enabled: !!nftContract && streamId !== null },
   });
 
-  // ─── Step 1: Approve LoanManager as stream operator ─────────────────────────
-  const { writeContract: setOperator, data: operatorTxHash } = useWriteContract();
-  const { isLoading: operatorPending, isSuccess: operatorSuccess } =
-    useWaitForTransactionReceipt({ hash: operatorTxHash });
+  const owner        = checks?.[0]?.result as string | undefined;
+  const approvedTo   = checks?.[1]?.result as string | undefined;
+  const approvedAll  = Boolean(checks?.[2]?.result);
+  const whitelisted  = checks?.[3]?.status === 'success' ? Boolean(checks[3].result) : undefined;
+  const minBorrowRaw = (checks?.[4]?.result as bigint | undefined) ?? 0n;
+  const isOwner      = !!owner && !!address && owner.toLowerCase() === address.toLowerCase();
+  const isApproved   = approvedAll || (!!approvedTo && approvedTo.toLowerCase() === contracts.vestingAdapter.toLowerCase());
 
-  const handleApproveOperator = useCallback(() => {
-    if (selectedStream === null) return;
-    setOperator({
-      address:      contracts.sablierV2Lockup,
-      abi:          SABLIER_V2_LOCKUP_ABI,
-      functionName: 'setApproved',
-      args:         [BigInt(selectedStream), contracts.vestingAdapter, true],
+  // ─── Step 2: Approve the stream NFT to VestingAdapter ───────────────────────
+  const { writeContract: approveNft, data: approveTxHash } = useWriteContract();
+  const { isLoading: approvePending, isSuccess: approveSuccess } =
+    useWaitForTransactionReceipt({ hash: approveTxHash });
+
+  const handleApproveNft = useCallback(() => {
+    if (streamId === null || !nftContract) return;
+    approveNft({
+      address:      nftContract,
+      abi:          ERC721_ABI,
+      functionName: 'approve',
+      args:         [contracts.vestingAdapter, streamId],
     });
-  }, [selectedStream, setOperator, contracts]);
+  }, [streamId, nftContract, approveNft, contracts]);
 
-  // ─── Step 2: Create Loan ───────────────────────────────────────────────────
-  const { writeContract: borrow, data: loanTxHash } = useWriteContract();
+  useEffect(() => {
+    if (approveSuccess) refetchChecks();
+  }, [approveSuccess, refetchChecks]);
+
+  useEffect(() => {
+    if (step === 'approve-operator' && isApproved) setStep('review');
+  }, [step, isApproved]);
+
+  // ─── Step 3: Borrow ──────────────────────────────────────────────────────────
+  const { writeContract: borrow, data: loanTxHash, error: borrowError } = useWriteContract();
   const { isLoading: loanPending, isSuccess: loanSuccess } =
     useWaitForTransactionReceipt({ hash: loanTxHash });
-  
+
+  const nowSec        = Math.floor(Date.now() / 1000);
+  const daysRemaining = stream.unlockTime ? Math.max(0, Math.floor((stream.unlockTime - nowSec) / DAY)) : 0;
+
+  // maturity = 0 means "at unlock" on-chain; otherwise it must be in (now, unlockTime].
+  const maturity = maturityDays === null || !stream.unlockTime
+    ? 0n
+    : BigInt(Math.min(nowSec + maturityDays * DAY, stream.unlockTime));
+
   const handleBorrow = useCallback(() => {
-    if (selectedStream === null || !requestAmount) return;
+    if (streamId === null || !nftContract || parseUsdc(requestAmount) === 0n) return;
     borrow({
       address:      contracts.loanManager,
-      abi:          VESTRA_PROTOCOL_ABI,
+      abi:          LOAN_MANAGER_ABI,
       functionName: 'borrow',
-      args:         [BigInt(selectedStream), contracts.vestingAdapter],
+      args:         [nftContract, streamId, protocol, parseUsdc(requestAmount), maturity],
     });
-  }, [selectedStream, requestAmount, borrow, contracts]);
+  }, [streamId, nftContract, protocol, requestAmount, maturity, borrow, contracts]);
 
   useEffect(() => {
     if (loanSuccess) setStep('success');
   }, [loanSuccess]);
 
   // ─── Computed Values ─────────────────────────────────────────────────────────
-  const maxCreditBps = passport.ltvBoostBps || 1000; // Base LTV 10%
-  const rateAdjustmentBps = passport.rateSurchargeOrDiscountBps || 0;
-  const baseAprBps = 1200; // 12% Base APR
-  const finalAprBps = Math.max(200, baseAprBps + rateAdjustmentBps);
-
-  // Stream details (Safe access for results)
-  const streamToken     = streamResults?.[0]?.result as string || '';
-  const streamQuantity  = (streamResults?.[1]?.result as bigint) || 0n;
-  const streamEndTime   = Number(streamResults?.[2]?.result || 0);
-  const streamTotal     = formatUnits(streamQuantity, 18);
-  const daysRemaining   = streamEndTime
-    ? Math.max(0, Math.floor((streamEndTime * 1000 - Date.now()) / 86400000))
-    : 0;
+  const streamTotal    = formatUnits(stream.quantity, 18);
+  const requestRaw     = parseUsdc(requestAmount);
+  const belowMinimum   = requestRaw > 0n && requestRaw < minBorrowRaw;
+  const aboveMax       = Number(requestAmount || 0) > maxBorrowVal;
+  const sablierBlocked = protocol === VESTING_PROTOCOL.SABLIER_V2 && (stream.cancelable || stream.canceled);
 
   // ─── UI ──────────────────────────────────────────────────────────────────────
   return (
@@ -124,13 +130,13 @@ export default function BorrowPage() {
             Borrow Against Vesting
           </h1>
           <p className="text-[#9C9A92] mt-2 text-sm">
-            Escrow your vesting stream claim rights to draw USDC instantly.
+            Escrow your vesting-stream NFT to draw USDC instantly. Variable rate, non-recourse.
           </p>
         </div>
-        {address && (
-          <VcsBadge 
-            tier={passport.tierName || (vcsTier === 1 ? 'PREMIUM' : vcsTier === 2 ? 'TITAN' : 'STANDARD')} 
-            score={passport.compositeScore || 0} 
+        {address && passport.tierName && (
+          <VcsBadge
+            tier={passport.tierName}
+            score={passport.compositeScore || 0}
           />
         )}
       </div>
@@ -146,6 +152,37 @@ export default function BorrowPage() {
             <h3 className="text-[#E8E6DF] font-medium mb-4 redaction-text uppercase tracking-tight">
               1. Select Your Vesting Stream
             </h3>
+
+            <div className="space-y-3 mb-4">
+              <div className="flex gap-2">
+                {Object.values(VESTING_PROTOCOL).map((id) => {
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => {
+                        setProtocol(id);
+                        if (id === VESTING_PROTOCOL.SABLIER_V2) setNftInput(contracts.sablierV2Lockup);
+                      }}
+                      className={cn(
+                        'flex-1 py-1.5 rounded-lg border text-[10px] uppercase transition-colors',
+                        protocol === id
+                          ? 'bg-[#1D9E75]/20 border-[#1D9E75] text-[#E8E6DF]'
+                          : 'bg-white/5 border-white/10 text-[#9C9A92] hover:bg-white/10'
+                      )}
+                    >
+                      {VESTING_PROTOCOL_LABELS[id]}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                value={nftInput}
+                onChange={e => setNftInput(e.target.value.trim())}
+                placeholder="Stream NFT contract (0x...)"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-[#E8E6DF] font-mono text-xs"
+              />
+            </div>
+
             <StreamSelector
               address={address}
               selected={selectedStream}
@@ -156,31 +193,44 @@ export default function BorrowPage() {
             />
           </GlassCard>
 
-          {/* Step 2: Approve Operator */}
+          {/* Step 2: Approve NFT */}
           {(step === 'approve-operator' || step === 'review' || step === 'borrow') && (
             <GlassCard>
               <h3 className="text-[#E8E6DF] font-medium mb-2 redaction-text uppercase tracking-tight">
-                2. Authorise Protocol
+                2. Approve Stream NFT
               </h3>
               <p className="text-[#9C9A92] text-xs mb-4">
-                Grant the Vestra LoanManager operator rights on stream #{selectedStream}.
-                This allows the protocol to settle the loan at unlock.
+                Approve the Vestra VestingAdapter to escrow stream #{selectedStream}. It holds the NFT
+                until the loan is repaid, and returns it to you on full repayment.
               </p>
+              {owner && !isOwner && (
+                <p className="text-amber-400/80 text-xs mb-3">This wallet does not own stream #{selectedStream}.</p>
+              )}
+              {whitelisted === false && (
+                <p className="text-amber-400/80 text-xs mb-3">
+                  This NFT contract is not whitelisted for {VESTING_PROTOCOL_LABELS[protocol]} on VestingAdapter.
+                </p>
+              )}
+              {sablierBlocked && (
+                <p className="text-amber-400/80 text-xs mb-3">
+                  Cancelable or canceled Sablier streams cannot be used as collateral.
+                </p>
+              )}
               <TxButton
-                onClick={handleApproveOperator}
-                loading={operatorPending}
-                success={operatorSuccess}
-                successMessage="Operator Approved"
-                disabled={selectedStream === null}
+                onClick={handleApproveNft}
+                loading={approvePending}
+                success={isApproved}
+                successMessage="NFT Approved"
+                disabled={selectedStream === null || !nftContract || (!!owner && !isOwner)}
                 onSuccess={() => setStep('review')}
               >
-                Approve Operator
+                Approve NFT
               </TxButton>
             </GlassCard>
           )}
 
           {/* Step 3: Review + Borrow */}
-          {(step === 'review' || step === 'borrow') && operatorSuccess && (
+          {(step === 'review' || step === 'borrow') && isApproved && (
             <GlassCard>
               <h3 className="text-[#E8E6DF] font-medium mb-4 redaction-text uppercase tracking-tight">
                 3. Loan Terms
@@ -190,7 +240,7 @@ export default function BorrowPage() {
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-[#9C9A92] text-sm">Amount (USDC)</label>
-                    <span className="text-[#5F5E5A] text-xs">Max credit: {maxCreditBps / 100}%</span>
+                    <span className="text-[#5F5E5A] text-xs">Max: {formatUsd(maxBorrowVal)}</span>
                   </div>
                   <input
                     type="number"
@@ -204,7 +254,8 @@ export default function BorrowPage() {
                       <button
                         key={pct}
                         onClick={() => {
-                          const amount = (maxBorrowVal * (pct / 100));
+                          // Round down so the request never exceeds the on-chain max.
+                          const amount = Math.floor(maxBorrowVal * (pct / 100) * 100) / 100;
                           setRequestAmount(amount > 0 ? amount.toFixed(2) : '0.00');
                         }}
                         className="flex-1 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[#9C9A92] text-[10px] uppercase hover:bg-white/10 transition-colors"
@@ -213,22 +264,37 @@ export default function BorrowPage() {
                       </button>
                     ))}
                   </div>
+                  {belowMinimum && (
+                    <p className="text-amber-400/80 text-[10px] mt-2">Minimum borrow is {formatUsd(Number(formatUnits(minBorrowRaw, 6)))}.</p>
+                  )}
+                  {aboveMax && (
+                    <p className="text-amber-400/80 text-[10px] mt-2">Amount exceeds the max borrow for this stream.</p>
+                  )}
                 </div>
 
                 <div>
                   <div className="flex justify-between mb-2">
-                    <label className="text-[#9C9A92] text-sm">Duration (Days)</label>
-                    <span className="text-[#E8E6DF] text-xs font-mono">{durationDays}d</span>
+                    <label className="text-[#9C9A92] text-sm">Maturity</label>
+                    <span className="text-[#E8E6DF] text-xs font-mono">
+                      {maturityDays === null ? `At unlock (${daysRemaining}d)` : `${maturityDays}d`}
+                    </span>
                   </div>
                   <input
                     type="range"
-                    min="30"
-                    max="365"
-                    step="30"
-                    value={durationDays}
-                    onChange={e => setDurationDays(e.target.value)}
+                    min="1"
+                    max={Math.max(1, daysRemaining)}
+                    step="1"
+                    value={maturityDays ?? Math.max(1, daysRemaining)}
+                    onChange={e => {
+                      const d = Number(e.target.value);
+                      setMaturityDays(d >= daysRemaining ? null : d);
+                    }}
+                    disabled={daysRemaining <= 1}
                     className="w-full accent-[#1D9E75]"
                   />
+                  <p className="text-[10px] text-[#5F5E5A] mt-1">
+                    Repay any time before maturity. After maturity plus the grace period the loan can be liquidated.
+                  </p>
                 </div>
               </div>
 
@@ -236,11 +302,16 @@ export default function BorrowPage() {
                 onClick={handleBorrow}
                 loading={loanPending}
                 success={loanSuccess}
-                disabled={!requestAmount || parseFloat(requestAmount) <= 0}
+                disabled={requestRaw === 0n || belowMinimum || aboveMax || sablierBlocked}
                 successMessage="Loan Originated!"
               >
                 Draw Loan
               </TxButton>
+              {borrowError && (
+                <p className="text-amber-400/80 text-[10px] mt-2 break-words">
+                  {(borrowError as { shortMessage?: string }).shortMessage ?? borrowError.message}
+                </p>
+              )}
             </GlassCard>
           )}
 
@@ -253,13 +324,13 @@ export default function BorrowPage() {
                   Loan Active
                 </h3>
                 <p className="text-[#9C9A92] text-sm">
-                  {formatUsd(parseFloat(requestAmount))} USDC sent to your wallet.
+                  {formatUsd(parseFloat(requestAmount))} USDC borrowed (minus the origination fee).
                 </p>
                 <a
-                  href="/portfolio"
+                  href="/repay"
                   className="mt-4 inline-block text-[#5DCAA5] text-sm border border-[#5DCAA5]/30 rounded-lg px-4 py-2 hover:bg-[#5DCAA5]/10 transition-colors"
                 >
-                  View Portfolio →
+                  Manage Loan →
                 </a>
               </div>
             </GlassCard>
@@ -268,36 +339,41 @@ export default function BorrowPage() {
 
         {/* Right: Stream Info + dDPV */}
         <div className="space-y-4">
-          {selectedStream !== null && streamResults && (
+          {selectedStream !== null && nftContract && (
             <>
               <GlassCard>
                 <h3 className="text-[#9C9A92] text-sm mb-4 uppercase tracking-wider redaction-text">
                   Stream Details
                 </h3>
-                <div className="space-y-3">
-                  <InfoRow label="Stream ID"    value={`#${selectedStream}`} mono />
-                  <InfoRow label="Token"        value={formatAddress(streamToken)} mono />
-                  <InfoRow label="Total Amount" value={`${parseFloat(streamTotal).toLocaleString()} tokens`} />
-                  <InfoRow
-                    label="Unlocks In"
-                    value={`${daysRemaining} days`}
-                    status={daysRemaining > 365 ? 'warning' : 'normal'}
-                  />
-                </div>
+                {stream.isError ? (
+                  <p className="text-amber-400/80 text-xs">
+                    Could not read stream #{selectedStream} as a {VESTING_PROTOCOL_LABELS[protocol]} position.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    <InfoRow label="Stream ID"    value={`#${selectedStream}`} mono />
+                    <InfoRow label="Protocol"     value={VESTING_PROTOCOL_LABELS[protocol]} />
+                    <InfoRow label="Token"        value={stream.token ? formatAddress(stream.token) : '—'} mono />
+                    <InfoRow label="Locked Amount" value={`${parseFloat(streamTotal).toLocaleString()} tokens`} />
+                    <InfoRow
+                      label="Unlocks In"
+                      value={`${daysRemaining} days`}
+                      status={daysRemaining > 365 ? 'warning' : 'normal'}
+                    />
+                  </div>
+                )}
               </GlassCard>
 
-              <DpvDisplay
-                streamId={selectedStream}
-                quantity={streamQuantity}
-                streamContract={contracts.sablierV2Lockup}
-                token={streamToken}
-                endTime={streamEndTime}
-                maxCreditBps={maxCreditBps}
-                contracts={contracts}
-                finalAprBps={finalAprBps}
-                tierName={passport.tierName || 'Scout'}
-                onMaxBorrow={setMaxBorrowVal}
-              />
+              {stream.token && (
+                <DpvDisplay
+                  quantity={stream.quantity}
+                  token={stream.token}
+                  unlockTime={stream.unlockTime}
+                  nftContract={nftContract}
+                  contracts={contracts}
+                  onMaxBorrow={setMaxBorrowVal}
+                />
+              )}
             </>
           )}
         </div>

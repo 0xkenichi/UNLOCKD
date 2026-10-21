@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { 
   Zap, 
@@ -15,7 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { AssetTable } from "@/components/ui/AssetTable";
 import { useStealthMode } from "@/components/providers/stealth-provider";
-import { RepaySlider } from "@/components/repay/RepaySlider";
+import { LoanHealth } from "@/components/repay/LoanHealth";
 import { RepayActions } from "@/components/repay/RepayActions";
 import { DebtClock } from "@/components/repay/DebtClock";
 import { useQuery } from "@tanstack/react-query";
@@ -28,7 +28,7 @@ function RepayContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { isStealthMode } = useStealthMode();
-    const loanIdPrefill = searchParams.get('loanId') || '';
+    const [loanId, setLoanId] = useState(searchParams.get('loanId') || '1');
 
     const { data: schedule, isLoading: scheduleLoading, refetch } = useQuery({
         queryKey: ['repaySchedule'],
@@ -78,24 +78,25 @@ function RepayContent() {
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: 0.2 }}
                         >
-                            <DebtClock />
+                            <DebtClock loanId={loanId} />
                         </motion.div>
                         <motion.div
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: 0.3 }}
                         >
-                            <RepaySlider />
+                            <LoanHealth loanId={loanId} />
                         </motion.div>
                     </div>
 
                     {/* Actions */}
                     <motion.div
+                        id="repay-actions"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.4 }}
                     >
-                        <RepayActions initialLoanId={loanIdPrefill} isStealthMode={isStealthMode} />
+                        <RepayActions loanId={loanId} onLoanIdChange={setLoanId} isStealthMode={isStealthMode} />
                     </motion.div>
 
                     {/* Schedule Table */}
@@ -159,7 +160,7 @@ function RepayContent() {
                                     </div>
                                     <div>
                                         <div className="text-xs font-bold">Monitor Deadlock</div>
-                                        <p className="text-[10px] text-secondary leading-relaxed">Review due timelines to prevent automatic collateral liquidation.</p>
+                                        <p className="text-[10px] text-secondary leading-relaxed">Repay before maturity plus the grace period, and keep the health factor above 1.0, to avoid liquidation.</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-3">
@@ -168,7 +169,7 @@ function RepayContent() {
                                     </div>
                                     <div>
                                         <div className="text-xs font-bold">Early Settlement</div>
-                                        <p className="text-[10px] text-secondary leading-relaxed">Repay early to improve your Protocol Credit Score and unlock higher LTVs.</p>
+                                        <p className="text-[10px] text-secondary leading-relaxed">Interest floats with pool utilization. Repaying early stops accrual and releases your stream NFT.</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-3">

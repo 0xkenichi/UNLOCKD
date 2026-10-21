@@ -150,9 +150,9 @@ export default function AdminAirdropPage() {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <MetricCard label="Eligible Wallets" value={data?.totalEligibleWallets || 0} icon={<Users className="w-4 h-4" />} trend="neutral" changeLabel="Current Window" />
-                <MetricCard label="Top Score" value={data?.leaderboard?.[0]?.score || 0} icon={<Trophy className="w-4 h-4" />} trend="up" changeLabel={data?.leaderboard?.[0]?.walletAddress.slice(0, 8)} />
-                <MetricCard label="Activity Depth" value={data?.leaderboard?.length || 0} icon={<TrendingUp className="w-4 h-4" />} trend="neutral" changeLabel="Ranked Entities" />
+                <MetricCard label="Eligible Wallets" value={data?.totalEligibleWallets || 0} icon={<Users className="w-4 h-4" />} trend="neutral" subValue="Current Window" />
+                <MetricCard label="Top Score" value={data?.leaderboard?.[0]?.score || 0} icon={<Trophy className="w-4 h-4" />} trend="up" subValue={data?.leaderboard?.[0]?.walletAddress.slice(0, 8)} />
+                <MetricCard label="Activity Depth" value={data?.leaderboard?.length || 0} icon={<TrendingUp className="w-4 h-4" />} trend="neutral" subValue="Ranked Entities" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

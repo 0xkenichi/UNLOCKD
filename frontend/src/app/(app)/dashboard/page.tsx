@@ -34,7 +34,7 @@ import {
 } from "recharts";
 import { useAccount, useChainId, useReadContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import { getContract, loanManagerAbi, usdcAbi } from "@/config/contracts";
+import { getContract, usdcAbi } from "@/config/contracts";
 import { api } from "@/utils/api";
 import { useMemo, useEffect, useState } from "react";
 import { DemoCenter } from "@/components/demo/DemoCenter";
@@ -54,15 +54,7 @@ export default function Dashboard() {
   const [valuationFilter, setValuationFilter] = useState("");
   
   // On-chain data
-  const loanManager = getContract(chainId, 'loanManager');
   const usdc = getContract(chainId, 'usdc');
-
-  const { data: loanCount } = useReadContract({
-    address: loanManager,
-    abi: loanManagerAbi,
-    functionName: 'loanCount',
-    query: { enabled: !!loanManager }
-  });
 
   const { data: usdcBalance, isLoading: usdcLoading } = useReadContract({
     address: usdc,
@@ -85,7 +77,7 @@ export default function Dashboard() {
 
   const { data: userLoans, isLoading: loansLoading } = useQuery({
     queryKey: ['userLoans', address],
-    queryFn: () => (api as any).fetchLoans(address),
+    queryFn: () => api.fetchLoans(address!, chainId),
     enabled: !!address
   });
 
@@ -120,10 +112,15 @@ export default function Dashboard() {
     return () => window.removeEventListener('refresh-portfolio', handleRefresh);
   }, [refetchPortfolio]);
 
-  const totalDebt = useMemo(() => {
-    const items = userLoans?.items || [];
-    return items.reduce((acc: number, loan: any) => acc + Number(loan.amount), 0);
-  }, [userLoans]);
+  // Open loans (active or in auction) with live LoanManager.debtOf values, USDC 6 decimals.
+  const openLoans = useMemo(
+    () => (userLoans?.loans || []).filter((l) => l.status === 'active' || l.status === 'auction'),
+    [userLoans]
+  );
+  const totalDebt = useMemo(
+    () => openLoans.reduce((acc, loan) => acc + Number(loan.debt) / 1e6, 0),
+    [openLoans]
+  );
 
   const formattedUsdc = useMemo(() => {
     if (!usdcBalance) return "0.00";
@@ -191,7 +188,7 @@ export default function Dashboard() {
                  {loansLoading ? "..." : `$${totalDebt.toLocaleString()}`}
                </MatrixReveal>
              </ZKShield>,
-      subValue: `${userLoans?.items?.length || 0} active positions`,
+      subValue: `${openLoans.length} active positions`,
       trend: (totalDebt > 0 ? "up" : "neutral") as "up" | "down" | "neutral",
       icon: <TrendingUp className="w-5 h-5" />,
       glowColor: (totalDebt > 0 ? "red" : "none") as "teal" | "cyan" | "red" | "none",
@@ -229,7 +226,7 @@ export default function Dashboard() {
       icon: <Fingerprint className="w-5 h-5" />,
       className: "redaction-text"
     }
-  ], [kpiLoading, kpi, loansLoading, totalDebt, userLoans, formattedUsdc]);
+  ], [kpiLoading, kpi, loansLoading, totalDebt, openLoans, formattedUsdc]);
 
   return (
     <div className={`space-y-8 pb-20 relative min-h-screen ${isStealthMode ? 'stealth-grid' : ''}`}>
