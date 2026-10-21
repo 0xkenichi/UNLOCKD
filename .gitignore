@@ -30,3 +30,6 @@ backend/data/*.sqlite-journal
 **/data/*.sqlite-journal
 **/tmp/
 **/temp/
+
+# Local databases / dumps
+*.rdb
