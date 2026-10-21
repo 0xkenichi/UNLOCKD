@@ -163,55 +163,6 @@ const solanaLinkWalletSchema = z
   })
   .strip();
 
-const privateLoanCreateSchema = z
-  .object({
-    collateralId: z.union([
-      z.string().trim().regex(/^\d+$/, 'collateralId must be an integer'),
-      z.number().int().min(0)
-    ]),
-    vestingContract: stringField(120),
-    borrowAmount: z.union([
-      z.string().trim().regex(/^\d+$/, 'borrowAmount must be an integer'),
-      z.number().int().positive()
-    ]),
-    collateralAmount: z
-      .union([
-        z.string().trim().regex(/^\d+$/, 'collateralAmount must be an integer'),
-        z.number().int().positive()
-      ])
-      .optional()
-      .nullable(),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const privateLoanRepaySchema = z
-  .object({
-    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
-    amount: z.union([z.string().trim().regex(/^\d+$/, 'amount must be an integer'), z.number().int().positive()]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
-const privateLoanSettleSchema = z
-  .object({
-    loanId: z.union([z.string().trim().regex(/^\d+$/, 'loanId must be an integer'), z.number().int().min(0)]),
-    signature: stringField(800),
-    nonce: stringField(220),
-    issuedAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    expiresAt: z.union([z.number().int().nonnegative(), z.string().trim().regex(/^\d+$/)]),
-    payloadHash: stringField(80).optional()
-  })
-  .strip();
-
 const sablierUpgradeSchema = z
   .object({
     lockupAddress: stringField(120),
@@ -422,9 +373,6 @@ module.exports = {
   linkWalletSchema,
   solanaNonceSchema,
   solanaLinkWalletSchema,
-  privateLoanCreateSchema,
-  privateLoanRepaySchema,
-  privateLoanSettleSchema,
   sablierUpgradeSchema,
   ozUpgradeSchema,
   timelockUpgradeSchema,

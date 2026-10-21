@@ -13,6 +13,12 @@ const winston = require('winston');
 const meTTabrain = require('./meTTabrain');
 const SovereignDataService = require('./lib/SovereignDataService');
 
+const AUTO_FREEZE_ENABLED = process.env.OMEGA_AUTO_FREEZE_ENABLED === 'true';
+const FREEZE_DURATION_SECONDS = Math.max(
+  60,
+  Number(process.env.OMEGA_FREEZE_DURATION_SECONDS || 48 * 3600)
+);
+
 // Configure Winston Logger
 const logger = winston.createLogger({
   level: 'info',
@@ -148,18 +154,41 @@ class OmegaWatcher extends EventEmitter {
   async _triggerVolatilityCheck(tokenValue, tokenAddress) {
       logger.info(`Volatility ping detected for ${tokenAddress || 'Unknown'}. Evaluating systemic impact... Asset Val: ${tokenValue}`);
       
-      // If price volatility suggests a flash pump, trigger an autonomous circuit breaker freeze
+      // If price volatility suggests a flash pump, raise an alert and (optionally) freeze the token.
       // In production, this threshold is dynamic; here we use 5.0 as a sample indicator.
-      if (parseFloat(tokenValue) > 5.0 && this.valuationContract && tokenAddress) {
-          logger.warn(`EXTREME PRICE ANOMALY: Triggering autonomous circuit breaker for ${tokenAddress}`);
-          try {
-              // reportFlashPump(token, cooldownDuration)
-              const tx = await this.valuationContract.reportFlashPump(tokenAddress, 48 * 3600); // 48 hour freeze
-              logger.info(`Circuit breaker transaction sent: ${tx.hash}`);
-              this._pushAlert('CRITICAL', `AUTONOMOUS FREEZE: Flash pump detected on ${tokenAddress}`, { txHash: tx.hash });
-          } catch (err) {
-              logger.error(`Failed to trigger circuit breaker: ${err.message}`);
-          }
+      if (parseFloat(tokenValue) <= 5.0 || !tokenAddress) return;
+
+      logger.warn(`EXTREME PRICE ANOMALY detected for ${tokenAddress}`);
+      if (!(await this._canFreeze())) {
+          // Alert-only: an operator with GUARDIAN_ROLE must call ValuationEngine.freezeToken.
+          this._pushAlert('CRITICAL', `PRICE ANOMALY: Flash pump suspected on ${tokenAddress} (manual freeze required)`, { tokenAddress });
+          return;
+      }
+      try {
+          // ValuationEngine.freezeToken(token, duration) — GUARDIAN_ROLE only.
+          const tx = await this.valuationContract.freezeToken(tokenAddress, FREEZE_DURATION_SECONDS);
+          logger.info(`Circuit breaker transaction sent: ${tx.hash}`);
+          this._pushAlert('CRITICAL', `AUTONOMOUS FREEZE: Flash pump detected on ${tokenAddress}`, { txHash: tx.hash });
+      } catch (err) {
+          logger.error(`Failed to trigger circuit breaker: ${err.message}`);
+          this._pushAlert('CRITICAL', `PRICE ANOMALY: Freeze failed for ${tokenAddress}`, { tokenAddress, error: err.message });
+      }
+  }
+
+  /**
+   * On-chain freezing is opt-in (OMEGA_AUTO_FREEZE_ENABLED=true) and requires the bound
+   * signer to hold GUARDIAN_ROLE on ValuationEngine. Otherwise the watcher is alert-only.
+   */
+  async _canFreeze() {
+      if (!AUTO_FREEZE_ENABLED || !this.valuationContract) return false;
+      try {
+          const signerAddress = await this.valuationContract.runner?.getAddress?.();
+          if (!signerAddress) return false;
+          const role = await this.valuationContract.GUARDIAN_ROLE();
+          return Boolean(await this.valuationContract.hasRole(role, signerAddress));
+      } catch (err) {
+          logger.warn(`Guardian role check failed: ${err.message}`);
+          return false;
       }
   }
 }

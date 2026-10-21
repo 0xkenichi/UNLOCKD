@@ -119,15 +119,6 @@ class MarketDataService {
       return 0;
     }
   }
-
-  /**
-   * Compute Risk Adjusted APY for a pool
-   * This is a proprietary Vestra calculation using DefiLlama yields
-   */
-  async getRiskAdjustedAPY(poolId) {
-    // This would typically use /yields/pools (Pro) and benchmark against Vestra's risk engine
-    return 0.05; // Placeholder
-  }
 }
 
 module.exports = new MarketDataService();

@@ -10,7 +10,9 @@
     "start:services": "tsx src/index.ts",
     "start:price-cache": "tsx src/services/runPriceCache.ts",
     "start:events": "tsx src/services/runEventListener.ts",
-    "start:vcs-cron": "tsx src/services/runVcsCron.ts"
+    "start:vcs-cron": "tsx src/services/runVcsCron.ts",
+    "test": "vitest run",
+    "keeper": "tsx scripts/vestraKeeper.ts"
   },
   "keywords": [],
   "author": "",

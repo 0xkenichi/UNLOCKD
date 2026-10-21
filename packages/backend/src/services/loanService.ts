@@ -12,10 +12,11 @@
  * - Duplicate event → UNIQUE constraint on (chain_id, tx_hash, log_index) absorbs it silently
  */
 
-import { createPublicClient, webSocket, http, parseAbiItem, type Log } from 'viem';
+import { createPublicClient, webSocket, http, getAbiItem, type Log, type PublicClient } from 'viem';
 import { base, arbitrum, sepolia } from 'viem/chains';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import pino from 'pino';
+import { LOAN_MANAGER_ABI } from '../contracts/vestraAbi';
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 const logger = pino({
@@ -26,26 +27,10 @@ const logger = pino({
     : undefined,
 });
 
-// ── ABIs (match LoanManager.sol events exactly) ───────────────────────────────
-const LOAN_ORIGINATED_ABI = parseAbiItem(
-  'event LoanOriginated(uint256 indexed tokenId, address indexed borrower, address indexed collateralToken, uint256 principalUsdc, uint256 interestRateBps, uint256 unlockTime, uint256 dpvUsdc, uint256 ltvBps, uint256 originationFeeUsdc, address lender)'
-);
-
-const LOAN_REPAID_ABI = parseAbiItem(
-  'event LoanRepaid(uint256 indexed tokenId, address borrower, uint256 principalPaid, uint256 interestPaid, uint256 totalRepaid, uint256 timestamp)'
-);
-
-const LOAN_REPAID_PARTIAL_ABI = parseAbiItem(
-  'event LoanRepaidPartial(uint256 indexed tokenId, uint256 amountUsdc, uint256 interestPaid, uint256 principalPaid, uint256 remainingPrincipal)'
-);
-
-const VESTRA_PAY_STATUS_UPDATED_ABI = parseAbiItem(
-  'event VestraPayStatusUpdated(uint256 indexed tokenId, bool status)'
-);
-
-const LOAN_LIQUIDATED_ABI = parseAbiItem(
-  'event LoanLiquidated(uint256 indexed tokenId, address indexed borrower, uint256 outstandingUsdc, uint256 liquidatedAt)'
-);
+// ── ABIs (from packages/contracts/abi via ../contracts/vestraAbi) ─────────────
+const LOAN_OPENED_ABI     = getAbiItem({ abi: LOAN_MANAGER_ABI, name: 'LoanOpened' });
+const LOAN_REPAID_ABI     = getAbiItem({ abi: LOAN_MANAGER_ABI, name: 'LoanRepaid' });
+const LOAN_LIQUIDATED_ABI = getAbiItem({ abi: LOAN_MANAGER_ABI, name: 'LoanLiquidated' });
 
 // ── Chain config ───────────────────────────────────────────────────────────────
 interface ChainConfig {
@@ -94,68 +79,84 @@ function buildSupabase(): SupabaseClient {
 
 // ── Core Supabase writers ──────────────────────────────────────────────────────
 
-async function writeLoanOriginated(
+async function blockTime(client: PublicClient, log: Log): Promise<Date> {
+  const block = await client.getBlock({ blockNumber: log.blockNumber! });
+  return new Date(Number(block.timestamp) * 1000);
+}
+
+async function writeLoanOpened(
   supabase: SupabaseClient,
-  chainId:  number,
+  client:   PublicClient,
+  config:   ChainConfig,
   log:      Log,
   args:     {
-    tokenId:              bigint;
-    borrower:             string;
-    collateralToken:      string;
-    principalUsdc:        bigint;
-    interestRateBps:      bigint;
-    unlockTime:           bigint;
-    dpvUsdc:              bigint;
-    ltvBps:               bigint;
-    originationFeeUsdc:   bigint;
-    lender:               string;
+    loanId:    bigint;
+    borrower:  string;
+    token:     string;
+    escrowId:  bigint;
+    principal: bigint;
+    fee:       bigint;
+    maturity:  bigint;
+    pv:        bigint;
   }
 ): Promise<void> {
-  const tokenId = args.tokenId.toString();
+  const tokenId = args.loanId.toString();
   const txHash  = log.transactionHash!;
+
+  // The event carries no unlock time or rate; read them at the origination block.
+  const [loan, rateBps, openedAt] = await Promise.all([
+    client.readContract({ address: config.loanManager, abi: LOAN_MANAGER_ABI, functionName: 'getLoan', args: [args.loanId], blockNumber: log.blockNumber! }),
+    client.readContract({ address: config.loanManager, abi: LOAN_MANAGER_ABI, functionName: 'currentRateBps', blockNumber: log.blockNumber! }),
+    blockTime(client, log),
+  ]);
+  const ltvBps = args.pv > 0n ? Number((args.principal * 10_000n) / args.pv) : 0;
 
   const loanRow = {
     token_id:              tokenId,
-    chain_id:              chainId,
+    chain_id:              config.chainId,
     borrower:              args.borrower.toLowerCase(),
-    collateral_token:      args.collateralToken.toLowerCase(),
-    principal_usdc:        args.principalUsdc.toString(),
-    interest_rate_bps:     Number(args.interestRateBps),
-    origination_fee_usdc:  args.originationFeeUsdc.toString(),
-    unlock_time:           new Date(Number(args.unlockTime) * 1000).toISOString(),
-    dpv_usdc:              args.dpvUsdc.toString(),
-    ltv_bps:               Number(args.ltvBps),
+    collateral_token:      args.token.toLowerCase(),
+    principal_usdc:        args.principal.toString(),
+    interest_rate_bps:     Number(rateBps), // floating; rate at origination
+    origination_fee_usdc:  args.fee.toString(),
+    unlock_time:           new Date(Number(loan.unlockTime) * 1000).toISOString(),
+    dpv_usdc:              args.pv.toString(),
+    ltv_bps:               ltvBps,
     status:                'ACTIVE',
-    lender:                args.lender.toLowerCase(),
     origination_tx:        txHash,
     origination_block:     Number(log.blockNumber),
   };
 
   const eventRow = {
     token_id:     tokenId,
-    chain_id:     chainId,
+    chain_id:     config.chainId,
     event_type:   'LOAN_ORIGINATED',
     payload:      {
       borrower:           args.borrower,
-      collateral_token:   args.collateralToken,
-      principal_usdc:     args.principalUsdc.toString(),
-      interest_rate_bps:  args.interestRateBps.toString(),
-      unlock_time:        args.unlockTime.toString(),
-      dpv_usdc:           args.dpvUsdc.toString(),
-      ltv_bps:            args.ltvBps.toString(),
-      origination_fee:    args.originationFeeUsdc.toString(),
+      collateral_token:   args.token,
+      escrow_id:          args.escrowId.toString(),
+      stream_contract:    loan.nftContract,
+      stream_id:          loan.streamId.toString(),
+      principal_usdc:     args.principal.toString(),
+      interest_rate_bps:  rateBps.toString(),
+      maturity:           args.maturity.toString(),
+      unlock_time:        loan.unlockTime.toString(),
+      dpv_usdc:           args.pv.toString(),
+      ltv_bps:            ltvBps.toString(),
+      origination_fee:    args.fee.toString(),
     },
     tx_hash:      txHash,
     block_number: Number(log.blockNumber),
     log_index:    log.logIndex ?? 0,
   };
 
+  // The borrower's stream NFT is held in VestingAdapter escrow for the life of the loan.
   const nftRow = {
     token_id:   tokenId,
-    chain_id:   chainId,
+    chain_id:   config.chainId,
     owner:      args.borrower.toLowerCase(),
     status:     'ACTIVE',
-    minted_at:  new Date().toISOString(),
+    minted_at:  openedAt.toISOString(),
     mint_tx:    txHash,
   };
 
@@ -169,140 +170,133 @@ async function writeLoanOriginated(
   if (eventRes.error) throw new Error(`loan_events insert failed: ${eventRes.error.message}`);
   if (nftRes.error)   throw new Error(`nft_positions insert failed: ${nftRes.error.message}`);
 
-  logger.info({ service: 'loanService', fn: 'writeLoanOriginated', chainId, tokenId, txHash }, 'Loan originated — Supabase written');
+  logger.info({ service: 'loanService', fn: 'writeLoanOpened', chainId: config.chainId, tokenId, txHash }, 'Loan opened — Supabase written');
 }
 
 async function writeLoanRepaid(
   supabase: SupabaseClient,
-  chainId:  number,
+  client:   PublicClient,
+  config:   ChainConfig,
   log:      Log,
   args:     {
-    tokenId:         bigint;
-    borrower:        string;
-    principalPaid:   bigint;
-    interestPaid:    bigint;
-    totalRepaid:     bigint;
-    timestamp:       bigint;
+    loanId:        bigint;
+    payer:         string;
+    principalPaid: bigint;
+    interestPaid:  bigint;
+    closed:        boolean;
   }
 ): Promise<void> {
-  const tokenId = args.tokenId.toString();
+  const tokenId = args.loanId.toString();
   const txHash  = log.transactionHash!;
-
-  const loanUpdate = {
-    status:               'REPAID',
-    interest_accrued_usdc: args.interestPaid.toString(),
-    total_repaid_usdc:    args.totalRepaid.toString(),
-    settled_at:           new Date(Number(args.timestamp) * 1000).toISOString(),
-    settlement_tx:        txHash,
-  };
+  const repaidAt = await blockTime(client, log);
 
   const eventRow = {
     token_id:     tokenId,
-    chain_id:     chainId,
+    chain_id:     config.chainId,
     event_type:   'LOAN_REPAID',
     payload:      {
-      borrower:         args.borrower,
+      payer:            args.payer,
       principal_paid:   args.principalPaid.toString(),
       interest_paid:    args.interestPaid.toString(),
-      total_repaid:     args.totalRepaid.toString(),
-      repaid_at:        args.timestamp.toString(),
+      total_repaid:     (args.principalPaid + args.interestPaid).toString(),
+      closed:           args.closed,
+      repaid_at:        Math.floor(repaidAt.getTime() / 1000).toString(),
     },
     tx_hash:      txHash,
     block_number: Number(log.blockNumber),
     log_index:    log.logIndex ?? 0,
   };
 
+  const eventRes = await supabase.from('loan_events').upsert(eventRow, { onConflict: 'chain_id,tx_hash,log_index' });
+  if (eventRes.error) throw new Error(`loan_events insert failed: ${eventRes.error.message}`);
+
+  // A partial repayment leaves the loan active; the event log keeps the history.
+  if (!args.closed) {
+    logger.info({ service: 'loanService', fn: 'writeLoanRepaid', chainId: config.chainId, tokenId, txHash }, 'Partial repayment logged');
+    return;
+  }
+
+  // Interest is the sum over all repayments of this loan, including this one.
+  const { data: prior } = await supabase
+    .from('loan_events')
+    .select('payload')
+    .eq('chain_id', config.chainId)
+    .eq('token_id', tokenId)
+    .eq('event_type', 'LOAN_REPAID');
+  const sum = (key: string) =>
+    (prior ?? []).reduce((acc: bigint, row: any) => acc + BigInt(row.payload?.[key] ?? 0), 0n);
+
+  const loanUpdate = {
+    status:               'REPAID',
+    interest_accrued_usdc: sum('interest_paid').toString(),
+    total_repaid_usdc:    sum('total_repaid').toString(),
+    settled_at:           repaidAt.toISOString(),
+    settlement_tx:        txHash,
+  };
+
   const nftUpdate = {
-    status:    'BURNED',
-    burned_at: new Date(Number(args.timestamp) * 1000).toISOString(),
+    status:    'REPAID',
+    burned_at: repaidAt.toISOString(),
     burn_tx:   txHash,
   };
 
-  const [loanRes, eventRes, nftRes] = await Promise.all([
+  const [loanRes, nftRes] = await Promise.all([
     supabase.from('loans').update(loanUpdate).eq('token_id', tokenId),
-    supabase.from('loan_events').upsert(eventRow, { onConflict: 'chain_id,tx_hash,log_index' }),
     supabase.from('nft_positions').update(nftUpdate).eq('token_id', tokenId),
   ]);
 
   if (loanRes.error)  throw new Error(`loans update failed: ${loanRes.error.message}`);
-  if (eventRes.error) throw new Error(`loan_events insert failed: ${eventRes.error.message}`);
   if (nftRes.error)   throw new Error(`nft_positions update failed: ${nftRes.error.message}`);
 
-  logger.info({ service: 'loanService', fn: 'writeLoanRepaid', chainId, tokenId, txHash }, 'Loan repaid — Supabase updated');
-}
-
-async function writeLoanPartialRepay(
-  supabase: SupabaseClient,
-  log: any,
-  args: {
-    tokenId:            bigint;
-    amountUsdc:         bigint;
-    interestPaid:       bigint;
-    principalPaid:      bigint;
-    remainingPrincipal: bigint;
-  }
-): Promise<void> {
-  const tokenId = args.tokenId.toString();
-  await supabase
-    .from('loans')
-    .update({ 
-      principal_usdc: args.remainingPrincipal.toString(),
-      last_repayment_tx: log.transactionHash,
-      last_repayment_block: Number(log.blockNumber)
-    })
-    .eq('token_id', tokenId);
-}
-
-async function updateVestraPayStatus(
-  supabase: SupabaseClient,
-  args: {
-    tokenId: bigint;
-    status:  boolean;
-  }
-): Promise<void> {
-  await supabase
-    .from('loans')
-    .update({ vestra_pay_enabled: args.status })
-    .eq('token_id', args.tokenId.toString());
+  logger.info({ service: 'loanService', fn: 'writeLoanRepaid', chainId: config.chainId, tokenId, txHash }, 'Loan repaid — Supabase updated');
 }
 
 async function writeLoanLiquidated(
   supabase: SupabaseClient,
-  chainId:  number,
+  client:   PublicClient,
+  config:   ChainConfig,
   log:      Log,
   args:     {
-    tokenId:        bigint;
-    borrower:       string;
-    outstandingUsdc: bigint;
-    liquidatedAt:   bigint;
+    loanId:           bigint;
+    winner:           string;
+    price:            bigint;
+    insuranceCovered: bigint;
+    lenderLoss:       bigint;
+    borrowerSurplus:  bigint;
   }
 ): Promise<void> {
-  const tokenId = args.tokenId.toString();
+  const tokenId = args.loanId.toString();
   const txHash  = log.transactionHash!;
+  const settledAt = await blockTime(client, log);
 
   const [loanRes, eventRes, nftRes] = await Promise.all([
     supabase.from('loans').update({
       status:       'LIQUIDATED',
-      settled_at:   new Date(Number(args.liquidatedAt) * 1000).toISOString(),
+      settled_at:   settledAt.toISOString(),
       settlement_tx: txHash,
-      total_repaid_usdc: '0',
+      total_repaid_usdc: args.price.toString(),
     }).eq('token_id', tokenId),
     supabase.from('loan_events').upsert({
       token_id:     tokenId,
-      chain_id:     chainId,
+      chain_id:     config.chainId,
       event_type:   'LOAN_LIQUIDATED',
       payload: {
-        borrower:        args.borrower,
-        outstanding_usdc: args.outstandingUsdc.toString(),
-        liquidated_at:   args.liquidatedAt.toString(),
+        winner:            args.winner,
+        price:             args.price.toString(),
+        insurance_covered: args.insuranceCovered.toString(),
+        lender_loss:       args.lenderLoss.toString(),
+        borrower_surplus:  args.borrowerSurplus.toString(),
+        liquidated_at:     Math.floor(settledAt.getTime() / 1000).toString(),
       },
       tx_hash:      txHash,
       block_number: Number(log.blockNumber),
       log_index:    log.logIndex ?? 0,
     }, { onConflict: 'chain_id,tx_hash,log_index' }),
+    // The stream NFT went to the auction winner.
     supabase.from('nft_positions').update({
-      status:    'BURNED',
-      burned_at: new Date(Number(args.liquidatedAt) * 1000).toISOString(),
+      owner:     args.winner.toLowerCase(),
+      status:    'LIQUIDATED',
+      burned_at: settledAt.toISOString(),
       burn_tx:   txHash,
     }).eq('token_id', tokenId),
   ]);
@@ -311,7 +305,7 @@ async function writeLoanLiquidated(
   if (eventRes.error) throw new Error(`loan_events insert failed: ${eventRes.error.message}`);
   if (nftRes.error)   throw new Error(`nft_positions update failed: ${nftRes.error.message}`);
 
-  logger.warn({ service: 'loanService', fn: 'writeLoanLiquidated', chainId, tokenId, txHash }, 'Loan liquidated — Supabase updated');
+  logger.warn({ service: 'loanService', fn: 'writeLoanLiquidated', chainId: config.chainId, tokenId, txHash }, 'Loan liquidated — Supabase updated');
 }
 
 // ── Backfill: catch events missed during downtime ─────────────────────────────
@@ -321,27 +315,27 @@ async function backfillChain(
   fromBlock:    bigint,
   toBlock:      bigint
 ): Promise<void> {
-  const client = createPublicClient({ chain: config.viemChain as any, transport: http(config.rpcHttp) });
+  const client = createPublicClient({ chain: config.viemChain as any, transport: http(config.rpcHttp) }) as PublicClient;
   logger.info({ service: 'loanService', fn: 'backfillChain', chainId: config.chainId, fromBlock: fromBlock.toString(), toBlock: toBlock.toString() }, 'Starting backfill');
 
   const CHUNK = 2000n;
   for (let start = fromBlock; start <= toBlock; start += CHUNK) {
     const end = start + CHUNK - 1n < toBlock ? start + CHUNK - 1n : toBlock;
 
-    const [originated, repaid, liquidated] = await Promise.all([
-      client.getLogs({ address: config.loanManager, event: LOAN_ORIGINATED_ABI,  fromBlock: start, toBlock: end }),
+    const [opened, repaid, liquidated] = await Promise.all([
+      client.getLogs({ address: config.loanManager, event: LOAN_OPENED_ABI,      fromBlock: start, toBlock: end }),
       client.getLogs({ address: config.loanManager, event: LOAN_REPAID_ABI,      fromBlock: start, toBlock: end }),
       client.getLogs({ address: config.loanManager, event: LOAN_LIQUIDATED_ABI,  fromBlock: start, toBlock: end }),
     ]);
 
-    for (const log of originated) {
-      try { await writeLoanOriginated(supabase, config.chainId, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
+    for (const log of opened) {
+      try { await writeLoanOpened(supabase, client, config, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
     }
     for (const log of repaid) {
-      try { await writeLoanRepaid(supabase, config.chainId, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
+      try { await writeLoanRepaid(supabase, client, config, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
     }
     for (const log of liquidated) {
-      try { await writeLoanLiquidated(supabase, config.chainId, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
+      try { await writeLoanLiquidated(supabase, client, config, log, log.args as any); } catch (e: any) { logger.error({ err: e.message, txHash: log.transactionHash }, 'backfill failure'); }
     }
   }
 }
@@ -349,14 +343,14 @@ async function backfillChain(
 // ── Real-time watcher ─────────────────────────────────────────────────────────
 function watchChain(supabase: SupabaseClient, config: ChainConfig): void {
   const transport = webSocket(config.rpcWs, { retryCount: 10, retryDelay: 3000 });
-  const client    = createPublicClient({ chain: config.viemChain as any, transport });
+  const client    = createPublicClient({ chain: config.viemChain as any, transport }) as unknown as PublicClient;
 
   client.watchContractEvent({
     address:   config.loanManager,
-    abi:       [LOAN_ORIGINATED_ABI],
-    eventName: 'LoanOriginated',
+    abi:       [LOAN_OPENED_ABI],
+    eventName: 'LoanOpened',
     onLogs: (logs) => {
-      for (const log of logs) writeLoanOriginated(supabase, config.chainId, log, log.args as any).catch(logger.error);
+      for (const log of logs) writeLoanOpened(supabase, client, config, log, log.args as any).catch(logger.error);
     },
   });
 
@@ -365,7 +359,7 @@ function watchChain(supabase: SupabaseClient, config: ChainConfig): void {
     abi:       [LOAN_REPAID_ABI],
     eventName: 'LoanRepaid',
     onLogs: (logs) => {
-      for (const log of logs) writeLoanRepaid(supabase, config.chainId, log, log.args as any).catch(logger.error);
+      for (const log of logs) writeLoanRepaid(supabase, client, config, log, log.args as any).catch(logger.error);
     },
   });
 
@@ -374,7 +368,7 @@ function watchChain(supabase: SupabaseClient, config: ChainConfig): void {
     abi:       [LOAN_LIQUIDATED_ABI],
     eventName: 'LoanLiquidated',
     onLogs: (logs) => {
-      for (const log of logs) writeLoanLiquidated(supabase, config.chainId, log, log.args as any).catch(logger.error);
+      for (const log of logs) writeLoanLiquidated(supabase, client, config, log, log.args as any).catch(logger.error);
     },
   });
 

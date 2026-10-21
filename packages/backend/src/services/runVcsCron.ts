@@ -8,15 +8,13 @@ async function main() {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || '';
   const rpcUrl = process.env.SEPOLIA_RPC_URL || '';
-  const relayerKey = process.env.RELAYER_PRIVATE_KEY || '';
-  const loanManager = process.env.LOAN_MANAGER_ADDRESS || '';
 
-  if (!supabaseUrl || !supabaseServiceKey || !rpcUrl || !relayerKey || !loanManager) {
+  if (!supabaseUrl || !supabaseServiceKey || !rpcUrl) {
     logger.error('Missing required environment variables for VcsSyncService');
     process.exit(1);
   }
 
-  const sync = new VcsSyncService(supabaseUrl, supabaseServiceKey, rpcUrl, relayerKey, loanManager);
+  const sync = new VcsSyncService(supabaseUrl, supabaseServiceKey, rpcUrl);
 
   // Run immediately
   logger.info('Running initial VCS sync pass');

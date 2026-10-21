@@ -442,7 +442,7 @@ describe('fetchMedianPrice — degraded oracle scenarios', () => {
     readContractMock
       .mockResolvedValueOnce([0n, BigInt(198_000_000_000), 0n, 0n, 0n]) // Chainlink latestRoundData
       .mockResolvedValueOnce(BigInt(7000))  // tokenOmegaBps
-      .mockResolvedValueOnce(BigInt(500));  // baseRateBps
+      .mockResolvedValueOnce(BigInt(500));  // rankDiscountRateBps(1)
     writeContractMock.mockResolvedValue('0xTxHash');
 
     const svc = new DDPVService();
@@ -465,7 +465,7 @@ describe('fetchMedianPrice — degraded oracle scenarios', () => {
     });
     readContractMock
       .mockResolvedValueOnce(BigInt(7000))  // tokenOmegaBps
-      .mockResolvedValueOnce(BigInt(500));  // baseRateBps
+      .mockResolvedValueOnce(BigInt(500));  // rankDiscountRateBps(1)
     redisMock.lrange.mockResolvedValue(
       buildPriceSeries(90, 2000, 0.01).map(s => JSON.stringify(s))
     );
@@ -573,7 +573,7 @@ describe('fetchDexLiquidityUsd', () => {
     expect(dexArg).toBe(0n);
 
     // liquidityFactor in cached result should be 0.40 (severe haircut)
-    const cachedRaw  = redisMock.set.mock.calls[0][1];
+    const cachedRaw  = redisMock.set.mock.calls.find((c: any[]) => String(c[0]).startsWith('ddpv:result:'))![1];
     const cached     = JSON.parse(cachedRaw);
     // liquidityFactor is stored in breakdown — check via dpvUsdc relative size
     // (severe haircut → dpv should be meaningfully lower than with $10M pool)
@@ -617,9 +617,9 @@ describe('DDPVService.scheduleUpdate', () => {
   });
 });
 
-// ─── 7. Ω proposal & timelock scheduling ────────────────────────────────────
+// ─── 7. Ω update ─────────────────────────────────────────────────────────────
 
-describe('DDPVService.proposeOmega', () => {
+describe('DDPVService.updateOmega', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.RELAYER_PRIVATE_KEY = '0xdeadbeef'.padEnd(66, '0');
@@ -627,35 +627,37 @@ describe('DDPVService.proposeOmega', () => {
     writeContractMock.mockResolvedValue('0xOmegaTxHash');
   });
 
-  it('calls proposeOmega on ValuationEngine with correct args', async () => {
+  it('calls updateOmega on ValuationEngine with correct args', async () => {
     const svc = new DDPVService();
-    await svc.proposeOmega(TOKEN, CHAIN, 7500);
+    await svc.updateOmega(TOKEN, CHAIN, 7500);
 
     expect(writeContractMock).toHaveBeenCalledOnce();
     const call = writeContractMock.mock.calls[0][0];
-    expect(call.functionName).toBe('proposeOmega');
+    expect(call.functionName).toBe('updateOmega');
     expect(call.args[0]).toBe(TOKEN);
     expect(call.args[1]).toBe(7500n);
   });
 
-  it('schedules finalizeOmega job with 3700s delay (past 1hr timelock)', async () => {
+  it('takes effect in one transaction (no timelock follow-up job)', async () => {
     const svc = new DDPVService();
-    await svc.proposeOmega(TOKEN, CHAIN, 7500);
+    await svc.updateOmega(TOKEN, CHAIN, 7500);
 
-    // Two queue.add calls: proposeOmega tx + finalize-omega job
     const finalizeCalls = queueMock.add.mock.calls.filter(
       (call: any[]) => call[0] === 'finalize-omega'
     );
-    expect(finalizeCalls).toHaveLength(1);
-    const [, payload, opts] = finalizeCalls[0];
-    expect(payload.token).toBe(TOKEN);
-    expect(payload.chainId).toBe(CHAIN);
-    expect(opts.delay).toBeGreaterThanOrEqual(3_600_000); // at least 1hr
+    expect(finalizeCalls).toHaveLength(0);
+  });
+
+  it('rejects Ω outside [0, 10000] bps', async () => {
+    const svc = new DDPVService();
+    await expect(svc.updateOmega(TOKEN, CHAIN, 10_001)).rejects.toThrow('Omega must be');
+    await expect(svc.updateOmega(TOKEN, CHAIN, -1)).rejects.toThrow('Omega must be');
+    expect(writeContractMock).not.toHaveBeenCalled();
   });
 
   it('throws for unsupported chainId', async () => {
     const svc = new DDPVService();
-    await expect(svc.proposeOmega(TOKEN, 99999, 7500)).rejects.toThrow('Unsupported chainId');
+    await expect(svc.updateOmega(TOKEN, 99999, 7500)).rejects.toThrow('Unsupported chainId');
   });
 });
 
@@ -707,7 +709,8 @@ describe('Redis caching', () => {
     const svc = new DDPVService();
     await (svc as any).processOracleUpdate(BASE_INPUTS);
 
-    const setCall = redisMock.set.mock.calls[0];
+    // The first set() is the per-token oracle lock; the result write follows it.
+    const setCall = redisMock.set.mock.calls.find((c: any[]) => String(c[0]).startsWith('ddpv:result:'))!;
     expect(setCall[0]).toBe(`ddpv:result:${CHAIN}:${TOKEN}`);
     expect(setCall[2]).toBe('EX');
     expect(setCall[3]).toBe(300);

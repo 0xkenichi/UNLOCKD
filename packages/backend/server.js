@@ -38,7 +38,6 @@ const {
 } = require('./solana/repay');
 const {
   deployVestraVault,
-  execViaVault,
   getRelayerWallet,
   deploySablierV2OperatorWrapper,
   deploySablierV2FlowWrapper,
@@ -65,11 +64,12 @@ const healthRouter = require('./routes/health');
 
 // Contract ABIs
 const {
+  CORE_ABIS,
+  LOAN_STATUS,
   erc20Abi,
-  erc20ReadAbi,
-  communityPoolReadAbi,
   vestingWalletReadAbi
 } = require('./contracts/abis');
+const { runBackfillConcentration } = require('./lib/backfillConcentration');
 
 // Utilities
 const {
@@ -117,9 +117,6 @@ const {
   linkWalletSchema,
   solanaNonceSchema,
   solanaLinkWalletSchema,
-  privateLoanCreateSchema,
-  privateLoanRepaySchema,
-  privateLoanSettleSchema,
   sablierUpgradeSchema,
   ozUpgradeSchema,
   timelockUpgradeSchema,
@@ -219,18 +216,6 @@ const EVM_KEEPER_MAX_TX_PER_TICK = Math.max(1, Number(process.env.EVM_KEEPER_MAX
 const EVM_KEEPER_RECENT_SCAN = Math.max(0, Number(process.env.EVM_KEEPER_RECENT_SCAN || 200));
 const EVM_KEEPER_ROTATING_SCAN = Math.max(0, Number(process.env.EVM_KEEPER_ROTATING_SCAN || 200));
 
-const EVM_REPAY_KEEPER_ENABLED = process.env.EVM_REPAY_KEEPER_ENABLED === 'true';
-const EVM_REPAY_KEEPER_INTERVAL_MS = Number(process.env.EVM_REPAY_KEEPER_INTERVAL_MS || 60000);
-const EVM_REPAY_KEEPER_MAX_TX_PER_TICK = Math.max(1, Number(process.env.EVM_REPAY_KEEPER_MAX_TX_PER_TICK || 2));
-const EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS = Math.max(
-  0,
-  Number(process.env.EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS || 3 * 24 * 60 * 60)
-);
-const EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN = Math.max(
-  1,
-  Number(process.env.EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN || 5)
-);
-
 const SOLANA_REPAY_JOBS_ENABLED = process.env.SOLANA_REPAY_JOBS_ENABLED === 'true';
 const SOLANA_REPAY_JOBS_INTERVAL_MS = Number(process.env.SOLANA_REPAY_JOBS_INTERVAL_MS || 30000);
 const SOLANA_REPAY_JOBS_MAX_PER_TICK = Math.max(1, Number(process.env.SOLANA_REPAY_JOBS_MAX_PER_TICK || 4));
@@ -275,7 +260,6 @@ const geoLookupCache = new Map();
 let vestedContractsInFlight = null;
 let repayScheduleInFlight = null;
 let evmKeeperInFlight = false;
-let evmRepayKeeperInFlight = false;
 let solanaRepayJobsInFlight = false;
 
 const repayScheduleCache = {
@@ -370,7 +354,18 @@ const initPersistence = async () => {
 
 const DEPLOYMENTS_NETWORK = process.env.DEPLOYMENTS_NETWORK || 'sepolia';
 
-const loadDeployment = (name) => {
+// Core contract ABIs always come from packages/contracts/abi (via contracts/abis.js).
+// Addresses come from packages/deployments/<network>/<Name>.json when present, else from env.
+const CORE_ADDRESS_ENV = {
+  LoanManager: 'LOAN_MANAGER_ADDRESS',
+  LendingPool: 'LENDING_POOL_ADDRESS',
+  VestingAdapter: 'VESTING_ADAPTER_ADDRESS',
+  ValuationEngine: 'VALUATION_ENGINE_ADDRESS',
+  VestingRegistry: 'VESTING_REGISTRY_ADDRESS',
+  InsuranceVault: 'INSURANCE_VAULT_ADDRESS'
+};
+
+const readDeploymentFile = (name) => {
   try {
     const filePath = path.join(
       __dirname,
@@ -379,15 +374,26 @@ const loadDeployment = (name) => {
       DEPLOYMENTS_NETWORK,
       `${name}.json`
     );
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (DEPLOYMENTS_NETWORK === 'localhost') {
-      console.warn(`[backend] Missing deployment for ${name} on localhost, using dummy data`);
-      return { address: ethers.ZeroAddress, abi: [] };
-    }
-    throw err;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return null;
   }
+};
+
+const loadDeployment = (name) => {
+  const file = readDeploymentFile(name);
+  const abi = CORE_ABIS[name] || file?.abi || [];
+  const envKey = CORE_ADDRESS_ENV[name];
+  const envAddress = envKey ? String(process.env[envKey] || '').trim() : '';
+  const address = [file?.address, envAddress].find((value) => value && ethers.isAddress(value));
+  if (!address) {
+    console.warn(
+      `[backend] No address for ${name} on ${DEPLOYMENTS_NETWORK} ` +
+      `(deployments/${DEPLOYMENTS_NETWORK}/${name}.json${envKey ? ` or ${envKey}` : ''}); using ZeroAddress`
+    );
+    return { address: ethers.ZeroAddress, abi, configured: false };
+  }
+  return { address: ethers.getAddress(address), abi, configured: true };
 };
 
 const loanManagerDeployment = loadDeployment('LoanManager');
@@ -414,28 +420,120 @@ const valuationEngine = {
   iface: new ethers.Interface(valuationDeployment.abi)
 };
 
-const loanNFTDeployment = loadDeployment('LoanNFT');
-const loanNFT = {
-  address: loanNFTDeployment.address,
-  iface: new ethers.Interface(loanNFTDeployment.abi)
+const insuranceVaultDeployment = loadDeployment('InsuranceVault');
+
+const getLoanManagerReader = () =>
+  new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
+const getLendingPoolReader = () =>
+  new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, provider);
+const getValuationReader = () =>
+  new ethers.Contract(valuationEngine.address, valuationDeployment.abi, provider);
+
+// LoanManager loan ids start at 1; nextLoanId() is the id the next borrow() will get.
+const listRecentLoanIds = async (contract, limit) => {
+  const next = Number(await contract.nextLoanId());
+  const lastId = Number.isFinite(next) ? next - 1 : 0;
+  if (lastId < 1) return [];
+  const safeLimit = Math.max(1, Number(limit) || 1);
+  const firstId = Math.max(1, lastId - safeLimit + 1);
+  return Array.from({ length: lastId - firstId + 1 }, (_, i) => firstId + i);
 };
 
-const openClawLighthouseDeployment = loadDeployment('OpenClawLighthouse');
-const openClawLighthouse = {
-  address: openClawLighthouseDeployment.address,
-  iface: new ethers.Interface(openClawLighthouseDeployment.abi)
+/**
+ * Read one loan from LoanManager with its live debt / health / auction state.
+ * Amounts are USDC units (6 decimals) as strings; timestamps are unix seconds.
+ */
+const readEvmLoan = async (contract, loanId) => {
+  const loan = await contract.getLoan(loanId);
+  const statusCode = Number(loan.status);
+  const status = LOAN_STATUS[statusCode] || 'Unknown';
+  if (status === 'None') return null;
+  const isOpen = status === 'Active' || status === 'Auction';
+  const [debt, healthFactorBps, isLiquidatable] = isOpen
+    ? await Promise.all([
+      contract.debtOf(loanId).catch(() => 0n),
+      contract.healthFactorBps(loanId).catch(() => null),
+      status === 'Active' ? contract.isLiquidatable(loanId).catch(() => false) : false
+    ])
+    : [0n, null, false];
+
+  let auction = null;
+  if (status === 'Auction') {
+    const [state, currentPrice] = await Promise.all([
+      contract.auctions(loanId),
+      contract.currentPrice(loanId).catch(() => null)
+    ]);
+    const startTime = Number(state.startTime);
+    const duration = Number(state.duration);
+    auction = {
+      startTime,
+      duration,
+      endsAt: startTime + duration,
+      startPrice: state.startPrice.toString(),
+      floorPrice: state.floorPrice.toString(),
+      debt: state.debt.toString(),
+      currentPrice: currentPrice === null ? null : currentPrice.toString(),
+      canRestart: Math.floor(Date.now() / 1000) >= startTime + duration
+    };
+  }
+
+  const principal = BigInt(loan.principal);
+  const debtValue = BigInt(debt);
+  return {
+    loanId: String(loanId),
+    borrower: loan.borrower,
+    nftContract: loan.nftContract,
+    streamId: loan.streamId.toString(),
+    escrowId: loan.escrowId.toString(),
+    token: loan.token,
+    quantity: loan.quantity.toString(),
+    unlockTime: Number(loan.unlockTime),
+    principal: principal.toString(),
+    debt: debtValue.toString(),
+    interest: (debtValue > principal ? debtValue - principal : 0n).toString(),
+    openedAt: Number(loan.openedAt),
+    maturity: Number(loan.maturity),
+    rank: Number(loan.rank),
+    statusCode,
+    status,
+    active: isOpen,
+    healthFactorBps: healthFactorBps === null ? null : healthFactorBps.toString(),
+    isLiquidatable: Boolean(isLiquidatable),
+    auction
+  };
 };
 
-const globalRiskModuleDeployment = loadDeployment('GlobalRiskModule');
-const globalRiskModule = {
-  address: globalRiskModuleDeployment.address,
-  iface: new ethers.Interface(globalRiskModuleDeployment.abi)
+const fetchEvmLoansForBorrower = async (walletAddress) => {
+  const contract = getLoanManagerReader();
+  const ids = await contract.loansOf(walletAddress);
+  const loans = await mapWithConcurrency(
+    Array.from(ids || []).map((id) => Number(id)),
+    (loanId) => readEvmLoan(contract, loanId),
+    RPC_CONCURRENCY_LIMIT
+  );
+  return loans.filter(Boolean);
 };
 
-const vestingRegistryDeployment = loadDeployment('VestingRegistry');
-const vestingRegistry = {
-  address: vestingRegistryDeployment.address,
-  iface: new ethers.Interface(vestingRegistryDeployment.abi)
+/** Current pool stats from the ERC-4626 LendingPool (USDC units / bps as strings). */
+const getPoolStats = async () => {
+  if (lendingService) return lendingService.getPoolStats();
+  const pool = getLendingPoolReader();
+  const [totalAssets, totalBorrowed, availableLiquidity, utilizationBps, borrowRateBps] =
+    await Promise.all([
+      pool.totalAssets(),
+      pool.totalBorrowed(),
+      pool.availableLiquidity(),
+      pool.utilizationBps(),
+      pool.borrowRateBps()
+    ]);
+  return {
+    totalAssets: totalAssets.toString(),
+    totalBorrowed: totalBorrowed.toString(),
+    availableLiquidity: availableLiquidity.toString(),
+    utilizationBps: utilizationBps.toString(),
+    borrowRateBps: borrowRateBps.toString(),
+    supplyRateBps: null
+  };
 };
 
 // Blockchain indexing and risk management are now handled by IndexerService and OmegaService.
@@ -491,6 +589,25 @@ const requireAdmin = requireAdminFactory(ADMIN_API_KEY, isAdminWallet);
 const requireSession = requireSessionFactory(persistence);
 const requireWalletOwnerParam = (paramKey) => requireWalletOwnerParamFactory(paramKey, normalizeAnyWalletAddress);
 
+// Indexed LoanManager events are flat rows ({ type, loanId, borrower, amount, payload }).
+// LoanRepaid / LoanLiquidated do not carry the borrower, so it is resolved from LoanOpened.
+const buildLoanBorrowerIndex = (events) => {
+  const index = new Map();
+  for (const event of events || []) {
+    if (event?.type === 'LoanOpened' && event.loanId != null && event.borrower) {
+      index.set(String(event.loanId), event.borrower);
+    }
+  }
+  return index;
+};
+
+const resolveEventBorrower = (event, borrowerIndex) =>
+  event?.borrower || borrowerIndex.get(String(event?.loanId ?? '')) || '';
+
+// LoanRepaid(closed=false) is a partial repayment; the loan is still open.
+const isClosingRepayment = (event) =>
+  event?.type === 'LoanRepaid' && (event.closed ?? event.payload?.closed) !== false;
+
 const getCreditHistoryForWallet = (walletAddress) => {
   const normalized = normalizeWalletAddress(walletAddress);
   if (!normalized) {
@@ -498,14 +615,15 @@ const getCreditHistoryForWallet = (walletAddress) => {
   }
   const repaidLoans = new Set();
   let defaultedCount = 0;
+  const borrowerIndex = buildLoanBorrowerIndex(activityEvents);
 
   for (const event of activityEvents) {
-    const borrower = normalizeWalletAddress(event?.borrower || '');
+    const borrower = normalizeWalletAddress(resolveEventBorrower(event, borrowerIndex));
     if (borrower !== normalized) continue;
-    if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
+    if (isClosingRepayment(event)) {
       repaidLoans.add(String(event.loanId || ''));
     }
-    if (event.type === 'LoanSettled' && event.defaulted) {
+    if (event.type === 'LoanLiquidated') {
       defaultedCount += 1;
     }
   }
@@ -679,21 +797,45 @@ app.get('/api/omega/alerts', (req, res) => {
 
 app.get('/api/loan/:id/health', async (req, res) => {
   const { id } = req.params;
-  const healthFactor = omegaService.evaluateLoanHealth(id);
-  if (healthFactor === null) {
-    return res.status(404).json({ ok: false, error: 'Loan not tracked by sentinel' });
+  if (!/^\d+$/.test(String(id || '')) || Number(id) < 1) {
+    return res.status(400).json({ ok: false, error: 'Invalid loan id' });
   }
-
-  res.json({
-    ok: true,
-    loanId: id,
-    healthFactor,
-    status: healthFactor <= 1.0 ? 'LIQUIDATABLE' : healthFactor < 1.15 ? 'WARNING' : 'HEALTHY',
-    metrics: {
-      principal: loan.principal,
-      collateralValueUsd: loan.collateralValueUsd
+  try {
+    const loan = await readEvmLoan(getLoanManagerReader(), BigInt(id));
+    if (!loan) {
+      return res.status(404).json({ ok: false, error: 'Loan not found' });
     }
-  });
+    // healthFactorBps: 10000 = at the liquidation threshold (see LoanManager.healthFactorBps).
+    const hfBps = loan.healthFactorBps === null ? null : Number(loan.healthFactorBps);
+    const healthFactor = hfBps === null || !Number.isFinite(hfBps) ? null : hfBps / 10000;
+    const healthStatus = !loan.active
+      ? loan.status.toUpperCase()
+      : loan.status === 'Auction'
+        ? 'IN_AUCTION'
+        : loan.isLiquidatable
+          ? 'LIQUIDATABLE'
+          : healthFactor !== null && healthFactor < 1.15
+            ? 'WARNING'
+            : 'HEALTHY';
+    return res.json({
+      ok: true,
+      loanId: loan.loanId,
+      loanStatus: loan.status,
+      healthFactor,
+      healthFactorBps: loan.healthFactorBps,
+      isLiquidatable: loan.isLiquidatable,
+      status: healthStatus,
+      metrics: {
+        principal: loan.principal,
+        debt: loan.debt,
+        maturity: loan.maturity,
+        unlockTime: loan.unlockTime
+      },
+      auction: loan.auction
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Unable to read loan health' });
+  }
 });
 
 const { getPriceBehavior } = require('./lib/priceBehavior');
@@ -827,28 +969,28 @@ app.get('/internal/credit-history/:address', async (req, res) => {
 
   try {
     const events = await persistence.getActivityEvents({ limit: 2000 });
+    const borrowerIndex = buildLoanBorrowerIndex(events);
     const repaidLoans = new Set();
     let totalRepaidUsd = 0;
     let defaultedCount = 0;
     let lateRepaymentCount = 0;
 
     for (const event of events) {
-      const borrower = (event?.borrower || '').toLowerCase();
+      const borrower = resolveEventBorrower(event, borrowerIndex).toLowerCase();
       if (borrower !== address) continue;
 
-      if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
-        repaidLoans.add(String(event.loanId || ''));
-        // Try to sum the amount if it looks like a number
-        const amt = parseFloat(event.amount || '0');
-        if (isFinite(amt)) totalRepaidUsd += amt;
-        
+      if (event.type === 'LoanRepaid') {
+        if (isClosingRepayment(event)) repaidLoans.add(String(event.loanId || ''));
+        // LoanRepaid amounts are USDC units (6 decimals)
+        totalRepaidUsd += toUsdFromUsdcUnits(event.amount || '0');
+
         // If the payload has a 'late' flag or timestamp comparison exists
         if (event.payload?.late) {
           lateRepaymentCount += 1;
         }
       }
-      
-      if (event.type === 'LoanSettled' && event.defaulted) {
+
+      if (event.type === 'LoanLiquidated') {
         defaultedCount += 1;
       }
     }
@@ -998,14 +1140,22 @@ app.post('/api/faucet/usdc', expensiveLimiter, async (req, res) => {
   }
 });
 
-// Community Lending Pools
-
 app.get('/api/loans', async (req, res) => {
   try {
     const wallet = normalizeAnyWalletAddress(req.query.wallet || '');
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
     const loans = await persistence.getLoansByWallet(wallet);
-    res.json({ ok: true, items: loans });
+    // Live on-chain loans (LoanManager.loansOf + getLoan) for EVM wallets.
+    let onchain = [];
+    let onchainError;
+    if (ethers.isAddress(wallet)) {
+      try {
+        onchain = await fetchEvmLoansForBorrower(ethers.getAddress(wallet));
+      } catch (error) {
+        onchainError = error?.message || 'On-chain loan read failed';
+      }
+    }
+    res.json({ ok: true, items: loans, onchain, onchainError });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1053,95 +1203,34 @@ app.get('/api/lender/projections', async (req, res) => {
   }
 });
 
-const computeLoanTerms = (identityTier, score) => {
-  // Base APR (Anonymous - Tier 0) starts at 2200 bps (22%)
-  // Base LTV (Anonymous - Tier 0) starts at 2000 bps (20%)
-  let aprBps = 2200;
-  let ltvBps = 2000;
-
-  if (identityTier >= 5) { // Institutional
-    aprBps = 450; // 4.5%
-    ltvBps = 9000; // 90%
-  } else if (identityTier === 4) { // Trusted (KYC+)
-    aprBps = 650; // 6.5%
-    ltvBps = 8000; // 80%
-  } else if (identityTier === 3) { // Verified (Stamps/Score)
-    aprBps = 950; // 9.5%
-    ltvBps = 7000; // 70%
-  } else if (identityTier === 2) { // Standard (Score)
-    aprBps = 1400; // 14%
-    ltvBps = 5500; // 55%
-  } else if (identityTier === 1) { // Basic
-    aprBps = 1800; // 18%
-    ltvBps = 3500; // 35%
-  }
-
-  // Score bonus: reduce APR by up to 200 bps for high score within tier
-  const scoreBonus = Math.floor((score / 1000) * 200);
-  aprBps -= scoreBonus;
-
-  return { aprBps, ltvBps };
-};
-
 app.post('/api/loans/simulate', async (req, res) => {
   try {
     const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
-    const { amount, collateralId } = req.body;
+    const { amount } = req.body;
     if (!wallet) return res.status(400).json({ ok: false, error: 'wallet required' });
 
     const profile = await buildIdentityProfile(wallet);
-    const { aprBps, ltvBps } = computeLoanTerms(profile.identityTier, profile.compositeScore);
+    // Credit terms are on-chain: the borrow APR floats with pool utilization (LoanManager.currentRateBps)
+    // and LTV is set per collateral by ValuationEngine from the vesting contract's rank.
+    let aprBps = null;
+    try {
+      aprBps = Number(await getLoanManagerReader().currentRateBps());
+    } catch {
+      aprBps = null;
+    }
 
     res.json({
       ok: true,
       simulation: {
         principal: amount,
-        ltvBps,
         aprBps,
-        tier: profile.tierName,
-        score: profile.compositeScore
+        rateType: 'floating',
+        ltvBps: null,
+        ltvNote: 'LTV depends on the collateral; quote it with /api/match/quote or LoanManager.quoteMaxBorrow.',
+        tier: profile?.tierName,
+        score: profile?.compositeScore
       }
     });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-app.post('/api/loans/originate', async (req, res) => {
-  try {
-    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
-    const { amount, ltvBps, aprBps, collateralItems } = req.body;
-    if (!wallet || !amount) return res.status(400).json({ ok: false, error: 'missing fields' });
-
-    const loanId = await persistence.createLoan({
-      walletAddress: wallet,
-      amount,
-      ltvBps,
-      aprBps,
-      duration_days: req.body.duration_days || 30,
-      collateralItems
-    });
-
-    res.json({ ok: true, loanId });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-app.post('/api/lend/deposit', async (req, res) => {
-  try {
-    const wallet = normalizeAnyWalletAddress(req.body.wallet || '');
-    const { amount, apyBps, durationDays } = req.body;
-    if (!wallet || !amount) return res.status(400).json({ ok: false, error: 'missing fields' });
-
-    const depositId = await persistence.createDeposit({
-      walletAddress: wallet,
-      amount,
-      apyBps,
-      durationDays
-    });
-
-    res.json({ ok: true, depositId });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1317,12 +1406,8 @@ const isValidSolanaPublicKey = (value) => {
 const getPoolInterestBps = async () => {
   let bps = 1800;
   try {
-    const contract = new ethers.Contract(
-      lendingPool.address,
-      lendingPoolDeployment.abi,
-      provider
-    );
-    const rate = await contract.getInterestRateBps();
+    // Floating borrow APR (bps) from LoanManager; it already reflects pool utilization.
+    const rate = await getLoanManagerReader().currentRateBps();
     bps = Number(rate);
   } catch {
     bps = MIN_INTEREST_BPS != null && MIN_INTEREST_BPS > 0 ? MIN_INTEREST_BPS : 1800;
@@ -1350,18 +1435,7 @@ const getPoolInterestBps = async () => {
 
 const getAvailableLiquidityUsd = async () => {
   try {
-    const poolContract = new ethers.Contract(
-      lendingPoolDeployment.address,
-      ['function totalDeposits() view returns (uint256)', 'function totalBorrowed() view returns (uint256)'],
-      provider
-    );
-    const [totalDeposits, totalBorrowed] = await Promise.all([
-      poolContract.totalDeposits(),
-      poolContract.totalBorrowed()
-    ]);
-    const deposits = BigInt(totalDeposits || 0n);
-    const borrowed = BigInt(totalBorrowed || 0n);
-    const available = deposits > borrowed ? deposits - borrowed : 0n;
+    const available = await getLendingPoolReader().availableLiquidity();
     return toUsdFromUsdcUnits(available);
   } catch {
     return null;
@@ -1380,7 +1454,7 @@ const getProtocolBorrowerStats = (walletAddress) => {
     if (Number.isFinite(ts) && ts > 0) {
       if (oldestTs === null || ts < oldestTs) oldestTs = ts;
     }
-    if (event?.type === 'LoanCreated' && event?.amount) {
+    if (event?.type === 'LoanOpened' && event?.amount) {
       try {
         totalBorrowedUsdcUnits += BigInt(event.amount);
       } catch {
@@ -1399,28 +1473,50 @@ const getProtocolBorrowerStats = (walletAddress) => {
   };
 };
 
-const computeEvmDpv = async ({ quantity, token, unlockTime }) => {
-  try {
-    const contract = new ethers.Contract(
-      valuationEngine.address,
-      valuationDeployment.abi,
-      provider
-    );
-    const pv = await contract.computeDPV(
-      toBigIntSafe(quantity),
-      token,
-      Number(unlockTime)
-    );
-    const pvValue = pv?.[0] ?? 0n;
-    const ltvValue = pv?.[1] ?? 0n;
+// Lowest-trust VestingRegistry rank (base LTV 2000 bps); used only for estimates when the
+// vesting contract is unknown, since computeDPV requires a ranked vesting contract.
+const ESTIMATE_RANK = 3;
+
+/**
+ * Value vesting collateral. With a vesting contract (the stream NFT contract) this is the
+ * origination valuation ValuationEngine.computeDPV(quantity, token, unlockTime, vestingContract).
+ * Without one, fall back to a conservative estimate: liquidationValue at the lowest rank.
+ * pv is returned in USD (number) and raw 6-decimal USDC units (pvRaw).
+ */
+const computeEvmDpv = async ({ quantity, token, unlockTime, vestingContract = null }) => {
+  const empty = { pv: 0, pvRaw: '0', ltvBps: 0, maxBorrowRaw: '0', source: null };
+  if (!token || !ethers.isAddress(token)) return { ...empty, error: 'invalid token' };
+  const qty = toBigIntSafe(quantity);
+  const unlock = BigInt(Math.floor(Number(unlockTime) || 0));
+  if (!qty || qty <= 0n || unlock <= 0n) return { ...empty, error: 'invalid quantity or unlockTime' };
+  const valuation = getValuationReader();
+  const build = (pvRaw, ltvRaw, source) => {
+    const pvValue = BigInt(pvRaw ?? 0n);
+    const ltvValue = BigInt(ltvRaw ?? 0n);
     return {
-      pv: toNumber(pvValue.toString(), 0),
-      ltvBps: toNumber(ltvValue.toString(), 0)
+      pv: toUsdFromUsdcUnits(pvValue),
+      pvRaw: pvValue.toString(),
+      ltvBps: toNumber(ltvValue.toString(), 0),
+      maxBorrowRaw: ((pvValue * ltvValue) / 10000n).toString(),
+      source
     };
-  } catch {
-    return { pv: 0, ltvBps: 0 };
+  };
+  try {
+    if (vestingContract && ethers.isAddress(vestingContract)) {
+      const [pv, ltvBps] = await valuation.computeDPV(qty, token, unlock, vestingContract);
+      return build(pv, ltvBps, 'computeDPV');
+    }
+    const [pv, ltvBps] = await Promise.all([
+      valuation.liquidationValue(qty, token, unlock, ESTIMATE_RANK),
+      valuation.rankBaseLtvBps(ESTIMATE_RANK)
+    ]);
+    return build(pv, ltvBps, 'estimate');
+  } catch (error) {
+    return { ...empty, error: error?.shortMessage || error?.reason || error?.message || 'valuation failed' };
   }
 };
+
+app.set('computeEvmDpv', computeEvmDpv);
 
 const normalizePoolPreferences = (pool) => ({
   riskTier: pool?.preferences?.riskTier || 'balanced',
@@ -1442,58 +1538,6 @@ const normalizePoolPreferences = (pool) => ({
   communityToken: pool?.preferences?.communityToken || null,
   description: pool?.preferences?.description || null
 });
-
-const COMMUNITY_POOL_STATE_LABELS = ['FUNDRAISING', 'ACTIVE', 'REFUNDING', 'CLOSED'];
-
-const toCommunityPoolItem = (poolId, row, pendingRewards = null) => {
-  const stateIndex = Number(row?.state ?? 0);
-  const safeState = Number.isFinite(stateIndex) ? stateIndex : 0;
-  return {
-    poolId: Number(poolId),
-    name: row?.name || '',
-    creator: row?.creator || '',
-    targetAmount: String(row?.targetAmount ?? '0'),
-    maxAmount: String(row?.maxAmount ?? '0'),
-    deadline: Number(row?.deadline ?? 0),
-    totalContributed: String(row?.totalContributed ?? '0'),
-    totalBuildingUnits: String(row?.totalBuildingUnits ?? '0'),
-    participantCount: String(row?.participantCount ?? '0'),
-    totalRewardFunded: String(row?.totalRewardFunded ?? '0'),
-    rewardsByBuildingSize: Boolean(row?.rewardsByBuildingSize),
-    state: safeState,
-    stateLabel: COMMUNITY_POOL_STATE_LABELS[safeState] || 'UNKNOWN',
-    pendingRewards: pendingRewards === null ? null : String(pendingRewards)
-  };
-};
-
-const readCommunityPools = async ({ walletAddress = null, limit = 50 } = {}) => {
-  const contract = new ethers.Contract(lendingPool.address, communityPoolReadAbi, provider);
-  const totalCountRaw = await contract.communityPoolCount();
-  const totalCount = Number(totalCountRaw || 0n);
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-  const start = Math.max(0, totalCount - safeLimit);
-  const ids = [];
-  for (let i = totalCount - 1; i >= start; i -= 1) {
-    ids.push(i);
-  }
-  const items = await mapWithConcurrency(
-    ids,
-    async (poolId) => {
-      const row = await contract.communityPools(poolId);
-      let pendingRewards = null;
-      if (walletAddress && ethers.isAddress(walletAddress)) {
-        try {
-          pendingRewards = await contract.pendingCommunityPoolRewards(poolId, walletAddress);
-        } catch {
-          pendingRewards = null;
-        }
-      }
-      return toCommunityPoolItem(poolId, row, pendingRewards);
-    },
-    Math.min(RPC_CONCURRENCY_LIMIT, 4)
-  );
-  return { totalCount, items };
-};
 
 const checkTokenBalance = async (wallet, tokenAddress) => {
   if (!wallet || !tokenAddress || !ethers.isAddress(tokenAddress)) return 0n;
@@ -1975,179 +2019,15 @@ app.post('/api/privacy/evm/register', strictLimiter, requireSession, async (req,
   }
 });
 
-app.post(
-  '/api/relayer/evm/create-private-loan',
-  strictLimiter,
-  requireSession,
-  validateBody(privateLoanCreateSchema),
-  async (req, res) => {
-    try {
-      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
-      if (!existing?.vaultAddress) {
-        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
-      }
-      await relayerService.verifyRelayerAuth({
-        req,
-        action: 'create-private-loan',
-        payload: {
-          collateralId: String(req.body.collateralId),
-          vestingContract: String(req.body.vestingContract),
-          borrowAmount: String(req.body.borrowAmount),
-          collateralAmount: req.body.collateralAmount == null ? null : String(req.body.collateralAmount)
-        },
-        vaultAddress: existing.vaultAddress
-      });
-      if (!ethers.isAddress(req.body.vestingContract)) {
-        return res.status(400).json({ ok: false, error: 'Invalid vesting contract address' });
-      }
-      const vestingContract = ethers.getAddress(req.body.vestingContract);
-      const collateralId = BigInt(req.body.collateralId);
-      const borrowAmount = BigInt(req.body.borrowAmount);
-      const collateralAmountRaw = req.body.collateralAmount != null ? BigInt(req.body.collateralAmount) : null;
-
-      // Encode LoanManager call, then route it through the user's vault.
-      const fn =
-        collateralAmountRaw && collateralAmountRaw > 0n
-          ? 'createPrivateLoanWithCollateralAmount'
-          : 'createPrivateLoan';
-      const args =
-        fn === 'createPrivateLoanWithCollateralAmount'
-          ? [collateralId, vestingContract, borrowAmount, collateralAmountRaw]
-          : [collateralId, vestingContract, borrowAmount];
-      const data = loanManager.iface.encodeFunctionData(fn, args);
-
-      const { txHash } = await execViaVault({
-        vaultAddress: existing.vaultAddress,
-        target: loanManager.address,
-        value: 0n,
-        data
-      });
-
-      return res.json({
-        ok: true,
-        vaultAddress: existing.vaultAddress,
-        txHash
-      });
-    } catch (error) {
-      console.error('[relayer] create-private-loan failed', error?.message || error);
-      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
-    }
-  }
-);
-
-app.post(
-  '/api/relayer/evm/repay-private-loan',
-  strictLimiter,
-  requireSession,
-  validateBody(privateLoanRepaySchema),
-  async (req, res) => {
-    try {
-      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
-      if (!existing?.vaultAddress) {
-        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
-      }
-      await relayerService.verifyRelayerAuth({
-        req,
-        action: 'repay-private-loan',
-        payload: { loanId: String(req.body.loanId), amount: String(req.body.amount) },
-        vaultAddress: existing.vaultAddress
-      });
-
-      const loanId = BigInt(req.body.loanId);
-      const amount = BigInt(req.body.amount);
-      if (amount <= 0n) return res.status(400).json({ ok: false, error: 'Amount must be > 0' });
-
-      const relayer = getRelayerWallet();
-      const loanContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer);
-      const isPrivate = await loanContract.isPrivateLoan(loanId);
-      if (!isPrivate) {
-        return res.status(409).json({ ok: false, error: 'Loan is not a private-mode loan.' });
-      }
-
-      // Ensure vault has allowance to let LoanManager pull USDC from the vault.
-      let usdcAddress = '';
-      try {
-        usdcAddress = await loanContract.usdc();
-      } catch (_) {
-        usdcAddress = '';
-      }
-      if (!ethers.isAddress(usdcAddress)) {
-        return res.status(500).json({ ok: false, error: 'Unable to resolve USDC address' });
-      }
-
-      const erc20Iface = new ethers.Interface([
-        'function allowance(address owner,address spender) view returns (uint256)',
-        'function approve(address spender,uint256 amount) returns (bool)'
-      ]);
-      const usdc = new ethers.Contract(usdcAddress, erc20Iface, relayer);
-      const allowance = await usdc.allowance(existing.vaultAddress, loanManager.address);
-
-      let approveTxHash = null;
-      const MAX_UINT256 = (1n << 256n) - 1n;
-      if (BigInt(allowance) < amount) {
-        const approveData = erc20Iface.encodeFunctionData('approve', [loanManager.address, MAX_UINT256]);
-        const approval = await execViaVault({
-          vaultAddress: existing.vaultAddress,
-          target: usdcAddress,
-          value: 0n,
-          data: approveData
-        });
-        approveTxHash = approval?.txHash || null;
-      }
-
-      const repayData = loanManager.iface.encodeFunctionData('repayPrivateLoan', [loanId, amount]);
-      const { txHash } = await execViaVault({
-        vaultAddress: existing.vaultAddress,
-        target: loanManager.address,
-        value: 0n,
-        data: repayData
-      });
-
-      return res.json({
-        ok: true,
-        vaultAddress: existing.vaultAddress,
-        approveTxHash,
-        txHash
-      });
-    } catch (error) {
-      console.error('[relayer] repay-private-loan failed', error?.message || error);
-      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
-    }
-  }
-);
-
-app.post(
-  '/api/relayer/evm/settle-private-loan',
-  strictLimiter,
-  requireSession,
-  validateBody(privateLoanSettleSchema),
-  async (req, res) => {
-    try {
-      const loanId = BigInt(req.body.loanId);
-      const existing = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
-      if (!existing?.vaultAddress) {
-        return res.status(409).json({ ok: false, error: 'No vault registered. Run Privacy Upgrade first.' });
-      }
-      await relayerService.verifyRelayerAuth({
-        req,
-        action: 'settle-private-loan',
-        payload: { loanId: String(req.body.loanId) },
-        vaultAddress: existing.vaultAddress
-      });
-      const relayer = getRelayerWallet();
-      const contract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, relayer);
-      const isPrivate = await contract.isPrivateLoan(loanId);
-      if (!isPrivate) {
-        return res.status(409).json({ ok: false, error: 'Loan is not a private-mode loan.' });
-      }
-      const tx = await contract.settlePrivateAtUnlock(loanId);
-      return res.json({ ok: true, txHash: tx.hash });
-    } catch (error) {
-      console.error('[relayer] settle-private-loan failed', error?.message || error);
-      return res.status(500).json({ ok: false, error: error?.message || 'Relayer tx failed' });
-    }
-  }
-);
+// Private-mode loans were removed from LoanManager (no createPrivateLoan / repayPrivateLoan /
+// settlePrivateAtUnlock). Loans are repaid with LoanManager.repay(loanId, amount) from any wallet.
+const privateModeLoanGone = (_req, res) =>
+  res.status(410).json({
+    ok: false,
+    error: 'Private-mode loans are no longer supported. Repay with LoanManager.repay(loanId, amount) from any wallet.'
+  });
+app.post('/api/relayer/evm/repay-private-loan', privateModeLoanGone);
+app.post('/api/relayer/evm/settle-private-loan', privateModeLoanGone);
 
 // Deploy a Sablier v2 operator wrapper whose beneficiary is the user's private vault.
 // This enables private-mode escrow even when the underlying stream recipient cannot be changed
@@ -2391,17 +2271,6 @@ app.get('/api/pools', strictLimiter, async (req, res) => {
       apy: pool.preferences?.interestBps ? (pool.preferences.interestBps / 100).toFixed(1) : "0.0",
       riskScore: pool.preferences?.riskTier === 'conservative' ? 'Low' : 'Medium'
     }));
-    if (!enriched || enriched.length === 0) {
-      // Return high-fidelity mock pools for the demo
-      return res.json({
-        ok: true,
-        items: [
-          { name: "USDC Alpha Node", capacity: 5000000000, utilization: 42, apy: "6.5", riskScore: "Low" },
-          { name: "Sovereign Yield Pool", capacity: 1200000000, utilization: 15, apy: "8.2", riskScore: "Low" },
-          { name: "Institutional Term Node", capacity: 10000000000, utilization: 88, apy: "4.8", riskScore: "Low" }
-        ]
-      });
-    }
     res.json({ ok: true, items: enriched });
   } catch (error) {
     res.status(200).json({ ok: false, error: error?.message || 'Pool list failed' });
@@ -2470,18 +2339,15 @@ const getLenderPoolMetrics = async () => {
   if (lenderMetricsCache.data && now - lenderMetricsCache.at < LENDER_METRICS_TTL_MS) {
     return lenderMetricsCache.data;
   }
-  const contract = new ethers.Contract(lendingPool.address, lendingPoolDeployment.abi, provider);
-  const [totalDeposits, totalBorrowed, utilizationBps, rateBps] = await Promise.all([
-    contract.totalDeposits(),
-    contract.totalBorrowed(),
-    contract.utilizationRateBps(),
-    contract.getInterestRateBps()
-  ]);
+  const stats = await getPoolStats();
   const data = {
-    totalDeposits: totalDeposits?.toString?.() ?? String(totalDeposits ?? '0'),
-    totalBorrowed: totalBorrowed?.toString?.() ?? String(totalBorrowed ?? '0'),
-    utilizationBps: Number(utilizationBps ?? 0n),
-    rateBps: Number(rateBps ?? 0n)
+    totalAssets: stats.totalAssets,
+    totalBorrowed: stats.totalBorrowed,
+    availableLiquidity: stats.availableLiquidity,
+    utilizationBps: Number(stats.utilizationBps ?? 0),
+    borrowRateBps: Number(stats.borrowRateBps ?? 0),
+    // Lender rate: borrow APR x utilization x (1 - reserve factor), floating.
+    supplyRateBps: stats.supplyRateBps == null ? null : Number(stats.supplyRateBps)
   };
   lenderMetricsCache.at = now;
   lenderMetricsCache.data = data;
@@ -2515,12 +2381,12 @@ app.get('/api/lender/projections', strictLimiter, async (req, res) => {
     const principalUsd = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : 0;
     const metrics = await getLenderPoolMetrics();
 
-    // Note: This is an *estimate* for UI display. Contract logic does not guarantee
-    // deposit yield; on-chain borrow interest is currently fixed at origination.
+    // Note: This is an *estimate* for UI display. Lenders earn the pool's floating
+    // supply rate (borrow APR x utilization x (1 - reserve factor)); nothing is guaranteed.
     const horizonsYears = [1 / 12, 1, 4, 5];
     const projections = buildEstimatedReturnProjections({
       principalUsd,
-      aprBps: metrics.rateBps,
+      aprBps: metrics.supplyRateBps ?? 0,
       horizonsYears,
       feeBps: 0
     });
@@ -2530,9 +2396,10 @@ app.get('/api/lender/projections', strictLimiter, async (req, res) => {
       network: DEPLOYMENTS_NETWORK,
       principalUsd,
       utilizationBps: metrics.utilizationBps,
-      estimatedAprBps: metrics.rateBps,
+      borrowRateBps: metrics.borrowRateBps,
+      estimatedAprBps: metrics.supplyRateBps,
       projections,
-      disclaimer: 'Estimates only. Not guaranteed. Actual returns depend on utilization, borrower demand, and realized repayments.'
+      disclaimer: 'Estimates only. Not guaranteed. The pool rate floats with utilization; actual returns depend on borrower demand and realized repayments.'
     });
   } catch (error) {
     res.status(200).json({ ok: false, error: error?.message || 'Unable to compute projections' });
@@ -2572,7 +2439,7 @@ app.get('/api/lender/portfolio-light', strictLimiter, async (req, res) => {
     let activeCount = 0;
     for (const row of scheduleRows || []) {
       sampleCount += 1;
-      if (row?.status === 'Active') activeCount += 1;
+      if (row?.status === 'Active' || row?.status === 'Auction') activeCount += 1;
       const unlock = Number(row?.unlockTime || 0);
       const daysToUnlock =
         unlock > 0 ? Math.round((unlock * 1000 - Date.now()) / 86_400_000) : NaN;
@@ -2583,10 +2450,12 @@ app.get('/api/lender/portfolio-light', strictLimiter, async (req, res) => {
       ok: true,
       network: DEPLOYMENTS_NETWORK,
       pool: {
-        totalDeposits: metrics.totalDeposits,
+        totalAssets: metrics.totalAssets,
         totalBorrowed: metrics.totalBorrowed,
+        availableLiquidity: metrics.availableLiquidity,
         utilizationBps: metrics.utilizationBps,
-        currentRateBps: metrics.rateBps
+        borrowRateBps: metrics.borrowRateBps,
+        supplyRateBps: metrics.supplyRateBps
       },
       exposure: {
         chain: exposure.chain,
@@ -2607,63 +2476,6 @@ app.get('/api/lender/portfolio-light', strictLimiter, async (req, res) => {
   }
 });
 
-app.get('/api/community-pools', async (req, res) => {
-  try {
-    const walletAddressRaw =
-      typeof req.query?.wallet === 'string' ? req.query.wallet.trim() : '';
-    const walletAddress = walletAddressRaw && ethers.isAddress(walletAddressRaw)
-      ? ethers.getAddress(walletAddressRaw)
-      : null;
-    const limit = Math.min(Math.max(Number(req.query?.limit) || 50, 1), 200);
-    const data = await readCommunityPools({ walletAddress, limit });
-    res.json({ ok: true, totalCount: data.totalCount, items: data.items });
-  } catch (error) {
-    res.status(200).json({
-      ok: false,
-      error: error?.message || 'Unable to fetch community pools',
-      items: []
-    });
-  }
-});
-
-app.get('/api/community-pools/:poolId', async (req, res) => {
-  try {
-    const poolId = Number(req.params.poolId);
-    if (!Number.isFinite(poolId) || poolId < 0) {
-      return res.status(400).json({ ok: false, error: 'Invalid pool id' });
-    }
-    const walletAddressRaw =
-      typeof req.query?.wallet === 'string' ? req.query.wallet.trim() : '';
-    const walletAddress = walletAddressRaw && ethers.isAddress(walletAddressRaw)
-      ? ethers.getAddress(walletAddressRaw)
-      : null;
-    const contract = new ethers.Contract(lendingPool.address, communityPoolReadAbi, provider);
-    const totalCountRaw = await contract.communityPoolCount();
-    const totalCount = Number(totalCountRaw || 0n);
-    if (poolId >= totalCount) {
-      return res.status(404).json({ ok: false, error: 'Community pool not found' });
-    }
-    const row = await contract.communityPools(poolId);
-    let pendingRewards = null;
-    if (walletAddress) {
-      try {
-        pendingRewards = await contract.pendingCommunityPoolRewards(poolId, walletAddress);
-      } catch {
-        pendingRewards = null;
-      }
-    }
-    res.json({
-      ok: true,
-      item: toCommunityPoolItem(poolId, row, pendingRewards)
-    });
-  } catch (error) {
-    res.status(200).json({
-      ok: false,
-      error: error?.message || 'Unable to fetch community pool'
-    });
-  }
-});
-
 app.post('/api/match/quote', expensiveLimiter, validateBody(matchQuoteSchema), async (req, res) => {
   try {
     const { chain, desiredAmountUsd } = req.body;
@@ -2677,24 +2489,26 @@ app.post('/api/match/quote', expensiveLimiter, validateBody(matchQuoteSchema), a
     let collateralToken = null;
     if (chain === 'base') {
       if (req.body.collateralId) {
+        // collateralId = VestingAdapter escrow id of an already-escrowed stream.
         try {
           const adapterContract = new ethers.Contract(
             vestingAdapter.address,
             vestingAdapterDeployment.abi,
             provider
           );
-          const details = await adapterContract.getDetails(
-            toBigIntSafe(req.body.collateralId)
-          );
-          const quantity = details?.[0];
-          const token = details?.[1];
-          const unlock = details?.[2];
-          unlockTime = unlockTime || Number(unlock || 0);
+          const escrowId = toBigIntSafe(req.body.collateralId);
+          const [collateral, escrow] = await Promise.all([
+            adapterContract.collateral(escrowId),
+            adapterContract.getEscrow(escrowId)
+          ]);
+          const token = collateral?.token;
+          unlockTime = unlockTime || Number(collateral?.unlockTime || 0);
           if (token) collateralToken = ethers.getAddress(token);
           const valuation = await computeEvmDpv({
-            quantity: quantity || 0n,
+            quantity: collateral?.quantity || 0n,
             token,
-            unlockTime: unlockTime || 0
+            unlockTime: unlockTime || 0,
+            vestingContract: escrow?.nftContract || req.body.vestingContract || null
           });
           pvUsd = valuation.pv;
           ltvBps = valuation.ltvBps;
@@ -2707,7 +2521,8 @@ app.post('/api/match/quote', expensiveLimiter, validateBody(matchQuoteSchema), a
         const valuation = await computeEvmDpv({
           quantity: req.body.quantity,
           token: req.body.token,
-          unlockTime: req.body.unlockTime
+          unlockTime: req.body.unlockTime,
+          vestingContract: req.body.vestingContract || null
         });
         pvUsd = valuation.pv;
         ltvBps = valuation.ltvBps;
@@ -3118,7 +2933,7 @@ const countDefaultsSince = (sinceEpochSec) => {
   activityEvents.forEach((item) => {
     const ts = Number(item.timestamp || 0);
     if (ts < sinceEpochSec) return;
-    if (item.type === 'LoanSettled' && item.defaulted) {
+    if (item.type === 'LoanLiquidated') {
       total += 1;
     }
   });
@@ -3136,75 +2951,45 @@ const getPlatformSnapshot = async () => {
   const defaults7d = countDefaultsSince(window7d);
   let poolStats = null;
   try {
-    const poolContract = new ethers.Contract(
-      lendingPoolDeployment.address,
-      [
-        'function totalDeposits() view returns (uint256)',
-        'function totalBorrowed() view returns (uint256)',
-        'function getInterestRateBps() view returns (uint256)',
-        'function utilizationRateBps() view returns (uint256)',
-        'function communityPoolCount() view returns (uint256)'
-      ],
-      provider
-    );
-    const [totalDeposits, totalBorrowed, rateBps, utilBps, communityPoolCount] = await Promise.all([
-      poolContract.totalDeposits().catch(e => { console.error('[snapshot] totalDeposits failed:', e.message); return 0n; }),
-      poolContract.totalBorrowed().catch(e => { console.error('[snapshot] totalBorrowed failed:', e.message); return 0n; }),
-      poolContract.getInterestRateBps().catch(e => { console.error('[snapshot] getInterestRateBps failed:', e.message); return 600n; }),
-      poolContract.utilizationRateBps().catch(e => { console.error('[snapshot] utilizationRateBps failed:', e.message); return 0n; }),
-      poolContract.communityPoolCount().catch(e => { console.error('[snapshot] communityPoolCount failed:', e.message); return 0n; })
+    const [stats, insuranceBalance] = await Promise.all([
+      getPoolStats(),
+      insuranceVaultDeployment.configured
+        ? new ethers.Contract(insuranceVaultDeployment.address, insuranceVaultDeployment.abi, provider)
+          .balance()
+          .catch(() => null)
+        : null
     ]);
-    
-    // 2. Sum backend-tracked deposits
-    let backendTotalUnits = 0;
-    try {
-      const { data: dbDeposits, error } = await persistence.supabaseClient().from('user_deposits').select('amount');
-      if (error) {
-        console.error('[snapshot] Supabase error:', error);
-      } else if (dbDeposits) {
-        console.log(`[snapshot] Found ${dbDeposits.length} backend deposits`);
-        backendTotalUnits = dbDeposits.reduce((acc, dep) => acc + Number(dep.amount || 0), 0) * 1e6;
-        console.log(`[snapshot] Backend units: ${backendTotalUnits}`);
-      }
-    } catch (err) {
-      console.error('[snapshot] Backend sum failed:', err.message);
-    }
-
     poolStats = {
-      totalDeposits: (BigInt(totalDeposits || 0n) + BigInt(backendTotalUnits)).toString(),
-      totalBorrowed: (totalBorrowed || 0n).toString(),
-      interestRateBps: rateBps ? rateBps.toString() : '600',
-      utilizationRateBps: utilBps ? utilBps.toString() : '0',
-      communityPoolCount: communityPoolCount ? communityPoolCount.toString() : '0'
+      ...stats,
+      insuranceBalance: insuranceBalance === null ? null : insuranceBalance.toString()
     };
-    console.log('[snapshot] poolStats.totalDeposits:', poolStats.totalDeposits);
   } catch (err) {
-    console.error('[snapshot] Global catch:', err.message);
-    // Fallback to real DB deposits even if contract query fails
-    let backendOnlyUnits = 0;
-    try {
-      const { data } = await persistence.supabaseClient().from('user_deposits').select('amount');
-      if (data) backendOnlyUnits = data.reduce((acc, dep) => acc + Number(dep.amount || 0), 0) * 1e6;
-    } catch (e) {}
-    poolStats = { totalDeposits: backendOnlyUnits.toString() };
+    console.error('[snapshot] pool stats unavailable:', err.message);
   }
 
-  const totalUnits = parseFloat(poolStats.totalDeposits || '0');
+  // USDC units (6 decimals)
+  const totalAssetsUnits = parseFloat(poolStats?.totalAssets || '0');
+  const totalBorrowedUnits = parseFloat(poolStats?.totalBorrowed || '0');
 
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
+    activity: {
+      counts24h,
+      counts7d,
+      liquidations24h: defaults24h,
+      liquidations7d: defaults7d
+    },
     growth: {
-      tvlUsd: totalUnits / 1e12, // Millions for frontend
-      debtUsd: 0.1,
-      healthFactor: 1.0
+      tvlUsd: totalAssetsUnits / 1e12, // Millions for frontend
+      debtUsd: totalBorrowedUnits / 1e12 // Millions for frontend
     },
     revenue: {
-      total: totalUnits / 1e9, // Thousands for frontend
+      total: totalAssetsUnits / 1e9, // Thousands for frontend
       fees: 0
     },
     market: {
-      globalTvl: poolStats ? poolStats.totalDeposits : 1240000000000
+      globalTvl: poolStats ? poolStats.totalAssets : null
     },
     pool: poolStats
   };
@@ -3241,9 +3026,10 @@ const buildKpiDashboard = async (windowHours) => {
   const quoteRequested = events.quote_requested || 0;
   const quoteAccepted = events.quote_accepted || 0;
   const chainSupportRequested = events.chain_support_requested || 0;
-  const loanCreated = activityCounts.LoanCreated || events.loan_created || 0;
+  const loanCreated = activityCounts.LoanOpened || events.loan_created || 0;
   const loanRepaid = activityCounts.LoanRepaid || events.loan_repaid || 0;
-  const loanSettled = activityCounts.LoanSettled || events.loan_settled || 0;
+  const loanLiquidated = activityCounts.LoanLiquidated || events.loan_liquidated || 0;
+  const liquidationsStarted = activityCounts.LiquidationStarted || 0;
 
   return {
     windowHours,
@@ -3264,7 +3050,8 @@ const buildKpiDashboard = async (windowHours) => {
     credit: {
       loansCreated: loanCreated,
       loansRepaid: loanRepaid,
-      loansSettled: loanSettled,
+      loansLiquidated: loanLiquidated,
+      liquidationsStarted,
       activeLoans: latestSnapshot?.active || 0,
       trackedCollateralPositions: latestSnapshot?.total || 0
     },
@@ -3300,7 +3087,7 @@ const buildKpiDashboard = async (windowHours) => {
 app.get('/api/analytics/tvl-history', async (req, res) => {
   try {
     const snapshot = await getPlatformSnapshot();
-    const currentTvl = parseFloat(snapshot.pool?.totalDeposits || '42800000') / 1e6;
+    const currentTvl = parseFloat(snapshot.pool?.totalAssets || '0') / 1e6;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
     const data = months.map((name, i) => {
       const growthFactor = 0.6 + (i * 0.08); 
@@ -3643,7 +3430,7 @@ app.get('/api/admin/risk/cohort', adminLimiter, requireSession, requireAdmin, as
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
     const byParam = String(req.query?.by || 'borrower').toLowerCase();
     const events = await persistence.loadEvents(limit * 3);
-    const loanCreated = (events || []).filter((e) => e.type === 'LoanCreated');
+    const loanCreated = (events || []).filter((e) => e.type === 'LoanOpened');
     if (byParam === 'token') {
       const byToken = {};
       loanCreated.forEach((e) => {
@@ -3726,19 +3513,12 @@ app.post('/api/admin/risk/backfill-concentration', adminLimiter, requireSession,
     const limit = Math.min(Math.max(Number(req.body?.limit ?? req.query?.limit ?? 500), 1), 2000);
     const chain = (req.body?.chain ?? req.query?.chain ?? 'base').toLowerCase();
 
-    const loanManagerContract = new ethers.Contract(loanManager.address, loanManagerDeployment.abi, provider);
-    const adapterContract = new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, provider);
+    const loanManagerContract = getLoanManagerReader();
 
     const getTokenAddressForLoan = async (loanId) => {
-      const isPrivate = await loanManagerContract.isPrivateLoan(loanId);
-      const loan = isPrivate
-        ? await loanManagerContract.privateLoans(loanId)
-        : await loanManagerContract.loans(loanId);
-      const collateralId = loan?.collateralId ?? loan?.[3];
-      if (collateralId == null) return null;
-      const details = await adapterContract.getDetails(collateralId);
-      const token = details?.[1];
-      return token ? ethers.getAddress(token) : null;
+      const loan = await loanManagerContract.getLoan(loanId);
+      const token = loan?.token;
+      return token && token !== ethers.ZeroAddress ? ethers.getAddress(token) : null;
     };
 
     const loadEventsForBackfill = async (lim) => {
@@ -3748,6 +3528,7 @@ app.post('/api/admin/risk/backfill-concentration', adminLimiter, requireSession,
         loanId: e.loanId,
         amount: e.amount,
         tokenAddress: e.tokenAddress,
+        closed: e.closed ?? e.payload?.closed,
         blockNumber: e.blockNumber,
         logIndex: e.logIndex
       }));
@@ -3811,7 +3592,8 @@ app.get('/api/exports/kpi.csv', expensiveLimiter, async (req, res) => {
       ['growth.tracked_events', String(kpi.growth.trackedEvents)],
       ['credit.loans_created', String(kpi.credit.loansCreated)],
       ['credit.loans_repaid', String(kpi.credit.loansRepaid)],
-      ['credit.loans_settled', String(kpi.credit.loansSettled)],
+      ['credit.loans_liquidated', String(kpi.credit.loansLiquidated)],
+      ['credit.liquidations_started', String(kpi.credit.liquidationsStarted)],
       ['credit.active_loans', String(kpi.credit.activeLoans)],
       ['risk.defaults', String(kpi.risk.defaults)],
       ['risk.avg_ltv_bps', String(kpi.risk.avgLtvBps)],
@@ -3900,7 +3682,8 @@ app.post(
 app.get('/api/activity', (_req, res) => {
   const items = activityEvents.map((e) => {
     // Do not expose correlatable identifiers in a public feed.
-    const { borrower, loanId, txHash, logIndex, blockNumber, tokenAddress, ...rest } = e;
+    // `params` (raw decoded event args) and `payload` can carry borrower / payer / winner addresses.
+    const { borrower, loanId, txHash, logIndex, blockNumber, tokenAddress, params, payload, address, ...rest } = e;
     return rest;
   });
   res.json({
@@ -4005,33 +3788,26 @@ const fetchRepayScheduleRows = async () => {
     return repayScheduleInFlight;
   }
   repayScheduleInFlight = (async () => {
-    const contract = new ethers.Contract(
-      loanManager.address,
-      loanManagerDeployment.abi,
-      provider
-    );
-    const count = await contract.loanCount();
-    const total = Number(count);
-    const limit = Math.min(total, 10);
-    const start = Math.max(total - limit, 0);
-    const ids = Array.from({ length: Math.max(0, total - start) }, (_, i) => start + i);
-    const rows = await mapWithConcurrency(
+    const contract = getLoanManagerReader();
+    const ids = await listRecentLoanIds(contract, 10);
+    const loans = await mapWithConcurrency(
       ids,
-      async (loanId) => {
-        const isPrivate = await contract.isPrivateLoan(loanId);
-        const loan = isPrivate ? await contract.privateLoans(loanId) : await contract.loans(loanId);
-        return {
-          loanId,
-          mode: isPrivate ? 'private' : 'public',
-          principal: (loan?.[1] ?? 0n).toString(),
-          interest: (loan?.[2] ?? 0n).toString(),
-          // Loan struct: unlockTime is index 5 (index 4 is collateralAmount).
-          unlockTime: Number(loan?.[5] ?? 0n),
-          status: loan?.[6] ? 'Active' : 'Settled'
-        };
-      },
+      (loanId) => readEvmLoan(contract, loanId),
       RPC_CONCURRENCY_LIMIT
     );
+    // Aggregate schedule: no borrower / token identifiers.
+    const rows = loans.filter(Boolean).map((loan) => ({
+      loanId: Number(loan.loanId),
+      principal: loan.principal,
+      interest: loan.interest,
+      debt: loan.debt,
+      unlockTime: loan.unlockTime,
+      maturity: loan.maturity,
+      status: loan.status,
+      healthFactorBps: loan.healthFactorBps,
+      isLiquidatable: loan.isLiquidatable,
+      auction: loan.auction
+    }));
     repayScheduleCache.items = rows;
     repayScheduleCache.at = Date.now();
     cachedRepaySchedule = rows;
@@ -4131,93 +3907,68 @@ const recordNotification = async (channel, template, payload, userId = null) => 
 };
 
 const getEvmVestedContracts = async () => {
-  const loanContract = new ethers.Contract(
-    loanManager.address,
-    loanManagerDeployment.abi,
-    provider
-  );
-  const adapterContract = new ethers.Contract(
-    vestingAdapter.address,
-    vestingAdapterDeployment.abi,
-    provider
-  );
-  const valuationContract = new ethers.Contract(
-    valuationEngine.address,
-    valuationDeployment.abi,
-    provider
-  );
-
-  const count = await loanContract.loanCount();
-  const total = Number(count);
-  const limit = Math.min(total, INDEXER_VESTED_LIMIT);
-  const start = Math.max(total - limit, 0);
-  const ids = Array.from({ length: Math.max(0, total - start) }, (_, i) => start + i);
+  const loanContract = getLoanManagerReader();
+  const ids = await listRecentLoanIds(loanContract, INDEXER_VESTED_LIMIT);
   const rows = await mapWithConcurrency(
     ids,
     async (loanId) => {
-      const isPrivate = await loanContract.isPrivateLoan(loanId);
-      const loan = isPrivate ? await loanContract.privateLoans(loanId) : await loanContract.loans(loanId);
-      const collateralId = loan?.[3];
-      const vestingContract = await adapterContract.vestingContracts(collateralId);
-      const [quantity, token, unlockTime] = await adapterContract.getDetails(collateralId);
+      const loan = await readEvmLoan(loanContract, loanId);
+      if (!loan) return null;
+      const { token, quantity, unlockTime, nftContract } = loan;
 
       let tokenSymbol = '';
       let tokenDecimals = 18;
       try {
         const tokenContract = new ethers.Contract(token, erc20Abi, provider);
         tokenSymbol = await tokenContract.symbol();
-        tokenDecimals = await tokenContract.decimals();
+        tokenDecimals = Number(await tokenContract.decimals());
       } catch (error) {
         tokenSymbol = `Token ${token.slice(0, 6)}`;
       }
 
-      let pv = 0n;
-      let ltvBps = 0n;
-      try {
-        const valuation = await valuationContract.computeDPV(quantity, token, unlockTime);
-        pv = valuation[0];
-        ltvBps = valuation[1];
-      } catch (error) {
-        pv = 0n;
-        ltvBps = 0n;
-      }
+      // Current origination valuation of the escrowed collateral (0 once unlocked / frozen).
+      const valuation = loan.active && unlockTime * 1000 > Date.now()
+        ? await computeEvmDpv({ quantity, token, unlockTime, vestingContract: nftContract })
+        : { pvRaw: '0', ltvBps: 0 };
 
-      const createdEvent = activityEvents.find((event) => {
-        const matchType = isPrivate ? 'PrivateLoanCreated' : 'LoanCreated';
-        return event.type === matchType && event.loanId === loanId.toString();
-      });
-      // Loan struct: unlockTime is index 5 (index 4 is collateralAmount).
-      const unlockTimestamp = Number(unlockTime || loan?.[5] || 0);
+      const createdEvent = activityEvents.find(
+        (event) => event.type === 'LoanOpened' && String(event.loanId) === loan.loanId
+      );
       const daysToUnlock =
-        unlockTimestamp > 0
-          ? Math.max(0, Math.round((unlockTimestamp * 1000 - Date.now()) / 86400000))
+        unlockTime > 0
+          ? Math.max(0, Math.round((unlockTime * 1000 - Date.now()) / 86400000))
           : null;
 
       return {
-        loanId,
-        mode: isPrivate ? 'private' : 'public',
-        borrower: isPrivate ? '' : loan?.[0],
-        vault: isPrivate ? loan?.[0] : '',
-        principal: (loan?.[1] ?? 0n).toString(),
-        interest: (loan?.[2] ?? 0n).toString(),
-        collateralId: collateralId.toString(),
-        vestingContract: vestingContract || '',
-        unlockTime: unlockTimestamp,
-        active: Boolean(loan?.[6]),
+        loanId: Number(loan.loanId),
+        borrower: loan.borrower,
+        principal: loan.principal,
+        interest: loan.interest,
+        debt: loan.debt,
+        collateralId: loan.escrowId,
+        escrowId: loan.escrowId,
+        streamId: loan.streamId,
+        vestingContract: nftContract,
+        unlockTime,
+        maturity: loan.maturity,
+        status: loan.status,
+        active: loan.active,
+        healthFactorBps: loan.healthFactorBps,
+        isLiquidatable: loan.isLiquidatable,
+        auction: loan.auction,
         token,
         tokenSymbol,
         tokenDecimals,
-        quantity: quantity.toString(),
-        pv: pv.toString(),
-        ltvBps: ltvBps.toString(),
+        quantity,
+        pv: valuation.pvRaw,
+        ltvBps: String(valuation.ltvBps),
         daysToUnlock,
         chain: 'evm',
         evidence: {
           escrowTx: createdEvent?.txHash
             ? buildExplorerLink('tx', createdEvent.txHash)
             : '',
-          // Avoid linking private-mode loans to any address in user-facing APIs.
-          wallet: !isPrivate && loan?.[0] ? buildExplorerLink('address', loan[0]) : '',
+          wallet: loan.borrower ? buildExplorerLink('address', loan.borrower) : '',
           token: token ? buildExplorerLink('address', token) : ''
         }
       };
@@ -4225,7 +3976,7 @@ const getEvmVestedContracts = async () => {
     RPC_CONCURRENCY_LIMIT
   );
 
-  return rows.reverse();
+  return rows.filter(Boolean).reverse();
 };
 
 const getVestedContracts = async () => {
@@ -4302,16 +4053,6 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       }
     }
 
-    let privacyVaultAddress = '';
-    if (privacyRequested) {
-      try {
-        const vault = await persistence.getPrivacyVaultByUser(req.user?.id, 'evm');
-        privacyVaultAddress = (vault?.vaultAddress || '').toLowerCase();
-      } catch (_) {
-        privacyVaultAddress = '';
-      }
-    }
-
     return list.filter((item) => {
       if (chainFilter && normalizeChain(item?.chain) !== chainFilter) {
         return false;
@@ -4335,7 +4076,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
         return borrower.toLowerCase() === walletFilterRaw.toLowerCase();
       }
 
-      // Privacy mode: only return positions linked to this session (EVM wallets + vault).
+      // Privacy mode: only return positions linked to this session's wallets.
       const chain = normalizeChain(item?.chain) || 'evm';
       if (chain === 'solana') {
         const borrower = normalizeWallet(item?.borrower);
@@ -4345,17 +4086,6 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
         // Solana addresses are case-sensitive mixed-case base58
         const normalizedWf = normalizeSolanaAddress(walletFilterRaw);
         return borrower === (normalizedWf || walletFilterRaw);
-      }
-
-      const mode = String(item?.mode || '').toLowerCase();
-      if (mode === 'private') {
-        const vault = String(item?.vault || '').toLowerCase();
-        if (!privacyVaultAddress || !vault) return false;
-        if (vault !== privacyVaultAddress) return false;
-        if (!walletFilterRaw) return true;
-        // If wallet filter exists, accept either the vault address or any linked EVM wallet.
-        const wf = walletFilterRaw.toLowerCase();
-        return wf === privacyVaultAddress || sessionWallets.evm.has(wf);
       }
 
       const borrower = normalizeWallet(item?.borrower).toLowerCase();
@@ -4429,7 +4159,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
       const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
       const redacted = privacyRequested
         ? filteredItems.map((item) => {
-          const { borrower, vault, ...rest } = item || {};
+          const { borrower, ...rest } = item || {};
           return {
             ...rest,
             // Also remove wallet evidence link which can deanonymize in UI copies.
@@ -4467,7 +4197,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
     const filteredItems = await filterItems([...items, ...dynamicStreams]);
     const redacted = privacyRequested
       ? filteredItems.map((item) => {
-        const { borrower, vault, ...rest } = item || {};
+        const { borrower, ...rest } = item || {};
         return {
           ...rest,
           evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
@@ -4487,7 +4217,7 @@ app.get('/api/vested-contracts', expensiveLimiter, async (req, res) => {
         const filteredItems = await filterItems([...cachedVestedContracts, ...dynamicStreams]);
         const redacted = privacyRequested
           ? filteredItems.map((item) => {
-            const { borrower, vault, ...rest } = item || {};
+            const { borrower, ...rest } = item || {};
             return {
               ...rest,
               evidence: rest?.evidence ? { ...rest.evidence, wallet: '' } : rest?.evidence
@@ -4655,13 +4385,13 @@ app.get('/api/exports/repay-schedule', expensiveLimiter, requireSession, async (
   try {
     const rowsData = await fetchRepayScheduleRows();
     const watermark = `exported_at=${new Date().toISOString()} user=${String(_req.user?.id || '').slice(0, 8)}`;
-    const rows = [['Loan ID', 'Mode', 'Principal', 'Interest', 'Unlock', 'Status', 'Watermark']];
+    const rows = [['Loan ID', 'Principal', 'Debt', 'Maturity', 'Unlock', 'Status', 'Watermark']];
     for (const loan of rowsData) {
       rows.push([
         loan.loanId,
-        loan.mode || '',
         loan.principal,
-        loan.interest,
+        loan.debt,
+        loan.maturity ? new Date(Number(loan.maturity) * 1000).toISOString() : '',
         loan.unlockTime ? new Date(Number(loan.unlockTime) * 1000).toISOString() : '',
         loan.status,
         watermark
@@ -4677,12 +4407,12 @@ app.get('/api/exports/repay-schedule', expensiveLimiter, requireSession, async (
   } catch (error) {
     const watermark = `exported_at=${new Date().toISOString()} user=${String(_req.user?.id || '').slice(0, 8)}`;
     const rows = [
-      ['Loan ID', 'Mode', 'Principal', 'Interest', 'Unlock', 'Status', 'Watermark'],
+      ['Loan ID', 'Principal', 'Debt', 'Maturity', 'Unlock', 'Status', 'Watermark'],
       ...cachedRepaySchedule.map((loan) => [
         loan.loanId,
-        loan.mode || '',
         loan.principal,
-        loan.interest,
+        loan.debt,
+        loan.maturity ? new Date(loan.maturity * 1000).toISOString() : '',
         loan.unlockTime ? new Date(loan.unlockTime * 1000).toISOString() : '',
         loan.status,
         watermark
@@ -4739,39 +4469,44 @@ const runSolanaRepayJobsTick = async () => {
   }
 };
 
-const getKeeperCandidates = async ({ loanCount }) => {
-  const total = Number(loanCount || 0);
-  if (!Number.isFinite(total) || total <= 0) return [];
+// Loan ids are 1..nextLoanId-1.
+const getKeeperCandidates = async ({ nextLoanId }) => {
+  const lastId = Number(nextLoanId || 0) - 1;
+  if (!Number.isFinite(lastId) || lastId < 1) return [];
   const candidates = new Set();
 
   // 1) Always scan the most recent N loans.
   if (EVM_KEEPER_RECENT_SCAN > 0) {
-    const start = Math.max(0, total - EVM_KEEPER_RECENT_SCAN);
-    for (let i = start; i < total; i++) candidates.add(i);
+    const start = Math.max(1, lastId - EVM_KEEPER_RECENT_SCAN + 1);
+    for (let i = start; i <= lastId; i++) candidates.add(i);
   }
 
   // 2) Also scan a rotating window so older loans don't get starved.
   if (EVM_KEEPER_ROTATING_SCAN > 0) {
     const cursorRaw = await persistence.getMeta('evmKeeperCursor');
-    let cursor = cursorRaw === null ? 0 : Number(cursorRaw);
-    if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
-    if (cursor >= total) cursor = 0;
-    const end = Math.min(total, cursor + EVM_KEEPER_ROTATING_SCAN);
-    for (let i = cursor; i < end; i++) candidates.add(i);
-    const nextCursor = end >= total ? 0 : end;
+    let cursor = cursorRaw === null ? 1 : Number(cursorRaw);
+    if (!Number.isFinite(cursor) || cursor < 1 || cursor > lastId) cursor = 1;
+    const end = Math.min(lastId, cursor + EVM_KEEPER_ROTATING_SCAN - 1);
+    for (let i = cursor; i <= end; i++) candidates.add(i);
+    const nextCursor = end >= lastId ? 1 : end + 1;
     await persistence.setMeta('evmKeeperCursor', String(nextCursor));
   }
 
   return Array.from(candidates.values()).sort((a, b) => a - b);
 };
 
-const runEvmSettlementKeeperTick = async () => {
+/**
+ * Liquidation keeper: startLiquidation(loanId) for liquidatable Active loans and
+ * restartAuction(loanId) for Auction loans whose round ended without a bid.
+ * Both calls are permissionless on LoanManager.
+ */
+const runEvmLiquidationKeeperTick = async () => {
   if (evmKeeperInFlight) return;
   if (!EVM_KEEPER_ENABLED) return;
   if (!EVM_KEEPER_PRIVATE_KEY) {
     // Don't spam logs; this is a configuration error.
-    if (!runEvmSettlementKeeperTick._warned) {
-      runEvmSettlementKeeperTick._warned = true;
+    if (!runEvmLiquidationKeeperTick._warned) {
+      runEvmLiquidationKeeperTick._warned = true;
       console.warn('[evm-keeper] enabled but missing EVM_KEEPER_PRIVATE_KEY');
     }
     return;
@@ -4785,8 +4520,8 @@ const runEvmSettlementKeeperTick = async () => {
       signer
     );
 
-    const loanCount = await loanManagerWrite.loanCount();
-    const candidates = await getKeeperCandidates({ loanCount });
+    const nextLoanId = await loanManagerWrite.nextLoanId();
+    const candidates = await getKeeperCandidates({ nextLoanId });
     if (!candidates.length) return;
 
     const now = Math.floor(Date.now() / 1000);
@@ -4795,182 +4530,42 @@ const runEvmSettlementKeeperTick = async () => {
     for (const id of candidates) {
       if (txSent >= EVM_KEEPER_MAX_TX_PER_TICK) break;
 
-      let loan;
+      let status;
       try {
-        loan = await loanManagerWrite.loans(id);
+        const loan = await loanManagerWrite.getLoan(id);
+        status = LOAN_STATUS[Number(loan.status)];
       } catch {
         continue;
       }
-      const active = Boolean(loan?.active);
-      const unlockTime = Number(loan?.unlockTime || 0);
-      if (!active) continue;
-      if (!unlockTime || unlockTime > now) continue;
 
       try {
-        // `settleAtUnlock` is permissionless; keeper makes it automatic.
-        const tx = await loanManagerWrite.settleAtUnlock(id);
-        txSent += 1;
-        await tx.wait(1);
-        console.log(`[evm-keeper] settled loan ${id} tx=${tx.hash}`);
-      } catch (error) {
-        const msg = error?.shortMessage || error?.reason || error?.message || String(error);
-        // Common revert reasons are fine (race conditions with another settler).
-        if (msg.includes('inactive') || msg.includes('not unlocked') || msg.includes('paused')) {
+        let tx = null;
+        if (status === 'Active') {
+          if (!(await loanManagerWrite.isLiquidatable(id))) continue;
+          tx = await loanManagerWrite.startLiquidation(id);
+        } else if (status === 'Auction') {
+          const auction = await loanManagerWrite.auctions(id);
+          if (now < Number(auction.startTime) + Number(auction.duration)) continue;
+          tx = await loanManagerWrite.restartAuction(id);
+        } else {
           continue;
         }
-        console.warn(`[evm-keeper] settle failed loan ${id}:`, msg);
+        txSent += 1;
+        await tx.wait(1);
+        console.log(`[evm-keeper] ${status === 'Active' ? 'started liquidation' : 'restarted auction'} loan ${id} tx=${tx.hash}`);
+      } catch (error) {
+        const msg = error?.shortMessage || error?.reason || error?.message || String(error);
+        // Common revert reasons are fine (race conditions with another keeper / bidder).
+        if (msg.includes('not liquidatable') || msg.includes('no auction') || msg.includes('round not over') || msg.includes('paused')) {
+          continue;
+        }
+        console.warn(`[evm-keeper] keeper tx failed loan ${id}:`, msg);
       }
     }
   } catch (error) {
     console.error('[evm-keeper] tick failed', error?.message || error);
   } finally {
     evmKeeperInFlight = false;
-  }
-};
-
-
-
-const runEvmRepayKeeperTick = async () => {
-  if (evmRepayKeeperInFlight) return;
-  if (!EVM_REPAY_KEEPER_ENABLED) return;
-  if (!EVM_KEEPER_PRIVATE_KEY) {
-    if (!runEvmRepayKeeperTick._warned) {
-      runEvmRepayKeeperTick._warned = true;
-      console.warn('[evm-repay-keeper] enabled but missing EVM_KEEPER_PRIVATE_KEY');
-    }
-    return;
-  }
-  evmRepayKeeperInFlight = true;
-  try {
-    const signer = new ethers.Wallet(EVM_KEEPER_PRIVATE_KEY, provider);
-    const loanManagerWrite = new ethers.Contract(
-      loanManager.address,
-      loanManagerDeployment.abi,
-      signer
-    );
-    const usdcAddress = String(await loanManagerWrite.usdc()).toLowerCase();
-
-    const loanCount = await loanManagerWrite.loanCount();
-    const candidates = await getKeeperCandidates({ loanCount });
-    if (!candidates.length) return;
-
-    const repayTokens = await loanManagerWrite.getRepayTokenPriority();
-    const tokenList = Array.isArray(repayTokens) ? repayTokens : [];
-    if (!tokenList.length) return;
-
-    const now = Math.floor(Date.now() / 1000);
-    let txSent = 0;
-
-    for (const id of candidates) {
-      if (txSent >= EVM_REPAY_KEEPER_MAX_TX_PER_TICK) break;
-
-      let loan;
-      try {
-        loan = await loanManagerWrite.loans(id);
-      } catch {
-        continue;
-      }
-
-      const active = Boolean(loan?.active);
-      const borrower = loan?.borrower;
-      const unlockTime = Number(loan?.unlockTime || 0);
-      if (!active || !borrower) continue;
-      if (!unlockTime) continue;
-      if (unlockTime > now + EVM_REPAY_KEEPER_LOOKAHEAD_SECONDS) continue;
-
-      let optedIn = false;
-      try {
-        optedIn = await loanManagerWrite.autoRepayOptIn(borrower);
-      } catch {
-        optedIn = false;
-      }
-      if (!optedIn) continue;
-
-      let remainingDebt = 0n;
-      try {
-        remainingDebt = await loanManagerWrite.getRemainingDebt(id);
-      } catch {
-        remainingDebt = 0n;
-      }
-      if (remainingDebt <= 0n) continue;
-
-      const tokens = [];
-      const amounts = [];
-      const minOuts = [];
-
-      for (const token of tokenList.slice(0, EVM_REPAY_KEEPER_MAX_TOKENS_PER_LOAN)) {
-        if (remainingDebt <= 0n) break;
-        if (!token || token === ethers.ZeroAddress) continue;
-
-        const tokenContract = new ethers.Contract(token, erc20ReadAbi, provider);
-        let balance = 0n;
-        let allowance = 0n;
-        try {
-          balance = await tokenContract.balanceOf(borrower);
-          allowance = await tokenContract.allowance(borrower, loanManager.address);
-        } catch {
-          continue;
-        }
-        const spendable = balance < allowance ? balance : allowance;
-        if (spendable <= 0n) continue;
-
-        let amountIn = spendable;
-        if (String(token).toLowerCase() === usdcAddress) {
-          amountIn = spendable > remainingDebt ? remainingDebt : spendable;
-        } else {
-          // Use an oracle-based estimate to avoid seizing more value than needed.
-          // This is best-effort; contract-side refund prevents USDC over-application,
-          // but we still prefer not to swap excess token value.
-          try {
-            const minOut = await loanManagerWrite.quoteMinUsdcOut(token, spendable);
-            // If swapping entire balance would exceed remaining debt, scale down proportionally.
-            if (minOut > remainingDebt && minOut > 0n) {
-              amountIn = (spendable * remainingDebt) / minOut;
-              // Add small buffer for rounding.
-              amountIn = (amountIn * 10200n) / 10000n;
-              if (amountIn > spendable) amountIn = spendable;
-              if (amountIn <= 0n) continue;
-            }
-          } catch {
-            // If we can't quote, skip token (safer than swapping blind).
-            continue;
-          }
-        }
-
-        let minOut;
-        try {
-          minOut = await loanManagerWrite.quoteMinUsdcOut(token, amountIn);
-        } catch {
-          continue;
-        }
-
-        tokens.push(token);
-        amounts.push(amountIn);
-        minOuts.push(minOut);
-
-        // We don't update remainingDebt precisely here (swap output varies). This is a
-        // single-shot best-effort; subsequent ticks will continue if needed.
-      }
-
-      if (!tokens.length) continue;
-
-      try {
-        const tx = await loanManagerWrite.repayWithSwapBatchFor(id, tokens, amounts, minOuts);
-        txSent += 1;
-        await tx.wait(1);
-        console.log(`[evm-repay-keeper] repay tx loan ${id} tx=${tx.hash}`);
-      } catch (error) {
-        const msg = error?.shortMessage || error?.reason || error?.message || String(error);
-        if (msg.includes('inactive') || msg.includes('paused') || msg.includes('auto repay disabled')) {
-          continue;
-        }
-        console.warn(`[evm-repay-keeper] repay failed loan ${id}:`, msg);
-      }
-    }
-  } catch (error) {
-    console.error('[evm-repay-keeper] tick failed', error?.message || error);
-  } finally {
-    evmRepayKeeperInFlight = false;
   }
 };
 
@@ -5082,11 +4677,12 @@ const start = async () => {
   loanExecutionService = new LoanExecutionService(provider, relayer, {
       loanManager: loanManagerContract,
       valuationEngine: valuationContract,
-      wrapperNFT: new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, relayer)
+      vestingAdapter: new ethers.Contract(vestingAdapter.address, vestingAdapterDeployment.abi, relayer)
   });
 
   lendingService = new LendingService(provider, {
-      pool: poolContract
+      pool: poolContract,
+      loanManager: loanManagerContract
   });
 
   indexerService = new IndexerService(provider, persistence, {
@@ -5145,11 +4741,11 @@ const start = async () => {
     }
 
     if (EVM_KEEPER_ENABLED) {
-      runEvmSettlementKeeperTick().catch((error) =>
+      runEvmLiquidationKeeperTick().catch((error) =>
         console.error('[evm-keeper] initial tick error', error?.message || error)
       );
       setInterval(() => {
-        runEvmSettlementKeeperTick().catch((error) =>
+        runEvmLiquidationKeeperTick().catch((error) =>
           console.error('[evm-keeper] tick error (interval)', error?.message || error)
         );
       }, Math.max(5000, EVM_KEEPER_INTERVAL_MS));
@@ -5166,18 +4762,6 @@ const start = async () => {
         );
       }, Math.max(5000, SOLANA_REPAY_JOBS_INTERVAL_MS));
       console.log('[solana-repay-jobs] enabled');
-    }
-
-    if (EVM_REPAY_KEEPER_ENABLED) {
-      runEvmRepayKeeperTick().catch((error) =>
-        console.error('[evm-repay-keeper] initial tick error', error?.message || error)
-      );
-      setInterval(() => {
-        runEvmRepayKeeperTick().catch((error) =>
-          console.error('[evm-repay-keeper] tick error (interval)', error?.message || error)
-        );
-      }, Math.max(5000, EVM_REPAY_KEEPER_INTERVAL_MS));
-      console.log('[evm-repay-keeper] enabled');
     }
 
     // Sovereign Mirror Relayer Activation

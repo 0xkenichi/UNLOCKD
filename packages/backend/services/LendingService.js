@@ -1,111 +1,97 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 
-const { ethers } = require('ethers');
-
 /**
  * LendingService
- * Computes advanced metrics for lenders, including accrued yield, APY projections, 
- * and early withdrawal penalty simulations.
+ * Lender metrics for the ERC-4626 LendingPool. There are no fixed-term positions,
+ * lock-ups or withdrawal penalties: a lender holds pool shares whose value grows as
+ * borrow interest accrues, and every lender earns the same floating rate.
  */
 class LendingService {
   constructor(provider, contracts) {
     this.provider = provider;
-    this.contracts = contracts; // { pool, ... }
-    this.BPS_DENOMINATOR = 10000;
+    this.contracts = contracts; // { pool, loanManager? }
+    this.BPS_DENOMINATOR = 10000n;
+    // LoanManager default; used only if the contract is not wired or the read fails.
+    this.DEFAULT_RESERVE_FACTOR_BPS = 1000n;
+  }
+
+  async getReserveFactorBps() {
+    if (!this.contracts.loanManager) return this.DEFAULT_RESERVE_FACTOR_BPS;
+    try {
+      return BigInt(await this.contracts.loanManager.reserveFactorBps());
+    } catch {
+      return this.DEFAULT_RESERVE_FACTOR_BPS;
+    }
   }
 
   /**
-   * Get comprehensive dashboard data for a lender.
+   * Current supply rate: borrow APR × utilization × (1 − reserve factor).
+   * This is the instantaneous variable rate, not a promised yield.
    */
-  async getLenderDashboard(walletAddress, persistedDeposits) {
-    // 1. Fetch live pool state
-    const [totalDeposits, totalBorrowed, variableApyBps, utilizationBps] = await Promise.all([
-      this.contracts.pool.totalDeposits(),
-      this.contracts.pool.totalBorrowed(),
-      this.contracts.pool.getVariableApyBps(),
-      this.contracts.pool.utilizationRateBps()
-    ]);
+  supplyRateBps(borrowRateBps, utilizationBps, reserveFactorBps) {
+    const b = BigInt(borrowRateBps);
+    const u = BigInt(utilizationBps);
+    const r = BigInt(reserveFactorBps);
+    return (b * u * (this.BPS_DENOMINATOR - r)) / (this.BPS_DENOMINATOR * this.BPS_DENOMINATOR);
+  }
 
-    // 2. Fetch live on-chain positions
-    // This is more reliable than persistence if we want real-time accuracy.
-    const onChainPositions = [];
-    try {
-        let i = 0;
-        while (true) {
-            try {
-                const pos = await this.contracts.pool.lenderPositions(walletAddress, i);
-                if (pos.id === 0 && i > 0) break; // Stopper if needed, but contract uses index
-                onChainPositions.push({
-                    id: pos.id.toString(),
-                    amount: pos.amount.toString(),
-                    depositType: Number(pos.depositType), // 0: VARIABLE, 1: FIXED
-                    startTime: Number(pos.startTime),
-                    lockDays: Number(pos.lockDays),
-                    lockEndTime: Number(pos.lockEndTime),
-                    fixedApyBps: Number(pos.fixedApyBps),
-                    isActive: pos.isActive
-                });
-                i++;
-            } catch (e) {
-                break; // End of array
-            }
-        }
-    } catch (err) {
-        console.warn(`[LendingService] Failed to fetch on-chain positions for ${walletAddress}: ${err.message}`);
-    }
-
-    // 3. Enrich positions with yield and penalties
-    const enriched = onChainPositions.map(pos => {
-      const now = Math.floor(Date.now() / 1000);
-      const elapsedSeconds = now - pos.startTime;
-      const elapsedDays = elapsedSeconds / 86400;
-      
-      const apyBps = pos.depositType === 1 ? pos.fixedApyBps : Number(variableApyBps);
-      const yieldAmt = (BigInt(pos.amount) * BigInt(apyBps) * BigInt(Math.floor(elapsedSeconds))) / (BigInt(this.BPS_DENOMINATOR) * BigInt(365 * 24 * 60 * 60));
-      
-      let penaltyAmt = BigInt(0);
-      if (pos.depositType === 1 && now < pos.lockEndTime) {
-        penaltyAmt = (BigInt(pos.amount) * BigInt(1000)) / BigInt(this.BPS_DENOMINATOR); // 10% penalty
-      }
-
-      return {
-        ...pos,
-        currentApyBps: apyBps,
-        accruedYield: yieldAmt.toString(),
-        totalValue: (BigInt(pos.amount) + yieldAmt).toString(),
-        earlyWithdrawalPenalty: penaltyAmt.toString(),
-        canWithdrawWithoutPenalty: pos.depositType === 0 || now >= pos.lockEndTime
-      };
-    });
-
-    const totalActiveValue = enriched.reduce((sum, p) => sum + (p.isActive ? BigInt(p.totalValue) : BigInt(0)), BigInt(0));
-    const totalYield = enriched.reduce((sum, p) => sum + BigInt(p.accruedYield), BigInt(0));
+  async getPoolStats() {
+    const { pool } = this.contracts;
+    const [totalAssets, totalSupply, totalBorrowed, availableLiquidity, utilizationBps, borrowRateBps, reserveFactorBps] =
+      await Promise.all([
+        pool.totalAssets(),
+        pool.totalSupply(),
+        pool.totalBorrowed(),
+        pool.availableLiquidity(),
+        pool.utilizationBps(),
+        pool.borrowRateBps(),
+        this.getReserveFactorBps()
+      ]);
 
     return {
-      walletAddress,
-      totalActiveValue: totalActiveValue.toString(),
-      totalYield: totalYield.toString(),
-      poolStats: {
-        totalDeposits: totalDeposits.toString(),
-        totalBorrowed: totalBorrowed.toString(),
-        utilizationBps: utilizationBps.toString(),
-        variableApyBps: variableApyBps.toString()
-      },
-      positions: enriched
+      totalAssets: totalAssets.toString(),
+      totalSupply: totalSupply.toString(),
+      totalBorrowed: totalBorrowed.toString(),
+      availableLiquidity: availableLiquidity.toString(),
+      utilizationBps: utilizationBps.toString(),
+      borrowRateBps: borrowRateBps.toString(),
+      supplyRateBps: this.supplyRateBps(borrowRateBps, utilizationBps, reserveFactorBps).toString(),
+      reserveFactorBps: reserveFactorBps.toString()
     };
   }
 
   /**
-   * Simulate projections for a deposit.
+   * Dashboard data for a lender: share balance, its current value in USDC and
+   * how much of it can be withdrawn right now (bounded by idle liquidity).
+   */
+  async getLenderDashboard(walletAddress) {
+    const { pool } = this.contracts;
+    const [poolStats, shares, maxWithdraw] = await Promise.all([
+      this.getPoolStats(),
+      pool.balanceOf(walletAddress),
+      pool.maxWithdraw(walletAddress)
+    ]);
+    const assets = shares > 0n ? await pool.convertToAssets(shares) : 0n;
+
+    return {
+      walletAddress,
+      shares: shares.toString(),
+      assets: assets.toString(),
+      maxWithdraw: maxWithdraw.toString(),
+      poolStats
+    };
+  }
+
+  /**
+   * Simple-interest projection at a given rate. The pool rate floats with
+   * utilization, so this is an illustration, not a quote.
    */
   async getProjections(amount, apyBps) {
     const amt = BigInt(amount);
     const apy = BigInt(apyBps);
 
-    const calculate = (days) => {
-      return (amt * apy * BigInt(days)) / (BigInt(this.BPS_DENOMINATOR) * BigInt(365));
-    };
+    const calculate = (days) => (amt * apy * BigInt(days)) / (this.BPS_DENOMINATOR * 365n);
 
     return {
       '30d': calculate(30).toString(),

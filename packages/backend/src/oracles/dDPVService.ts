@@ -92,10 +92,8 @@ const VALUATION_ENGINE_ABI = parseAbi([
   'function computeDPV(uint256,address,uint256,address) view returns (uint256,uint256)',
   'function tokenOmegaBps(address) view returns (uint256)',
   'function updateRiskParams(address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256) external',
-  'function proposeOmega(address,uint256) external',
-  'function finalizeOmega(address) external',
-  'function omegaTimelockRemaining(address) view returns (uint256)',
-  'function baseRateBps() view returns (uint256)',
+  'function updateOmega(address,uint256) external',
+  'function rankDiscountRateBps(uint256) view returns (uint256)',
 ]);
 
 // ─── Chain Config ─────────────────────────────────────────────────────────
@@ -712,12 +710,14 @@ export class DDPVService {
       })
     );
 
-    // 6. Base rate from contract
+    // 6. Base discount rate from contract (rank 1 — the best-vetted vesting contracts;
+    //    the on-chain rank of the actual vesting contract can only raise it)
     const baseRateBps = Number(
       await client.readContract({
         address: cfg.valuationEngine,
         abi: VALUATION_ENGINE_ABI,
-        functionName: 'baseRateBps',
+        functionName: 'rankDiscountRateBps',
+        args: [1n],
       })
     );
 
@@ -798,12 +798,16 @@ export class DDPVService {
   }
 
   /**
-   * Propose a new Ω for a token.
+   * Set Ω for a token on ValuationEngine (takes effect immediately; the relayer
+   * needs GUARDIAN_ROLE). Ω only affects new originations, never existing loans.
    * Called by the Omega AI Watcher Network after generating a new risk signal.
    */
-  async proposeOmega(token: string, chainId: number, newOmegaBps: number): Promise<void> {
+  async updateOmega(token: string, chainId: number, newOmegaBps: number): Promise<void> {
     const cfg = CHAIN_CONFIG[chainId];
     if (!cfg) throw new Error(`Unsupported chainId: ${chainId}`);
+    if (!Number.isInteger(newOmegaBps) || newOmegaBps < 0 || newOmegaBps > BPS) {
+      throw new Error(`Omega must be an integer in [0, ${BPS}] bps`);
+    }
 
     const account = privateKeyToAccount(process.env.RELAYER_PRIVATE_KEY as `0x${string}`);
     const wallet = createWalletClient({ account, chain: cfg.chain, transport: http(cfg.rpcUrl) });
@@ -811,20 +815,13 @@ export class DDPVService {
     const hash = await wallet.writeContract({
       address: cfg.valuationEngine,
       abi: VALUATION_ENGINE_ABI,
-      functionName: 'proposeOmega',
+      functionName: 'updateOmega',
       chain: cfg.chain,
       account,
       args: [token as `0x${string}`, BigInt(newOmegaBps)],
     });
 
-    console.log(`[dDPV] Omega proposal submitted for ${token}: ${newOmegaBps} bps | tx: ${hash}`);
-
-    // Schedule finalization after timelock
-    await this.queue.add(
-      'finalize-omega',
-      { token, chainId },
-      { delay: 3_700_000 } // 3700 seconds — 100s safety margin past 1hr timelock
-    );
+    console.log(`[dDPV] Omega update submitted for ${token}: ${newOmegaBps} bps | tx: ${hash}`);
   }
 
   async getCachedDPV(token: string, chainId: number): Promise<DPVResult | null> {

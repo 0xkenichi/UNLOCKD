@@ -1178,40 +1178,6 @@ const listAdminAuditLogs = async ({ limit = 100, action = null } = {}) => {
   return rows.map((row) => ({ id: row.id, action: row.action, actorUserId: row.actor_user_id || null, actorWallet: row.actor_wallet || null, actorRole: row.actor_role || null, targetType: row.target_type || null, targetId: row.target_id || null, ipHash: row.ip_hash || null, sessionFingerprint: row.session_fingerprint || null, payload: (() => { try { return row.payload ? JSON.parse(row.payload) : {}; } catch { return {}; } })(), createdAt: row.created_at || null }));
 };
 
-const createLoan = async ({ loanIdOnChain, chainId, borrower, amount, ltvBps, dpvAtOpen, collateralToken, streamId, unlockTime, nftTxHash, blockNumber }) => {
-  const id = createId();
-  const now = new Date().toISOString();
-  if (useSupabase) {
-    const { error: loanError } = await supabaseClient().from('loans').insert({
-      id,
-      loan_id: loanIdOnChain,
-      chain_id: chainId,
-      borrower: borrower,
-      nft_holder: borrower,
-      collateral_token: collateralToken,
-      stream_id: streamId,
-      quantity: String(amount),
-      unlock_time: new Date(unlockTime * 1000).toISOString(),
-      principal_usdc: String(amount),
-      dpv_at_open_usdc: String(dpvAtOpen),
-      ltv_bps: ltvBps,
-      nft_token_id: loanIdOnChain,
-      nft_tx_hash: nftTxHash,
-      status: 'active',
-      tx_hash_open: nftTxHash,
-      block_number_open: blockNumber,
-      opened_at: now,
-      updated_at: now
-    });
-    if (loanError) throw loanError;
-    return id;
-  }
-  sqlite.prepare(`INSERT INTO loans (id, loan_id, chain_id, borrower, nft_holder, collateral_token, stream_id, quantity, unlock_time, principal_usdc, dpv_at_open_usdc, ltv_bps, nft_token_id, nft_tx_hash, status, tx_hash_open, block_number_open, opened_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, loanIdOnChain, chainId, borrower, borrower, collateralToken, streamId, String(amount), new Date(unlockTime * 1000).toISOString(), String(amount), String(dpvAtOpen), ltvBps, loanIdOnChain, nftTxHash, 'active', nftTxHash, blockNumber, now, now
-  );
-  return id;
-};
-
 const getLoansByWallet = async (walletAddress) => {
   if (useSupabase) {
     const { data, error } = await supabaseClient().from('loans').select('*').or(`borrower.eq.${walletAddress},nft_holder.eq.${walletAddress}`).order('opened_at', { ascending: false });
@@ -1220,18 +1186,6 @@ const getLoansByWallet = async (walletAddress) => {
   }
   const rows = sqlite.prepare(`SELECT * FROM loans WHERE borrower = ? OR nft_holder = ? ORDER BY opened_at DESC`).all(walletAddress, walletAddress);
   return rows;
-};
-
-const createDeposit = async ({ walletAddress, amount, apyBps, durationDays = 30 }) => {
-  const depositId = createId();
-  const now = new Date().toISOString();
-  if (useSupabase) {
-    const { error } = await supabaseClient().from('user_deposits').insert({ id: depositId, wallet_address: walletAddress, amount: String(amount), apy_bps: apyBps, duration_days: durationDays, created_at: now, updated_at: now });
-    if (error) throw error;
-    return depositId;
-  }
-  sqlite.prepare(`INSERT INTO user_deposits (id, wallet_address, amount, apy_bps, duration_days, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(depositId, walletAddress, String(amount), apyBps, durationDays, now, now);
-  return depositId;
 };
 
 const getDepositsByWallet = async (walletAddress) => {
@@ -1467,14 +1421,15 @@ const associateVestingName = async (contractAddress, name) => {
   return true;
 };
 
-const syncDepositFromEvent = async ({ walletAddress, positionId, amount, depositType, durationDays, timestamp }) => {
-  const id = `eth:${walletAddress}:${positionId}`;
+// LendingPool is an ERC-4626 vault: deposits are recorded as an activity log only.
+// A lender's position is their share balance, read on-chain (there is no fixed APY or term).
+const syncDepositFromEvent = async ({ walletAddress, depositId, assets, timestamp }) => {
+  const id = `eth:${walletAddress}:${depositId}`;
   const now = new Date(timestamp * 1000).toISOString();
-  const apyBps = depositType === 1 ? (durationDays === 30 ? 800 : durationDays === 60 ? 1000 : 1200) : 450;
-  
+
   if (useSupabase) {
     const { error } = await supabaseClient().from('user_deposits').upsert({
-      id, wallet_address: walletAddress, amount: String(amount), apy_bps: apyBps, duration_days: durationDays || 0,
+      id, wallet_address: walletAddress, amount: String(assets), apy_bps: null, duration_days: 0,
       status: 'active', created_at: now, updated_at: now
     }, { onConflict: 'id' });
     if (error) throw error;
@@ -1483,16 +1438,17 @@ const syncDepositFromEvent = async ({ walletAddress, positionId, amount, deposit
   sqlite.prepare(`INSERT INTO user_deposits (id, wallet_address, amount, apy_bps, duration_days, status, created_at, updated_at) 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
     ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, status=excluded.status, updated_at=excluded.updated_at`)
-    .run(id, walletAddress, String(amount), apyBps, durationDays || 0, 'active', now, now);
+    .run(id, walletAddress, String(assets), null, 0, 'active', now, now);
   return id;
 };
 
-const syncLoanFromEvent = async ({ loanId, borrower, amount, ltvBps, dpvAtOpen, collateralToken, streamId, unlockTime, txHash, blockNumber, chainId }) => {
+const syncLoanFromEvent = async ({ loanId, borrower, amount, quantity, ltvBps, dpvAtOpen, collateralToken, streamId, unlockTime, txHash, blockNumber, chainId }) => {
   const now = new Date().toISOString();
+  const collateralQuantity = String(quantity ?? amount);
   if (useSupabase) {
     const { error } = await supabaseClient().from('loans').upsert({
       loan_id: loanId, chain_id: chainId, borrower, nft_holder: borrower,
-      collateral_token: collateralToken, stream_id: streamId, quantity: String(amount),
+      collateral_token: collateralToken, stream_id: streamId, quantity: collateralQuantity,
       unlock_time: new Date(unlockTime * 1000).toISOString(),
       principal_usdc: String(amount), dpv_at_open_usdc: String(dpvAtOpen),
       ltv_bps: ltvBps, nft_token_id: loanId, status: 'active',
@@ -1504,19 +1460,25 @@ const syncLoanFromEvent = async ({ loanId, borrower, amount, ltvBps, dpvAtOpen, 
   }
   sqlite.prepare(`INSERT INTO loans (loan_id, chain_id, borrower, nft_holder, collateral_token, stream_id, quantity, unlock_time, principal_usdc, dpv_at_open_usdc, ltv_bps, nft_token_id, status, tx_hash_open, block_number_open, opened_at, updated_at) 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-    ON CONFLICT(loan_id, chain_id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`)
-    .run(loanId, chainId, borrower, borrower, collateralToken, streamId, String(amount), new Date(unlockTime * 1000).toISOString(), String(amount), String(dpvAtOpen), ltvBps, loanId, 'active', txHash, blockNumber, now, now);
+    ON CONFLICT(loan_id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`)
+    .run(loanId, chainId, borrower, borrower, collateralToken, streamId, collateralQuantity, new Date(unlockTime * 1000).toISOString(), String(amount), String(dpvAtOpen), ltvBps, loanId, 'active', txHash, blockNumber, now, now);
   return loanId;
 };
 
-const updateLoanStatus = async (loanId, status, repaidAmount = '0') => {
+// status: 'active' | 'auction' | 'repaid' | 'liquidated' (LoanManager.Status, lower-cased)
+const updateLoanStatus = async (loanId, status, interestUsdc = null) => {
   const now = new Date().toISOString();
+  const fields = { status, updated_at: now };
+  if (interestUsdc !== null) fields.interest_usdc = String(interestUsdc);
+  if (status === 'repaid' || status === 'liquidated') fields.closed_at = now;
   if (useSupabase) {
-    const { error } = await supabaseClient().from('loans').update({ status, interest_usdc: String(repaidAmount), updated_at: now }).eq('loan_id', Number(loanId));
+    const { error } = await supabaseClient().from('loans').update(fields).eq('loan_id', Number(loanId));
     if (error) throw error;
     return true;
   }
-  sqlite.prepare(`UPDATE loans SET status = ?, interest_usdc = ?, updated_at = ? WHERE loan_id = ?`).run(status, String(repaidAmount), now, Number(loanId));
+  const columns = Object.keys(fields);
+  sqlite.prepare(`UPDATE loans SET ${columns.map(c => `${c} = ?`).join(', ')} WHERE loan_id = ?`)
+    .run(...columns.map(c => fields[c]), Number(loanId));
   return true;
 };
 
@@ -2179,11 +2141,9 @@ module.exports = {
   createRepayJob,
   listPendingRepayJobs,
   updateRepayJob,
-  createLoan,
   getLoansByWallet,
   syncLoanFromEvent,
   updateLoanStatus,
-  createDeposit,
   getDepositsByWallet,
   syncDepositFromEvent,
   deleteDeposit,

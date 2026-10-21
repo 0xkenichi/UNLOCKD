@@ -129,20 +129,64 @@ class IndexerService {
       if (!parsed) return null;
 
       const block = await this.provider.getBlock(blockNumber);
-      
+      const params = parsed.args.toObject ? parsed.args.toObject() : parsed.args;
+
       return {
         type: parsed.name,
-        params: parsed.args.toObject ? parsed.args.toObject() : parsed.args,
+        params,
         contract: name,
         address: log.address,
         txHash,
         logIndex,
         blockNumber,
         timestamp: block ? block.timestamp : Math.floor(Date.now() / 1000),
+        ...IndexerService.flattenParams(parsed.name, params)
       };
     } catch (e) {
       return null;
     }
+  }
+
+  /**
+   * Flat fields stored with every event (persistence.saveEvents): loanId, borrower,
+   * amount, tokenAddress, plus a JSON-safe payload of all event args.
+   * LoanRepaid/LoanLiquidated carry no borrower; consumers join on loanId.
+   */
+  static flattenParams(type, params) {
+    const str = (v) => (v === undefined || v === null ? undefined : v.toString());
+    const payload = Object.fromEntries(
+      Object.entries(params).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])
+    );
+    const flat = { payload, loanId: str(params.loanId) };
+    switch (type) {
+      case 'LoanOpened':
+        flat.borrower = params.borrower;
+        flat.amount = str(params.principal);
+        flat.tokenAddress = params.token;
+        break;
+      case 'LoanRepaid':
+        flat.amount = str(params.principalPaid + params.interestPaid);
+        break;
+      case 'LiquidationStarted':
+        flat.amount = str(params.debt);
+        break;
+      case 'LoanLiquidated':
+        flat.amount = str(params.price);
+        flat.defaulted = true;
+        break;
+      case 'SurplusClaimed':
+        flat.borrower = params.borrower;
+        flat.amount = str(params.amount);
+        break;
+      case 'Deposit':
+      case 'Withdraw':
+        // Lender events: no borrower, so they never count toward borrower history.
+        flat.amount = str(params.assets);
+        break;
+      default:
+        break;
+    }
+    return flat;
   }
 
   async pushEvent(event) {
@@ -161,37 +205,64 @@ class IndexerService {
 
     // Sync specific tables
     try {
-      if (event.contract === 'pool') {
-        if (event.type === 'Deposit') {
-          await this.persistence.syncDepositFromEvent({
-            walletAddress: event.params.user,
-            positionId: event.params.positionId.toString(),
-            amount: event.params.amount.toString(),
-            depositType: Number(event.params.depositType),
-            durationDays: Number(event.params.lockDays),
-            timestamp: event.timestamp
-          });
-        } else if (event.type === 'Withdraw') {
-          // If amount reaches 0, the persistence layer handles status
-          // Actually, we might need a more complex sync here, but for now we'll just re-sync
-          // or mark as withdrawn if needed.
-        }
-      } else if (event.contract === 'loanManager') {
-        if (event.type === 'LoanOriginated') {
-          await this.persistence.syncLoanFromEvent({
-            loanId: event.params.loanId.toString(),
-            borrower: event.params.borrower,
-            amount: event.params.borrowedUsdc.toString(),
-            dpv: event.params.dpvAtOrigination.toString(),
-            nftTokenId: event.params.nftTokenId.toString(),
-            timestamp: event.timestamp
-          });
-        } else if (event.type === 'LoanRepaid') {
-          await this.persistence.updateLoanStatus(event.params.loanId.toString(), 'repaid', event.params.principal.toString());
-        }
-      }
+      await this.syncEvent(event);
     } catch (err) {
       console.error(`[IndexerService] Error syncing event to DB:`, err.message);
+    }
+  }
+
+  async syncEvent(event) {
+    const p = event.params;
+    if (event.contract === 'pool') {
+      // ERC-4626 Deposit(sender, owner, assets, shares). Positions are share balances
+      // read on-chain, so withdrawals need no per-position bookkeeping.
+      if (event.type === 'Deposit') {
+        await this.persistence.syncDepositFromEvent({
+          walletAddress: p.owner,
+          depositId: `${event.txHash}:${event.logIndex}`,
+          assets: p.assets.toString(),
+          timestamp: event.timestamp
+        });
+      }
+      return;
+    }
+
+    if (event.contract !== 'loanManager') return;
+
+    switch (event.type) {
+      case 'LoanOpened': {
+        const loan = await this.contracts.loanManager.getLoan(p.loanId);
+        const { chainId } = await this.provider.getNetwork();
+        await this.persistence.syncLoanFromEvent({
+          loanId: p.loanId.toString(),
+          borrower: p.borrower,
+          amount: p.principal.toString(),
+          quantity: loan.quantity.toString(),
+          ltvBps: p.pv > 0n ? Number((p.principal * 10000n) / p.pv) : 0,
+          dpvAtOpen: p.pv.toString(),
+          collateralToken: p.token,
+          streamId: loan.streamId.toString(),
+          unlockTime: Number(loan.unlockTime),
+          txHash: event.txHash,
+          blockNumber: event.blockNumber,
+          chainId: Number(chainId)
+        });
+        break;
+      }
+      case 'LoanRepaid':
+        // Partial repayments leave the loan active; only a closing repayment changes status.
+        if (p.closed) {
+          await this.persistence.updateLoanStatus(p.loanId.toString(), 'repaid', p.interestPaid.toString());
+        }
+        break;
+      case 'LiquidationStarted':
+        await this.persistence.updateLoanStatus(p.loanId.toString(), 'auction');
+        break;
+      case 'LoanLiquidated':
+        await this.persistence.updateLoanStatus(p.loanId.toString(), 'liquidated');
+        break;
+      default:
+        break;
     }
   }
 

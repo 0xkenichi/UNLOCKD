@@ -10,7 +10,7 @@ const CASES = [
   },
   {
     name: 'Repay revert diagnosis',
-    message: 'repayLoan reverted, simulation error 0xfb8f41b2, what should I check?',
+    message: 'repay reverted, simulation error 0xfb8f41b2, what should I check?',
     expectedIntent: 'repay_troubleshoot'
   },
   {

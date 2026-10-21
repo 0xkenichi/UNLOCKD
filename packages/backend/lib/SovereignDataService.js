@@ -1726,15 +1726,24 @@ class SovereignDataService {
       // Extract all linked addresses for internal matching
       const allAddrs = new Set(linkedWallets.map(l => l.walletAddress.toLowerCase()));
       
+      // LoanRepaid / LoanLiquidated carry no borrower; resolve it from the loan's LoanOpened event.
+      const loanBorrowers = new Map();
       for (const event of events) {
-        const borrower = (event?.borrower || '').toLowerCase();
+        if (event?.type === 'LoanOpened' && event.loanId != null && event.borrower) {
+          loanBorrowers.set(String(event.loanId), String(event.borrower).toLowerCase());
+        }
+      }
+
+      for (const event of events) {
+        const borrower = (event?.borrower || loanBorrowers.get(String(event?.loanId ?? '')) || '').toLowerCase();
         if (!allAddrs.has(borrower)) continue;
-        
-        if (event.type === 'LoanRepaid' || event.type === 'LoanRepaidWithSwap') {
-          repaidLoans.add(String(event.loanId || ''));
+
+        if (event.type === 'LoanRepaid') {
+          // closed === false is a partial repayment; the loan is still open.
+          if ((event.closed ?? event.payload?.closed) !== false) repaidLoans.add(String(event.loanId || ''));
           if (event.late || event.payload?.late) lateRepaymentCount++;
         }
-        if (event.type === 'LoanSettled' && event.defaulted) {
+        if (event.type === 'LoanLiquidated') {
           defaultedCount += 1;
         }
       }

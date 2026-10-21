@@ -2,18 +2,19 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 /**
  * Backfill loan_token_exposure from indexer events for concentration caps.
- * Processes LoanCreated (upsert exposure), LoanRepaid / LoanSettled / LoanRepaidWithSwap (delete exposure).
+ * Processes LoanManager events: LoanOpened (upsert exposure), closing LoanRepaid / LoanLiquidated (delete exposure).
+ * A LoanRepaid with closed === false is a partial repayment and leaves the exposure in place.
  * @see docs/risk/VESTED_TOKEN_LENDING_SESSION_2026-02-14.md, backend/migrations/0007_loan_token_exposure.sql
  */
 
 const USDC_DECIMALS = 1e6;
 
 /**
- * Run backfill: load events in chronological order, upsert exposure for LoanCreated, delete for repay/settle.
+ * Run backfill: load events in chronological order, upsert exposure for LoanOpened, delete for full repay / liquidation.
  * @param {object} opts
  * @param {import('../persistence')} opts.persistence - persistence module (getLoanExposureByToken, upsertLoanTokenExposure, deleteLoanTokenExposure)
- * @param {(limit: number) => Promise<Array<{ type: string, loanId: string, amount: string, tokenAddress?: string | null, blockNumber: number, logIndex: number }>>} opts.loadEvents - load events (any order; we sort by block, log)
- * @param {(loanId: string) => Promise<string | null>} opts.getTokenAddressForLoan - resolve collateral token for loanId from chain (e.g. LoanManager.loans + VestingAdapter.getDetails)
+ * @param {(limit: number) => Promise<Array<{ type: string, loanId: string, amount: string, tokenAddress?: string | null, closed?: boolean, blockNumber: number, logIndex: number }>>} opts.loadEvents - load events (any order; we sort by block, log)
+ * @param {(loanId: string) => Promise<string | null>} opts.getTokenAddressForLoan - resolve collateral token for loanId from chain (e.g. LoanManager.getLoan(loanId).token)
  * @param {string} [opts.chain='base'] - chain id for exposure table
  * @param {number} [opts.limit=500] - max events to process
  * @returns {Promise<{ processed: number, created: number, removed: number, skipped: number, errors: string[] }>}
@@ -40,7 +41,12 @@ async function runBackfillConcentration({
     const loanId = String(event.loanId || '').trim();
     if (!loanId) continue;
 
-    if (event.type === 'LoanRepaid' || event.type === 'LoanSettled' || event.type === 'LoanRepaidWithSwap') {
+    if (event.type === 'LoanRepaid' && event.closed === false) {
+      skipped++;
+      continue;
+    }
+
+    if (event.type === 'LoanRepaid' || event.type === 'LoanLiquidated') {
       try {
         await persistence.deleteLoanTokenExposure(loanId, chain);
         removed++;
@@ -50,7 +56,7 @@ async function runBackfillConcentration({
       continue;
     }
 
-    if (event.type !== 'LoanCreated') continue;
+    if (event.type !== 'LoanOpened') continue;
 
     const amountRaw = event.amount || '0';
     const amountUsd = Number(amountRaw) / USDC_DECIMALS;

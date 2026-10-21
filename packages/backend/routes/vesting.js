@@ -121,42 +121,50 @@ router.get('/all', async (req, res) => {
 router.get('/valuation/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { duration = 30 * 86400 } = req.query; // Default 30 days
 
     // 1. Fetch source from DB
     const sources = await persistence.listVestingSources({ limit: 1000 });
     const source = sources.find(s => s.id === id);
     if (!source) return res.status(404).json({ success: false, error: 'Source not found' });
 
-    // 2. Fetch dDPV from Redis or trigger immediate calc
-    // In production, we'd check cache. For the demo, we'll call dDPVService.computeDDPV_v2 locally
-    // but we need the RiskParamBundle.
-    
-    // For now, we'll use a simplified version for the UI or try to get from Redis
-    const dDPVService = require('../oracles/dDPVService').ddpvService;
-    const cacheKey = `ddpv:result:${source.chainId || 1}:${source.vestingContract}`;
-    const cached = await dDPVService.redis.get(cacheKey);
-    
-    if (cached) {
-      const data = JSON.parse(cached);
-      return res.json({ success: true, valuation: data });
+    // 2. Value on-chain via ValuationEngine.computeDPV(quantity, token, unlockTime, vestingContract).
+    //    token / quantity / unlockTime come from the query string or the source metadata.
+    const meta = source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    const token = String(req.query.token || meta.token || meta.tokenAddress || '').trim();
+    const quantity = String(req.query.quantity || meta.quantity || meta.amount || '').trim();
+    const unlockTime = Number(req.query.unlockTime || meta.unlockTime || meta.endTime || 0);
+    const computeEvmDpv = req.app.get('computeEvmDpv');
+
+    if (!token || !/^\d+$/.test(quantity) || !unlockTime || typeof computeEvmDpv !== 'function') {
+      return res.json({
+        success: true,
+        valuation: null,
+        status: 'INPUTS_MISSING',
+        required: ['token', 'quantity (raw units)', 'unlockTime (unix seconds)']
+      });
     }
 
-    // Fallback: Trigger update and return "Processing"
-    // For the demo/MVP, we'll return a simulated but realistic dDPV if not cached
-    const mockValuation = {
-      dpvUsdc: (BigInt(source.quantity || 0) * 8n / 10n).toString(), // 80% LTV mock
-      ltvBps: 8000,
-      breakdown: {
-        grossValueUsd: 10000,
-        timeFactor: 0.95,
-        volFactor: 0.9,
-        omegaFactor: 0.95,
-        liquidityFactor: 1.0
-      }
-    };
+    const valuation = await computeEvmDpv({
+      quantity,
+      token,
+      unlockTime,
+      vestingContract: source.vestingContract || source.lockupAddress || null
+    });
+    if (!valuation.pvRaw || valuation.pvRaw === '0') {
+      return res.json({ success: true, valuation: null, status: 'UNAVAILABLE', error: valuation.error || null });
+    }
 
-    res.json({ success: true, valuation: mockValuation, status: 'MOCK_FALLBACK' });
+    res.json({
+      success: true,
+      valuation: {
+        dpvUsdc: valuation.pvRaw,
+        pvUsd: valuation.pv,
+        ltvBps: valuation.ltvBps,
+        maxBorrowUsdc: valuation.maxBorrowRaw,
+        source: valuation.source
+      },
+      status: valuation.source === 'computeDPV' ? 'ONCHAIN' : 'ESTIMATE'
+    });
   } catch (err) {
     console.error(`[API] /api/vesting/valuation/${req.params.id} error:`, err.message);
     res.status(500).json({ success: false, error: 'Valuation failed' });

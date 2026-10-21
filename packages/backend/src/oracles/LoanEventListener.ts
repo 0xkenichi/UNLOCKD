@@ -1,21 +1,11 @@
-import { createPublicClient, http, parseAbiItem, Log } from 'viem';
+import { createPublicClient, http, Log } from 'viem';
 import { sepolia } from 'viem/chains';
 import { createClient } from '@supabase/supabase-js';
 import pino from 'pino';
 import { oracleQueue } from '../queue.js';
+import { LOAN_MANAGER_ABI, LENDING_POOL_EVENTS_ABI } from '../contracts/vestraAbi';
 
 const logger = pino({ name: 'EventListener' });
-
-const LOAN_EVENTS = [
-  parseAbiItem('event LoanOriginated(uint256 indexed loanId, address indexed borrower, uint256 streamId, uint256 borrowedUsdc, uint256 dpvAtOrigination, uint256 nftTokenId)'),
-  parseAbiItem('event LoanRepaid(uint256 indexed loanId, address indexed repayer, uint256 principal, uint256 interest)'),
-  parseAbiItem('event LoanSettled(uint256 indexed loanId, address indexed borrower, uint256 recoveredUsdc, bool fullRecovery)'),
-] as const;
-
-const LENDING_EVENTS = [
-  parseAbiItem('event Deposit(address indexed user, uint256 indexed positionId, uint256 amount, uint8 depositType, uint256 lockDays)'),
-  parseAbiItem('event Withdraw(address indexed user, uint256 indexed positionId, uint256 amount)'),
-] as const;
 
 export class LoanEventListener {
   private client:   ReturnType<typeof createPublicClient>;
@@ -30,111 +20,129 @@ export class LoanEventListener {
     this.lendingPool = lendingPool as `0x${string}`;
   }
 
+  private setLoanStatus(loanId: bigint, fields: Record<string, unknown>) {
+    return (this.supabase.from('loans') as any).update(fields).eq('loan_id_onchain', Number(loanId));
+  }
+
   start(): void {
     logger.info('LoanEventListener started');
 
-    // Watch LoanOriginated
+    // Watch LoanOpened
     this.client.watchContractEvent({
       address: this.loanManager,
-      abi:     [LOAN_EVENTS[0]],
-      eventName: 'LoanOriginated',
+      abi:     LOAN_MANAGER_ABI,
+      eventName: 'LoanOpened',
       onLogs: async (logs: Log[]) => {
         for (const log of logs) {
-          const { loanId, borrower, streamId, borrowedUsdc, dpvAtOrigination, nftTokenId } = (log as any).args;
-          await this.supabase.from('loans').upsert({
+          const { loanId, borrower, token, escrowId, principal, maturity, pv } = (log as any).args;
+          // Stream details are read from the loan; the event only carries the escrow id.
+          const [loan, rateBps] = await Promise.all([
+            this.client.readContract({ address: this.loanManager, abi: LOAN_MANAGER_ABI, functionName: 'getLoan', args: [loanId] }),
+            this.client.readContract({ address: this.loanManager, abi: LOAN_MANAGER_ABI, functionName: 'currentRateBps' }),
+          ]);
+          await (this.supabase.from('loans') as any).upsert({
             loan_id_onchain:  Number(loanId),
             chain_id:         11155111,
             borrower_wallet:  borrower!.toLowerCase(),
-            stream_contract:  '',       // pull from tx data if needed
-            stream_id:        Number(streamId),
-            collateral_token: '',
-            borrowed_usdc:    Number(borrowedUsdc!) / 1e6,
-            dpv_at_origin:    (Number(dpvAtOrigination!) / 1e18).toString(),
-            interest_rate_bps: 0,       // pull from contract read
-            nft_token_id:     Number(nftTokenId),
-            originated_at:    new Date().toISOString(),
-            due_at:           new Date().toISOString(), // read from contract
+            stream_contract:  loan.nftContract.toLowerCase(),
+            stream_id:        Number(loan.streamId),
+            collateral_token: token!.toLowerCase(),
+            borrowed_usdc:    Number(principal!) / 1e6,
+            dpv_at_origin:    (Number(pv!) / 1e6).toString(),
+            interest_rate_bps: Number(rateBps), // floating; rate at origination
+            nft_token_id:     Number(escrowId),
+            originated_at:    new Date(Number(loan.openedAt) * 1000).toISOString(),
+            due_at:           new Date(Number(maturity) * 1000).toISOString(),
             status:           'active',
           }, { onConflict: 'loan_id_onchain' });
-          logger.info({ loanId: loanId?.toString(), borrower }, 'Loan originated synced');
+          logger.info({ loanId: loanId?.toString(), borrower }, 'Loan opened synced');
         }
       },
     });
 
-    // Watch LoanRepaid
+    // Watch LoanRepaid (partial repayments leave the loan active)
     this.client.watchContractEvent({
       address: this.loanManager,
-      abi:     [LOAN_EVENTS[1]],
+      abi:     LOAN_MANAGER_ABI,
       eventName: 'LoanRepaid',
       onLogs: async (logs: Log[]) => {
         for (const log of logs) {
-          const { loanId } = (log as any).args;
-          await this.supabase.from('loans')
-            .update({ status: 'repaid', repaid_at: new Date().toISOString() })
-            .eq('loan_id_onchain', Number(loanId));
+          const { loanId, closed } = (log as any).args;
+          if (!closed) continue;
+          await this.setLoanStatus(loanId, { status: 'repaid', repaid_at: new Date().toISOString() });
           logger.info({ loanId: loanId?.toString() }, 'Loan repaid synced');
         }
       },
     });
 
-    // Watch LoanSettled
+    // Watch LiquidationStarted (loan is now in a Dutch auction)
     this.client.watchContractEvent({
       address: this.loanManager,
-      abi:     [LOAN_EVENTS[2]],
-      eventName: 'LoanSettled',
+      abi:     LOAN_MANAGER_ABI,
+      eventName: 'LiquidationStarted',
       onLogs: async (logs: Log[]) => {
         for (const log of logs) {
           const { loanId } = (log as any).args;
-          await this.supabase.from('loans')
-            .update({ status: 'settled', repaid_at: new Date().toISOString() })
-            .eq('loan_id_onchain', Number(loanId));
-          logger.info({ loanId: loanId?.toString() }, 'Loan settled synced');
+          await this.setLoanStatus(loanId, { status: 'auction' });
+          logger.info({ loanId: loanId?.toString() }, 'Loan auction started synced');
         }
       },
     });
 
-    // Watch LendingPool Deposits
+    // Watch LoanLiquidated (auction settled)
+    this.client.watchContractEvent({
+      address: this.loanManager,
+      abi:     LOAN_MANAGER_ABI,
+      eventName: 'LoanLiquidated',
+      onLogs: async (logs: Log[]) => {
+        for (const log of logs) {
+          const { loanId } = (log as any).args;
+          await this.setLoanStatus(loanId, { status: 'liquidated', repaid_at: new Date().toISOString() });
+          logger.info({ loanId: loanId?.toString() }, 'Loan liquidated synced');
+        }
+      },
+    });
+
+    // Watch LendingPool (ERC-4626) deposits
     this.client.watchContractEvent({
       address: this.lendingPool,
-      abi: [LENDING_EVENTS[0]],
+      abi: LENDING_POOL_EVENTS_ABI,
       eventName: 'Deposit',
       onLogs: async (logs: Log[]) => {
         for (const log of logs) {
-          const { user, positionId, amount, depositType, lockDays } = (log as any).args;
-          // Push to BullMQ
+          const { owner, assets, shares } = (log as any).args;
           await oracleQueue.add('lending-position-update', {
             type: 'DEPOSIT',
-            user: user!.toLowerCase(),
-            amount: Number(amount) / 1e6,
-            depositType: depositType === 0 ? 'VARIABLE' : 'FIXED',
-            lockDays: Number(lockDays),
+            user: owner!.toLowerCase(),
+            amount: Number(assets) / 1e6,
+            shares: shares!.toString(),
             txHash: log.transactionHash,
             timestamp: new Date().toISOString()
           });
-          logger.info({ user, amount: amount?.toString() }, 'Lending deposit queued');
+          logger.info({ owner, assets: assets?.toString() }, 'Lending deposit queued');
         }
       }
     });
 
-    // Watch LendingPool Withdrawals
+    // Watch LendingPool (ERC-4626) withdrawals
     this.client.watchContractEvent({
       address: this.lendingPool,
-      abi: [LENDING_EVENTS[1]],
+      abi: LENDING_POOL_EVENTS_ABI,
       eventName: 'Withdraw',
       onLogs: async (logs: Log[]) => {
         for (const log of logs) {
-          const { user, amount } = (log as any).args;
+          const { owner, assets, shares } = (log as any).args;
           await oracleQueue.add('lending-position-update', {
             type: 'WITHDRAW',
-            user: user!.toLowerCase(),
-            amount: Number(amount) / 1e6,
+            user: owner!.toLowerCase(),
+            amount: Number(assets) / 1e6,
+            shares: shares!.toString(),
             txHash: log.transactionHash,
             timestamp: new Date().toISOString()
           });
-          logger.info({ user, amount: amount?.toString() }, 'Lending withdrawal queued');
+          logger.info({ owner, assets: assets?.toString() }, 'Lending withdrawal queued');
         }
       }
     });
   }
 }
-

@@ -1,51 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { createPublicClient, http } from 'viem';
 import { sepolia } from 'viem/chains';
 import pino from 'pino';
 import { calculateIdentityCreditScore } from '../../identityCreditScore.js';
 
 const logger = pino({ name: 'VcsSyncService' });
 
-// LoanManager ABI (just the function we need)
-const LOAN_MANAGER_ABI = [
-  {
-    name: 'setVcsTier',
-    type: 'function',
-    inputs: [
-      { name: 'borrower',   type: 'address' },
-      { name: 'tier',       type: 'uint256' },
-      { name: 'creditBps_', type: 'uint256' },
-    ],
-  },
-] as const;
-
-const TIER_MAP: Record<string, number> = {
-  RECRUIT:  0,
-  SCOUT:    0,
-  STANDARD: 0,
-  PREMIUM:  1,
-  TITAN:    2,
-};
+// The VCS score and tier live off-chain (Supabase). LoanManager v1 has no per-borrower
+// credit tier: LTV comes from ValuationEngine and the rate floats with pool utilization.
 
 export class VcsSyncService {
   private supabase:   ReturnType<typeof createClient>;
   private viemClient: ReturnType<typeof createPublicClient>;
-  private wallet:     ReturnType<typeof createWalletClient>;
-  private loanManagerAddress: `0x${string}`;
 
   constructor(
     supabaseUrl: string,
     supabaseKey: string,
     rpcUrl:      string,
-    relayerKey:  string,
-    loanManager: string,
   ) {
     this.supabase = createClient(supabaseUrl, supabaseKey);
     this.viemClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
-    const account = privateKeyToAccount(relayerKey as `0x${string}`);
-    this.wallet   = createWalletClient({ account, chain: sepolia, transport: http(rpcUrl) });
-    this.loanManagerAddress = loanManager as `0x${string}`;
   }
 
   /**
@@ -96,10 +70,7 @@ export class VcsSyncService {
         last_sync:            new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
-      // 5. Push tier on-chain to LoanManager (RELAYER_ROLE required)
-      await this.pushTierOnChain(wallet, tier, maxCreditBps);
-
-      // 6. Flag Titan wallets for manual onboarding
+      // 5. Flag Titan wallets for manual onboarding
       if (tier === 'TITAN') {
         await this.supabase
           .from('users')
@@ -208,7 +179,7 @@ export class VcsSyncService {
       .from('loans')
       .select('id', { count: 'exact', head: true })
       .eq('borrower_wallet', wallet.toLowerCase())
-      .eq('status', 'defaulted');
+      .in('status', ['defaulted', 'liquidated']);
     return (count ?? 0) > 0;
   }
 
@@ -218,21 +189,5 @@ export class VcsSyncService {
     if (score >= 500)       return 4000; // STANDARD
     if (score >= 300)       return 2000; // SCOUT
     return 1000;                         // RECRUIT
-  }
-
-  private async pushTierOnChain(wallet: string, tier: string, maxCreditBps: number): Promise<void> {
-    const onChainTier = TIER_MAP[tier] ?? 0;
-    try {
-      const hash = await this.wallet.writeContract({
-        address: this.loanManagerAddress,
-        abi:     LOAN_MANAGER_ABI,
-        functionName: 'setVcsTier',
-        args:    [wallet as `0x${string}`, BigInt(onChainTier), BigInt(maxCreditBps)],
-      });
-      logger.info({ fn: 'pushTierOnChain', wallet, tier, hash }, 'VCS tier pushed on-chain');
-    } catch (err: any) {
-      // Non-fatal: on-chain push can be retried. Supabase is source of truth for now.
-      logger.error({ err: err.message, wallet }, 'On-chain VCS push failed');
-    }
   }
 }
