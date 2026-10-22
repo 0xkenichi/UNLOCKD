@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Guilloche from '../components/landing/Guilloche.jsx';
 import Seal from '../components/landing/Seal.jsx';
+import Odometer from '../components/landing/Odometer.jsx';
+import LifeOfALoan from '../components/landing/LifeOfALoan.jsx';
+import { afterFirstPaint, fontsReady, prefersReducedMotion } from '../motion/env.js';
 import '../styles/landing.css';
 
 /*
@@ -21,7 +24,7 @@ const EXAMPLE = (() => {
   const fee = 0.005;
   const pv = quantity * price * Math.exp(-rate * years) * (1 - sigma / 2);
   const maxCredit = pv * ltv;
-  return { quantity, pv, maxCredit, received: maxCredit * (1 - fee) };
+  return { quantity, price, years, rate, sigma, ltv, fee, pv, maxCredit, received: maxCredit * (1 - fee) };
 })();
 
 const usd = (v) =>
@@ -131,6 +134,41 @@ function useReveal() {
   return ref;
 }
 
+/**
+ * After first paint, loads the GSAP sequences and waits for the faces, then marks
+ * the page live (which also starts the CSS odometer roll). Nothing here blocks render.
+ */
+function useLandingMotion(rootRef) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    if (prefersReducedMotion()) {
+      root.classList.add('is-live');
+      return undefined;
+    }
+    let cancelled = false;
+    let teardown;
+    const live = () => root.classList.add('is-live');
+    // Whatever happens to the motion chunk, the figures roll and the linework appears.
+    const failsafe = window.setTimeout(live, 2500);
+    const cancelPaint = afterFirstPaint(() => {
+      Promise.all([import('../motion/landingMotion.js'), fontsReady()])
+        .then(([{ initLanding }]) => {
+          if (cancelled) return;
+          live();
+          teardown = initLanding(root);
+        })
+        .catch(live);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(failsafe);
+      cancelPaint();
+      if (teardown) teardown();
+    };
+  }, [rootRef]);
+}
+
 function Masthead() {
   return (
     <header className="lx-masthead">
@@ -163,7 +201,7 @@ function Instrument() {
       </div>
       <div className="lx-instrument__amount">
         <span className="lx-instrument__label">Credit available</span>
-        <span className="vx-figure lx-instrument__figure">{usd(EXAMPLE.maxCredit)}</span>
+        <Odometer value={usd(EXAMPLE.maxCredit)} intro className="vx-figure lx-instrument__figure" />
       </div>
       <dl className="lx-instrument__terms">
         <div>
@@ -172,7 +210,9 @@ function Instrument() {
         </div>
         <div>
           <dt>Present value</dt>
-          <dd className="mono">{usd(EXAMPLE.pv)}</dd>
+          <dd className="mono">
+            <Odometer value={usd(EXAMPLE.pv)} intro delay={500} />
+          </dd>
         </div>
         <div>
           <dt>Rank · max LTV</dt>
@@ -180,7 +220,9 @@ function Instrument() {
         </div>
         <div>
           <dt>You receive</dt>
-          <dd className="mono">{usd(EXAMPLE.received)}</dd>
+          <dd className="mono">
+            <Odometer value={usd(EXAMPLE.received)} intro delay={700} />
+          </dd>
         </div>
       </dl>
       <figcaption className="lx-instrument__foot">
@@ -195,6 +237,7 @@ export default function Landing() {
   const navigate = useNavigate();
   const rootRef = useReveal();
   const [open, setOpen] = useState(0);
+  useLandingMotion(rootRef);
 
   return (
     <div className="lx" ref={rootRef}>
@@ -206,8 +249,16 @@ export default function Landing() {
         <div className="lx-wrap lx-hero__grid">
           <div className="lx-hero__copy">
             <p className="vx-eyebrow">Credit against vesting tokens</p>
+            {/* Set line by line: each line's width axis is animated, so wrapping must not depend on it. */}
             <h1 id="lx-hero-title" className="lx-hero__title">
-              Liquidity for what you have <em>already earned.</em>
+              <span className="lx-line">Liquidity for</span>{' '}
+              <span className="lx-line">what you have</span>{' '}
+              <span className="lx-line lx-line--open">
+                <em>already</em>
+              </span>{' '}
+              <span className="lx-line lx-line--open">
+                <em>earned.</em>
+              </span>
             </h1>
             <p className="lx-hero__lede">
               Borrow USDC against your vesting stream without selling a single token. The stream is held by a contract,
@@ -243,24 +294,14 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Method */}
-      <section id="method" className="lx-section" aria-labelledby="lx-method-title">
+      {/* Method: the life of a loan, scroll-driven */}
+      <section id="method" className="lx-section lx-method" aria-labelledby="lx-method-title">
         <div className="lx-wrap">
           <div className="lx-section__head vx-reveal">
             <p className="vx-eyebrow">The method</p>
             <h2 id="lx-method-title">Four articles. Nothing hidden between them.</h2>
           </div>
-          <ol className="lx-articles">
-            {ARTICLES.map((a) => (
-              <li key={a.numeral} className="lx-article vx-reveal">
-                <span className="lx-article__numeral" aria-hidden="true">
-                  {a.numeral}
-                </span>
-                <h3>{a.title}</h3>
-                <p>{a.body}</p>
-              </li>
-            ))}
-          </ol>
+          <LifeOfALoan articles={ARTICLES} example={EXAMPLE} />
         </div>
       </section>
 
@@ -472,7 +513,7 @@ export default function Landing() {
             </a>
           </nav>
           <p className="lx-colophon__fine lx-colophon__set">
-            Set in Instrument Serif, Inter Tight and IBM Plex Mono. Contracts licensed BSL 1.1.
+            Set in Anybody and Martian Mono. Contracts licensed BSL 1.1.
           </p>
         </div>
       </footer>

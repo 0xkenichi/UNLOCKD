@@ -7,7 +7,7 @@ import { useMemo } from 'react';
  * certificates. Drawn as a set of rotated hypotrochoids so it is crisp at any
  * size and costs nothing to load.
  */
-function hypotrochoid(R, r, d, steps, rotation) {
+export function hypotrochoid(R, r, d, steps, rotation) {
   const k = (R - r) / r;
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);

@@ -27,6 +27,7 @@ import {
     initAnalyticsAutoCapture
 } from './utils/analytics.js';
 import PrivacyModeToggle from './components/privacy/PrivacyModeToggle.jsx';
+import MotionLayer from './motion/MotionLayer.jsx';
 
 const Landing = lazy(routeImports.landing);
 const Dashboard = lazy(routeImports.dashboard);
@@ -290,6 +291,7 @@ function AppShell() {
                     </div>
                 </header>
             )}
+            <MotionLayer sweep={hasStandardHeader} />
             {!isLanding && showChainWarning && (
                 <div className="chain-warning">
                     Please switch to Flow EVM, Base, Arbitrum, or Avalanche to continue.

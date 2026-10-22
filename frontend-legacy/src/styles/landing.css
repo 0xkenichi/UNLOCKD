@@ -5,7 +5,8 @@
   position: relative;
   background: var(--bg-primary);
   color: var(--text-primary);
-  overflow-x: hidden;
+  /* clip, not hidden: hidden would make .lx a scroll container and break the sticky stage */
+  overflow-x: clip;
 }
 
 .lx-wrap {
@@ -15,16 +16,19 @@
 }
 
 .lx h2 {
-  font-size: clamp(30px, 4vw, 46px);
-  line-height: 1.06;
-  margin: 14px 0 18px;
-  max-width: 18ch;
+  font-size: clamp(32px, 4.4vw, 54px);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  margin: 16px 0 20px;
+  max-width: 16ch;
 }
 
 .lx h3 {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 24px;
+  font-weight: 680;
+  font-stretch: 84%;
+  font-size: 22px;
+  line-height: 1.08;
   margin: 0 0 10px;
 }
 
@@ -74,14 +78,25 @@
 
 .lx-wordmark__name {
   font-family: var(--font-display);
-  font-size: 26px;
-  letter-spacing: 0.02em;
+  font-size: 24px;
+  font-weight: 820;
+  font-stretch: 58%;
+  line-height: 1;
+  letter-spacing: 0.01em;
   color: var(--text-primary);
+  transition: font-stretch 0.6s var(--ease-expo), font-weight 0.6s var(--ease-expo);
+}
+
+.lx-wordmark:hover .lx-wordmark__name {
+  font-stretch: 112%;
+  font-weight: 380;
 }
 
 .lx-wordmark__sub {
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -94,18 +109,20 @@
 
 .lx-nav a {
   font-size: 11px;
-  letter-spacing: 0.18em;
+  font-weight: 560;
+  font-stretch: calc(var(--wdth-caps) * 1%);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
   text-decoration: none;
   padding: 6px 0;
-  border-bottom: 1px solid transparent;
-  transition: color var(--motion-fast), border-color var(--motion-fast);
+  background: linear-gradient(var(--brass-400), var(--brass-400)) no-repeat 50% 100% / 0% 1px;
+  transition: color var(--motion-fast), background-size 0.5s var(--ease-expo);
 }
 
 .lx-nav a:hover {
   color: var(--text-primary);
-  border-bottom-color: var(--brass-400);
+  background-size: 100% 1px;
 }
 
 .lx-masthead__cta {
@@ -140,15 +157,67 @@
   align-items: center;
 }
 
+/* Hero headline. Each line carries its own width/weight (--w/--g) so the
+   motion layer can open it glyph by glyph. With motion allowed, the page
+   paints the locked state (narrow, heavy) and the motion layer releases it. */
 .lx-hero__title {
-  font-size: clamp(44px, 6.6vw, 88px);
-  line-height: 0.98;
-  letter-spacing: -0.02em;
-  margin: 22px 0 28px;
-  max-width: 12ch;
+  font-size: clamp(46px, 7.8vw, 116px);
+  line-height: 0.9;
+  letter-spacing: -0.022em;
+  margin: 24px 0 30px;
+  max-width: none;
 }
 
-.lx-hero__title em,
+.lx-line {
+  --w: var(--wdth-display);
+  --g: var(--wght-display);
+  display: block;
+  width: max-content; /* measured by the motion layer: must be the real text width */
+  white-space: nowrap;
+  font-variation-settings: 'wdth' var(--w), 'wght' var(--g);
+}
+
+.lx-line--open {
+  --w: var(--wdth-open);
+  --g: var(--wght-open);
+  letter-spacing: -0.03em;
+}
+
+.lx-line--open em {
+  font-style: italic;
+  color: var(--brass-300);
+}
+
+.vx-motion .lx-hero__title:not(.is-open) .lx-line {
+  --w: var(--wdth-locked);
+  --g: var(--wght-locked);
+  /* If the motion layer never arrives, open the type anyway. */
+  animation: lx-unlock-fallback 1.4s var(--ease-expo) 4s forwards;
+}
+
+.vx-motion .lx-hero__title:not(.is-open) .lx-line--open {
+  animation-name: lx-unlock-fallback-open;
+}
+
+@keyframes lx-unlock-fallback {
+  to {
+    --w: var(--wdth-display);
+    --g: var(--wght-display);
+  }
+}
+
+@keyframes lx-unlock-fallback-open {
+  to {
+    --w: var(--wdth-open);
+    --g: var(--wght-open);
+  }
+}
+
+/* Split glyphs (SplitText) read their axes from --w/--g, inherited from the line until tweened. */
+.lx-char {
+  font-variation-settings: 'wdth' var(--w), 'wght' var(--g);
+}
+
 .lx h2 em {
   font-style: italic;
   color: var(--brass-300);
@@ -174,8 +243,10 @@
   gap: 10px;
   margin-top: 28px !important;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -221,15 +292,19 @@
 
 .lx-instrument__label,
 .lx-instrument__terms dt {
-  font-size: 10.5px;
-  letter-spacing: 0.16em;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .lx-instrument__figure {
-  font-size: clamp(40px, 4.4vw, 56px);
+  font-size: clamp(30px, 3.6vw, 46px);
+  font-weight: 250;
   line-height: 1;
+  letter-spacing: -0.05em;
 }
 
 .lx-instrument__terms {
@@ -256,7 +331,13 @@
 .lx-instrument__terms dd {
   margin: 6px 0 0;
   font-size: 14px;
+  line-height: 1.35;
   color: var(--text-primary);
+}
+
+.lx-instrument__terms dd.mono {
+  font-size: 13px;
+  letter-spacing: -0.03em;
 }
 
 .lx-instrument__foot {
@@ -289,15 +370,20 @@
 
 .lx-preface__drop {
   font-family: var(--font-display);
-  font-size: clamp(22px, 2.4vw, 30px);
-  line-height: 1.35;
+  font-size: clamp(21px, 2.3vw, 29px);
+  font-weight: 340;
+  font-stretch: 104%;
+  line-height: 1.32;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
 .lx-preface__drop::first-letter {
   float: left;
-  font-size: 3.4em;
-  line-height: 0.82;
+  font-size: 3.6em;
+  font-weight: 860;
+  font-stretch: 50%;
+  line-height: 0.8;
   padding: 6px 12px 0 0;
   color: var(--brass-300);
 }
@@ -307,43 +393,6 @@
   color: var(--text-secondary);
   border-left: 1px solid var(--brass-500);
   padding-left: 20px;
-}
-
-/* Method — four numbered articles */
-.lx-articles {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-top: 1px solid var(--rule);
-}
-
-.lx-article {
-  padding: 28px 24px 8px 0;
-  border-right: 1px solid var(--border-secondary);
-}
-
-.lx-article + .lx-article {
-  padding-left: 24px;
-}
-
-.lx-article:last-child {
-  border-right: 0;
-}
-
-.lx-article__numeral {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 44px;
-  line-height: 1;
-  color: var(--brass-400);
-  margin-bottom: 22px;
-}
-
-.lx-article p {
-  font-size: 14.5px;
-  color: var(--text-secondary);
 }
 
 /* Valuation */
@@ -357,7 +406,9 @@
 
 .lx-formula__eq {
   font-family: var(--font-display);
-  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 340;
+  font-stretch: 110%;
+  font-size: clamp(22px, 2.6vw, 32px);
   text-align: center;
   padding: 8px 0 26px;
   border-bottom: 1px solid var(--rule);
@@ -394,7 +445,9 @@
 .lx-formula__terms dt {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 20px;
+  font-weight: 400;
+  font-stretch: 112%;
+  font-size: 19px;
   color: var(--brass-300);
 }
 
@@ -434,9 +487,11 @@
 }
 
 .lx-ranks thead th {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
   border-bottom: 1px solid var(--rule);
@@ -444,8 +499,9 @@
 
 .lx-ranks__rank {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 22px;
+  font-weight: 760;
+  font-stretch: 60%;
+  font-size: 24px;
   color: var(--brass-300);
 }
 
@@ -483,8 +539,9 @@
 
 .lx-waterfall strong {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 22px;
+  font-weight: 680;
+  font-stretch: 84%;
+  font-size: 21px;
   display: block;
   margin-bottom: 6px;
 }
@@ -553,7 +610,10 @@
   border: 0;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 21px;
+  font-weight: 560;
+  font-stretch: 92%;
+  font-size: 19px;
+  line-height: 1.25;
   text-align: left;
   cursor: pointer;
 }
@@ -618,7 +678,9 @@
 
 .lx-colophon nav a {
   font-size: 11px;
-  letter-spacing: 0.18em;
+  font-weight: 560;
+  font-stretch: calc(var(--wdth-caps) * 1%);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
   text-decoration: none;
@@ -640,31 +702,13 @@
   max-width: none !important;
   padding-top: 20px;
   border-top: 1px solid var(--border-secondary);
-  font-style: italic;
-  font-family: var(--font-display);
-  font-size: 14px;
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
 }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
-@media (max-width: 1080px) {
-  .lx-articles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lx-article:nth-child(2) {
-    border-right: 0;
-  }
-
-  .lx-article:nth-child(3) {
-    padding-left: 0;
-  }
-
-  .lx-article {
-    border-bottom: 1px solid var(--border-secondary);
-    padding-bottom: 28px;
-  }
-}
-
 @media (max-width: 900px) {
   .lx-nav {
     display: none;
@@ -705,16 +749,6 @@
     display: none;
   }
 
-  .lx-articles {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .lx-article,
-  .lx-article + .lx-article {
-    padding: 24px 0;
-    border-right: 0;
-  }
-
   .lx-instrument__terms {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -741,5 +775,406 @@
 
   .lx-hero__actions .button {
     flex: 1 1 100%;
+  }
+
+  .lx-hero__title {
+    font-size: 15.6vw;
+    line-height: 0.92;
+  }
+}
+
+/* ── Hero linework: drawn in by the motion layer ─────────────────────────── */
+.vx-motion .lx-hero__guilloche {
+  opacity: 0;
+}
+
+.vx-motion .is-live .lx-hero__guilloche {
+  opacity: 0.2;
+  transition: opacity 1.6s var(--ease-expo);
+}
+
+/* ── Method: the life of a loan ───────────────────────────────────────────── */
+.lx-life {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  gap: clamp(32px, 5vw, 72px);
+  align-items: start;
+  border-top: 1px solid var(--rule);
+  padding-top: clamp(24px, 3vw, 40px);
+}
+
+.lx-life__stage-wrap {
+  position: sticky;
+  top: calc(68px + 4vh);
+  z-index: 2;
+}
+
+.lx-life__stage {
+  position: relative;
+  margin: 0;
+  width: 100%;
+  aspect-ratio: 640 / 560;
+  background: var(--surface);
+  border: 1px solid var(--border-primary);
+  box-shadow: inset 0 0 0 6px var(--surface), inset 0 0 0 7px var(--border-secondary);
+  overflow: hidden;
+}
+
+.lx-life__svg,
+.lx-life__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.lx-life__canvas {
+  pointer-events: none;
+}
+
+.lx-stroke {
+  fill: none;
+  stroke: var(--brass-500);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.lx-stroke--faint {
+  stroke-width: 0.6;
+  opacity: 0.55;
+}
+
+.lx-stroke--strong {
+  stroke: var(--brass-400);
+}
+
+.lx-stroke--stream {
+  stroke: var(--brass-400);
+  stroke-width: 0.9;
+  opacity: 0.8;
+}
+
+.lx-stroke--accent {
+  stroke: var(--brass-300);
+  stroke-width: 1.2;
+}
+
+.lx-stroke--dash {
+  stroke-dasharray: 2 4;
+  opacity: 0.8;
+}
+
+.lx-stroke--lock {
+  stroke: var(--brass-300);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.lx-life__fill {
+  fill: var(--brass-500);
+  opacity: 0.16;
+}
+
+.lx-life__pool-fill {
+  fill: var(--brass-500);
+  opacity: 0.08;
+}
+
+.lx-life__lock-bg {
+  fill: var(--surface);
+}
+
+.lx-life__lock {
+  fill: var(--brass-400);
+}
+
+.lx-life__dot {
+  fill: var(--brass-300);
+}
+
+/* Labels over the drawing */
+.lx-life__label,
+.lx-life__credit {
+  position: absolute;
+  transform: translate(-6%, -50%);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.lx-life__label--center {
+  transform: translate(-50%, -50%);
+}
+
+.lx-life__label--block {
+  transform: translate(0, -50%);
+}
+
+.lx-life__label--accent {
+  color: var(--brass-300);
+}
+
+.lx-life__credit {
+  display: grid;
+  gap: 2px;
+  transform: translate(0, -50%);
+  text-transform: none;
+}
+
+.lx-life__tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lx-life__credit-figure {
+  font-size: clamp(16px, 1.9vw, 24px);
+  font-weight: 300;
+  letter-spacing: -0.05em;
+  color: var(--text-primary);
+}
+
+.lx-life__fine {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+/* The valuation, assembled */
+.lx-life__formula {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3.5%;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.lx-life__terms {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(4px, 0.8vw, 10px);
+}
+
+.lx-life__term-wrap {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: clamp(4px, 0.8vw, 10px);
+}
+
+.lx-life__term {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+}
+
+.lx-life__sym,
+.lx-life__op {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 380;
+  font-stretch: 112%;
+  font-size: clamp(15px, 1.9vw, 22px);
+  line-height: 1;
+  color: var(--brass-300);
+  white-space: nowrap;
+}
+
+/* σ and Ω fall back to another face; a fixed box keeps every term on one line */
+.lx-life__sym {
+  display: block;
+  height: 1.08em;
+}
+
+.lx-life__op {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+.lx-life__pv {
+  color: var(--text-secondary);
+}
+
+.lx-life__sym sup {
+  font-size: 0.6em;
+}
+
+.lx-life__val {
+  font-family: var(--font-mono);
+  font-size: clamp(8px, 0.85vw, 10px);
+  font-stretch: 87.5%;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.lx-life__result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.lx-life__pv-figure {
+  font-size: clamp(16px, 1.9vw, 24px);
+  font-weight: 300;
+  letter-spacing: -0.05em;
+  color: var(--text-primary);
+}
+
+/* The four articles */
+.lx-life__acts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lx-act {
+  padding: 28px 0 32px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.lx-act:first-child {
+  padding-top: 0;
+}
+
+.lx-act__numeral {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.06em;
+  color: var(--brass-400);
+  margin-bottom: 14px;
+}
+
+.lx-act__numeral::before {
+  content: 'Article ';
+  color: var(--text-muted);
+}
+
+.lx .lx-act__title {
+  --w: 64;
+  --g: 720;
+  font-size: clamp(30px, 3.4vw, 44px);
+  line-height: 1;
+  margin-bottom: 16px;
+  font-variation-settings: 'wdth' var(--w), 'wght' var(--g);
+  color: var(--text-primary);
+}
+
+.lx-act p {
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  max-width: 46ch;
+}
+
+/* With motion, each article holds the stage for most of a screen and the
+   inactive ones recede. Without it, the articles are a plain list. */
+.vx-motion .lx-act {
+  min-height: 74vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 0;
+  padding: 8vh 0;
+}
+
+/* The static diagram (no motion) shows the loan while it is open: no return leg. */
+:root:not(.vx-motion) .lx-life [data-part='return'],
+:root:not(.vx-motion) .lx-life [data-part='label-return'] {
+  display: none;
+}
+
+/* Tail room, so the last article finishes the sequence while the stage is still held. */
+.vx-motion .lx-life__acts {
+  padding-bottom: 22vh;
+}
+
+.vx-motion .lx-life__acts:has(.is-active) .lx-act:not(.is-active) {
+  opacity: 0.32;
+}
+
+.vx-motion .lx-act {
+  transition: opacity 0.6s var(--ease-expo);
+}
+
+.vx-motion .lx-act.is-active .lx-act__title {
+  color: var(--brass-300);
+}
+
+@media (max-width: 900px) {
+  .lx-life {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .lx-life__stage-wrap {
+    top: 68px;
+    background: var(--bg-primary);
+    padding: 12px 0;
+    margin: 0 calc(var(--lx-gutter) * -1);
+    padding-left: var(--lx-gutter);
+    padding-right: var(--lx-gutter);
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  .lx-life__stage {
+    width: min(100%, calc(48vh * 640 / 560));
+    margin: 0 auto;
+  }
+
+  .vx-motion .lx-act {
+    min-height: 56vh;
+    padding: 6vh 0;
+  }
+
+  .lx-act:first-child {
+    padding-top: 28px;
+  }
+}
+
+@media (max-width: 560px) {
+  .lx-life__label,
+  .lx-life__tag,
+  .lx-life__fine {
+    font-size: 7.5px;
+  }
+
+  .lx-life__credit {
+    gap: 0;
+    transform: translate(0, -62%);
+  }
+
+  .lx-life__credit-figure,
+  .lx-life__pv-figure {
+    font-size: 14px;
+  }
+
+  .lx-life__formula {
+    gap: 6px;
+  }
+
+  /* Too little room for these at phone size; the specimen note above carries both facts. */
+  .lx-life__label[data-part='label-stream'],
+  .lx-life__fine {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lx-life__stage-wrap {
+    position: static;
   }
 }
