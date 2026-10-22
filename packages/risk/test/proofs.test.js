@@ -199,3 +199,20 @@ test('T11 the coarse drift cap is sound (never above the daily minimum) and tigh
     assert.ok(coarse.driftCap >= (daily / (1 + (rate * step) / 365)) * (1 - EPS), `case ${i}: grid looser than the bound`);
   }
 });
+
+test('T7u with an unlock calendar, a loan at the maximum is still never liquidatable at an unchanged price (300 cases)', () => {
+  for (let i = 0; i < 300; i++) {
+    const s = randomStream(), p = randomParams();
+    const tm = Math.max(1, Math.round(U(1, Math.min(s.end, 730))));
+    const rate = U(0, 1);
+    // Random cliffs of up to 80% of circulating supply, on random days around the loan.
+    const circulating = LU(1e6, 1e10);
+    const unlocks = Array.from({ length: 1 + Math.floor(U(0, 8)) }, () => ({ day: Math.round(U(-30, tm + 60)), amount: circulating * U(0, 0.8) }));
+    const m = { ...randomMarket(), circulating, unlocks };
+    const { maxBorrow } = maxBorrowV2(s, 0, tm, rate, m, p);
+    for (let t = 0; t <= tm; t++) {
+      const r = isLiquidatableV2(maxBorrow * (1 + (rate * t) / 365) * (1 - 1e-9), s, t, tm, m, {}, p);
+      assert.equal(r.liquidatable, false, `case ${i}: liquidatable on day ${t} of ${tm}`);
+    }
+  }
+});

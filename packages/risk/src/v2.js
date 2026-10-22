@@ -117,11 +117,17 @@ export function multiplier(alpha, sigma, tauYears, muTau = 0) {
   return Math.exp(muTau - 0.5 * sigma * sigma * tauYears + normInv(alpha) * sigma * Math.sqrt(tauYears));
 }
 
-/** Unlock-window drift for a tranche at `day`: ln(1 − κ·share of supply unlocking nearby). */
-export function unlockDrift(day, { unlocks = [], circulating = 0 } = {}, params = V2_DEFAULTS) {
-  if (!(circulating > 0) || !unlocks.length) return 0;
-  const share = unlocks.filter((u) => Math.abs(u.day - day) <= params.unlockWindowDays).reduce((a, u) => a + u.amount, 0) / circulating;
-  return Math.log(Math.max(0.05, 1 - params.unlockImpact * share));
+/**
+ * Unlock-window drift for a tranche at `day`: ln(1 − κ·share of supply unlocking nearby).
+ * market.unlocks is a list of { day, amount }; market.unlockedWithin(a, b), when given, returns
+ * the amount unlocking in days [a, b] directly (the backtest passes a prefix-sum lookup).
+ */
+export function unlockDrift(day, { unlocks = [], circulating = 0, unlockedWithin } = {}, params = V2_DEFAULTS) {
+  if (!(circulating > 0)) return 0;
+  const w = params.unlockWindowDays;
+  const amount = unlockedWithin ? unlockedWithin(day - w, day + w) : unlocks.filter((u) => Math.abs(u.day - day) <= w).reduce((a, u) => a + u.amount, 0);
+  if (!(amount > 0)) return 0;
+  return Math.log(Math.max(0.05, 1 - (params.unlockImpact * amount) / circulating));
 }
 
 /**
@@ -197,11 +203,16 @@ export function creditValueOf(tranches, t, alpha, market, params = V2_DEFAULTS) 
  * [g, g'] we have CV(t)/(1 + r(t − t0)) ≥ CV(g)/(1 + r(g' − t0)). Taking the minimum of that
  * right-hand side over the intervals bounds the daily minimum from below, at a cost of at most
  * r·(g' − g)/365 of the loan (≈ 0.4% for a 15% loan with a 10-day grid step).
+ *
+ * With an unlock calendar the theorem no longer holds: escrowed tokens are valued with the
+ * drift of whatever unlocks near today, so credit value can dip as a large unlock approaches.
+ * The cap is then checked on every day.
  */
 export function maxBorrowV2(stream, t0, tm, rate, market, params = V2_DEFAULTS) {
   const orig = creditValue(stream, t0, params.alphaOrig, market, params).value;
   const growth = (t) => 1 + (rate * (t - t0)) / DAYS_PER_YEAR;
-  const step = Math.max(1, Math.ceil((tm - t0) / 120)); // ≤ 121 valuations
+  const hasUnlocks = market.unlockedWithin != null || (market.unlocks?.length > 0 && market.circulating > 0);
+  const step = hasUnlocks ? 1 : Math.max(1, Math.ceil((tm - t0) / 120)); // ≤ 121 valuations without unlocks
   let driftCap = creditValue(stream, tm, params.alphaLiq, market, params).value / growth(tm);
   let bindingDay = tm;
   for (let g = t0; g < tm; g += step) {

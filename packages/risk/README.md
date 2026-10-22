@@ -52,6 +52,24 @@ interest-drift cap); `src/backtest.js` plays loans forward on real prices under 
 including v2's cure window, capped paydown from vested tokens and the sale. Results and what they
 mean: `FINDINGS.md` §5, `data/FRONTIER.md`, `data/BACKTEST*.md`. Raw history is not committed.
 
+## Proofs and the stress test
+
+```bash
+node --test test/proofs.test.js       # the theorems, on thousands of random draws (PROOF_SEED=n for fresh ones)
+node bin/fetch-unlocks.js             # documented unlock calendars, DefiLlama emissions dataset (no key)
+node bin/stress.js [--paths 160]      # the whole stress grid on every core; writes data/STRESS.md
+```
+
+`docs/RISK_PROOFS.md` (repo root) states each theorem the papers rely on and how it is proved.
+The theorems cover interest, time, vesting, accounting and settlement when the price does not
+move. `src/scenarios.js` and `src/stress.js` cover what no theorem can: price-path families
+(GBM, volatility bursts, jumps, overnight gaps on every week of the loan, bleeds, V-shapes,
+pump-and-dumps, regime switches, and a block bootstrap of real returns), crossed with
+stream shape, shock size, σ, borrow share, liquidity, buyers' required return, oracle staleness
+or manipulation and rate. The crossing is a full factorial on the core factors plus a 3-wise
+covering array over all nine. Every setting is also replayed on the real histories, with and
+without unlock calendars, and judged against acceptance criteria written into `bin/stress.js`.
+
 ## Layers
 
 | Layer | File | What it does | How it is proved |

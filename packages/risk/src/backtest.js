@@ -57,17 +57,21 @@ const at = (arr, i) => arr[Math.min(arr.length - 1, i)];
 /**
  * Play one loan. Returns null if there is not enough history after t0.
  * stream days are absolute (same axis as prices); tm = loan maturity day.
+ * `oracle` is the price the protocol sees (defaults to the true price): a stale or manipulated
+ * oracle prices and monitors the loan, while every sale happens at the true price.
  */
-export function playLoan({ prices, volumesUsd, t0, stream, tm, model }, cfg = BACKTEST_DEFAULTS, v2 = V2_DEFAULTS) {
+export function playLoan({ prices, volumesUsd, t0, stream, tm, model, oracle = prices, unlocked = null }, cfg = BACKTEST_DEFAULTS, v2 = V2_DEFAULTS) {
   const lastNeeded = tm + cfg.graceDays + cfg.auctionDays + v2.sellDays;
   if (t0 < cfg.minHistoryDays || lastNeeded >= prices.length) return null;
 
-  const p0 = prices[t0];
-  const sigma = sigmaV2(prices.slice(0, t0 + 1), v2);
+  const p0 = oracle[t0];
+  const sigma = sigmaV2(oracle.slice(0, t0 + 1), v2);
   const adv0 = adv30(volumesUsd, t0);
-  const market0 = { price: p0, sigma, advUsd: adv0 };
+  // Unlock calendar (cumulative tokens unlocked by each history day), when known.
+  const supply = unlockSupply(unlocked);
+  const market0 = { price: p0, sigma, advUsd: adv0, ...supply(t0) };
   const qtyTotal = stream.total;
-  const spotValue0 = qtyTotal * p0;
+  const spotValue0 = qtyTotal * prices[t0];
 
   // ── Origination ─────────────────────────────────────────────────────────
   let maxB;
@@ -113,7 +117,7 @@ export function playLoan({ prices, volumesUsd, t0, stream, tm, model }, cfg = BA
     // Health.
     let breached;
     if (model === 'v2') {
-      const cv = creditValueOf(remainingTranches(stream, t, escrowSold, v2), t, v2.alphaLiq, { price, sigma, advUsd: adv0 }, v2).value;
+      const cv = creditValueOf(remainingTranches(stream, t, escrowSold, v2), t, v2.alphaLiq, { price: oracle[t], sigma, advUsd: adv0, ...supply(t) }, v2).value;
       breached = debt > cv;
       if (breached) {
         breachDays++;
@@ -133,7 +137,7 @@ export function playLoan({ prices, volumesUsd, t0, stream, tm, model }, cfg = BA
               const toPrincipal = Math.min(debtPrincipal, proceeds);
               debtPrincipal -= toPrincipal;
               paidDown += toInterest + toPrincipal;
-              const cvAfter = creditValueOf(remainingTranches(stream, t, escrowSold, v2), t, v2.alphaLiq, { price, sigma, advUsd: adv0 }, v2).value;
+              const cvAfter = creditValueOf(remainingTranches(stream, t, escrowSold, v2), t, v2.alphaLiq, { price: oracle[t], sigma, advUsd: adv0, ...supply(t) }, v2).value;
               if (debtPrincipal + accrued <= cvAfter / (1 + cfg.healthMargin)) breachDays = 0;
               continue;
             }
@@ -145,13 +149,22 @@ export function playLoan({ prices, volumesUsd, t0, stream, tm, model }, cfg = BA
       }
     } else {
       const years = Math.max(0, (stream.end - t) / DAYS_PER_YEAR);
-      const value = liquidationValueV1({ quantity: qtyTotal, prices: { spot: price, twap: price }, years, rank: cfg.v1Rank });
+      const value = liquidationValueV1({ quantity: qtyTotal, prices: { spot: oracle[t], twap: oracle[t] }, years, rank: cfg.v1Rank });
       if (isLiquidatableV1({ debt, value, rank: cfg.v1Rank })) {
         return resolve(out, { t, debt, stream, escrowSold, prices, volumesUsd, sigma, cfg, v2, reason: 'health', principalLeft: debtPrincipal });
       }
     }
   }
   return null;
+}
+
+/** Market fields for the unlock drift on day t: circulating supply then, and a window lookup. */
+function unlockSupply(unlocked) {
+  if (!unlocked?.length) return () => ({});
+  const n = unlocked.length;
+  const cum = (i) => unlocked[Math.max(0, Math.min(n - 1, Math.floor(i)))] || 0;
+  const unlockedWithin = (a, b) => Math.max(0, cum(b) - cum(a - 1));
+  return (t) => ({ circulating: cum(t), unlockedWithin });
 }
 
 /** Sell what is left (auction of the stream, settling auctionDays later) and record the outcome. */
@@ -190,12 +203,12 @@ export const STREAM_SHAPES = Object.freeze({
 });
 
 /** Run every origination day for one token, shape and model. */
-export function backtestToken({ prices, volumesUsd }, { shape = 'linear-12m', model = 'v2', notionalUsd = 100_000 } = {}, cfg = BACKTEST_DEFAULTS, v2 = V2_DEFAULTS) {
+export function backtestToken({ prices, volumesUsd, unlocked = null }, { shape = 'linear-12m', model = 'v2', notionalUsd = 100_000 } = {}, cfg = BACKTEST_DEFAULTS, v2 = V2_DEFAULTS) {
   const loans = [];
   for (let t0 = cfg.minHistoryDays; t0 < prices.length; t0 += cfg.stepDays) {
     const total = notionalUsd / prices[t0];
     const { stream, tm } = STREAM_SHAPES[shape](t0, total);
-    const r = playLoan({ prices, volumesUsd, t0, stream, tm, model }, cfg, v2);
+    const r = playLoan({ prices, volumesUsd, t0, stream, tm, model, unlocked }, cfg, v2);
     if (r && !r.skipped) loans.push(r);
   }
   return { loans, summary: summarise(loans) };
@@ -220,4 +233,20 @@ export function summarise(loans) {
     borrowerAdvantageMedianUsd: q((l) => l.borrowerAdvantage, 0.5),
     paidDownShare: loans.filter((l) => l.paidDown > 0).length / n
   };
+}
+
+/**
+ * Align a cumulative unlock schedule [{ date, unlocked }] (sorted, ISO dates) to a price
+ * history's dates: entry i is tokens unlocked by history day i. Days before the schedule
+ * starts take its first value; days after it ends take its last.
+ */
+export function alignUnlocks(dates, schedule) {
+  if (!schedule?.length) return null;
+  const out = new Array(dates.length);
+  let j = 0;
+  for (let i = 0; i < dates.length; i++) {
+    while (j + 1 < schedule.length && schedule[j + 1].date <= dates[i]) j++;
+    out[i] = schedule[j].date <= dates[i] ? schedule[j].unlocked : schedule[0].unlocked;
+  }
+  return out;
 }

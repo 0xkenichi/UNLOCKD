@@ -108,3 +108,43 @@ What it means:
 
 Not yet modelled: whole-token unlock calendars (the drift term), intraday gaps, partner vetting
 (which would remove some of the worst tokens), and real borrower behaviour.
+
+## 6. Proofs and the stress test: the calibrated operating point (October 2026)
+
+**Proofs.** `docs/RISK_PROOFS.md` states twelve theorems: bounds, conservation, monotonicity in
+confidence, volatility, time, size and price, never liquidatable at an unchanged price (with and
+without unlock calendars), paydown accounting, settlement, and grid soundness.
+`test/proofs.test.js` checks each one on thousands of seeded random draws, and it passes on 9
+different seeds. Two of the checks found real holes, now fixed:
+- Per-tranche liquidity cost made credit value fall as tranches merged into escrow. Square-root impact is superadditive, so the cost is now charged on the whole position.
+- The interest-drift cap was checked only at grid points. A cliff loan at 67% APR became liquidatable between them. The cap is now a proven lower bound over every interval, or a daily check when unlock data is present.
+
+**Stress.** `bin/stress.js` ran 886 cells, 271,600 simulated loans, plus every setting replayed on
+31 real histories. The design:
+- A full factorial of path family × shape × shock size.
+- A 3-wise covering array over nine factors (family, shape, shock, σ, borrow share, liquidity, buyers' return, oracle, rate).
+- One overnight gap of every size on every week of the loan.
+
+Acceptance criteria are written into the script, including the two revisions made after the
+first run and why. In full: `data/STRESS.md`.
+
+| Stream | Highest LTV passing every criterion with no backstop | Setting |
+|---|---|---|
+| Linear, 12 months | **18.8%** | hold, α 2% / 10% |
+| Cliff, 12 months | **9.6%** | blend, k 200% / 100% |
+| 6-month cliff then linear | **10.1%** | hold, α 5% / 20% |
+
+What it means:
+
+- **The unbacked operating point holds:** about 19% LTV on linear streams and 10% on cliffs.
+  - Lenders lose under 0.2% on average on realistic paths.
+  - The worst real month lost at most 1.5%.
+  - Under 25% of never-curing borrowers are force-liquidated.
+  - Seniors are untouched even if the worst real month and a total wipeout of one token at the concentration cap hit together.
+- **A backstop makes higher LTVs safe for lenders, but not for borrowers.** At 30–43% LTV:
+  - A first-loss backstop of 11–31% of principal brings every lender criterion back within limits.
+  - But 39–64% of borrowers who never cure would be force-liquidated within a year.
+  - By the rule that the protocol must not extort holders, higher LTVs should be opt-in, sold as such, with alerts and a cure path, not the default.
+- **Unlock calendars help slightly.** On the 27 tokens with a documented schedule, the drift lowers LTV by about 5% relative (18.2% → 17.3% on linear streams). It also lowers forced liquidations and worst-case losses at every setting.
+- **No setting survives an overnight 80–95% gap without loss.** Gaps sit outside every diffusion model. They are what the backstop, insurance and junior tranche are sized for, and the concentration cap is what keeps one token's gap from reaching seniors.
+- **v1 fails the borrower test outright:** it force-liquidates 84% of loans.
