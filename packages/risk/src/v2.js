@@ -154,6 +154,12 @@ export function remainingTranches(stream, t, soldVested = 0, params = V2_DEFAULT
 /** CV_α of an explicit list of tranches (see creditValue). */
 export function creditValueOf(tranches, t, alpha, market, params = V2_DEFAULTS) {
   const { price, sigma, advUsd } = market;
+  // Liquidity cost is charged on the whole position, not tranche by tranche. Square-root impact
+  // is superadditive, so pricing each tranche alone would make the credit value FALL as
+  // tranches vest and merge into one block — a loan at its maximum could then become
+  // liquidatable at an unchanged price. Position-level cost only shrinks as the position does.
+  const positionUsd = tranches.reduce((a, tr) => a + tr.qty, 0) * price;
+  const c = Math.min(params.maxLiquidityCost, priceImpact(positionUsd / params.sellDays, { advUsd, sigmaAnnual: sigma, impactY: params.impactY }));
   let total = 0;
   const detail = [];
   for (const tr of tranches) {
@@ -172,7 +178,6 @@ export function creditValueOf(tranches, t, alpha, market, params = V2_DEFAULTS) 
       m = Math.max(mHold, mSell);
     }
     const usd = tr.qty * price;
-    const c = Math.min(params.maxLiquidityCost, priceImpact(usd / params.sellDays, { advUsd: advUsd, sigmaAnnual: sigma, impactY: params.impactY }));
     const value = usd * m * (1 - c);
     total += value;
     detail.push({ ...tr, tau, m, c, value });
@@ -182,15 +187,29 @@ export function creditValueOf(tranches, t, alpha, market, params = V2_DEFAULTS) 
 
 /**
  * Largest loan at day t0 maturing at day tm, at fixed APR r (§4):
- * Ω · min(CV_αo(t0), CV_αℓ(tm) at today's price · e^(−r T)).
- * The second term means a loan at the maximum cannot be liquidated by interest alone.
+ *   B_max = Ω · min( CV_αo(t0),  min over t in [t0, tm] of CV_αℓ(t) / (1 + r (t − t0)) )
+ * with every CV at today's price. The second term guarantees that, if the price never moves,
+ * the debt stays at or below the liquidation line on EVERY day of the loan — not only at
+ * maturity — so interest alone can never liquidate a loan taken at the maximum.
+ *
+ * Exact on a coarse grid, not just approximately: at a fixed price CV_αℓ never falls as time
+ * passes (theorem T5), while the debt factor only grows, so for every day t in a grid interval
+ * [g, g'] we have CV(t)/(1 + r(t − t0)) ≥ CV(g)/(1 + r(g' − t0)). Taking the minimum of that
+ * right-hand side over the intervals bounds the daily minimum from below, at a cost of at most
+ * r·(g' − g)/365 of the loan (≈ 0.4% for a 15% loan with a 10-day grid step).
  */
 export function maxBorrowV2(stream, t0, tm, rate, market, params = V2_DEFAULTS) {
   const orig = creditValue(stream, t0, params.alphaOrig, market, params).value;
-  const atMaturity = creditValue(stream, tm, params.alphaLiq, market, params).value;
-  const years = (tm - t0) / DAYS_PER_YEAR;
-  const driftCap = atMaturity / (1 + rate * years); // simple interest, as the loan accrues
-  return { maxBorrow: params.omega * Math.min(orig, driftCap), orig, driftCap };
+  const growth = (t) => 1 + (rate * (t - t0)) / DAYS_PER_YEAR;
+  const step = Math.max(1, Math.ceil((tm - t0) / 120)); // ≤ 121 valuations
+  let driftCap = creditValue(stream, tm, params.alphaLiq, market, params).value / growth(tm);
+  let bindingDay = tm;
+  for (let g = t0; g < tm; g += step) {
+    const next = Math.min(tm, g + step);
+    const cap = creditValue(stream, g, params.alphaLiq, market, params).value / growth(next);
+    if (cap < driftCap) { driftCap = cap; bindingDay = g; }
+  }
+  return { maxBorrow: params.omega * Math.min(orig, driftCap), orig, driftCap, bindingDay };
 }
 
 /** Liquidation test at day t (§4). Health uses the time-weighted price passed in `market`. */
