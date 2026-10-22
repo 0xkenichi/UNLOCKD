@@ -1,0 +1,20 @@
+{
+  "name": "@vestra/risk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Off-chain risk engine for Vestra: on-chain maths mirror, per-token market model, Monte Carlo loan simulation and parameter calibration.",
+  "type": "module",
+  "license": "BSL-1.1",
+  "engines": { "node": ">=20" },
+  "exports": {
+    ".": "./src/index.js",
+    "./onchain": "./src/onchain.js",
+    "./params": "./src/params.js"
+  },
+  "bin": { "vestra-risk": "./bin/vestra-risk.js" },
+  "scripts": {
+    "test": "node --test test/",
+    "audit": "node bin/vestra-risk.js audit",
+    "calibrate": "node bin/vestra-risk.js calibrate"
+  }
+}
