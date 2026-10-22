@@ -88,3 +88,39 @@ export function auditTable(rows) {
   }
   return lines.join('\n');
 }
+
+/** Summary of a refresh: each token's calibration with its data source and date. */
+export function snapshotsReport(index) {
+  const lines = [];
+  lines.push('# Per-token risk snapshots', '');
+  lines.push(`Generated ${index.generatedAt} by \`npm run refresh\`. Price and volume: ${index.source.provider} public API (\`${index.source.api}\`), daily closes at 00:00 UTC; the partial current day is dropped.`, '');
+  lines.push('| Token | Data | Daily returns | Spot | σ total / EWMA | ADV (30d) | Rank | Ω | Per-loan cap | Validated | Calibrated | Monitor |', '|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const s of index.tokens) {
+    const c = s.calibration;
+    const alerts = s.monitor.alerts.map((a) => a.code).join(', ');
+    lines.push(
+      `| ${s.symbol} (\`${s.coingeckoId}\`) | ${s.dataFrom} → ${s.dataDate} | ${s.observations}${s.missingDays ? ` (${s.missingDays} missing)` : ''} | $${s.spotUsd} | ${pct(s.volatility.total, 0)} / ${pct(s.volatility.ewma, 0)} | ${usd(s.advUsd)} | ${c.rank} (${c.rankBasis}) | ${c.newCredit ? pct(c.omegaBps / 1e4) : '0 — no new credit'} | ${usd(c.maxBorrowUsd)} | ${c.validated == null ? '—' : c.validated ? 'yes' : '**NO**'} | ${c.calibratedAt.slice(0, 10)} on data to ${c.dataDate} | ${s.monitor.status}${alerts ? `: ${alerts}` : ''} |`
+    );
+  }
+  lines.push('');
+  for (const s of index.tokens) {
+    const suspect = s.dataQuality?.suspectReversals || [];
+    if (suspect.length) lines.push(`- **${s.symbol} — data quality**: ${suspect.length} suspected bad print(s) kept in the data (${suspect.map((x) => `${x.date} ${pct(x.move, 0)}`).join(', ')}). Its volatility, and so its Ω and cap, may reflect the source rather than the market; check a second source before acting.`);
+    lines.push(`- **${s.symbol}**: ${s.addresses.map((a) => `${a.platform} \`${a.address}\``).join(', ') || 'no contract address listed by the source'}. Unlocks: ${s.unlocks.events.length ? `${s.unlocks.events.length} event(s) from ${s.unlocks.source}` : 'not modelled.'}${s.calibration.binding.length ? ` Binding: ${s.calibration.binding.map((b) => b.constraint).join('; ')}.` : ''}`);
+  }
+  lines.push('');
+  if (index.errors?.length) {
+    lines.push('## Not refreshed', '');
+    for (const e of index.errors) lines.push(`- \`${e.coingeckoId}\`: ${e.error}${e.keptFrom ? ` — serving the snapshot with data to ${e.keptFrom}` : ''}`);
+    lines.push('');
+  }
+  lines.push('## What is measured and what is assumed', '');
+  lines.push('- Measured, from each token’s own history: spot, volatility (30d, 90d, EWMA, jump-diffusion total), drawdown, 30-day average daily volume. σ total is the jump-diffusion fit’s total volatility; the Borrow page uses the larger of total and EWMA.');
+  lines.push('- Computed by the engine under `DEFAULT_POLICY` and `DEFAULT_ASSUMPTIONS` (see README): Ω, the per-loan cap, validation, monitor alerts. Per-token reports with stresses and borrower outcomes are in `reports/`.');
+  lines.push('- Assumed: rank, where the column says “assumed” — the protocol has not assigned these tokens a rank, so rank II is used. Ω and the cap depend on it.');
+  lines.push('- Data quality: a move of at least 0.25 in log terms (+28% or −22%) that is three-quarters undone within 2 days is flagged as a suspected bad print. Flagged days are kept, never smoothed: the engine errs toward more volatility, not less.');
+  lines.push('- Not modelled: unlock schedules (no keyless source; DefiLlama’s emissions endpoint returns HTTP 402 without a paid key). Add dated unlocks to `tokens.json` to include them.');
+  lines.push('- Contract addresses are those CoinGecko lists for the coin. Testnet mock tokens are not mapped to these; the Borrow page shows a measured figure only when the stream’s token address is one listed here.');
+  lines.push('');
+  return lines.join('\n');
+}

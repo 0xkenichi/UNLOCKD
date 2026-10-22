@@ -9,12 +9,14 @@
   "exports": {
     ".": "./src/index.js",
     "./onchain": "./src/onchain.js",
-    "./params": "./src/params.js"
+    "./params": "./src/params.js",
+    "./ingest": "./src/ingest.js"
   },
-  "bin": { "vestra-risk": "./bin/vestra-risk.js" },
+  "bin": { "vestra-risk": "./bin/vestra-risk.js", "vestra-risk-refresh": "./bin/refresh.js" },
   "scripts": {
     "test": "node --test test/",
     "audit": "node bin/vestra-risk.js audit",
-    "calibrate": "node bin/vestra-risk.js calibrate"
+    "calibrate": "node bin/vestra-risk.js calibrate",
+    "refresh": "node bin/refresh.js"
   }
 }

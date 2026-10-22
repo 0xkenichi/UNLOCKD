@@ -11,7 +11,8 @@ import {
   monitorToken,
   riskParamsCall,
   FIXTURE_SPECS,
-  fixtureHistory
+  fixtureHistory,
+  parseHistoryCsv
 } from '../src/index.js';
 
 const USAGE = `vestra-risk <command> [options]
@@ -33,20 +34,7 @@ function args(argv) {
 }
 
 export function loadHistoryCsv(file, { symbol, circulating = 0, unlocks = [] } = {}) {
-  const rows = readFileSync(file, 'utf8').trim().split(/\r?\n/);
-  const header = rows.shift().toLowerCase().split(',').map((h) => h.trim());
-  const pi = header.indexOf('price');
-  const vi = header.indexOf('volume_usd');
-  if (pi < 0) throw new Error('CSV needs a "price" column');
-  const prices = [];
-  const volumesUsd = [];
-  for (const row of rows) {
-    const cells = row.split(',');
-    const p = Number(cells[pi]);
-    if (!(p > 0)) continue;
-    prices.push(p);
-    if (vi >= 0) volumesUsd.push(Number(cells[vi]) || 0);
-  }
+  const { prices, volumesUsd } = parseHistoryCsv(readFileSync(file, 'utf8'));
   return { symbol, prices, volumesUsd, unlocks, circulating };
 }
 

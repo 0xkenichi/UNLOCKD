@@ -14,10 +14,11 @@ const usd = (v) => v.toLocaleString('en-US', { style: 'currency', currency: 'USD
  * unlock time. Uses the risk engine's closed forms (packages/risk), which are tested against
  * the contracts and against simulation.
  *
- * Volatility is the token's own and is not measured here, so the chance of liquidation is
- * shown across a range rather than as one number.
+ * The chance of liquidation is shown across a range of volatility. When the risk engine has a
+ * snapshot for the token (useRiskSnapshot), its measured volatility adds one row and one
+ * figure, labelled with the source and the date of the data.
  */
-export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime, borrowRateBps = 1500 }) {
+export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime, borrowRateBps = 1500, snapshot = null }) {
   const view = useMemo(() => {
     const pv = Number(pvUsd);
     const ltv = Number(ltvBps);
@@ -30,26 +31,48 @@ export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime,
     const terms = rankTermsForLtv(ltv);
     const base = { pv, liqThresholdBps: terms.liqThresholdBps, discountRateBps: terms.discountRateBps, borrowRateBps, years };
     const at = (d, sigma) => outlookFromPv({ ...base, debt: d, sigma });
-    // Largest debt that keeps the chance under 10% at 100% volatility.
+    const sigma = Number(snapshot?.volatility?.forBorrowers);
+    const measured =
+      sigma > 0
+        ? {
+            sigma,
+            probability: at(debt, sigma).probability,
+            symbol: snapshot.symbol,
+            provider: snapshot.source?.provider || 'the risk engine',
+            dataFrom: snapshot.dataFrom,
+            dataDate: snapshot.dataDate,
+            ageDays: Math.floor((Date.now() - Date.parse(`${snapshot.dataDate}T00:00:00Z`)) / 86_400_000),
+            suspectPrints: snapshot.dataQuality?.suspectReversals?.length || 0,
+            alerts: snapshot.monitor?.status && snapshot.monitor.status !== 'ok' ? snapshot.monitor.alerts || [] : []
+          }
+        : null;
+    // Largest debt that keeps the chance under 10% at the measured volatility, else at 100%.
+    const safeSigma = measured ? measured.sigma : 1;
     let lo = 0;
     let hi = maxDebt;
     for (let i = 0; i < 40; i++) {
       const mid = (lo + hi) / 2;
-      if (at(mid, 1).probability <= 0.1) lo = mid;
+      if (at(mid, safeSigma).probability <= 0.1) lo = mid;
       else hi = mid;
     }
+    const rows = VOLS.map((s) => ({ sigma: s, probability: at(debt, s).probability }));
+    if (measured) rows.push({ sigma: measured.sigma, probability: measured.probability, measured: true });
+    rows.sort((a, b) => a.sigma - b.sigma);
     return {
       debt,
       years,
       exact: terms.exact,
       trigger: at(debt, 0),
-      rows: VOLS.map((sigma) => ({ sigma, probability: at(debt, sigma).probability })),
+      rows,
+      measured,
+      safeSigma,
       safeDebt: lo
     };
-  }, [pvUsd, ltvBps, debtUsd, unlockTime, borrowRateBps]);
+  }, [pvUsd, ltvBps, debtUsd, unlockTime, borrowRateBps, snapshot]);
 
   if (!view) return null;
   const horizon = view.years >= 1 ? `${view.years.toFixed(1)} years` : `${Math.max(1, Math.round(view.years * 12))} months`;
+  const m = view.measured;
 
   return (
     <section className="holo-card lo" aria-labelledby="lo-title">
@@ -70,6 +93,21 @@ export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime,
             from today’s valuation price. The trigger moves up about {pct(view.trigger.triggerRisePerYear)} a year,
             because interest (assumed {borrowRateBps / 100}% — the rate floats) grows faster than the time discount unwinds.
           </p>
+          {m && (
+            <div className="lo-measured-figure">
+              <div className="stat-label">Chance at {m.symbol}’s measured volatility</div>
+              <div className="stat-value">{pct(m.probability)}</div>
+              <p className="lo-note">
+                {pct(m.sigma)} a year, measured from {m.provider} daily prices, {m.dataFrom} to {m.dataDate}
+                {m.ageDays > 2 ? ` (${m.ageDays} days old)` : ''}. Past volatility, not a forecast.
+                {m.suspectPrints > 0 &&
+                  ` The source’s history has ${m.suspectPrints} suspected bad print${m.suspectPrints > 1 ? 's' : ''}, so this may overstate it.`}
+              </p>
+              {m.alerts.length > 0 && (
+                <p className="lo-note lo-alert">Risk monitor: {m.alerts.map((a) => a.message).join(' ')}</p>
+              )}
+            </div>
+          )}
         </div>
         <table className="lo-table">
           <caption className="stat-label">Chance of liquidation before unlock ({horizon})</caption>
@@ -81,8 +119,10 @@ export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime,
           </thead>
           <tbody>
             {view.rows.map((r) => (
-              <tr key={r.sigma}>
-                <td>{pct(r.sigma)} a year</td>
+              <tr key={r.measured ? 'measured' : r.sigma} className={r.measured ? 'lo-measured' : undefined}>
+                <td>
+                  {pct(r.sigma)} a year{r.measured && ` — ${m.symbol}, measured to ${m.dataDate}`}
+                </td>
                 <td className="mono">{pct(r.probability)}</td>
               </tr>
             ))}
@@ -91,7 +131,9 @@ export default function LiquidationOutlook({ pvUsd, ltvBps, debtUsd, unlockTime,
       </div>
 
       <p className="lo-note">
-        At 100% volatility, borrowing {usd(view.safeDebt)} or less keeps the chance under 10%. A liquidation sells the
+        {m ? `At ${m.symbol}’s measured ${pct(view.safeSigma)} volatility` : 'At 100% volatility'}, borrowing{' '}
+        {usd(view.safeDebt)} or less keeps the chance under 10%.
+        {!m && ' This token’s volatility has not been measured yet, so the chance is shown across a range.'} A liquidation sells the
         stream by auction; anything above the debt comes back to you, but the stream and its upside do not.
         {!view.exact && ' The LTV here is capped below its rank’s, so the most cautious liquidation threshold is assumed.'}
       </p>

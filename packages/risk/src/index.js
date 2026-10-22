@@ -11,5 +11,6 @@ export * from './profile.js';
 export * from './calibrate.js';
 export * from './monitor.js';
 export * from './report.js';
+export * from './ingest.js';
 export { createRng } from './rng.js';
 export { FIXTURE_SPECS, fixtureHistory } from './fixtures.js';

@@ -4586,6 +4586,7 @@ const scannerRouter = require('./routes/scanner');
 const faucetRouter = require('./routes/faucet');
 const vestingRouter = require('./routes/vesting');
 const portfolioRouter = require('./routes/portfolio');
+const createRiskRouter = require('./routes/risk');
 
 // Expose the SQLite/Supabase db handle to the scanner router via app.locals
 app.use('/api/scanner', (req, _res, next) => {
@@ -4597,6 +4598,7 @@ app.use('/api/scanner', (req, _res, next) => {
 app.use('/api/faucet', faucetRouter);
 app.use('/api/vesting', vestingRouter);
 app.use('/api/portfolio', portfolioRouter);
+app.use('/api/risk', createRiskRouter());
 
 // Global Error Handler (Point 9 Security Hardening)
 app.use((err, req, res, next) => {

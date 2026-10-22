@@ -12,6 +12,7 @@
     "clean:maps": "node -e \"const fs=require('fs'),p=require('path');let n=0;(function w(d){if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=p.join(d,e.name);if(e.isDirectory())w(f);else if(f.endsWith('.map')){fs.unlinkSync(f);n++}}})('dist');console.log('removed '+n+' source map(s) from dist')\"",
     "health:check": "node scripts/health-check.mjs",
     "preview": "vite preview",
+    "test": "node scripts/unit-tests.mjs",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test --grep @smoke"
   },

@@ -7,11 +7,37 @@ borrowers on each token, and recommends the per-token parameters governance can 
 No dependencies. Node ≥ 20.
 
 ```bash
-npm test                              # 40 tests, ~5 s, deterministic
+npm test                              # 50 tests, ~6 s, deterministic, no network
 npm run audit -- --out out            # calibrate every synthetic fixture token
 node bin/vestra-risk.js calibrate --csv prices.csv --symbol ABC --rank 2 --json abc.json --out abc.md
 node bin/vestra-risk.js monitor   --csv prices.csv --snapshot abc.json --token 0x…
 ```
+
+## Real data: the daily refresh
+
+```bash
+npm run refresh                       # every token in data/tokens.json (~1 min: public API pauses)
+npm run refresh -- --only arbitrum --recalibrate
+```
+
+`bin/refresh.js` fetches each token's daily price and volume from CoinGecko's public API (no
+key; the same source `packages/backend` uses; set `COINGECKO_API_KEY` for a demo key), writes
+`data/history/<id>.csv` (date,price,volume_usd — what `calibrate` reads; not committed), keeps
+each token's calibration while `monitor` says it holds (recalibrating when it does not, after
+30 days, or when the rank changes), and writes:
+
+- `data/snapshots.json` — spot, volatility, ADV, Ω, per-loan cap, monitor alerts and data-quality
+  flags per token, with the source and data date. The backend serves it at
+  `GET /api/risk/tokens/:address` (every contract address CoinGecko lists for the coin), and the
+  Borrow page's liquidation outlook reads it.
+- `data/REPORT.md` — each token's calibration with its source and date; `data/reports/<SYM>.md`
+  — the full calibration report, rewritten when a token is recalibrated.
+
+Not covered: unlock schedules (no keyless source — DefiLlama emissions needs a paid key; add dated
+unlocks to `tokens.json` by hand), and ranks (`rankBasis: "assumed"` until governance assigns
+them). Days that look like bad prints (a ≥ 0.25 log move undone within 2 days) are flagged and
+kept, so a flagged token's volatility may be overstated. Parsing and the refresh step are tested
+on a recorded response (`test/ingest.test.js`, `test/fixtures/`); tests never touch the network.
 
 ## Layers
 

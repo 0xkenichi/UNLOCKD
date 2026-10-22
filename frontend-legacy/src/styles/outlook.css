@@ -64,3 +64,16 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.lo-measured-figure {
+  margin-top: 20px;
+}
+
+.lo-table tr.lo-measured td {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.lo-alert {
+  color: var(--text-primary);
+}

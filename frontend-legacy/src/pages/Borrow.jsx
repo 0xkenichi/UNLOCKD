@@ -22,6 +22,7 @@ import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx
 import VestingPortfolio from '../components/borrow/VestingPortfolio.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
 import LiquidationOutlook from '../components/borrow/LiquidationOutlook.jsx';
+import { useRiskSnapshot } from '../utils/useRiskSnapshot.js';
 import { requestChainSupport, requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
 import { trackEvent } from '../utils/analytics.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
@@ -57,6 +58,7 @@ export default function Borrow() {
   const [chainRequestState, setChainRequestState] = useState({ status: 'idle', error: '' });
   const [valuationState, setValuationState] = useState({ pv: 0n, ltvBps: 0n });
   const [vestingDetails, setVestingDetails] = useState(null);
+  const riskSnapshot = useRiskSnapshot(vestingDetails?.tokenAddress);
   const [assessment, setAssessment] = useState({
     maxLoan: 0,
     coverageP5: 0,
@@ -327,6 +329,7 @@ export default function Borrow() {
                 ltvBps={Number(valuationState.ltvBps)}
                 debtUsd={desiredBorrowUsd}
                 unlockTime={vestingDetails?.unlockTime}
+                snapshot={riskSnapshot}
               />
             </>
           ) : (

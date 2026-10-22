@@ -1,0 +1,555 @@
+{
+  "generatedAt": "2026-10-22T12:21:22.531Z",
+  "source": {
+    "provider": "CoinGecko",
+    "api": "https://api.coingecko.com/api/v3",
+    "days": 365
+  },
+  "tokens": [
+    {
+      "symbol": "ARB",
+      "name": "Arbitrum",
+      "coingeckoId": "arbitrum",
+      "addresses": [
+        {
+          "platform": "arbitrum-one",
+          "address": "0x912ce59144191c1204e64559fe8253a0e49e6548"
+        },
+        {
+          "platform": "arbitrum-nova",
+          "address": "0xf823c3cd3cebe0a1fa952ba88dc9eef8e0bf46ad"
+        },
+        {
+          "platform": "ethereum",
+          "address": "0xb50721bcf8d664c30412cfbc6cf7a15145234ad1"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/arbitrum/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:15:22.036Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.18792,
+      "volatility": {
+        "total": 0.9983,
+        "ewma": 1.163,
+        "d30": 0.9876,
+        "d90": 1.36,
+        "downside": 0.8614,
+        "forBorrowers": 1.163
+      },
+      "jumpDiffusion": {
+        "sigma": 0.811,
+        "lambda": 6.016,
+        "jumpMean": 0.1032,
+        "jumpStd": 0.2137,
+        "n": 364
+      },
+      "maxDrawdown": 0.7827,
+      "advUsd": 226419401,
+      "dataQuality": {
+        "suspectReversals": []
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:11:36.597Z",
+        "dataDate": "2026-10-22",
+        "reason": "first calibration",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 10000,
+        "newCredit": true,
+        "maxBorrowUsd": 932465071,
+        "sigmaEquivalentPct": 50,
+        "validated": true,
+        "binding": [],
+        "basis": {
+          "symbol": "ARB",
+          "calibratedAt": "2026-10-22T12:11:36.597Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.1879203676079012,
+          "impactVol": 1.163306436832431,
+          "advUsd": 226419400.97086638,
+          "omegaBps": 10000
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:15:22.036Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    },
+    {
+      "symbol": "OP",
+      "name": "Optimism",
+      "coingeckoId": "optimism",
+      "addresses": [
+        {
+          "platform": "optimistic-ethereum",
+          "address": "0x4200000000000000000000000000000000000042"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/optimism/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:15:29.199Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.128741,
+      "volatility": {
+        "total": 0.9823,
+        "ewma": 1.276,
+        "d30": 1.334,
+        "d90": 1.068,
+        "downside": 0.9401,
+        "forBorrowers": 1.276
+      },
+      "jumpDiffusion": {
+        "sigma": 0.8539,
+        "lambda": 6.016,
+        "jumpMean": 0.003322,
+        "jumpStd": 0.198,
+        "n": 364
+      },
+      "maxDrawdown": 0.8235,
+      "advUsd": 98332960,
+      "dataQuality": {
+        "suspectReversals": []
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:11:53.517Z",
+        "dataDate": "2026-10-22",
+        "reason": "first calibration",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 10000,
+        "newCredit": true,
+        "maxBorrowUsd": 336646951,
+        "sigmaEquivalentPct": 50,
+        "validated": true,
+        "binding": [],
+        "basis": {
+          "symbol": "OP",
+          "calibratedAt": "2026-10-22T12:11:53.517Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.12874146007819195,
+          "impactVol": 1.2758975735518048,
+          "advUsd": 98332959.63603887,
+          "omegaBps": 10000
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:15:29.199Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    },
+    {
+      "symbol": "LDO",
+      "name": "Lido DAO",
+      "coingeckoId": "lido-dao",
+      "addresses": [
+        {
+          "platform": "ethereum",
+          "address": "0x5a98fcbea516cf06857215779fd812ca3bef1b32"
+        },
+        {
+          "platform": "polygon-pos",
+          "address": "0xc3c7d422809852031b44ab29eec9f1eff2a58756"
+        },
+        {
+          "platform": "arbitrum-one",
+          "address": "0x13ad51ed4f1b7e9dc168d8a00cb3f4ddd85efa60"
+        },
+        {
+          "platform": "optimistic-ethereum",
+          "address": "0xfdb794692724153d1488ccdbe0c56c252596735f"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/lido-dao/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:21:07.518Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.404837,
+      "volatility": {
+        "total": 2.198,
+        "ewma": 0.9812,
+        "d30": 1.184,
+        "d90": 0.9614,
+        "downside": 2.205,
+        "forBorrowers": 2.198
+      },
+      "jumpDiffusion": {
+        "sigma": 0.9336,
+        "lambda": 19.05,
+        "jumpMean": -0.06924,
+        "jumpStd": 0.4505,
+        "n": 364
+      },
+      "maxDrawdown": 0.7529,
+      "advUsd": 60626485,
+      "dataQuality": {
+        "suspectReversals": [
+          {
+            "date": "2026-02-10",
+            "move": -0.3632,
+            "revertedInDays": 2
+          },
+          {
+            "date": "2026-02-22",
+            "move": -0.362,
+            "revertedInDays": 1
+          },
+          {
+            "date": "2026-03-08",
+            "move": -0.4656,
+            "revertedInDays": 1
+          },
+          {
+            "date": "2026-03-12",
+            "move": -0.3815,
+            "revertedInDays": 2
+          },
+          {
+            "date": "2026-03-21",
+            "move": -0.4715,
+            "revertedInDays": 2
+          }
+        ],
+        "note": "5 day(s) where the price moved by at least 0.25 in log terms (+28% or −22%) and reverted within 2 days — possibly bad prints in the source. They are kept, so volatility may be overstated; check a second source before acting on this calibration."
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:21:07.518Z",
+        "dataDate": "2026-10-22",
+        "reason": "forced",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 0,
+        "newCredit": false,
+        "maxBorrowUsd": 0,
+        "sigmaEquivalentPct": 100,
+        "validated": null,
+        "binding": [
+          {
+            "constraint": "jump-diffusion · 0.25y",
+            "omegaBps": 6563
+          },
+          {
+            "constraint": "jump-diffusion · 0.5y",
+            "omegaBps": 2924
+          },
+          {
+            "constraint": "jump-diffusion · 1y",
+            "omegaBps": 183
+          },
+          {
+            "constraint": "jump-diffusion · 2y",
+            "omegaBps": 0
+          }
+        ],
+        "basis": {
+          "symbol": "LDO",
+          "calibratedAt": "2026-10-22T12:21:07.518Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.4048369135271187,
+          "impactVol": 2.1976747640274485,
+          "advUsd": 60626485.150039345,
+          "omegaBps": 0
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:21:07.518Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    },
+    {
+      "symbol": "FET",
+      "name": "Artificial Superintelligence Alliance",
+      "coingeckoId": "fetch-ai",
+      "addresses": [
+        {
+          "platform": "ethereum",
+          "address": "0xaea46a60368a7bd060eec7df8cba43b7ef41ad85"
+        },
+        {
+          "platform": "cardano",
+          "address": "e824c0011176f0926ad51f492bcc63ac6a03a589653520839dc7e3d9464554"
+        },
+        {
+          "platform": "osmosis",
+          "address": "ibc/5D1F516200EE8C6B2354102143B78A2DEDA25EDE771AC0F8DC3C1837C8FD4447"
+        },
+        {
+          "platform": "binance-smart-chain",
+          "address": "0x031b41e504677879370e9dbcf937283a8691fa7f"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/fetch-ai/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:21:19.320Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.195132,
+      "volatility": {
+        "total": 1.285,
+        "ewma": 1.028,
+        "d30": 1.154,
+        "d90": 1.04,
+        "downside": 1.118,
+        "forBorrowers": 1.285
+      },
+      "jumpDiffusion": {
+        "sigma": 0.9864,
+        "lambda": 6.016,
+        "jumpMean": 0.04641,
+        "jumpStd": 0.3324,
+        "n": 364
+      },
+      "maxDrawdown": 0.6726,
+      "advUsd": 143063383,
+      "dataQuality": {
+        "suspectReversals": [
+          {
+            "date": "2026-02-10",
+            "move": -0.2797,
+            "revertedInDays": 2
+          }
+        ],
+        "note": "1 day(s) where the price moved by at least 0.25 in log terms (+28% or −22%) and reverted within 2 days — possibly bad prints in the source. They are kept, so volatility may be overstated; check a second source before acting on this calibration."
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:21:19.320Z",
+        "dataDate": "2026-10-22",
+        "reason": "forced",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 8750,
+        "newCredit": true,
+        "maxBorrowUsd": 422646840,
+        "sigmaEquivalentPct": 69,
+        "validated": true,
+        "binding": [
+          {
+            "constraint": "jump-diffusion · 2y",
+            "omegaBps": 8750
+          }
+        ],
+        "basis": {
+          "symbol": "FET",
+          "calibratedAt": "2026-10-22T12:21:19.320Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.19513218508612848,
+          "impactVol": 1.2847926899688187,
+          "advUsd": 143063382.75523135,
+          "omegaBps": 8750
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:21:19.320Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    },
+    {
+      "symbol": "STRK",
+      "name": "Starknet",
+      "coingeckoId": "starknet",
+      "addresses": [
+        {
+          "platform": "ethereum",
+          "address": "0xca14007eff0db1f8135f4c25b34de49ab0d42766"
+        },
+        {
+          "platform": "starknet",
+          "address": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
+        },
+        {
+          "platform": "solana",
+          "address": "HsRpHQn6VbyMs5b5j5SV6xQ2VvpvvCCzu19GjytVSCoz"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/starknet/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:16:53.241Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.0573442,
+      "volatility": {
+        "total": 1.379,
+        "ewma": 2.621,
+        "d30": 2.613,
+        "d90": 1.893,
+        "downside": 1.185,
+        "forBorrowers": 2.621
+      },
+      "jumpDiffusion": {
+        "sigma": 0.9567,
+        "lambda": 10.03,
+        "jumpMean": 0.1462,
+        "jumpStd": 0.2773,
+        "n": 364
+      },
+      "maxDrawdown": 0.9095,
+      "advUsd": 162792204,
+      "dataQuality": {
+        "suspectReversals": []
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:13:35.149Z",
+        "dataDate": "2026-10-22",
+        "reason": "first calibration",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 10000,
+        "newCredit": true,
+        "maxBorrowUsd": 132111157,
+        "sigmaEquivalentPct": 50,
+        "validated": true,
+        "binding": [],
+        "basis": {
+          "symbol": "STRK",
+          "calibratedAt": "2026-10-22T12:13:35.149Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.05734415896183376,
+          "impactVol": 2.6205994883581822,
+          "advUsd": 162792203.92166194,
+          "omegaBps": 10000
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:16:53.241Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    },
+    {
+      "symbol": "JUP",
+      "name": "Jupiter",
+      "coingeckoId": "jupiter-exchange-solana",
+      "addresses": [
+        {
+          "platform": "solana",
+          "address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+        },
+        {
+          "platform": "unichain",
+          "address": "0xbe51a5e8fa434f09663e8fb4cce79d0b2381afad"
+        }
+      ],
+      "source": {
+        "provider": "CoinGecko",
+        "endpoint": "/coins/jupiter-exchange-solana/market_chart?vs_currency=usd&days=365&interval=daily",
+        "fetchedAt": "2026-10-22T12:18:03.004Z"
+      },
+      "dataFrom": "2025-10-23",
+      "dataDate": "2026-10-22",
+      "observations": 364,
+      "missingDays": 0,
+      "spotUsd": 0.326617,
+      "volatility": {
+        "total": 1.036,
+        "ewma": 1.003,
+        "d30": 1.045,
+        "d90": 1.04,
+        "downside": 0.9678,
+        "forBorrowers": 1.036
+      },
+      "jumpDiffusion": {
+        "sigma": 0.9512,
+        "lambda": 2.005,
+        "jumpMean": 0.01908,
+        "jumpStd": 0.2897,
+        "n": 364
+      },
+      "maxDrawdown": 0.6809,
+      "advUsd": 90919926,
+      "dataQuality": {
+        "suspectReversals": []
+      },
+      "calibration": {
+        "calibratedAt": "2026-10-22T12:13:49.960Z",
+        "dataDate": "2026-10-22",
+        "reason": "first calibration",
+        "triggeredBy": [],
+        "rank": 2,
+        "omegaBps": 10000,
+        "newCredit": true,
+        "maxBorrowUsd": 471891598,
+        "sigmaEquivalentPct": 50,
+        "validated": true,
+        "binding": [],
+        "basis": {
+          "symbol": "JUP",
+          "calibratedAt": "2026-10-22T12:13:49.960Z",
+          "dataDate": "2026-10-22",
+          "spot": 0.3266169604866483,
+          "impactVol": 1.036243961822961,
+          "advUsd": 90919925.91845894,
+          "omegaBps": 10000
+        },
+        "rankBasis": "assumed"
+      },
+      "monitor": {
+        "checkedAt": "2026-10-22T12:18:03.004Z",
+        "status": "ok",
+        "alerts": []
+      },
+      "unlocks": {
+        "source": null,
+        "events": [],
+        "note": "No unlock schedule: no keyless source is available (DefiLlama emissions needs a paid key). Unlock overhang is not modelled for this token."
+      }
+    }
+  ],
+  "errors": []
+}
