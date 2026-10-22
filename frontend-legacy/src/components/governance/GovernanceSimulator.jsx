@@ -85,18 +85,18 @@ export default function GovernanceSimulator() {
                 {/* Chart */}
                 <div style={{
                     height: 250,
-                    background: 'rgba(0,0,0,0.4)',
+                    background: 'var(--surface-soft)',
                     borderRadius: 'var(--radius-md)',
-                    border: '1px solid rgba(255,255,255,0.07)',
+                    border: '1px solid var(--border-secondary)',
                     padding: '16px 16px 8px'
                 }}>
-                    <div className="stat-label" style={{ marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <div className="stat-label" style={{ marginBottom: 10 }}>
                         Projected 12-Month Impact
                     </div>
                     <ResponsiveContainer width="100%" height="85%">
                         <LineChart data={simulationData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                            <XAxis dataKey="name" stroke="#A0A0A0" fontSize={10} tickLine={false} axisLine={false} />
+                            <XAxis dataKey="name" stroke="#8a8170" fontSize={10} tickLine={false} axisLine={false} />
                             <YAxis
                                 yAxisId="left"
                                 stroke="#b08d57"
@@ -115,9 +115,9 @@ export default function GovernanceSimulator() {
                                 axisLine={false}
                             />
                             <Tooltip
-                                contentStyle={{ backgroundColor: '#001F3F', borderColor: '#b08d5730', borderRadius: 8 }}
+                                contentStyle={{ backgroundColor: '#13110e', borderColor: '#b08d5740', borderRadius: 3, fontFamily: 'var(--font-mono)' }}
                                 itemStyle={{ fontSize: 12 }}
-                                labelStyle={{ fontSize: 12, color: '#A0A0A0', marginBottom: 4 }}
+                                labelStyle={{ fontSize: 12, color: '#a19784', marginBottom: 4 }}
                             />
                             <Line yAxisId="left" type="monotone" dataKey="tvl" name="Projected TVL" stroke="#b08d57" strokeWidth={2} dot={false} />
                             <Line yAxisId="right" type="monotone" dataKey="defaults" name="Est. Defaults" stroke="#b2564b" strokeWidth={2} dot={false} />

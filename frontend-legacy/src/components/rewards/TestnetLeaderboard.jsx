@@ -145,17 +145,19 @@ export default function TestnetLeaderboard() {
                 }
                 .phase-badge {
                     padding: 4px 12px;
-                    border-radius: 20px;
-                    background: rgba(196, 162, 108, 0.1);
-                    border: 1px solid rgba(196, 162, 108, 0.3);
-                    color: var(--primary-400);
-                    font-size: 12px;
-                    font-weight: 700;
+                    border-radius: var(--radius-sm);
+                    border: 1px solid var(--border-accent);
+                    color: var(--brass-300);
+                    font-family: var(--font-mono);
+                    font-stretch: 87.5%;
+                    font-size: 10px;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    font-weight: 500;
                 }
                 .phase-badge.active {
-                    background: var(--primary-500);
-                    color: #fff;
-                    box-shadow: 0 0 15px rgba(196, 162, 108, 0.4);
+                    background: var(--brass-400);
+                    color: #15120c;
                 }
                 .phase-stats {
                     display: flex;
@@ -172,9 +174,9 @@ export default function TestnetLeaderboard() {
                 }
                 .phase-card {
                     padding: 20px;
-                    background: rgba(37, 34, 27, 0.3);
-                    border: 1px solid rgba(255, 255, 255, 0.05);
-                    border-radius: 16px;
+                    background: var(--surface);
+                    border: 1px solid var(--border-primary);
+                    border-radius: var(--radius-lg);
                     position: relative;
                     overflow: hidden;
                 }
@@ -184,8 +186,11 @@ export default function TestnetLeaderboard() {
                 }
                 .phase-title {
                     font-family: var(--font-display);
-                    font-size: 16px;
-                    color: #fff;
+                    font-weight: var(--wght-display);
+                    font-stretch: 80%;
+                    font-size: 20px;
+                    line-height: 1.05;
+                    color: var(--text-primary);
                     margin-bottom: 4px;
                 }
                 .phase-subtitle {
@@ -195,21 +200,22 @@ export default function TestnetLeaderboard() {
                 }
                 .phase-weight {
                     font-size: 11px;
-                    color: var(--primary-400);
-                    font-weight: 700;
+                    color: var(--brass-300);
+                    font-family: var(--font-mono);
+                    font-stretch: 87.5%;
+                    letter-spacing: 0.08em;
+                    font-weight: 500;
                     text-transform: uppercase;
                 }
                 .phase-progress-track {
                     margin-top: 16px;
                     height: 4px;
-                    background: rgba(255, 255, 255, 0.1);
-                    border-radius: 2px;
+                    background: var(--border-secondary);
                     overflow: hidden;
                 }
                 .phase-progress-bar {
                     height: 100%;
-                    background: var(--primary-500);
-                    box-shadow: 0 0 10px var(--primary-500);
+                    background: var(--brass-400);
                 }
                 .leaderboard-section {
                     margin-top: 40px;
@@ -230,8 +236,8 @@ export default function TestnetLeaderboard() {
                     align-items: center;
                     gap: 4px;
                     padding: 2px 8px;
-                    border-radius: 4px;
-                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: var(--radius-sm);
+                    border: 1px solid var(--border-primary);
                     font-size: 10px;
                     color: var(--text-secondary);
                 }

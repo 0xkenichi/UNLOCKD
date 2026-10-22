@@ -34,16 +34,15 @@ export default function TreasuryVaultCard({ vault }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{
                         padding: 8,
-                        borderRadius: 'var(--radius-md)',
-                        background: 'rgba(196,162,108,0.12)',
-                        border: '1px solid rgba(196,162,108,0.25)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-strong)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }}>
                         <Icon size={18} style={{ color: 'var(--primary-400)' }} />
                     </div>
                     <div>
-                        <div className="section-title" style={{ fontSize: 15 }}>{name}</div>
-                        <div className="section-subtitle" style={{ fontSize: 11 }}>{type} Vault</div>
+                        <div className="section-title" style={{ fontSize: 20 }}>{name}</div>
+                        <div className="stat-label">{type} Vault</div>
                     </div>
                 </div>
                 <span className={`tag ${status === 'Active' ? 'success' : 'warn'}`}>{status}</span>
@@ -67,18 +66,16 @@ export default function TreasuryVaultCard({ vault }) {
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span className="stat-label" style={{ fontSize: 11 }}>Utilization</span>
-                    <span style={{ fontSize: 12, color: 'var(--primary-300)' }}>{utilizDisplay}</span>
+                    <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--brass-300)' }}>{utilizDisplay}</span>
                 </div>
-                <div style={{ height: 4, background: 'var(--bg-card)', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border-primary)' }}>
+                <div style={{ height: 2, background: 'var(--border-secondary)', overflow: 'hidden' }}>
                     <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: utilizWidth }}
                         transition={{ duration: 1, ease: 'easeOut' }}
                         style={{
                             height: '100%',
-                            background: 'var(--primary-500)',
-                            borderRadius: 4,
-                            boxShadow: '0 0 8px rgba(196, 162, 108, 0.5)'
+                            background: 'var(--brass-400)'
                         }}
                     />
                 </div>

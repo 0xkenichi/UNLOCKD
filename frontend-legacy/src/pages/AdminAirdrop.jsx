@@ -301,7 +301,7 @@ export default function AdminAirdrop() {
             <div className="section-subtitle">Use as a working shortlist for testnet airdrop allocation.</div>
           </div>
         </div>
-        <div className="data-table">
+        <div className="data-table data-table--wide">
           <div className="table-row header">
             <div>Rank</div>
             <div>Wallet</div>
@@ -314,14 +314,14 @@ export default function AdminAirdrop() {
           </div>
           {(data?.leaderboard || []).map((row) => (
             <div className="table-row" key={row.walletAddress}>
-              <div>{row.rank}</div>
-              <div title={row.walletAddress}>{shortWallet(row.walletAddress)}</div>
-              <div>{row.score}</div>
-              <div>{row.eventCount}</div>
-              <div>{row.uniqueEvents}</div>
-              <div>{row.highValueActions}</div>
-              <div>{row.feedbackCount}</div>
-              <div>{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString() : '--'}</div>
+              <div data-label="Rank">{row.rank}</div>
+              <div data-label="Wallet" title={row.walletAddress}>{shortWallet(row.walletAddress)}</div>
+              <div data-label="Score">{row.score}</div>
+              <div data-label="Events">{row.eventCount}</div>
+              <div data-label="Unique events">{row.uniqueEvents}</div>
+              <div data-label="High-value">{row.highValueActions}</div>
+              <div data-label="Feedback">{row.feedbackCount}</div>
+              <div data-label="Last seen">{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString() : '--'}</div>
             </div>
           ))}
           {!loading && !(data?.leaderboard || []).length && (

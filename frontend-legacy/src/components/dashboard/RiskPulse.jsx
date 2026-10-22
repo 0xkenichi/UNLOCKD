@@ -37,60 +37,57 @@ const RiskPulse = () => {
     }, []);
 
     return (
-        <div className="immersive-core-card p-6 rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur-xl hover:shadow-[0_0_30px_rgba(196,162,108,0.2)] transition-all duration-500">
-            <div className="flex justify-between items-center mb-6">
+        <div className="holo-card risk-pulse">
+            <div className="risk-pulse__head">
                 <div>
-                    <h3 className="text-xs font-mono text-blue-400 tracking-widest uppercase mb-1">Omega Sentinel</h3>
-                    <h2 className="text-2xl font-bold text-white tracking-tight">System Health</h2>
+                    <h3 className="vx-eyebrow">Omega Sentinel</h3>
+                    <h2 className="section-title">System Health</h2>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-tighter border ${
-                    systemStatus === 'NOMINAL' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' :
-                    systemStatus === 'DEGRADED' ? 'bg-amber-500/20 border-amber-500/40 text-amber-400' :
-                    'bg-rose-500/20 border-rose-500/40 text-rose-400 animate-pulse'
+                <div className={`tag ${
+                    systemStatus === 'NOMINAL' ? 'success' :
+                    systemStatus === 'DEGRADED' ? 'warn' :
+                    'danger'
                 }`}>
                     {systemStatus}
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                    <div className="text-[10px] text-slate-400 uppercase mb-1">Market Volatility</div>
-                    <div className="text-xl font-mono text-white">{volatility}%</div>
-                    <div className="mt-2 h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                            className="h-full bg-blue-500 transition-all duration-1000" 
-                            style={{ width: `${volatility}%` }}
-                        />
+            <div className="risk-pulse__stats">
+                <div className="stat-card">
+                    <div className="stat-label">Market Volatility</div>
+                    <div className="stat-value">{volatility}%</div>
+                    <div className="risk-pulse__bar">
+                        <span style={{ width: `${volatility}%` }} />
                     </div>
                 </div>
-                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                    <div className="text-[10px] text-slate-400 uppercase mb-1">Active Alerts</div>
-                    <div className="text-xl font-mono text-white">{alerts.length}</div>
-                    <div className="text-[9px] text-slate-500 mt-2">SENTINELS ONLINE</div>
+                <div className="stat-card">
+                    <div className="stat-label">Active Alerts</div>
+                    <div className="stat-value">{alerts.length}</div>
+                    <div className="stat-label">Sentinels online</div>
                 </div>
             </div>
 
-            <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="risk-pulse__alerts">
                 {alerts.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 text-xs italic">
+                    <div className="muted" style={{ textAlign: 'center', padding: '24px 0', fontSize: 13 }}>
                         No active breaches detected.
                     </div>
                 ) : (
                     alerts.map(alert => (
-                        <div key={alert.id} className="p-3 rounded-lg bg-black/40 border-l-2 border-l-blue-500 border border-white/5 flex flex-col gap-1">
-                            <div className="flex justify-between items-center">
-                                <span className={`text-[9px] font-bold ${
-                                    alert.level === 'CRITICAL' ? 'text-rose-400' : 'text-amber-400'
+                        <div key={alert.id} className="risk-pulse__alert">
+                            <div>
+                                <span className={`tag ${
+                                    alert.level === 'CRITICAL' ? 'danger' : 'warn'
                                 }`}>
                                     {alert.level}
                                 </span>
-                                <span className="text-[8px] text-slate-500 font-mono">
+                                <span className="vx-serial">
                                     {new Date(alert.timestamp).toLocaleTimeString()}
                                 </span>
                             </div>
-                            <div className="text-[11px] text-slate-300 leading-tight">
+                            <p>
                                 {alert.message}
-                            </div>
+                            </p>
                         </div>
                     ))
                 )}

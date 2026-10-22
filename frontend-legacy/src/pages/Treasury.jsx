@@ -121,7 +121,7 @@ export default function Treasury() {
         return (
             <div className="stack">
                 <div className="holo-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-                    <Activity size={40} style={{ color: 'var(--error-400)', margin: '0 auto 16px' }} />
+                    <Activity size={40} style={{ color: 'var(--danger-400)', margin: '0 auto 16px' }} />
                     <h2 className="section-title" style={{ marginBottom: 8 }}>Treasury Sync Failed</h2>
                     <p className="muted" style={{ marginBottom: 20 }}>
                         Couldn&apos;t reach on-chain vault analytics. Check that your wallet is on a supported network.
@@ -139,7 +139,7 @@ export default function Treasury() {
     return (
         <div className="stack">
             {/* Header */}
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div className="page-header" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
                     <h1 className="page-title holo-glow">Protocol Treasury</h1>
                     <p className="page-subtitle">Real-time on-chain vault forensics and liquidity metrics.</p>
@@ -174,7 +174,7 @@ export default function Treasury() {
                     transition={{ delay: 0.08 }}
                 >
                     <div style={{ marginBottom: 8 }}>
-                        <Zap size={20} style={{ color: '#b07f3a' }} />
+                        <Zap size={20} style={{ color: 'var(--brass-400)' }} />
                     </div>
                     <div className="stat-label">Active Debt</div>
                     <div className="stat-value" style={{ fontSize: 26 }}>{fmtUsd(borrowedRaw)}</div>
@@ -239,21 +239,21 @@ export default function Treasury() {
                 <div
                     style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginTop: 16 }}
                 >
-                    <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="stat-card">
                         <div className="stat-label" style={{ marginBottom: 6 }}>Available Liquidity</div>
-                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>{fmtUsd(liquidityRaw)}</div>
+                        <div className="stat-value" style={{ fontSize: 22, marginBottom: 8 }}>{fmtUsd(liquidityRaw)}</div>
                     </div>
-                    <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="stat-card">
                         <div className="stat-label" style={{ marginBottom: 6 }}>Supply APY (variable)</div>
-                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>{lendingApy.toFixed(2)}%</div>
+                        <div className="stat-value" style={{ fontSize: 22, marginBottom: 8 }}>{lendingApy.toFixed(2)}%</div>
                     </div>
-                    <div style={{ padding: '16px', borderRadius: 'var(--radius-md)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="stat-card">
                         <div className="stat-label" style={{ marginBottom: 6 }}>Utilization Rate</div>
-                        <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: 'var(--primary-200)', marginBottom: 8 }}>
+                        <div className="stat-value" style={{ fontSize: 22, marginBottom: 8 }}>
                             {fmtPct(utilizBps)}
                         </div>
-                        <div style={{ height: 4, background: 'var(--bg-card)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${Math.min(100, Number(utilizBps) / 100)}%`, background: 'var(--primary-500)', borderRadius: 4 }} />
+                        <div style={{ height: 2, background: 'var(--border-secondary)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.min(100, Number(utilizBps) / 100)}%`, background: 'var(--brass-400)' }} />
                         </div>
                     </div>
                 </div>

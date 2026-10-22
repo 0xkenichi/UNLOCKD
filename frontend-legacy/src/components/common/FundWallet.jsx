@@ -64,14 +64,14 @@ export default function FundWallet({ mode = 'borrow', onStatusChange }) {
             <div>Notes</div>
           </div>
           <div className="table-row">
-            <div>Gas</div>
-            <div>{funding.hasGas ? 'Ready' : 'Low'}</div>
-            <div>Keep 0.0005+ for fees.</div>
+            <div data-label="Asset">Gas</div>
+            <div data-label="Status">{funding.hasGas ? 'Ready' : 'Low'}</div>
+            <div data-label="Notes">Keep 0.0005+ for fees.</div>
           </div>
           <div className="table-row">
-            <div>USDC</div>
-            <div>{funding.hasUsdc ? 'Ready' : 'Missing'}</div>
-            <div>{mode === 'repay' ? 'Required to repay.' : 'Optional.'}</div>
+            <div data-label="Asset">USDC</div>
+            <div data-label="Status">{funding.hasUsdc ? 'Ready' : 'Missing'}</div>
+            <div data-label="Notes">{mode === 'repay' ? 'Required to repay.' : 'Optional.'}</div>
           </div>
         </div>
         {!funding.ready && funding.reason && <div className="muted">{funding.reason}</div>}

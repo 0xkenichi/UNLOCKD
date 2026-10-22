@@ -76,9 +76,9 @@ export function IsometricVaultHero({ width = 420, height = 220 }) {
 
     // Stacked vault blocks — bottom to top
     const blocks = [
-        { level: 0, w: 80, h: 16, d: 80, color: '#0e3077', highlight: '#1646b1', shadow: '#081d4a' },
-        { level: 16, w: 68, h: 16, d: 68, color: '#1646b1', highlight: '#8e7244', shadow: '#0e3077' },
-        { level: 32, w: 56, h: 16, d: 56, color: '#8e7244', highlight: '#b08d57', shadow: '#1646b1' },
+        { level: 0, w: 80, h: 16, d: 80, color: '#25221b', highlight: '#322d24', shadow: '#16140f' },
+        { level: 16, w: 68, h: 16, d: 68, color: '#4a3a1f', highlight: '#8e7244', shadow: '#25221b' },
+        { level: 32, w: 56, h: 16, d: 56, color: '#8e7244', highlight: '#b08d57', shadow: '#4a3a1f' },
         { level: 48, w: 44, h: 16, d: 44, color: '#b08d57', highlight: '#c4a26c', shadow: '#8e7244' },
     ];
 
@@ -198,11 +198,11 @@ export function IsometricIdentityPassport({ width = 320, height = 200, tier = 0 
 
     const tierColors = [
         { base: '#4a4336', top: '#5f574a', shadow: '#25221b' },   // 0 - Anonymous
-        { base: '#1e3a5f', top: '#8e7244', shadow: '#0e3077' },   // 1 - Basic
-        { base: '#065f46', top: '#7f9c78', shadow: '#064e3b' },   // 2 - Standard
-        { base: '#1a4731', top: '#9db896', shadow: '#065f46' },   // 3 - Verified
+        { base: '#322d24', top: '#8e7244', shadow: '#16140f' },   // 1 - Basic
+        { base: '#3b4a37', top: '#7f9c78', shadow: '#232b21' },   // 2 - Standard
+        { base: '#4a5e46', top: '#9db896', shadow: '#2c3829' },   // 3 - Verified
         { base: '#7b5913', top: '#b08d57', shadow: '#573f0e' },   // 4 - Trusted
-        { base: '#3b0764', top: '#b08d57', shadow: '#2e1065' },   // 5 - Institutional
+        { base: '#2e2414', top: '#d6bb8b', shadow: '#1b1914' },   // 5 - Institutional
     ];
     const tc = tierColors[Math.min(tier, 5)];
 
@@ -251,7 +251,7 @@ export function IsometricIdentityPassport({ width = 320, height = 200, tier = 0 
                 <rect x={cx - 8} y={cy - 6} width={16} height={12} rx="2"
                     fill={tc.top} opacity="0.8" />
                 <rect x={cx - 5} y={cy - 3} width={10} height={6} rx="1"
-                    fill="#0a0f1e" opacity="0.6" />
+                    fill="#0b0a08" opacity="0.6" />
             </g>
 
             {/* Central glyph / verified check */}

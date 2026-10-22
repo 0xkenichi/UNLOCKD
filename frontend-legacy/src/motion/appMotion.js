@@ -146,6 +146,9 @@ export function attach(root) {
   );
 
   const hideForReveal = (el, isRow, rowIndex) => {
+    // Opacity already owned by an inline style (a framer-motion entrance, say): leave it to that
+    // owner. Saving and later restoring its interim value could leave the element invisible.
+    if (el.style.opacity !== '') return;
     save(el);
     if (isRow && rowIndex >= MAX_ROWS_STAGGERED) return; // long ledgers: only the head of the list moves
     gsap.set(el, isRow ? { opacity: 0, x: -8 } : { opacity: 0, y: 18 });

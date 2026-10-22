@@ -78,8 +78,8 @@ function ModuleMiniPreview({ moduleId }) {
   const Icon = mod?.icon || Activity;
   // A sleek, subtle preview block representing the module's nature
   return (
-    <div className="immersive-preview-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '64px', background: 'rgba(10, 14, 20, 0.4)' }}>
-      <Icon size={32} strokeWidth={1.5} color="var(--primary-400)" style={{ filter: 'drop-shadow(0 0 12px rgba(196, 162, 108, 0.6))' }} />
+    <div className="immersive-preview-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '64px' }}>
+      <Icon size={28} strokeWidth={1.25} color="var(--brass-400)" />
     </div>
   );
 }
@@ -347,7 +347,7 @@ export default function Dashboard() {
     >
       {/* ── Isometric vault hero banner ── */}
       {!activeId && (
-        <div style={{
+        <div className="page-header__art" style={{
           position: 'absolute', top: 0, right: 0,
           width: 'min(440px, 42vw)', height: '240px',
           pointerEvents: 'none', zIndex: 1, opacity: 0.75,
@@ -376,17 +376,17 @@ export default function Dashboard() {
         <div className="immersive-core-card holo-card">
           <div className="stat-row" style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--border-primary)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
             <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(196, 162, 108, 0.4)' }}>{loanCountValue}</div>
-              <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Loans</div>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{loanCountValue}</div>
+              <div className="stat-label">Loans</div>
             </div>
             <div className="stat-card stat-card-minimal" style={{ background: 'transparent', border: 'none', padding: 0 }}>
-              <div className="stat-value" style={{ fontFamily: 'var(--font-display)', fontSize: '32px', color: 'var(--primary-300)', textShadow: '0 0 20px rgba(196, 162, 108, 0.4)' }}>{formattedBalance}</div>
-              <div className="stat-label" style={{ color: 'var(--text-secondary)', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>USDC</div>
+              <div className="stat-value" style={{ fontSize: '32px' }}>{formattedBalance}</div>
+              <div className="stat-label">USDC</div>
             </div>
             <button
               className="stat-card stat-card-minimal immersive-network-card"
               type="button"
-              style={{ background: 'rgba(196, 162, 108, 0.08)', border: '1px solid rgba(196, 162, 108, 0.2)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)', transition: 'all 0.2s', textAlign: 'left' }}
+              style={{ background: 'rgba(196, 162, 108, 0.05)', border: '1px solid var(--border-accent)', padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-sm)', transition: 'border-color 0.2s', textAlign: 'left' }}
               onClick={() => {
                 if (isSolanaSession) {
                   setSolanaModalVisible(true);
@@ -399,10 +399,10 @@ export default function Dashboard() {
                 }
               }}
             >
-              <div className="stat-value" style={{ fontSize: '20px', color: '#fff' }}>
+              <div className="stat-value stat-value--word" style={{ fontSize: '24px' }}>
                 {isSolanaSession ? activeSolanaNetwork?.name || 'Solana' : activeChain?.name || '—'}
               </div>
-              <div className="stat-label" style={{ color: 'var(--primary-400)' }}>Network</div>
+              <div className="stat-label" style={{ color: 'var(--brass-300)' }}>Network</div>
             </button>
             
             <TestnetPointsBadge 
@@ -515,8 +515,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="w-full mt-6 mb-8 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
+        <div className="immersive-timeline">
+          <div>
             <DashboardHolo positions={[
               { title: "TGE Event", amount: "100,000 CRDT" },
               { title: "Cliff End", amount: "25,000 CRDT" },

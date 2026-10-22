@@ -24,8 +24,8 @@ function AnimatedOrb({ hovered }) {
       <mesh ref={orbRef}>
         <sphereGeometry args={[1.2, 64, 64]} />
         <MeshDistortMaterial
-          color="#C0C0C0"
-          emissive={hovered ? "#003F7F" : "#001F3F"}
+          color="#c4a26c"
+          emissive={hovered ? "#4a3a1f" : "#2e2414"}
           emissiveIntensity={hovered ? 0.8 : 0.5}
           distort={hovered ? 0.4 : 0.2}
           speed={hovered ? 4 : 2}
@@ -60,20 +60,20 @@ export default function CrdtOrb() {
       </div>
 
       <div
-        className="relative w-full h-[300px] cursor-pointer"
+        className="relative w-full" style={{ height: 300, cursor: 'pointer' }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={handleOpenFeed}
       >
         <Canvas camera={{ position: [0, 0, 4], fov: 50 }}>
           <ambientLight intensity={0.5} />
-          <directionalLight position={[5, 5, 5]} intensity={1.5} color="#ffffff" />
+          <directionalLight position={[5, 5, 5]} intensity={1.5} color="#f2ecdf" />
           <AnimatedOrb hovered={hovered} />
           <OrbitControls enableZoom={false} enablePan={false} />
         </Canvas>
       </div>
 
-      <div className="mt-2 text-center text-sm text-gray-400">
+      <div className="muted" style={{ marginTop: 8, textAlign: 'center', fontSize: 13 }}>
         Click the orb to participate in governance
       </div>
     </HoloCard>

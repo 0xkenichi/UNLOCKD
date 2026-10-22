@@ -6,12 +6,7 @@ import {
     Code2, Shield, LineChart, Globe, MessageSquare,
     ExternalLink, ChevronDown, Check, Zap, Users, Briefcase
 } from 'lucide-react';
-
-const fadeUp = {
-    initial: { opacity: 0, y: 20 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } }
-};
-const stagger = { animate: { transition: { staggerChildren: 0.07 } } };
+import '../styles/pages.css';
 
 // ─── OPEN ROLES ─────────────────────────────────────────────────────────────
 const ROLES = [
@@ -167,51 +162,31 @@ function RoleCard({ role, color }) {
     const [open, setOpen] = useState(false);
 
     return (
-        <motion.div
-            variants={fadeUp}
-            style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: `1px solid rgba(${color}, ${open ? '0.3' : '0.12'})`,
-                borderRadius: '16px',
-                overflow: 'hidden',
-                transition: 'border-color 0.25s'
-            }}
-        >
+        <div className="holo-card hiring-role">
             <button
                 type="button"
+                className="hiring-role__toggle"
                 onClick={() => setOpen(o => !o)}
-                style={{
-                    width: '100%', textAlign: 'left', padding: '22px 24px',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '16px'
-                }}
+                aria-expanded={open}
             >
-                <div style={{
-                    width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0,
-                    background: `rgba(${color}, 0.1)`, border: `1px solid rgba(${color}, 0.2)`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <role.icon size={20} color={`rgb(${color})`} />
+                <div className="hiring-role__icon">
+                    <role.icon size={18} strokeWidth={1.5} color={`rgb(${color})`} />
                 </div>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px', marginBottom: '5px', fontFamily: 'var(--font-display)' }}>
+                    <div className="hiring-role__title">
                         {role.title}
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <span style={{
-                            fontSize: '11px', color: `rgb(${color})`,
-                            background: `rgba(${color}, 0.1)`,
-                            padding: '2px 10px', borderRadius: '20px', fontWeight: 700
-                        }}>{role.type}</span>
-                        <span style={{ fontSize: '12px', color: '#5f574a' }}>{role.location}</span>
-                        <span style={{ fontSize: '12px', color: '#5f574a' }}>·</span>
-                        <span style={{ fontSize: '12px', color: '#5f574a' }}>{role.comp}</span>
+                    <div className="hiring-role__meta">
+                        <span className="tag">{role.type}</span>
+                        <span>{role.location}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{role.comp}</span>
                     </div>
                 </div>
 
                 <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                    <ChevronDown size={18} color="#5f574a" />
+                    <ChevronDown size={18} color="var(--text-muted)" />
                 </motion.div>
             </button>
 
@@ -225,38 +200,27 @@ function RoleCard({ role, color }) {
                         transition={{ duration: 0.25 }}
                         style={{ overflow: 'hidden' }}
                     >
-                        <div style={{ padding: '0 24px 28px', borderTop: `1px solid rgba(${color}, 0.08)` }}>
-                            <p style={{ color: '#a39985', fontSize: '14px', lineHeight: 1.8, margin: '18px 0 16px' }}>
+                        <div className="hiring-role__body">
+                            <p>
                                 {role.desc}
                             </p>
-                            <div style={{ marginBottom: '22px' }}>
-                                <div style={{
-                                    color: '#c9bfab', fontSize: '11px', fontWeight: 700,
-                                    textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px'
-                                }}>
-                                    What we look for
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                                    {role.requirements.map((r, i) => (
-                                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', color: '#a39985', fontSize: '13px' }}>
-                                            <Check size={13} color={`rgb(${color})`} style={{ marginTop: '2px', flexShrink: 0 }} />
-                                            {r}
-                                        </div>
-                                    ))}
-                                </div>
+                            <div className="stat-label">
+                                What we look for
                             </div>
+                            <ul className="hiring-role__reqs">
+                                {role.requirements.map((r, i) => (
+                                    <li key={i}>
+                                        <Check size={13} color={`rgb(${color})`} />
+                                        {r}
+                                    </li>
+                                ))}
+                            </ul>
                             <a
                                 href="https://tally.so/r/vestra-apply"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '8px',
-                                    padding: '10px 22px', borderRadius: '10px',
-                                    background: `rgba(${color}, 0.12)`,
-                                    border: `1px solid rgba(${color}, 0.3)`,
-                                    color: `rgb(${color})`, fontSize: '13px', fontWeight: 700,
-                                    textDecoration: 'none', transition: 'all 0.2s'
-                                }}
+                                className="button ghost"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
                             >
                                 Apply for this role <ExternalLink size={13} />
                             </a>
@@ -264,30 +228,23 @@ function RoleCard({ role, color }) {
                     </motion.div>
                 )}
             </AnimatePresence>
-        </motion.div>
+        </div>
     );
 }
 
 // ─── PAGE ────────────────────────────────────────────────────────────────────
 export default function Hiring() {
     return (
-        <div className="stack">
+        <div className="stack px-page">
 
             {/* Header */}
-            <motion.div variants={stagger} initial="initial" animate="animate" style={{ marginBottom: '3rem' }}>
-                <motion.div variants={fadeUp}>
-                    <div style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '8px',
-                        background: 'rgba(176,141,87,0.1)', border: '1px solid rgba(176,141,87,0.2)',
-                        borderRadius: '20px', padding: '4px 14px', marginBottom: '18px'
-                    }}>
-                        <Zap size={13} color="#c4a26c" />
-                        <span style={{ color: '#c4a26c', fontSize: '13px', fontWeight: 600 }}>We're Hiring</span>
-                    </div>
-                    <h1 className="page-title holo-glow" style={{ maxWidth: '680px', marginBottom: '1rem' }}>
-                        Build the future of vesting credit
+            <header className="page-header px-hero">
+                <div>
+                    <p className="vx-eyebrow">We&apos;re hiring</p>
+                    <h1 className="page-title">
+                        Build the future of <em>vesting credit</em>
                     </h1>
-                    <p className="page-subtitle" style={{ maxWidth: '560px', margin: '0 0 2rem' }}>
+                    <p className="page-subtitle">
                         Vestra Protocol is assembling a lean, high-conviction team. No bloat, no bureaucracy — just world-class people building something that matters.
                     </p>
                     <div className="inline-actions">
@@ -301,103 +258,91 @@ export default function Hiring() {
                             Apply Now <ExternalLink size={14} />
                         </a>
                     </div>
-                </motion.div>
-            </motion.div>
+                </div>
+            </header>
 
             {/* At-a-glance */}
-            <div className="stat-row" style={{ marginBottom: '3.5rem' }}>
+            <dl className="px-facts">
                 {[
                     { label: 'Team Size', value: 'Small & Tight', sub: 'No bloat, high signal', icon: Users },
                     { label: 'Work Style', value: 'Async-First', sub: 'Remote, always', icon: Globe },
                     { label: 'Stage', value: 'Pre-Mainnet', sub: 'Testnet live, shipping fast', icon: Briefcase },
                     { label: 'Compensation', value: 'Token + Cash', sub: 'CRDT allocation included', icon: Zap }
                 ].map(s => (
-                    <div key={s.label} className="stat-card">
-                        <div className="stat-label">{s.label}</div>
-                        <div className="stat-value">{s.value}</div>
-                        <div className="stat-delta">{s.sub}</div>
+                    <div key={s.label} className="px-fact">
+                        <dt className="stat-label">{s.label}</dt>
+                        <dd>
+                            <span className="stat-value">{s.value}</span>
+                            <span className="px-fact__note">{s.sub}</span>
+                        </dd>
                     </div>
+                ))}
+            </dl>
+
+            {/* Philosophy */}
+            <section className="px-split">
+                <div>
+                    <p className="vx-eyebrow">How we hire</p>
+                    <h2 className="section-title">Our hiring philosophy</h2>
+                </div>
+                <div className="px-prose">
+                    <p>
+                        We don't care about where you went to school or how many years are on your CV. We care about what you've shipped, how you think about problems, and whether you take ownership without being told. Every hire is expected to be world-class at their craft. We keep the team small on purpose — fewer people, higher trust, faster execution.
+                    </p>
+                    <div className="hiring-values">
+                        {VALUES.map(v => (
+                            <div key={v} className="pill">
+                                <Check size={11} color="var(--success-400)" /> {v}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* Role Sections */}
+            <div>
+                {ROLES.map(section => (
+                    <section key={section.group} className="hiring-group">
+                        {/* Section header */}
+                        <div className="hiring-group__head">
+                            <h2 className="section-title">
+                                {section.group}
+                            </h2>
+                            <span className="tag">
+                                {section.positions.length} open
+                            </span>
+                        </div>
+                        <p className="hiring-group__tagline">
+                            {section.tagline}
+                        </p>
+
+                        <div className="hiring-roles">
+                            {section.positions.map(role => (
+                                <RoleCard key={role.title} role={role} color={section.color} />
+                            ))}
+                        </div>
+                    </section>
                 ))}
             </div>
 
-            {/* Philosophy */}
-            <motion.div
-                variants={fadeUp} initial="initial" whileInView="animate" viewport={{ once: true }}
-                className="holo-card"
-                style={{
-                    marginBottom: '3rem',
-                    background: 'linear-gradient(135deg, rgba(176,141,87,0.07), rgba(196,162,108,0.05))',
-                    border: '1px solid rgba(176,141,87,0.18)',
-                    padding: '2.5rem'
-                }}
-            >
-                <h3 className="holo-title" style={{ marginBottom: '1rem' }}>Our hiring philosophy</h3>
-                <p style={{ color: '#a39985', fontSize: '15px', lineHeight: 1.85, maxWidth: '700px', margin: '0 0 1.5rem' }}>
-                    We don't care about where you went to school or how many years are on your CV. We care about what you've shipped, how you think about problems, and whether you take ownership without being told. Every hire is expected to be world-class at their craft. We keep the team small on purpose — fewer people, higher trust, faster execution.
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {VALUES.map(v => (
-                        <div key={v} className="pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <Check size={11} color="#9db896" /> {v}
-                        </div>
-                    ))}
-                </div>
-            </motion.div>
-
-            {/* Role Sections */}
-            {ROLES.map(section => (
-                <div key={section.group} style={{ marginBottom: '3.5rem' }}>
-                    {/* Section header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '20px' }}>{section.emoji}</span>
-                        <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)' }}>
-                            {section.group}
-                        </h2>
-                        <span style={{ height: '1px', flex: 1, background: 'rgba(255,255,255,0.05)' }} />
-                        <span style={{
-                            fontSize: '12px', color: `rgb(${section.color})`,
-                            background: `rgba(${section.color}, 0.1)`,
-                            border: `1px solid rgba(${section.color}, 0.2)`,
-                            padding: '2px 10px', borderRadius: '20px', fontWeight: 600
-                        }}>
-                            {section.positions.length} open
-                        </span>
-                    </div>
-                    <p style={{ color: '#5f574a', fontSize: '13px', marginBottom: '1.5rem', paddingLeft: '32px' }}>
-                        {section.tagline}
-                    </p>
-
-                    <motion.div
-                        variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }}
-                        style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
-                    >
-                        {section.positions.map(role => (
-                            <RoleCard key={role.title} role={role} color={section.color} />
-                        ))}
-                    </motion.div>
-                </div>
-            ))}
-
             {/* Open Application CTA */}
-            <motion.div
-                variants={fadeUp} initial="initial" whileInView="animate" viewport={{ once: true }}
-                className="holo-card"
-                style={{ textAlign: 'center', padding: '3.5rem 2rem' }}
-            >
-                <h3 className="holo-title" style={{ marginBottom: '0.75rem' }}>Don't see your role?</h3>
-                <p className="muted" style={{ marginBottom: '1.8rem', maxWidth: '480px', margin: '0 auto 1.8rem' }}>
+            <section className="vx-certificate px-join">
+                <h2 className="section-title">Don't see your role?</h2>
+                <p className="muted">
                     If you're exceptional at something and believe you can move the needle for Vestra Protocol — reach out. We read every application.
                 </p>
-                <a
-                    href="https://tally.so/r/vestra-apply"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="button"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                >
-                    Submit Open Application <ExternalLink size={14} />
-                </a>
-            </motion.div>
+                <div className="inline-actions">
+                    <a
+                        href="https://tally.so/r/vestra-apply"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="button"
+                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        Submit Open Application <ExternalLink size={14} />
+                    </a>
+                </div>
+            </section>
 
         </div>
     );

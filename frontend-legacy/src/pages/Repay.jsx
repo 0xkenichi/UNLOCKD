@@ -141,7 +141,7 @@ export default function Repay() {
           </div>
         </div>
         {scheduleError ? (
-          <div className="p-4 rounded-lg bg-error-900/20 border border-error-500/30 text-error-400 text-sm">
+          <div className="error-banner">
             {scheduleError}
           </div>
         ) : schedule.length ? (

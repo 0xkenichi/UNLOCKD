@@ -26,7 +26,7 @@ export default function DebtClock() {
         <ambientLight intensity={0.7} />
         <mesh rotation={[0.2, 0, 0]}>
           <torusGeometry args={[1.1, 0.25, 32, 64]} />
-          <meshStandardMaterial color="#C0C0C0" emissive="#1f3b5a" />
+          <meshStandardMaterial color="#c4a26c" emissive="#2e2414" />
         </mesh>
       </Canvas>
       <button className="button" type="button" onClick={handleRepay}>

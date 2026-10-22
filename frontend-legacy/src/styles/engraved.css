@@ -1047,3 +1047,579 @@ input[type='radio'] {
     white-space: nowrap;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * App pages (Dashboard, Borrow, Repay, Auction, Governance, Identity, Features,
+ * Treasury, Hiring, Airdrop, Feedback, Admin): shared pieces that were never
+ * styled, leftovers of the old faces, and phone layout.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* Words set where a figure would go take the display face (as on About) */
+.stat-value.stat-value--word {
+  font-family: var(--font-display);
+  font-weight: var(--wght-display);
+  font-stretch: 78%;
+  letter-spacing: -0.01em;
+  line-height: 1.02;
+}
+
+/* Ledgers: stamped tags hug their text; wide ledgers keep every column on one line */
+.table-row > .tag {
+  justify-self: start;
+}
+
+.data-table--wide > .table-row {
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+}
+
+.tag.danger {
+  color: var(--danger-400);
+  border-color: rgba(178, 86, 75, 0.45);
+  background: transparent;
+}
+
+/* Meters: a flat brass rule, no glow */
+.progress-track {
+  border-radius: 0;
+  background: var(--border-secondary);
+}
+
+.progress-fill {
+  background: var(--brass-400);
+  box-shadow: none;
+}
+
+/* Advanced disclosure (components/common/AdvancedSection.jsx) */
+.advanced-section {
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-4);
+}
+
+.advanced-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.advanced-trigger:hover {
+  color: var(--brass-300);
+}
+
+.advanced-trigger-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--brass-300);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.advanced-content {
+  display: grid;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+  min-width: 0;
+}
+
+/* Essentials panel (components/common/EssentialsPanel.jsx) */
+.essentials-meta,
+.essentials-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.essentials-stats {
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+/* Settlement simulator (components/repay/RepaySlider.jsx) */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+
+.slider-row .slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.slider-row .chip {
+  flex: none;
+}
+
+.progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-stretch: 87.5%;
+  color: var(--text-secondary);
+}
+
+/* Borrow: workspace + sidebar; the sidebar's ledgers are narrow */
+.grid-main .data-table .table-row {
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+}
+
+@media (max-width: 1024px) {
+  .grid-main {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Features: diagrams sit under their heading, not centred in the card */
+.feature-visual-card {
+  align-content: start;
+}
+
+.feature-visual-card > .feature-diagram {
+  align-self: start;
+}
+
+/* Identity: linked addresses */
+.identity-links {
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.identity-links__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.identity-links__row > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.identity-links .pill,
+.identity-links .tag {
+  flex: none;
+  overflow-wrap: normal;
+}
+
+.identity-links__address {
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Identity: tier stamps and verification figures */
+.tier-badge {
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tier-badge--tier-3 {
+  border-color: rgba(127, 156, 120, 0.4);
+  background: transparent;
+}
+
+.verified-card__stat-row {
+  gap: var(--space-3) var(--space-6);
+}
+
+.verified-card__stat-label {
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.verified-card__stat-value {
+  font-weight: 300;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.verified-card__checklist .pill.success {
+  border-color: rgba(127, 156, 120, 0.45);
+  background: transparent;
+}
+
+/* ── Dashboard (immersive shell) ─────────────────────────────────────────── */
+.immersive-module-card {
+  border-radius: var(--radius-lg);
+}
+
+.immersive-module-title {
+  font-family: var(--font-display);
+  font-weight: var(--wght-display);
+  font-stretch: calc(var(--wdth-display) * 1%);
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.012em;
+  margin-bottom: 8px;
+}
+
+.immersive-focus-title {
+  font-family: var(--font-display);
+  font-weight: var(--wght-display);
+  font-stretch: calc(var(--wdth-display) * 1%);
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.immersive-preview-shell,
+.agent-replay-mini {
+  background: var(--surface-soft);
+}
+
+.immersive-topbar,
+.immersive-focus-layer {
+  background: color-mix(in srgb, var(--bg-primary) 96%, transparent);
+}
+
+.immersive-core-card .stat-value {
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.immersive-core-card .stat-value.stat-value--word {
+  font-weight: var(--wght-display);
+}
+
+.immersive-timeline {
+  position: relative;
+  z-index: 2;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.dashboard-holo {
+  position: relative;
+  height: 400px;
+  min-height: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.dashboard-holo__head {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  right: 24px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.dashboard-holo__head p {
+  margin: 6px 0 0;
+}
+
+/* ── Risk sentinel (components/dashboard/RiskPulse.jsx, Admin) ──────────────── */
+.risk-pulse {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.risk-pulse__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.risk-pulse__head .section-title {
+  margin: 8px 0 0;
+}
+
+.risk-pulse__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.risk-pulse__bar {
+  height: 2px;
+  margin-top: var(--space-2);
+  background: var(--border-secondary);
+  overflow: hidden;
+}
+
+.risk-pulse__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--brass-400);
+  transition: width 1s var(--ease-standard);
+}
+
+.risk-pulse__alerts {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.risk-pulse__alert {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-secondary);
+  border-left: 2px solid var(--brass-500);
+  background: var(--surface-soft);
+}
+
+.risk-pulse__alert > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.risk-pulse__alert p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Hiring ───────────────────────────────────────────────────────────────── */
+.hiring-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.hiring-values .pill {
+  gap: 6px;
+}
+
+.hiring-group + .hiring-group {
+  margin-top: var(--space-10);
+}
+
+.hiring-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.hiring-group__head .section-title {
+  margin: 0;
+}
+
+.hiring-group__tagline {
+  margin: var(--space-3) 0 var(--space-5);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.hiring-roles {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.holo-card.hiring-role {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.hiring-role__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 20px 24px;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hiring-role__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.hiring-role__title {
+  font-family: var(--font-display);
+  font-weight: var(--wght-display);
+  font-stretch: 84%;
+  font-size: 20px;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.hiring-role__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hiring-role__body {
+  padding: 0 24px 24px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+.hiring-role__body > p {
+  max-width: 68ch;
+  margin: 18px 0 18px;
+  color: var(--text-secondary);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.hiring-role__reqs {
+  list-style: none;
+  margin: 10px 0 22px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.hiring-role__reqs li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.hiring-role__reqs svg {
+  flex: none;
+  margin-top: 4px;
+}
+
+@media (max-width: 520px) {
+  .hiring-role__toggle {
+    padding: 16px;
+    gap: var(--space-3);
+  }
+
+  .hiring-role__body {
+    padding: 0 16px 20px;
+  }
+}
+
+/* ── Admin portal ─────────────────────────────────────────────────────────── */
+.admin-md h1,
+.admin-md h2,
+.admin-md h3 {
+  margin: 1.5rem 0 0.75rem;
+}
+
+.admin-md pre {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.admin-md table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-md th,
+.admin-md td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-secondary);
+  text-align: left;
+}
+
+/* ── Demo: the globe is drawn at a fixed 800px; keep it inside its card ────── */
+.demo-globe-container {
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* ── Phones ───────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* Decorative isometric art would sit under the title */
+  .page-header__art {
+    display: none;
+  }
+
+  .dashboard-holo {
+    height: 320px;
+  }
+}
+
+@media (max-width: 520px) {
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .stat-row > .stat-card {
+    min-width: 0;
+    padding: var(--space-4);
+  }
+
+  .stat-row .stat-value {
+    font-size: 21px;
+    font-stretch: 87.5%;
+  }
+
+  .stat-row .stat-value.stat-value--word {
+    font-size: 22px;
+    font-stretch: 76%;
+  }
+}
+
+/* Phone ledgers label each cell (data-label); set those labels in the legend voice */
+.table-row:not(.header) > div[data-label]::before {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}

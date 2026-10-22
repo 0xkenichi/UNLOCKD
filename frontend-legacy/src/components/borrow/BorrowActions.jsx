@@ -767,10 +767,10 @@ export default function BorrowActions({
               style={{
                 maxHeight: 360,
                 overflow: 'auto',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 12,
+                border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-sm)',
                 padding: 12,
-                background: 'rgba(10,14,20,0.44)'
+                background: 'var(--surface-soft)'
               }}
             >
               <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{loanTermsDoc}</pre>

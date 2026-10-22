@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Vestra Protocol. All rights reserved.
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { motion, AnimatePresence } from 'framer-motion';
+import { Search } from 'lucide-react';
 
 export default function VestingPortfolio({ positions = [], selectedId, onSelect, loading = false, onSwitchToSolana, isSolanaConnected = false }) {
     if (loading && positions.length === 0) {
@@ -23,15 +24,12 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                 </div>
                 <div className="holo-card" style={{
                     padding: '40px 24px',
-                    textAlign: 'center',
-                    border: '1px solid var(--border-primary)',
-                    background: 'linear-gradient(180deg, rgba(196, 162, 108, 0.05) 0%, rgba(0, 0, 0, 0) 100%)',
-                    borderRadius: '16px'
+                    textAlign: 'center'
                 }}>
                     <div className="stack" style={{ gap: 16, alignItems: 'center' }}>
-                        <div style={{ fontSize: '32px' }}>🔍</div>
+                        <Search size={28} strokeWidth={1.25} color="var(--brass-400)" aria-hidden="true" style={{ display: 'block', margin: '0 auto' }} />
                         <div>
-                            <h4 style={{ fontSize: '18px', fontWeight: 600, marginBottom: 8 }}>No Assets Detected</h4>
+                            <h4 className="holo-title" style={{ margin: '0 0 8px' }}>No Assets Detected</h4>
                             <p className="muted" style={{ maxWidth: '460px', margin: '0 auto', fontSize: '13px' }}>
                                 {isSolanaConnected
                                     ? 'No vesting streams found on your connected EVM or Solana wallets.'
@@ -85,12 +83,12 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                 width: 20, 
                                 height: 20, 
                                 borderRadius: 4, 
-                                background: protocol.includes('Sablier') ? '#6B21A8' : '#b08d57', 
+                                background: protocol.includes('Sablier') ? 'var(--brass-700)' : 'var(--brass-500)', 
                                 fontSize: 10, 
                                 display: 'flex', 
                                 alignItems: 'center', 
                                 justifyContent: 'center',
-                                color: 'white'
+                                color: 'var(--bone-100)'
                             }}>
                                 {protocol[0]}
                             </div>
@@ -171,7 +169,7 @@ export default function VestingPortfolio({ positions = [], selectedId, onSelect,
                                                     <span className="tag" style={{ 
                                                         fontSize: 10, 
                                                         background: isFlow ? 'rgba(127, 156, 120, 0.14)' : 'rgba(196, 162, 108, 0.14)', 
-                                                        color: isFlow ? '#7f9c78' : 'var(--primary-300)' 
+                                                        color: isFlow ? 'var(--success-400)' : 'var(--brass-300)' 
                                                     }}>
                                                         {unlockDate}
                                                     </span>

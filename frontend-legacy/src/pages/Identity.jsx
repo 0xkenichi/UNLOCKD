@@ -137,7 +137,7 @@ export default function Identity() {
     <div className="stack">
       <div className="page-header" style={{ position: 'relative', overflow: 'hidden' }}>
         {/* Isometric passport hero — floats top-right */}
-        <div style={{
+        <div className="page-header__art" style={{
           position: 'absolute', top: '-16px', right: '-8px',
           pointerEvents: 'none', zIndex: 0, opacity: 0.65,
           mask: 'linear-gradient(to left, rgba(0,0,0,1) 30%, transparent 90%)',
@@ -186,7 +186,7 @@ export default function Identity() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Eligibility</div>
-          <div className="stat-value">
+          <div className="stat-value stat-value--word">
             {profile?.policy?.small?.allowed
               ? 'Small loans'
               : profile?.policy?.medium?.allowed
@@ -213,21 +213,21 @@ export default function Identity() {
         </div>
 
         {/* Wallet Linking UI */}
-        <div style={{ marginBottom: 24, padding: 16, background: 'var(--bg-layer-2)', borderRadius: 12, border: '1px solid var(--border-primary)' }}>
-          <h4 style={{ margin: '0 0 12px 0', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>Linked Connected Addresses</h4>
+        <div className="identity-links">
+          <h4 className="stat-label" style={{ margin: '0 0 4px 0' }}>Linked Connected Addresses</h4>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="identity-links__row">
+            <div>
               <span className="pill">EVM (Anchor)</span>
-              <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)' }}>{evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : 'Not connected'}</span>
+              <span className="identity-links__address">{evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : 'Not connected'}</span>
             </div>
             {evmAddress && <span className="tag success">Active</span>}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="identity-links__row">
+            <div>
               <span className="pill">Solana</span>
-              <span style={{ fontSize: 14, fontFamily: 'var(--font-mono)' }}>{solPublicKey ? `${solPublicKey.toString().slice(0, 6)}...${solPublicKey.toString().slice(-4)}` : 'Not connected'}</span>
+              <span className="identity-links__address">{solPublicKey ? `${solPublicKey.toString().slice(0, 6)}...${solPublicKey.toString().slice(-4)}` : 'Not connected'}</span>
             </div>
             {solPublicKey && evmAddress ? <span className="tag success">Linked to EVM Passport</span> : <span className="tag">Independent</span>}
           </div>
@@ -321,7 +321,7 @@ export default function Identity() {
 
           {passportResult?.stamps && passportResult?.stampsMetadata && (
             <div style={{ marginTop: 24 }}>
-              <h4 style={{ fontSize: 13, textTransform: 'uppercase', marginBottom: 12, color: 'var(--text-secondary)' }}>Verified Humanity Stamps</h4>
+              <h4 className="stat-label" style={{ margin: '0 0 12px' }}>Verified Humanity Stamps</h4>
               <div style={{ 
                 display: 'grid', 
                 gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', 
@@ -337,13 +337,12 @@ export default function Identity() {
                   return (
                     <div key={stamp.id || stamp.provider} className="glass-card" style={{ 
                       padding: '10px', 
-                      borderRadius: 8, 
                       fontSize: 12,
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 4,
-                      border: '1px solid var(--success-900)',
-                      background: 'rgba(5, 150, 105, 0.05)'
+                      border: '1px solid rgba(127, 156, 120, 0.3)',
+                      background: 'rgba(127, 156, 120, 0.05)'
                     }}>
                       <div style={{ fontWeight: 600, color: 'var(--success-400)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ fontSize: 10 }}>✓</span> {name}
@@ -353,7 +352,7 @@ export default function Identity() {
                   );
                 })}
                 {passportResult.stamps.length === 0 && (
-                  <div className="muted" style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', background: 'var(--bg-layer-2)', borderRadius: 8 }}>
+                  <div className="muted" style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', background: 'var(--surface-soft)' }}>
                     No verified humanity stamps found for this address.
                   </div>
                 )}
