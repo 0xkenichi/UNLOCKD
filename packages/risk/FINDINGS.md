@@ -70,3 +70,41 @@ per-token σ and a liquidity factor. The contracts implement `(1 − σ/2)` with
 Until then, the per-token levers that exist (Ω, hard LTV cap, per-loan value cap) are what
 `calibrate` sets, and the Borrow page shows each borrower the price that would liquidate
 them before they borrow.
+
+## 5. Backtest on real history: how much can be lent safely (October 2026)
+
+`node bin/fetch-binance.js && node bin/frontier.js` replays a loan every 14 days on 31 tokens'
+full Binance daily history (ARB, OP, APT, SUI, TIA, STRK, JUP, LDO, FET, ENA, ZK, EIGEN, ETH and
+others; 559 to 3,353 days each). Borrowers are adversarial: they take the maximum, never cure, and
+walk away when underwater. Auction buyers require 60% a year. Losses are before any backstop.
+Full tables: `data/FRONTIER.md`, `data/BACKTEST*.md`.
+
+| Stream, 12 months | Setting | Avg LTV | Liquidated | Loans with a loss | Mean loss | Worst 1% |
+|---|---|---|---|---|---|---|
+| Linear | v1 testnet | 25.0% | 84.4% | 0.3% | 0.03% | 0.0% |
+| Linear | v2 as written (hold, α 0.5% / 5%) | 14.3% | 7.3% | 0.1% | 0.00% | 0.0% |
+| Linear | v2 hold, α 2% / 10% | 18.8% | 18.4% | 0.8% | 0.03% | 0.0% |
+| Linear | v2 hold, α 5% / 20% | 23.7% | 31.8% | 3.8% | 0.20% | 6.9% |
+| Cliff | v1 testnet | 25.0% | 84.4% | 0.6% | 0.14% | 0.0% |
+| Cliff | v2 as written | 3.4% | 5.3% | 0.0% | 0.00% | 0.0% |
+| Cliff | v2 blend, k 200% / 100% | 9.6% | 18.6% | 0.2% | 0.02% | 0.0% |
+| Cliff | v2 blend, k 150% / 75% | 15.4% | 41.2% | 2.9% | 0.20% | 8.0% |
+| Cliff | v2 blend, k 100% / 50% | 25.2% | 63.5% | 15.1% | 1.45% | 26.9% |
+
+What it means:
+
+- **v1 is safe for lenders only because it liquidates 84% of borrowers within a year.** Its fixed
+  thresholds trigger early, so auctions clear above the debt — at the cost of almost every borrower
+  and a locked claim sold into the market each time.
+- **v2 as the yellow paper wrote it is safe but lends too little to be useful,** above all on
+  cliffs (3.4%). It assumes the lender must hold every tranche to its unlock.
+- **Valuing the claim as a sale to buyers (blend) lends more, but losses rise fast** once buyers
+  demand crash-level returns; at 25% LTV on cliffs, 15% of loans lose money.
+- **Without an issuer backstop, the safe ceiling on this sample is roughly 19–24% LTV for linear
+  streams and 10–15% for 12-month cliffs.** The sample is harsh but representative: launched
+  tokens with vesting, many of which fell 80–95% over the period.
+- **Useful LTVs (30–50%) therefore need the partner backstop to carry first loss,** sized to the
+  worst-1% loss at the offered LTV: roughly 8% of principal at 15% LTV on cliffs, 27% at 25%.
+
+Not yet modelled: whole-token unlock calendars (the drift term), intraday gaps, partner vetting
+(which would remove some of the worst tokens), and real borrower behaviour.

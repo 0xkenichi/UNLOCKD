@@ -1,0 +1,2748 @@
+{
+  "generated": "2026-10-22T13:38:50.301Z",
+  "cfg": {
+    "rate": 0.15,
+    "feeBps": 50,
+    "borrowShare": 1,
+    "graceDays": 3,
+    "cureDays": 2,
+    "paydownAdvShare": 0.02,
+    "paydownMaxDays": 5,
+    "healthMargin": 0.05,
+    "auctionDays": 3,
+    "buyerReturn": 0.3,
+    "otcDiscount": 0.5,
+    "v1Rank": 2,
+    "minHistoryDays": 90,
+    "stepDays": 7
+  },
+  "v2": {
+    "alphaOrig": 0.005,
+    "alphaLiq": 0.05,
+    "latencyDays": 5,
+    "sellDays": 10,
+    "impactY": 1,
+    "maxLiquidityCost": 0.5,
+    "unlockImpact": 0.5,
+    "unlockWindowDays": 30,
+    "sigmaFloor": 0,
+    "ewmaLambda": 0.94,
+    "trancheDays": 7,
+    "maxTranches": 156,
+    "omega": 1,
+    "valuationMode": "blend",
+    "marketabilityRateOrig": 0.6,
+    "marketabilityRateLiq": 0.3
+  },
+  "tokens": {
+    "AEVO": {
+      "days": 953,
+      "from": "2024-03-13",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 30726.342005912426,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.49484009395069684,
+            "liquidatedShare": 1,
+            "lossShare": 0.30434782608695654,
+            "lossMeanPct": 0.035005120731671974,
+            "lossWorstPct": 0.21387932615948455,
+            "lossP99Pct": 0.21387932615948455,
+            "borrowerBeatsOtcShare": 0.7971014492753623,
+            "borrowerAdvantageMedianUsd": 2077.9549287793234,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.9855072463768116,
+            "borrowerAdvantageMedianUsd": 22027.374058569556,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.3600706270758625,
+            "liquidatedShare": 1,
+            "lossShare": 0.2608695652173913,
+            "lossMeanPct": 0.03001331612451425,
+            "lossWorstPct": 0.2260062733291889,
+            "lossP99Pct": 0.2260062733291889,
+            "borrowerBeatsOtcShare": 0.5797101449275363,
+            "borrowerAdvantageMedianUsd": 1884.9353294946768,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.9855072463768116,
+            "borrowerAdvantageMedianUsd": 22443.25689708763,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.3629339910184106,
+            "liquidatedShare": 1,
+            "lossShare": 0.30434782608695654,
+            "lossMeanPct": 0.03231290919665696,
+            "lossWorstPct": 0.23691472928986698,
+            "lossP99Pct": 0.23691472928986698,
+            "borrowerBeatsOtcShare": 0.5072463768115942,
+            "borrowerAdvantageMedianUsd": 647.512766040536,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "ALT": {
+      "days": 1001,
+      "from": "2024-01-25",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 76,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 26835.11218890281,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 76,
+            "ltvMean": 0.5014260566442368,
+            "liquidatedShare": 1,
+            "lossShare": 0.3026315789473684,
+            "lossMeanPct": 0.01951471906174254,
+            "lossWorstPct": 0.11736894524371787,
+            "lossP99Pct": 0.11736894524371787,
+            "borrowerBeatsOtcShare": 0.9078947368421053,
+            "borrowerAdvantageMedianUsd": 2252.0418979833303,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 76,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 18202.202340887416,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 76,
+            "ltvMean": 0.36509725440023993,
+            "liquidatedShare": 1,
+            "lossShare": 0.15789473684210525,
+            "lossMeanPct": 0.01522090479760344,
+            "lossWorstPct": 0.18579332622923797,
+            "lossP99Pct": 0.18579332622923797,
+            "borrowerBeatsOtcShare": 0.6052631578947368,
+            "borrowerAdvantageMedianUsd": 1413.5760953735644,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 76,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 18635.586137774655,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 76,
+            "ltvMean": 0.3677902561848863,
+            "liquidatedShare": 1,
+            "lossShare": 0.15789473684210525,
+            "lossMeanPct": 0.014007098433947242,
+            "lossWorstPct": 0.19378390310863408,
+            "lossP99Pct": 0.19378390310863408,
+            "borrowerBeatsOtcShare": 0.5921052631578947,
+            "borrowerAdvantageMedianUsd": 1073.2098118780232,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "APT": {
+      "days": 1464,
+      "from": "2022-10-19",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 142,
+            "ltvMean": 0.24969772393143735,
+            "liquidatedShare": 0.9154929577464789,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7183098591549296,
+            "borrowerAdvantageMedianUsd": 12175.325171170181,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 142,
+            "ltvMean": 0.5489277387551788,
+            "liquidatedShare": 0.7183098591549296,
+            "lossShare": 0.09859154929577464,
+            "lossMeanPct": 0.004045984515027331,
+            "lossWorstPct": 0.10895922008175715,
+            "lossP99Pct": 0.07032143506574383,
+            "borrowerBeatsOtcShare": 0.9436619718309859,
+            "borrowerAdvantageMedianUsd": 5851.010203773658,
+            "paidDownShare": 0.19718309859154928
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 142,
+            "ltvMean": 0.24969772393143735,
+            "liquidatedShare": 0.9154929577464789,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.5985915492957746,
+            "borrowerAdvantageMedianUsd": 5929.089752918429,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 142,
+            "ltvMean": 0.4002889609549508,
+            "liquidatedShare": 0.704225352112676,
+            "lossShare": 0.02112676056338028,
+            "lossMeanPct": 0.00018240261934968636,
+            "lossWorstPct": 0.02341869311369401,
+            "lossP99Pct": 0.002268943691862291,
+            "borrowerBeatsOtcShare": 0.6197183098591549,
+            "borrowerAdvantageMedianUsd": 4555.299719466926,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 142,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 0.9154929577464789,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.5915492957746479,
+            "borrowerAdvantageMedianUsd": 3780.7062696382927,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 142,
+            "ltvMean": 0.4026989867288243,
+            "liquidatedShare": 0.6408450704225352,
+            "lossShare": 0.07746478873239436,
+            "lossMeanPct": 0.0036815310087392143,
+            "lossWorstPct": 0.10216120366377401,
+            "lossP99Pct": 0.09372024296998038,
+            "borrowerBeatsOtcShare": 0.6267605633802817,
+            "borrowerAdvantageMedianUsd": 3940.5423997145126,
+            "paidDownShare": 0.09154929577464789
+          }
+        }
+      }
+    },
+    "ARB": {
+      "days": 1309,
+      "from": "2023-03-23",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 120,
+            "ltvMean": 0.24969772393143702,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.875,
+            "borrowerAdvantageMedianUsd": 17617.762774527353,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 120,
+            "ltvMean": 0.5523039725386155,
+            "liquidatedShare": 0.9,
+            "lossShare": 0.25,
+            "lossMeanPct": 0.007857442717957805,
+            "lossWorstPct": 0.11186200667230967,
+            "lossP99Pct": 0.09203209418604807,
+            "borrowerBeatsOtcShare": 0.975,
+            "borrowerAdvantageMedianUsd": 3002.1964506427084,
+            "paidDownShare": 0.1
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 120,
+            "ltvMean": 0.24969772393143702,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8083333333333333,
+            "borrowerAdvantageMedianUsd": 10078.607240677027,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 120,
+            "ltvMean": 0.4028161482845047,
+            "liquidatedShare": 0.925,
+            "lossShare": 0.175,
+            "lossMeanPct": 0.012153868760725115,
+            "lossWorstPct": 0.1924741051952192,
+            "lossP99Pct": 0.158914874608425,
+            "borrowerBeatsOtcShare": 0.5166666666666667,
+            "borrowerAdvantageMedianUsd": 204.30218344228342,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 120,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7833333333333333,
+            "borrowerAdvantageMedianUsd": 9561.19564427642,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 120,
+            "ltvMean": 0.4051830225035212,
+            "liquidatedShare": 0.875,
+            "lossShare": 0.13333333333333333,
+            "lossMeanPct": 0.008590717895928397,
+            "lossWorstPct": 0.14086690292162374,
+            "lossP99Pct": 0.10341134721260584,
+            "borrowerBeatsOtcShare": 0.4583333333333333,
+            "borrowerAdvantageMedianUsd": -365.6558608010864,
+            "paidDownShare": 0.09166666666666666
+          }
+        }
+      }
+    },
+    "BLUR": {
+      "days": 1063,
+      "from": "2023-11-24",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 85,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 24309.74532484155,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 85,
+            "ltvMean": 0.5415904219758158,
+            "liquidatedShare": 0.9058823529411765,
+            "lossShare": 0.4,
+            "lossMeanPct": 0.019579406789621688,
+            "lossWorstPct": 0.11375625549552776,
+            "lossP99Pct": 0.11375625549552776,
+            "borrowerBeatsOtcShare": 0.9882352941176471,
+            "borrowerAdvantageMedianUsd": 1277.192301606221,
+            "paidDownShare": 0.09411764705882353
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 85,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 16639.442989689942,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 85,
+            "ltvMean": 0.39435029012209066,
+            "liquidatedShare": 1,
+            "lossShare": 0.03529411764705882,
+            "lossMeanPct": 0.001753942715644838,
+            "lossWorstPct": 0.08411565133826134,
+            "lossP99Pct": 0.08411565133826134,
+            "borrowerBeatsOtcShare": 0.5882352941176471,
+            "borrowerAdvantageMedianUsd": 880.2360492827288,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 85,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 17038.364495548318,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 85,
+            "ltvMean": 0.39725131166226635,
+            "liquidatedShare": 0.9882352941176471,
+            "lossShare": 0.12941176470588237,
+            "lossMeanPct": 0.0035544266098170747,
+            "lossWorstPct": 0.09617198466508362,
+            "lossP99Pct": 0.09617198466508362,
+            "borrowerBeatsOtcShare": 0.4470588235294118,
+            "borrowerAdvantageMedianUsd": -344.74812017887916,
+            "paidDownShare": 0.011764705882352941
+          }
+        }
+      }
+    },
+    "DYDX": {
+      "days": 1869,
+      "from": "2021-09-09",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 200,
+            "ltvMean": 0.24969772393143824,
+            "liquidatedShare": 0.905,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.805,
+            "borrowerAdvantageMedianUsd": 19346.78530520216,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 200,
+            "ltvMean": 0.5199591466776389,
+            "liquidatedShare": 0.745,
+            "lossShare": 0.23,
+            "lossMeanPct": 0.02222837697610401,
+            "lossWorstPct": 0.29243886227066984,
+            "lossP99Pct": 0.282911188162537,
+            "borrowerBeatsOtcShare": 0.905,
+            "borrowerAdvantageMedianUsd": 3508.1281624469484,
+            "paidDownShare": 0.155
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 200,
+            "ltvMean": 0.24969772393143824,
+            "liquidatedShare": 0.905,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.75,
+            "borrowerAdvantageMedianUsd": 11681.546395527132,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 200,
+            "ltvMean": 0.3789460750662333,
+            "liquidatedShare": 0.77,
+            "lossShare": 0.135,
+            "lossMeanPct": 0.013969437188557334,
+            "lossWorstPct": 0.2634682934307891,
+            "lossP99Pct": 0.23481541902308017,
+            "borrowerBeatsOtcShare": 0.53,
+            "borrowerAdvantageMedianUsd": 745.2264565130886,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 200,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.905,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.75,
+            "borrowerAdvantageMedianUsd": 11338.561352609326,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 200,
+            "ltvMean": 0.38142321446961125,
+            "liquidatedShare": 0.765,
+            "lossShare": 0.14,
+            "lossMeanPct": 0.010208686661284352,
+            "lossWorstPct": 0.24529629339541875,
+            "lossP99Pct": 0.22282849393077642,
+            "borrowerBeatsOtcShare": 0.47,
+            "borrowerAdvantageMedianUsd": -649.5500189484301,
+            "paidDownShare": 0.02
+          }
+        }
+      }
+    },
+    "DYM": {
+      "days": 989,
+      "from": "2024-02-06",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 74,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 31746.025381661006,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 74,
+            "ltvMean": 0.4949074703415614,
+            "liquidatedShare": 1,
+            "lossShare": 0.6486486486486487,
+            "lossMeanPct": 0.05956002418118339,
+            "lossWorstPct": 0.26445027199170285,
+            "lossP99Pct": 0.26445027199170285,
+            "borrowerBeatsOtcShare": 0.6621621621621622,
+            "borrowerAdvantageMedianUsd": 0,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 74,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 23362.78980401206,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 74,
+            "ltvMean": 0.3599092991357127,
+            "liquidatedShare": 1,
+            "lossShare": 0.40540540540540543,
+            "lossMeanPct": 0.03306456152287995,
+            "lossWorstPct": 0.27394097740501205,
+            "lossP99Pct": 0.27394097740501205,
+            "borrowerBeatsOtcShare": 0.5,
+            "borrowerAdvantageMedianUsd": 53.99613309708593,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 74,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 24214.432553451825,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 74,
+            "ltvMean": 0.36296017978413087,
+            "liquidatedShare": 1,
+            "lossShare": 0.4189189189189189,
+            "lossMeanPct": 0.03504957506083651,
+            "lossWorstPct": 0.22904184954387533,
+            "lossP99Pct": 0.22904184954387533,
+            "borrowerBeatsOtcShare": 0.4864864864864865,
+            "borrowerAdvantageMedianUsd": -1286.2230554023977,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "EIGEN": {
+      "days": 751,
+      "from": "2024-10-01",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 40,
+            "ltvMean": 0.24969772393143738,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 27812.802898333415,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 40,
+            "ltvMean": 0.46728421535393094,
+            "liquidatedShare": 0.975,
+            "lossShare": 0.125,
+            "lossMeanPct": 0.007868660444030716,
+            "lossWorstPct": 0.14660556431333133,
+            "lossP99Pct": 0.14660556431333133,
+            "borrowerBeatsOtcShare": 0.7,
+            "borrowerAdvantageMedianUsd": 2781.1025342463654,
+            "paidDownShare": 0.025
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 40,
+            "ltvMean": 0.24969772393143738,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 19662.978805249986,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 40,
+            "ltvMean": 0.34043653176519484,
+            "liquidatedShare": 1,
+            "lossShare": 0.075,
+            "lossMeanPct": 0.004550278125836726,
+            "lossWorstPct": 0.10911461791563573,
+            "lossP99Pct": 0.10911461791563573,
+            "borrowerBeatsOtcShare": 0.725,
+            "borrowerAdvantageMedianUsd": 2123.8141270568904,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 40,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 20241.58745552087,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 40,
+            "ltvMean": 0.3427695328613335,
+            "liquidatedShare": 1,
+            "lossShare": 0.1,
+            "lossMeanPct": 0.005845393330377707,
+            "lossWorstPct": 0.12599415063160757,
+            "lossP99Pct": 0.12599415063160757,
+            "borrowerBeatsOtcShare": 0.525,
+            "borrowerAdvantageMedianUsd": 1039.5713170010063,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "ENA": {
+      "days": 933,
+      "from": "2024-04-02",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 0.8939393939393939,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8484848484848485,
+            "borrowerAdvantageMedianUsd": 25750.944782398336,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.47115679630463997,
+            "liquidatedShare": 0.6515151515151515,
+            "lossShare": 0.12121212121212122,
+            "lossMeanPct": 0.007974252502100515,
+            "lossWorstPct": 0.10899917282640005,
+            "lossP99Pct": 0.10899917282640005,
+            "borrowerBeatsOtcShare": 0.8484848484848485,
+            "borrowerAdvantageMedianUsd": 3794.815294919482,
+            "paidDownShare": 0.24242424242424243
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 0.8939393939393939,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8333333333333334,
+            "borrowerAdvantageMedianUsd": 17854.22582455726,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.34355434020664166,
+            "liquidatedShare": 0.7878787878787878,
+            "lossShare": 0.045454545454545456,
+            "lossMeanPct": 0.002809484068053845,
+            "lossWorstPct": 0.10503554618960989,
+            "lossP99Pct": 0.10503554618960989,
+            "borrowerBeatsOtcShare": 0.5303030303030303,
+            "borrowerAdvantageMedianUsd": 942.468904078678,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.8939393939393939,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8181818181818182,
+            "borrowerAdvantageMedianUsd": 17776.963774409567,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.3456429445201745,
+            "liquidatedShare": 0.7878787878787878,
+            "lossShare": 0.045454545454545456,
+            "lossMeanPct": 0.0033136682148599684,
+            "lossWorstPct": 0.11711462079400467,
+            "lossP99Pct": 0.11711462079400467,
+            "borrowerBeatsOtcShare": 0.3939393939393939,
+            "borrowerAdvantageMedianUsd": -2876.5874649286534,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "ETH": {
+      "days": 3353,
+      "from": "2017-08-17",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 412,
+            "ltvMean": 0.2496977239314367,
+            "liquidatedShare": 0.587378640776699,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7330097087378641,
+            "borrowerAdvantageMedianUsd": 18408.47222758174,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 412,
+            "ltvMean": 0.566126533861973,
+            "liquidatedShare": 0.44660194174757284,
+            "lossShare": 0.17718446601941748,
+            "lossMeanPct": 0.010584670868152093,
+            "lossWorstPct": 0.2827414688345154,
+            "lossP99Pct": 0.15184345058450197,
+            "borrowerBeatsOtcShare": 0.9830097087378641,
+            "borrowerAdvantageMedianUsd": 10308.2551358821,
+            "paidDownShare": 0.15048543689320387
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 412,
+            "ltvMean": 0.2496977239314367,
+            "liquidatedShare": 0.587378640776699,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6407766990291263,
+            "borrowerAdvantageMedianUsd": 11183.166425800504,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 412,
+            "ltvMean": 0.413055083765775,
+            "liquidatedShare": 0.4538834951456311,
+            "lossShare": 0.08737864077669903,
+            "lossMeanPct": 0.006451283731479355,
+            "lossWorstPct": 0.21964964410806104,
+            "lossP99Pct": 0.16846304862724767,
+            "borrowerBeatsOtcShare": 0.6067961165048543,
+            "borrowerAdvantageMedianUsd": 25907.01012034133,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 412,
+            "ltvMean": 0.237519822234437,
+            "liquidatedShare": 0.587378640776699,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6140776699029126,
+            "borrowerAdvantageMedianUsd": 10637.802543353544,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 412,
+            "ltvMean": 0.41534097905470785,
+            "liquidatedShare": 0.4344660194174757,
+            "lossShare": 0.10194174757281553,
+            "lossMeanPct": 0.006900880076030618,
+            "lossWorstPct": 0.23008377343996522,
+            "lossP99Pct": 0.1623455608829042,
+            "borrowerBeatsOtcShare": 0.6019417475728155,
+            "borrowerAdvantageMedianUsd": 26059.05083838637,
+            "paidDownShare": 0.0412621359223301
+          }
+        }
+      }
+    },
+    "ETHFI": {
+      "days": 948,
+      "from": "2024-03-18",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.24969772393143722,
+            "liquidatedShare": 0.9420289855072463,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.855072463768116,
+            "borrowerAdvantageMedianUsd": 12932.911929297776,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.4829457487446307,
+            "liquidatedShare": 0.782608695652174,
+            "lossShare": 0.15942028985507245,
+            "lossMeanPct": 0.007611531335855689,
+            "lossWorstPct": 0.11702930546322071,
+            "lossP99Pct": 0.11702930546322071,
+            "borrowerBeatsOtcShare": 0.7536231884057971,
+            "borrowerAdvantageMedianUsd": 3406.357674216986,
+            "paidDownShare": 0.14492753623188406
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.24969772393143722,
+            "liquidatedShare": 0.9420289855072463,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6521739130434783,
+            "borrowerAdvantageMedianUsd": 5263.44920878473,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.35198656669361933,
+            "liquidatedShare": 0.8695652173913043,
+            "lossShare": 0.057971014492753624,
+            "lossMeanPct": 0.0023472942501288085,
+            "lossWorstPct": 0.08153438347123995,
+            "lossP99Pct": 0.08153438347123995,
+            "borrowerBeatsOtcShare": 0.3333333333333333,
+            "borrowerAdvantageMedianUsd": -2706.4227165103603,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 69,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 0.9420289855072463,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6376811594202898,
+            "borrowerAdvantageMedianUsd": 4244.865546034367,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 69,
+            "ltvMean": 0.35427327478797854,
+            "liquidatedShare": 0.8260869565217391,
+            "lossShare": 0.07246376811594203,
+            "lossMeanPct": 0.0030721737152133,
+            "lossWorstPct": 0.08176967772888029,
+            "lossP99Pct": 0.08176967772888029,
+            "borrowerBeatsOtcShare": 0.2608695652173913,
+            "borrowerAdvantageMedianUsd": -4015.3281196946737,
+            "paidDownShare": 0.043478260869565216
+          }
+        }
+      }
+    },
+    "FET": {
+      "days": 2793,
+      "from": "2019-02-28",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 332,
+            "ltvMean": 0.2496977239314375,
+            "liquidatedShare": 0.7319277108433735,
+            "lossShare": 0.015060240963855422,
+            "lossMeanPct": 0.0009221882585570944,
+            "lossWorstPct": 0.11310143325421308,
+            "lossP99Pct": 0.04187535001145613,
+            "borrowerBeatsOtcShare": 0.6566265060240963,
+            "borrowerAdvantageMedianUsd": 16109.754998380648,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 332,
+            "ltvMean": 0.4782972482194216,
+            "liquidatedShare": 0.6355421686746988,
+            "lossShare": 0.2620481927710843,
+            "lossMeanPct": 0.0497152210301895,
+            "lossWorstPct": 0.4984055758220158,
+            "lossP99Pct": 0.45222657090339546,
+            "borrowerBeatsOtcShare": 0.7379518072289156,
+            "borrowerAdvantageMedianUsd": 1646.6015447607974,
+            "paidDownShare": 0.09337349397590361
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 332,
+            "ltvMean": 0.2496977239314375,
+            "liquidatedShare": 0.7319277108433735,
+            "lossShare": 0.03614457831325301,
+            "lossMeanPct": 0.004547247436596303,
+            "lossWorstPct": 0.24186354687727446,
+            "lossP99Pct": 0.16487884510184267,
+            "borrowerBeatsOtcShare": 0.6204819277108434,
+            "borrowerAdvantageMedianUsd": 8717.850245811469,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 332,
+            "ltvMean": 0.34814749958005836,
+            "liquidatedShare": 0.6596385542168675,
+            "lossShare": 0.18674698795180722,
+            "lossMeanPct": 0.048935766989206424,
+            "lossWorstPct": 0.5644372273243086,
+            "lossP99Pct": 0.5098785100859932,
+            "borrowerBeatsOtcShare": 0.45180722891566266,
+            "borrowerAdvantageMedianUsd": -2233.8278417103706,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 332,
+            "ltvMean": 0.2375198222344381,
+            "liquidatedShare": 0.7319277108433735,
+            "lossShare": 0.03313253012048193,
+            "lossMeanPct": 0.0030773882748806303,
+            "lossWorstPct": 0.20715250001474605,
+            "lossP99Pct": 0.12429394927540488,
+            "borrowerBeatsOtcShare": 0.6174698795180723,
+            "borrowerAdvantageMedianUsd": 9103.194092096172,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 332,
+            "ltvMean": 0.35081347645326777,
+            "liquidatedShare": 0.6475903614457831,
+            "lossShare": 0.18674698795180722,
+            "lossMeanPct": 0.04840019470789773,
+            "lossWorstPct": 0.5248745722658296,
+            "lossP99Pct": 0.4968154213911877,
+            "borrowerBeatsOtcShare": 0.4427710843373494,
+            "borrowerAdvantageMedianUsd": -3116.5763654148986,
+            "paidDownShare": 0.02108433734939759
+          }
+        }
+      }
+    },
+    "IMX": {
+      "days": 1746,
+      "from": "2022-01-10",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 183,
+            "ltvMean": 0.24969772393143805,
+            "liquidatedShare": 0.8524590163934426,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7158469945355191,
+            "borrowerAdvantageMedianUsd": 17919.99510967014,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 183,
+            "ltvMean": 0.5242737720630767,
+            "liquidatedShare": 0.7431693989071039,
+            "lossShare": 0.16393442622950818,
+            "lossMeanPct": 0.008214206308582054,
+            "lossWorstPct": 0.10475345525266143,
+            "lossP99Pct": 0.09815105618623204,
+            "borrowerBeatsOtcShare": 0.8852459016393442,
+            "borrowerAdvantageMedianUsd": 4970.0260435090095,
+            "paidDownShare": 0.10382513661202186
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 183,
+            "ltvMean": 0.24969772393143805,
+            "liquidatedShare": 0.8524590163934426,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6502732240437158,
+            "borrowerAdvantageMedianUsd": 10620.537565573704,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 183,
+            "ltvMean": 0.3817282716552902,
+            "liquidatedShare": 0.7704918032786885,
+            "lossShare": 0.09289617486338798,
+            "lossMeanPct": 0.005206868185751855,
+            "lossWorstPct": 0.12951059882871596,
+            "lossP99Pct": 0.12072004120283586,
+            "borrowerBeatsOtcShare": 0.4644808743169399,
+            "borrowerAdvantageMedianUsd": -931.1366705779783,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 183,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.8524590163934426,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.644808743169399,
+            "borrowerAdvantageMedianUsd": 10627.602366224555,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 183,
+            "ltvMean": 0.38454826182741525,
+            "liquidatedShare": 0.73224043715847,
+            "lossShare": 0.06557377049180328,
+            "lossMeanPct": 0.0025604718692311566,
+            "lossWorstPct": 0.06127039280875914,
+            "lossP99Pct": 0.05734766721654848,
+            "borrowerBeatsOtcShare": 0.48633879781420764,
+            "borrowerAdvantageMedianUsd": -980.6103071918342,
+            "paidDownShare": 0.04918032786885246
+          }
+        }
+      }
+    },
+    "INJ": {
+      "days": 2192,
+      "from": "2020-10-21",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 246,
+            "ltvMean": 0.24969772393143866,
+            "liquidatedShare": 0.7357723577235772,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8739837398373984,
+            "borrowerAdvantageMedianUsd": 21975.40396826083,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 246,
+            "ltvMean": 0.4956576161534195,
+            "liquidatedShare": 0.6382113821138211,
+            "lossShare": 0.16666666666666666,
+            "lossMeanPct": 0.013311635532802034,
+            "lossWorstPct": 0.28802644851588116,
+            "lossP99Pct": 0.17981788491034997,
+            "borrowerBeatsOtcShare": 0.8130081300813008,
+            "borrowerAdvantageMedianUsd": 5042.003709473793,
+            "paidDownShare": 0.0975609756097561
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 246,
+            "ltvMean": 0.24969772393143866,
+            "liquidatedShare": 0.7357723577235772,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7967479674796748,
+            "borrowerAdvantageMedianUsd": 13317.090009328731,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 246,
+            "ltvMean": 0.3610287977926292,
+            "liquidatedShare": 0.6747967479674797,
+            "lossShare": 0.10975609756097561,
+            "lossMeanPct": 0.009794741684863249,
+            "lossWorstPct": 0.17681445969413523,
+            "lossP99Pct": 0.1632662068617189,
+            "borrowerBeatsOtcShare": 0.5772357723577236,
+            "borrowerAdvantageMedianUsd": 2309.3976251848007,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 246,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.7357723577235772,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7967479674796748,
+            "borrowerAdvantageMedianUsd": 13527.047124005865,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 246,
+            "ltvMean": 0.36357370800139893,
+            "liquidatedShare": 0.6707317073170732,
+            "lossShare": 0.11382113821138211,
+            "lossMeanPct": 0.008132642780635947,
+            "lossWorstPct": 0.1882330539535778,
+            "lossP99Pct": 0.1704193753287407,
+            "borrowerBeatsOtcShare": 0.5528455284552846,
+            "borrowerAdvantageMedianUsd": 1090.1356833407363,
+            "paidDownShare": 0.008130081300813009
+          }
+        }
+      }
+    },
+    "JTO": {
+      "days": 1050,
+      "from": "2023-12-07",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 83,
+            "ltvMean": 0.2496977239314371,
+            "liquidatedShare": 0.963855421686747,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.9156626506024096,
+            "borrowerAdvantageMedianUsd": 19703.038888371397,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 83,
+            "ltvMean": 0.5148508242284277,
+            "liquidatedShare": 0.7228915662650602,
+            "lossShare": 0.25301204819277107,
+            "lossMeanPct": 0.016191291431789902,
+            "lossWorstPct": 0.17691575151717337,
+            "lossP99Pct": 0.17691575151717337,
+            "borrowerBeatsOtcShare": 0.9759036144578314,
+            "borrowerAdvantageMedianUsd": 4392.431998395796,
+            "paidDownShare": 0.20481927710843373
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 83,
+            "ltvMean": 0.2496977239314371,
+            "liquidatedShare": 0.963855421686747,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7951807228915663,
+            "borrowerAdvantageMedianUsd": 12806.413512706285,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 83,
+            "ltvMean": 0.3751132446624145,
+            "liquidatedShare": 0.7590361445783133,
+            "lossShare": 0.07228915662650602,
+            "lossMeanPct": 0.00199213155440978,
+            "lossWorstPct": 0.07235718853110086,
+            "lossP99Pct": 0.07235718853110086,
+            "borrowerBeatsOtcShare": 0.5542168674698795,
+            "borrowerAdvantageMedianUsd": 2095.405515490731,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 83,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 0.963855421686747,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7469879518072289,
+            "borrowerAdvantageMedianUsd": 13130.808221601717,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 83,
+            "ltvMean": 0.37766380018577367,
+            "liquidatedShare": 0.6987951807228916,
+            "lossShare": 0.10843373493975904,
+            "lossMeanPct": 0.0028249362591078395,
+            "lossWorstPct": 0.08593265275951897,
+            "lossP99Pct": 0.08593265275951897,
+            "borrowerBeatsOtcShare": 0.5421686746987951,
+            "borrowerAdvantageMedianUsd": 1521.3050591727078,
+            "paidDownShare": 0.07228915662650602
+          }
+        }
+      }
+    },
+    "JUP": {
+      "days": 995,
+      "from": "2024-01-31",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.96,
+            "borrowerAdvantageMedianUsd": 17877.608780801405,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.5220952718870895,
+            "liquidatedShare": 0.8666666666666667,
+            "lossShare": 0.30666666666666664,
+            "lossMeanPct": 0.02344734135330568,
+            "lossWorstPct": 0.14919230608187026,
+            "lossP99Pct": 0.14919230608187026,
+            "borrowerBeatsOtcShare": 0.9466666666666667,
+            "borrowerAdvantageMedianUsd": 1884.5140778220375,
+            "paidDownShare": 0.13333333333333333
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8266666666666667,
+            "borrowerAdvantageMedianUsd": 9312.110505916498,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.3805377027054655,
+            "liquidatedShare": 1,
+            "lossShare": 0.13333333333333333,
+            "lossMeanPct": 0.0061307285155821414,
+            "lossWorstPct": 0.10648143742721908,
+            "lossP99Pct": 0.10648143742721908,
+            "borrowerBeatsOtcShare": 0.18666666666666668,
+            "borrowerAdvantageMedianUsd": -5020.816631365733,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8133333333333334,
+            "borrowerAdvantageMedianUsd": 9256.945176015979,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.38299404351011884,
+            "liquidatedShare": 0.9733333333333334,
+            "lossShare": 0.2,
+            "lossMeanPct": 0.00972246135514203,
+            "lossWorstPct": 0.11873950827414298,
+            "lossP99Pct": 0.11873950827414298,
+            "borrowerBeatsOtcShare": 0.21333333333333335,
+            "borrowerAdvantageMedianUsd": -4852.18792632572,
+            "paidDownShare": 0.02666666666666667
+          }
+        }
+      }
+    },
+    "LDO": {
+      "days": 1627,
+      "from": "2022-05-09",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 166,
+            "ltvMean": 0.2496977239314378,
+            "liquidatedShare": 0.9096385542168675,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7048192771084337,
+            "borrowerAdvantageMedianUsd": 9618.437821573076,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 166,
+            "ltvMean": 0.5109970573366213,
+            "liquidatedShare": 0.6746987951807228,
+            "lossShare": 0.2469879518072289,
+            "lossMeanPct": 0.014805540315910266,
+            "lossWorstPct": 0.20495914241295127,
+            "lossP99Pct": 0.15648036902581453,
+            "borrowerBeatsOtcShare": 0.8975903614457831,
+            "borrowerAdvantageMedianUsd": 3662.8704663347435,
+            "paidDownShare": 0.22289156626506024
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 166,
+            "ltvMean": 0.2496977239314378,
+            "liquidatedShare": 0.9096385542168675,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.5301204819277109,
+            "borrowerAdvantageMedianUsd": 3391.2139945573726,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 166,
+            "ltvMean": 0.3723878003214558,
+            "liquidatedShare": 0.6566265060240963,
+            "lossShare": 0.05421686746987952,
+            "lossMeanPct": 0.00559632135775012,
+            "lossWorstPct": 0.17510678503113392,
+            "lossP99Pct": 0.14641100254930478,
+            "borrowerBeatsOtcShare": 0.4578313253012048,
+            "borrowerAdvantageMedianUsd": -1023.6704732838625,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 166,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 0.9096385542168675,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.5120481927710844,
+            "borrowerAdvantageMedianUsd": 772.3274756949577,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 166,
+            "ltvMean": 0.3748460010598367,
+            "liquidatedShare": 0.6144578313253012,
+            "lossShare": 0.12650602409638553,
+            "lossMeanPct": 0.0060300216346311645,
+            "lossWorstPct": 0.1493181648760339,
+            "lossP99Pct": 0.10851618511711342,
+            "borrowerBeatsOtcShare": 0.463855421686747,
+            "borrowerAdvantageMedianUsd": -1096.1388578248207,
+            "paidDownShare": 0.05421686746987952
+          }
+        }
+      }
+    },
+    "MANTA": {
+      "days": 1008,
+      "from": "2024-01-18",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 77,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 22346.52630085195,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 77,
+            "ltvMean": 0.5184717960899508,
+            "liquidatedShare": 1,
+            "lossShare": 0.42857142857142855,
+            "lossMeanPct": 0.027849904033427283,
+            "lossWorstPct": 0.1708047361638601,
+            "lossP99Pct": 0.1708047361638601,
+            "borrowerBeatsOtcShare": 0.922077922077922,
+            "borrowerAdvantageMedianUsd": 963.0941952563553,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 77,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 14074.4228716174,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 77,
+            "ltvMean": 0.3776024708216503,
+            "liquidatedShare": 1,
+            "lossShare": 0.18181818181818182,
+            "lossMeanPct": 0.018075225271705027,
+            "lossWorstPct": 0.2324414326325369,
+            "lossP99Pct": 0.2324414326325369,
+            "borrowerBeatsOtcShare": 0.42857142857142855,
+            "borrowerAdvantageMedianUsd": -1007.0087557661382,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 77,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 14342.097837172687,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 77,
+            "ltvMean": 0.38030347997825953,
+            "liquidatedShare": 1,
+            "lossShare": 0.2077922077922078,
+            "lossMeanPct": 0.015030870952406404,
+            "lossWorstPct": 0.19030366168726667,
+            "lossP99Pct": 0.19030366168726667,
+            "borrowerBeatsOtcShare": 0.4155844155844156,
+            "borrowerAdvantageMedianUsd": -932.858447211891,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "ONDO": {
+      "days": 559,
+      "from": "2025-04-11",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 13,
+            "ltvMean": 0.24969772393143733,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 17797.24784873048,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 13,
+            "ltvMean": 0.5872991691766324,
+            "liquidatedShare": 1,
+            "lossShare": 0.38461538461538464,
+            "lossMeanPct": 0.05204102721092733,
+            "lossWorstPct": 0.17355011504138965,
+            "lossP99Pct": 0.17355011504138965,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 3135.008182332691,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 13,
+            "ltvMean": 0.24969772393143733,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8461538461538461,
+            "borrowerAdvantageMedianUsd": 9817.96771356793,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 13,
+            "ltvMean": 0.42828110500405153,
+            "liquidatedShare": 1,
+            "lossShare": 0.23076923076923078,
+            "lossMeanPct": 0.008235502244096107,
+            "lossWorstPct": 0.044983010090316036,
+            "lossP99Pct": 0.044983010090316036,
+            "borrowerBeatsOtcShare": 0.46153846153846156,
+            "borrowerAdvantageMedianUsd": -3759.3770263672923,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 13,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8461538461538461,
+            "borrowerAdvantageMedianUsd": 9816.518303684148,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 13,
+            "ltvMean": 0.4308498671871414,
+            "liquidatedShare": 1,
+            "lossShare": 0.07692307692307693,
+            "lossMeanPct": 0.004479785272564335,
+            "lossWorstPct": 0.058237208543336354,
+            "lossP99Pct": 0.058237208543336354,
+            "borrowerBeatsOtcShare": 0.6153846153846154,
+            "borrowerAdvantageMedianUsd": 1461.3129153793125,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "OP": {
+      "days": 1604,
+      "from": "2022-06-01",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 162,
+            "ltvMean": 0.24969772393143774,
+            "liquidatedShare": 0.7654320987654321,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8333333333333334,
+            "borrowerAdvantageMedianUsd": 25525.482400931392,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 162,
+            "ltvMean": 0.5177909445161814,
+            "liquidatedShare": 0.6975308641975309,
+            "lossShare": 0.12345679012345678,
+            "lossMeanPct": 0.005963921203180252,
+            "lossWorstPct": 0.11139551065129942,
+            "lossP99Pct": 0.10785113102213656,
+            "borrowerBeatsOtcShare": 0.9197530864197531,
+            "borrowerAdvantageMedianUsd": 5400.337594435561,
+            "paidDownShare": 0.06790123456790123
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 162,
+            "ltvMean": 0.24969772393143774,
+            "liquidatedShare": 0.7654320987654321,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8024691358024691,
+            "borrowerAdvantageMedianUsd": 17389.52535032839,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 162,
+            "ltvMean": 0.3775171998457609,
+            "liquidatedShare": 0.6728395061728395,
+            "lossShare": 0.012345679012345678,
+            "lossMeanPct": 0.0002599259165048693,
+            "lossWorstPct": 0.0225580932316462,
+            "lossP99Pct": 0.019549905242142625,
+            "borrowerBeatsOtcShare": 0.7037037037037037,
+            "borrowerAdvantageMedianUsd": 4553.344676097549,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 162,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 0.7654320987654321,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7901234567901234,
+            "borrowerAdvantageMedianUsd": 17807.161521977192,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 162,
+            "ltvMean": 0.3798494076290441,
+            "liquidatedShare": 0.6666666666666666,
+            "lossShare": 0.043209876543209874,
+            "lossMeanPct": 0.0010664472975811723,
+            "lossWorstPct": 0.041818217639922495,
+            "lossP99Pct": 0.0375957403808585,
+            "borrowerBeatsOtcShare": 0.654320987654321,
+            "borrowerAdvantageMedianUsd": 3722.7844028378927,
+            "paidDownShare": 0.006172839506172839
+          }
+        }
+      }
+    },
+    "PENDLE": {
+      "days": 1207,
+      "from": "2023-07-03",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 106,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.7924528301886793,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7924528301886793,
+            "borrowerAdvantageMedianUsd": 16230.364134426338,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 106,
+            "ltvMean": 0.5113133765125704,
+            "liquidatedShare": 0.6226415094339622,
+            "lossShare": 0.16981132075471697,
+            "lossMeanPct": 0.006314430877246759,
+            "lossWorstPct": 0.1039635437840898,
+            "lossP99Pct": 0.09324615802077034,
+            "borrowerBeatsOtcShare": 0.9150943396226415,
+            "borrowerAdvantageMedianUsd": 4679.783476024866,
+            "paidDownShare": 0.12264150943396226
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 106,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.7924528301886793,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7452830188679245,
+            "borrowerAdvantageMedianUsd": 7535.291055624602,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 106,
+            "ltvMean": 0.372610323517848,
+            "liquidatedShare": 0.660377358490566,
+            "lossShare": 0.03773584905660377,
+            "lossMeanPct": 0.0030859103788283544,
+            "lossWorstPct": 0.13573747844741268,
+            "lossP99Pct": 0.09700995189766011,
+            "borrowerBeatsOtcShare": 0.49056603773584906,
+            "borrowerAdvantageMedianUsd": -196.1208141453335,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 106,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.7924528301886793,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7169811320754716,
+            "borrowerAdvantageMedianUsd": 7167.089834330902,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 106,
+            "ltvMean": 0.375077156873686,
+            "liquidatedShare": 0.6132075471698113,
+            "lossShare": 0.04716981132075472,
+            "lossMeanPct": 0.002696062143412806,
+            "lossWorstPct": 0.14732329277774497,
+            "lossP99Pct": 0.06583894267795934,
+            "borrowerBeatsOtcShare": 0.4716981132075472,
+            "borrowerAdvantageMedianUsd": -999.0167938329141,
+            "paidDownShare": 0.07547169811320754
+          }
+        }
+      }
+    },
+    "PYTH": {
+      "days": 993,
+      "from": "2024-02-02",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.9866666666666667,
+            "borrowerAdvantageMedianUsd": 20166.387252731118,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.5168808600382321,
+            "liquidatedShare": 0.9733333333333334,
+            "lossShare": 0.25333333333333335,
+            "lossMeanPct": 0.015077446490526822,
+            "lossWorstPct": 0.1538508285632345,
+            "lossP99Pct": 0.1538508285632345,
+            "borrowerBeatsOtcShare": 0.92,
+            "borrowerAdvantageMedianUsd": 2009.3988134434076,
+            "paidDownShare": 0.02666666666666667
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.24969772393143713,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.9333333333333333,
+            "borrowerAdvantageMedianUsd": 12377.084084548098,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.3764748518936165,
+            "liquidatedShare": 1,
+            "lossShare": 0.22666666666666666,
+            "lossMeanPct": 0.01638362507759802,
+            "lossWorstPct": 0.16664543731659445,
+            "lossP99Pct": 0.16664543731659445,
+            "borrowerBeatsOtcShare": 0.4266666666666667,
+            "borrowerAdvantageMedianUsd": -568.8758322586473,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 75,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.92,
+            "borrowerAdvantageMedianUsd": 12853.2123725505,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 75,
+            "ltvMean": 0.3791399443040436,
+            "liquidatedShare": 1,
+            "lossShare": 0.14666666666666667,
+            "lossMeanPct": 0.013874362907928824,
+            "lossWorstPct": 0.17761865673258503,
+            "lossP99Pct": 0.17761865673258503,
+            "borrowerBeatsOtcShare": 0.4266666666666667,
+            "borrowerAdvantageMedianUsd": -916.3682768926037,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "SEI": {
+      "days": 1164,
+      "from": "2023-08-15",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 99,
+            "ltvMean": 0.24969772393143708,
+            "liquidatedShare": 0.9393939393939394,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8686868686868687,
+            "borrowerAdvantageMedianUsd": 21813.081071774257,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 99,
+            "ltvMean": 0.5058374930357836,
+            "liquidatedShare": 0.8181818181818182,
+            "lossShare": 0.16161616161616163,
+            "lossMeanPct": 0.004793847371636072,
+            "lossWorstPct": 0.08085626320889024,
+            "lossP99Pct": 0.08085626320889024,
+            "borrowerBeatsOtcShare": 0.9090909090909091,
+            "borrowerAdvantageMedianUsd": 4343.113900231787,
+            "paidDownShare": 0.12121212121212122
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 99,
+            "ltvMean": 0.24969772393143708,
+            "liquidatedShare": 0.9393939393939394,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8080808080808081,
+            "borrowerAdvantageMedianUsd": 14179.845254156313,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 99,
+            "ltvMean": 0.36881297827125115,
+            "liquidatedShare": 0.9191919191919192,
+            "lossShare": 0.06060606060606061,
+            "lossMeanPct": 0.002725562495170825,
+            "lossWorstPct": 0.09342611515856403,
+            "lossP99Pct": 0.09342611515856403,
+            "borrowerBeatsOtcShare": 0.494949494949495,
+            "borrowerAdvantageMedianUsd": -11.198878463607798,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 99,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.9393939393939394,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.797979797979798,
+            "borrowerAdvantageMedianUsd": 13914.435163355254,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 99,
+            "ltvMean": 0.37108161085789754,
+            "liquidatedShare": 0.8585858585858586,
+            "lossShare": 0.12121212121212122,
+            "lossMeanPct": 0.005327193623809568,
+            "lossWorstPct": 0.10580673344628215,
+            "lossP99Pct": 0.10580673344628215,
+            "borrowerBeatsOtcShare": 0.45454545454545453,
+            "borrowerAdvantageMedianUsd": -1354.8309453918173,
+            "paidDownShare": 0.06060606060606061
+          }
+        }
+      }
+    },
+    "STRK": {
+      "days": 975,
+      "from": "2024-02-20",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 72,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 24169.828517661124,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 72,
+            "ltvMean": 0.5257184750400427,
+            "liquidatedShare": 0.9861111111111112,
+            "lossShare": 0.375,
+            "lossMeanPct": 0.015676069293038743,
+            "lossWorstPct": 0.128232167449003,
+            "lossP99Pct": 0.128232167449003,
+            "borrowerBeatsOtcShare": 0.9305555555555556,
+            "borrowerAdvantageMedianUsd": 646.7229235075797,
+            "paidDownShare": 0.013888888888888888
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 72,
+            "ltvMean": 0.24969772393143716,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 15906.729539441265,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 72,
+            "ltvMean": 0.3830285309970239,
+            "liquidatedShare": 1,
+            "lossShare": 0.1388888888888889,
+            "lossMeanPct": 0.009220308620845916,
+            "lossWorstPct": 0.13876187797430392,
+            "lossP99Pct": 0.13876187797430392,
+            "borrowerBeatsOtcShare": 0.5555555555555556,
+            "borrowerAdvantageMedianUsd": 979.1645072693918,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 72,
+            "ltvMean": 0.2375198222344394,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 16314.835361146574,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 72,
+            "ltvMean": 0.3856353574435907,
+            "liquidatedShare": 1,
+            "lossShare": 0.2916666666666667,
+            "lossMeanPct": 0.013966261687889595,
+            "lossWorstPct": 0.15029492447678683,
+            "lossP99Pct": 0.15029492447678683,
+            "borrowerBeatsOtcShare": 0.5277777777777778,
+            "borrowerAdvantageMedianUsd": 834.8329159598461,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "STX": {
+      "days": 2554,
+      "from": "2019-10-25",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 298,
+            "ltvMean": 0.24969772393143796,
+            "liquidatedShare": 0.7046979865771812,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7449664429530202,
+            "borrowerAdvantageMedianUsd": 24195.857054573004,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 298,
+            "ltvMean": 0.4954005152016165,
+            "liquidatedShare": 0.5805369127516778,
+            "lossShare": 0.1644295302013423,
+            "lossMeanPct": 0.00949336231871504,
+            "lossWorstPct": 0.22198393240770461,
+            "lossP99Pct": 0.1514348305701417,
+            "borrowerBeatsOtcShare": 0.8523489932885906,
+            "borrowerAdvantageMedianUsd": 5452.474454455507,
+            "paidDownShare": 0.11073825503355705
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 298,
+            "ltvMean": 0.24969772393143796,
+            "liquidatedShare": 0.7046979865771812,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7348993288590604,
+            "borrowerAdvantageMedianUsd": 15971.317656582944,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 298,
+            "ltvMean": 0.3601408997426513,
+            "liquidatedShare": 0.6006711409395973,
+            "lossShare": 0.12416107382550336,
+            "lossMeanPct": 0.01098239008712772,
+            "lossWorstPct": 0.2391911220719717,
+            "lossP99Pct": 0.2318198584033189,
+            "borrowerBeatsOtcShare": 0.5738255033557047,
+            "borrowerAdvantageMedianUsd": 3360.056989936572,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 298,
+            "ltvMean": 0.23751982223443874,
+            "liquidatedShare": 0.7046979865771812,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7281879194630873,
+            "borrowerAdvantageMedianUsd": 16005.862417165808,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 298,
+            "ltvMean": 0.3633077555256526,
+            "liquidatedShare": 0.5973154362416108,
+            "lossShare": 0.12416107382550336,
+            "lossMeanPct": 0.007902183528474074,
+            "lossWorstPct": 0.21239103812453816,
+            "lossP99Pct": 0.14494524029988187,
+            "borrowerBeatsOtcShare": 0.5637583892617449,
+            "borrowerAdvantageMedianUsd": 3150.783265993074,
+            "paidDownShare": 0.020134228187919462
+          }
+        }
+      }
+    },
+    "SUI": {
+      "days": 1268,
+      "from": "2023-05-03",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 114,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.7192982456140351,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6929824561403509,
+            "borrowerAdvantageMedianUsd": 21729.03719043266,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 114,
+            "ltvMean": 0.5297457674115745,
+            "liquidatedShare": 0.5263157894736842,
+            "lossShare": 0.07017543859649122,
+            "lossMeanPct": 0.002855605544027438,
+            "lossWorstPct": 0.09504281778460495,
+            "lossP99Pct": 0.07424015172819265,
+            "borrowerBeatsOtcShare": 0.9736842105263158,
+            "borrowerAdvantageMedianUsd": 7516.252692439222,
+            "paidDownShare": 0.18421052631578946
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 114,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.7192982456140351,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6929824561403509,
+            "borrowerAdvantageMedianUsd": 14243.183213331075,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 114,
+            "ltvMean": 0.3863877009692714,
+            "liquidatedShare": 0.6052631578947368,
+            "lossShare": 0.043859649122807015,
+            "lossMeanPct": 0.002037396210652456,
+            "lossWorstPct": 0.09284020666965681,
+            "lossP99Pct": 0.06181646014975246,
+            "borrowerBeatsOtcShare": 0.6228070175438597,
+            "borrowerAdvantageMedianUsd": 2847.5035275299356,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 114,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.7192982456140351,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6929824561403509,
+            "borrowerAdvantageMedianUsd": 13584.426213561062,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 114,
+            "ltvMean": 0.38863646082835657,
+            "liquidatedShare": 0.5964912280701754,
+            "lossShare": 0.05263157894736842,
+            "lossMeanPct": 0.0013282552594572645,
+            "lossWorstPct": 0.03957547391107991,
+            "lossP99Pct": 0.030640236890276305,
+            "borrowerBeatsOtcShare": 0.5701754385964912,
+            "borrowerAdvantageMedianUsd": 1700.2567226927777,
+            "paidDownShare": 0.008771929824561403
+          }
+        }
+      }
+    },
+    "TIA": {
+      "days": 1087,
+      "from": "2023-10-31",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 88,
+            "ltvMean": 0.2496977239314371,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 27069.41166158802,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 88,
+            "ltvMean": 0.5062987127697309,
+            "liquidatedShare": 1,
+            "lossShare": 0.2727272727272727,
+            "lossMeanPct": 0.012971791344108703,
+            "lossWorstPct": 0.10678596199957752,
+            "lossP99Pct": 0.10678596199957752,
+            "borrowerBeatsOtcShare": 0.9431818181818182,
+            "borrowerAdvantageMedianUsd": 3573.2052333654356,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 88,
+            "ltvMean": 0.2496977239314371,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 18552.289765143145,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 88,
+            "ltvMean": 0.36910403710402845,
+            "liquidatedShare": 1,
+            "lossShare": 0.11363636363636363,
+            "lossMeanPct": 0.002022809538495494,
+            "lossWorstPct": 0.06341473755107511,
+            "lossP99Pct": 0.06341473755107511,
+            "borrowerBeatsOtcShare": 0.7159090909090909,
+            "borrowerAdvantageMedianUsd": 1799.2634269833525,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 88,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 18976.758418270554,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 88,
+            "ltvMean": 0.3714149674047372,
+            "liquidatedShare": 1,
+            "lossShare": 0.10227272727272728,
+            "lossMeanPct": 0.0035864977213001317,
+            "lossWorstPct": 0.07595950666941488,
+            "lossP99Pct": 0.07595950666941488,
+            "borrowerBeatsOtcShare": 0.6590909090909091,
+            "borrowerAdvantageMedianUsd": 1516.6348193197919,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "W": {
+      "days": 932,
+      "from": "2024-04-03",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 29534.984220195158,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.5142355524068979,
+            "liquidatedShare": 1,
+            "lossShare": 0.3333333333333333,
+            "lossMeanPct": 0.021344945051496974,
+            "lossWorstPct": 0.18855893345223523,
+            "lossP99Pct": 0.18855893345223523,
+            "borrowerBeatsOtcShare": 0.8787878787878788,
+            "borrowerAdvantageMedianUsd": 1724.4162981450245,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.2496977239314372,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 21123.606107891126,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.3745265271883475,
+            "liquidatedShare": 1,
+            "lossShare": 0.09090909090909091,
+            "lossMeanPct": 0.0030143952132189347,
+            "lossWorstPct": 0.05596902551862068,
+            "lossP99Pct": 0.05596902551862068,
+            "borrowerBeatsOtcShare": 0.6212121212121212,
+            "borrowerAdvantageMedianUsd": 2708.4278463688956,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 66,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 21571.1382893191,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 66,
+            "ltvMean": 0.3771971869691035,
+            "liquidatedShare": 1,
+            "lossShare": 0.13636363636363635,
+            "lossMeanPct": 0.009178433659003723,
+            "lossWorstPct": 0.13315496362126059,
+            "lossP99Pct": 0.13315496362126059,
+            "borrowerBeatsOtcShare": 0.5606060606060606,
+            "borrowerAdvantageMedianUsd": 880.0692431708298,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "WLD": {
+      "days": 1186,
+      "from": "2023-07-24",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 103,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.9902912621359223,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.883495145631068,
+            "borrowerAdvantageMedianUsd": 18659.558658600115,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 103,
+            "ltvMean": 0.4779619068685431,
+            "liquidatedShare": 0.7572815533980582,
+            "lossShare": 0.10679611650485436,
+            "lossMeanPct": 0.004728833124867933,
+            "lossWorstPct": 0.12714962102119637,
+            "lossP99Pct": 0.09533988214974189,
+            "borrowerBeatsOtcShare": 0.941747572815534,
+            "borrowerAdvantageMedianUsd": 5478.48263970621,
+            "paidDownShare": 0.21359223300970873
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 103,
+            "ltvMean": 0.24969772393143705,
+            "liquidatedShare": 0.9902912621359223,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8252427184466019,
+            "borrowerAdvantageMedianUsd": 10308.786864686377,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 103,
+            "ltvMean": 0.34849469206466005,
+            "liquidatedShare": 0.9320388349514563,
+            "lossShare": 0.02912621359223301,
+            "lossMeanPct": 0.0007606405969235297,
+            "lossWorstPct": 0.04732419362278787,
+            "lossP99Pct": 0.016000209805777307,
+            "borrowerBeatsOtcShare": 0.4368932038834951,
+            "borrowerAdvantageMedianUsd": -1734.4653546651389,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 103,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 0.9902912621359223,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.7864077669902912,
+            "borrowerAdvantageMedianUsd": 10429.134930925342,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 103,
+            "ltvMean": 0.35063280610462216,
+            "liquidatedShare": 0.8446601941747572,
+            "lossShare": 0.02912621359223301,
+            "lossMeanPct": 0.0007748313893935859,
+            "lossWorstPct": 0.06374661021053879,
+            "lossP99Pct": 0.010994424829663082,
+            "borrowerBeatsOtcShare": 0.46601941747572817,
+            "borrowerAdvantageMedianUsd": -1095.0491061813182,
+            "paidDownShare": 0.0970873786407767
+          }
+        }
+      }
+    },
+    "ZK": {
+      "days": 857,
+      "from": "2024-06-17",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 56,
+            "ltvMean": 0.24969772393143724,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 26434.621647943226,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 56,
+            "ltvMean": 0.5267513099516898,
+            "liquidatedShare": 1,
+            "lossShare": 0.26785714285714285,
+            "lossMeanPct": 0.010086359972414015,
+            "lossWorstPct": 0.1398926656212523,
+            "lossP99Pct": 0.1398926656212523,
+            "borrowerBeatsOtcShare": 0.9821428571428571,
+            "borrowerAdvantageMedianUsd": 1781.6028808925093,
+            "paidDownShare": 0
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 56,
+            "ltvMean": 0.24969772393143724,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 17849.72101595645,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 56,
+            "ltvMean": 0.3837142281776968,
+            "liquidatedShare": 1,
+            "lossShare": 0.017857142857142856,
+            "lossMeanPct": 0.0002789750228496857,
+            "lossWorstPct": 0.015622601279582399,
+            "lossP99Pct": 0.015622601279582399,
+            "borrowerBeatsOtcShare": 0.6785714285714286,
+            "borrowerAdvantageMedianUsd": 1911.160772345267,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 56,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 1,
+            "borrowerAdvantageMedianUsd": 18101.178989420856,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 56,
+            "ltvMean": 0.38638560594568,
+            "liquidatedShare": 1,
+            "lossShare": 0.017857142857142856,
+            "lossMeanPct": 0.000516749498200129,
+            "lossWorstPct": 0.028937971899207226,
+            "lossP99Pct": 0.028937971899207226,
+            "borrowerBeatsOtcShare": 0.625,
+            "borrowerAdvantageMedianUsd": 1857.0959508961437,
+            "paidDownShare": 0
+          }
+        }
+      }
+    },
+    "ZRO": {
+      "days": 854,
+      "from": "2024-06-20",
+      "to": "2026-10-21",
+      "shapes": {
+        "linear-12m": {
+          "v1": {
+            "n": 55,
+            "ltvMean": 0.24969772393143724,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.8909090909090909,
+            "borrowerAdvantageMedianUsd": 11715.159744209916,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 55,
+            "ltvMean": 0.5177885787007495,
+            "liquidatedShare": 0.7636363636363637,
+            "lossShare": 0.2545454545454545,
+            "lossMeanPct": 0.017869842976101825,
+            "lossWorstPct": 0.12196907594132315,
+            "lossP99Pct": 0.12196907594132315,
+            "borrowerBeatsOtcShare": 0.9636363636363636,
+            "borrowerAdvantageMedianUsd": 3819.1966415496636,
+            "paidDownShare": 0.23636363636363636
+          }
+        },
+        "cliff-12m": {
+          "v1": {
+            "n": 55,
+            "ltvMean": 0.24969772393143724,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.6545454545454545,
+            "borrowerAdvantageMedianUsd": 3190.6908933827362,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 55,
+            "ltvMean": 0.3772821502791847,
+            "liquidatedShare": 0.9818181818181818,
+            "lossShare": 0.23636363636363636,
+            "lossMeanPct": 0.016491550961650787,
+            "lossWorstPct": 0.09718827853971004,
+            "lossP99Pct": 0.09718827853971004,
+            "borrowerBeatsOtcShare": 0.21818181818181817,
+            "borrowerAdvantageMedianUsd": -6296.006313273372,
+            "paidDownShare": 0
+          }
+        },
+        "cliff6-linear24": {
+          "v1": {
+            "n": 55,
+            "ltvMean": 0.23751982223443943,
+            "liquidatedShare": 1,
+            "lossShare": 0,
+            "lossMeanPct": 0,
+            "lossWorstPct": 0,
+            "lossP99Pct": 0,
+            "borrowerBeatsOtcShare": 0.5818181818181818,
+            "borrowerAdvantageMedianUsd": 3012.8314583649044,
+            "paidDownShare": 0
+          },
+          "v2": {
+            "n": 55,
+            "ltvMean": 0.37982190810734534,
+            "liquidatedShare": 0.8727272727272727,
+            "lossShare": 0.09090909090909091,
+            "lossMeanPct": 0.004944018612210461,
+            "lossWorstPct": 0.09679585381780718,
+            "lossP99Pct": 0.09679585381780718,
+            "borrowerBeatsOtcShare": 0.2727272727272727,
+            "borrowerAdvantageMedianUsd": -3369.6499417498126,
+            "paidDownShare": 0.10909090909090909
+          }
+        }
+      }
+    }
+  },
+  "pooled": {
+    "linear-12m|v1": {
+      "n": 3822,
+      "ltvMean": 0.24969772393146,
+      "liquidatedShare": 0.8435374149659864,
+      "lossShare": 0.0013082155939298796,
+      "lossMeanPct": 0.0000801063584094598,
+      "lossWorstPct": 0.11310143325421308,
+      "lossP99Pct": 0,
+      "borrowerBeatsOtcShare": 0.8241758241758241,
+      "borrowerAdvantageMedianUsd": 21694.57380591769,
+      "paidDownShare": 0
+    },
+    "linear-12m|v2": {
+      "n": 3822,
+      "ltvMean": 0.5151545453968633,
+      "liquidatedShare": 0.7255363683935112,
+      "lossShare": 0.21899529042386184,
+      "lossMeanPct": 0.01659706471948825,
+      "lossWorstPct": 0.4984055758220158,
+      "lossP99Pct": 0.26141252551221594,
+      "borrowerBeatsOtcShare": 0.890894819466248,
+      "borrowerAdvantageMedianUsd": 3940.5911490650087,
+      "paidDownShare": 0.11355311355311355
+    },
+    "cliff-12m|v1": {
+      "n": 3822,
+      "ltvMean": 0.24969772393146,
+      "liquidatedShare": 0.8435374149659864,
+      "lossShare": 0.0031397174254317113,
+      "lossMeanPct": 0.00039499899239926024,
+      "lossWorstPct": 0.24186354687727446,
+      "lossP99Pct": 0,
+      "borrowerBeatsOtcShare": 0.7650444793301936,
+      "borrowerAdvantageMedianUsd": 13723.166068368344,
+      "paidDownShare": 0
+    },
+    "cliff-12m|v2": {
+      "n": 3822,
+      "ltvMean": 0.3753385652463757,
+      "liquidatedShare": 0.7577184720041863,
+      "lossShare": 0.11041339612768185,
+      "lossMeanPct": 0.01134637390296892,
+      "lossWorstPct": 0.5644372273243086,
+      "lossP99Pct": 0.2318198584033189,
+      "borrowerBeatsOtcShare": 0.5353218210361067,
+      "borrowerAdvantageMedianUsd": 828.9083591621211,
+      "paidDownShare": 0
+    },
+    "cliff6-linear24|v1": {
+      "n": 3822,
+      "ltvMean": 0.23751982223442028,
+      "liquidatedShare": 0.8435374149659864,
+      "lossShare": 0.0028780743066457353,
+      "lossMeanPct": 0.0002673189186971139,
+      "lossWorstPct": 0.20715250001474605,
+      "lossP99Pct": 0,
+      "borrowerBeatsOtcShare": 0.7535321821036107,
+      "borrowerAdvantageMedianUsd": 13753.642977966994,
+      "paidDownShare": 0
+    },
+    "cliff6-linear24|v2": {
+      "n": 3822,
+      "ltvMean": 0.37788703727087203,
+      "liquidatedShare": 0.7360020931449502,
+      "lossShare": 0.12401883830455258,
+      "lossMeanPct": 0.010950212909461559,
+      "lossWorstPct": 0.5248745722658296,
+      "lossP99Pct": 0.2207670414876577,
+      "borrowerBeatsOtcShare": 0.510727367870225,
+      "borrowerAdvantageMedianUsd": 279.2403764429873,
+      "paidDownShare": 0.03192046049188906
+    }
+  }
+}

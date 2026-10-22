@@ -39,6 +39,19 @@ them). Days that look like bad prints (a ≥ 0.25 log move undone within 2 days)
 kept, so a flagged token's volatility may be overstated. Parsing and the refresh step are tested
 on a recorded response (`test/ingest.test.js`, `test/fixtures/`); tests never touch the network.
 
+## Backtest on real history
+
+```bash
+node bin/fetch-binance.js             # full daily history since listing, 31 tokens, Binance public API (no key)
+node bin/backtest.js [--mode hold|blend] [--buyer 0.6] [--tag name]   # v1 vs v2, every loan replayed
+node bin/frontier.js [--buyer 0.6]    # how much v2 lends vs liquidations vs lender loss, over a grid of settings
+```
+
+`src/v2.js` is the yellow paper's model (schedule tranches, credit value at two confidence levels,
+interest-drift cap); `src/backtest.js` plays loans forward on real prices under v1 or v2 rules,
+including v2's cure window, capped paydown from vested tokens and the sale. Results and what they
+mean: `FINDINGS.md` §5, `data/FRONTIER.md`, `data/BACKTEST*.md`. Raw history is not committed.
+
 ## Layers
 
 | Layer | File | What it does | How it is proved |
