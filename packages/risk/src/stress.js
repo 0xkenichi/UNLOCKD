@@ -28,16 +28,22 @@ export const FACTORS = Object.freeze({
   advRatio: [0.01, 0.2, 2], //         position size in days of median volume
   buyerReturn: [0.3, 0.6, 1.0], //     auction buyers' required return per year
   oracle: ['clean', 'stale2', 'spike30'],
-  rate: [0.1, 0.15, 0.25]
+  rate: [0.1, 0.15, 0.25],
+  borrower: ['adversarial', 'rational'] // never cures vs cures on the alert when the stream is worth saving
 });
-export const BASELINE = Object.freeze({ severity: 0.8, sigma: 1.0, borrowShare: 1, advRatio: 0.2, buyerReturn: 0.6, oracle: 'clean', rate: 0.15 });
+export const BASELINE = Object.freeze({ severity: 0.8, sigma: 1.0, borrowShare: 1, advRatio: 0.2, buyerReturn: 0.6, oracle: 'clean', rate: 0.15, borrower: 'adversarial' });
 
-export const SETTINGS = Object.freeze([
+/** Every setting the grid knows; bin/stress.js --settings picks which to run. */
+export const CATALOG = Object.freeze([
   { key: 'v1', label: 'v1 (testnet)', model: 'v1' },
   { key: 'paper', label: 'v2 hold α 0.5%/5%', model: 'v2', v2: { valuationMode: 'hold', alphaOrig: 0.005, alphaLiq: 0.05 } },
   { key: 'hold2', label: 'v2 hold α 2%/10%', model: 'v2', v2: { valuationMode: 'hold', alphaOrig: 0.02, alphaLiq: 0.10 } },
   { key: 'hold5', label: 'v2 hold α 5%/20%', model: 'v2', v2: { valuationMode: 'hold', alphaOrig: 0.05, alphaLiq: 0.20 } },
   { key: 'blend200', label: 'v2 blend k 200%/100%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.005, alphaLiq: 0.05, marketabilityRateOrig: 2.0, marketabilityRateLiq: 1.0 } },
+  { key: 'hold3', label: 'v2 hold α 3%/15%', model: 'v2', v2: { valuationMode: 'hold', alphaOrig: 0.03, alphaLiq: 0.15 } },
+  { key: 'blendA', label: 'v2 blend α 2%/10%, k 300%/150%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.02, alphaLiq: 0.10, marketabilityRateOrig: 3.0, marketabilityRateLiq: 1.5 } },
+  { key: 'blendB', label: 'v2 blend α 2%/10%, k 400%/200%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.02, alphaLiq: 0.10, marketabilityRateOrig: 4.0, marketabilityRateLiq: 2.0 } },
+  { key: 'blendC', label: 'v2 blend α 0.5%/5%, k 250%/125%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.005, alphaLiq: 0.05, marketabilityRateOrig: 2.5, marketabilityRateLiq: 1.25 } },
   { key: 'blend100', label: 'v2 blend k 100%/50%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.005, alphaLiq: 0.05, marketabilityRateOrig: 1.0, marketabilityRateLiq: 0.5 } },
   { key: 'blend150', label: 'v2 blend k 150%/75%', model: 'v2', v2: { valuationMode: 'blend', alphaOrig: 0.005, alphaLiq: 0.05, marketabilityRateOrig: 1.5, marketabilityRateLiq: 0.75 } }
 ]);
@@ -113,24 +119,30 @@ export function buildCells({ paths = 64, timingPaths = 4 } = {}) {
   return cells.map((c, id) => ({ id, ...c }));
 }
 
+export const DEFAULT_SETTINGS = Object.freeze(['v1', 'paper', 'hold2', 'hold5', 'blend200', 'blend100', 'blend150']);
+export const SETTINGS = Object.freeze(DEFAULT_SETTINGS.map((k) => CATALOG.find((s) => s.key === k)));
+export const settingsFor = (keys) => keys.map((k) => CATALOG.find((s) => s.key === k) ?? (() => { throw new Error(`unknown setting ${k}`); })());
+
 /** Play every path of one cell under every setting. Returns compact per-loan rows. */
-export function runCell(cell, histories = []) {
+export function runCell(cell, histories = [], settings = SETTINGS) {
   const out = [];
-  const cfg = { ...BACKTEST_DEFAULTS, rate: cell.rate, buyerReturn: cell.buyerReturn, borrowShare: cell.borrowShare };
+  const cfg = { ...BACKTEST_DEFAULTS, rate: cell.rate, buyerReturn: cell.buyerReturn, borrowShare: cell.borrowShare, borrower: cell.borrower ?? 'adversarial' };
   const days = 365 + cfg.graceDays + cfg.auctionDays + V2_DEFAULTS.sellDays + 30;
   const t0 = PRE_DAYS;
   for (let p = 0; p < cell.paths; p++) {
-    const rng = createRng(hashString(`${cell.design}|${cell.id}|${p}`));
+    const rng = createRng(hashString(`${cell.design}|${cell.id}|${p}${process.env.STRESS_SEED ? `|${process.env.STRESS_SEED}` : ''}`));
     const shockDay = cell.shockDay ?? 1 + rng.int(365);
     const advUsd = NOTIONAL / cell.advRatio;
-    const path = scenarioPath(cell.family, rng, { preDays: PRE_DAYS, days, sigma: cell.sigma, advUsd, shockDay, size: cell.severity, volumeCrash: 0.3 }, histories);
-    const oracle = oraclePath(path.prices, cell.oracle, t0);
+    const { stream: shape0 } = STREAM_SHAPES[cell.shape](0, 1);
+    const unlockDay = shape0.cliff ?? (shape0.type === 'cliff' ? shape0.end : null);
+    const path = scenarioPath(cell.family, rng, { preDays: PRE_DAYS, days, sigma: cell.sigma, advUsd, shockDay, unlockDay, size: cell.severity, volumeCrash: 0.3 }, histories);
+    const oracle = freeze(oraclePath(path.prices, cell.oracle, t0), path.freezes);
     const { stream, tm } = STREAM_SHAPES[cell.shape](t0, NOTIONAL / path.prices[t0]);
-    for (const s of SETTINGS) {
+    for (const s of settings) {
       const r = playLoan({ prices: path.prices, volumesUsd: path.volumesUsd, oracle, t0, stream, tm, model: s.model }, cfg, { ...V2_DEFAULTS, ...(s.v2 || {}) });
       if (!r || r.skipped) continue;
       checkInvariants(r, cfg, cell, s, p);
-      out.push({ cell: cell.id, setting: s.key, path: p, ltv: r.ltv, liquidated: r.liquidated ? 1 : 0, forced: r.reason === 'health' ? 1 : 0, loss: r.lenderLossPct, paid: r.paidDown > 0 ? 1 : 0, beatsOtc: r.borrowerAdvantage >= 0 ? 1 : 0 });
+      out.push({ cell: cell.id, setting: s.key, path: p, ltv: r.ltv, liquidated: r.liquidated ? 1 : 0, forced: r.reason === 'health' ? 1 : 0, cured: r.cures ? 1 : 0, loss: r.lenderLossPct, paid: r.paidDown > 0 ? 1 : 0, beatsOtc: r.borrowerAdvantage >= 0 ? 1 : 0 });
     }
   }
   return out;
@@ -142,6 +154,14 @@ export function oraclePath(prices, kind, t0) {
   if (kind === 'stale2') return prices.map((_, d) => prices[Math.max(0, d - 2)]);
   if (kind === 'spike30') return prices.map((x, d) => (d === t0 ? x * 1.3 : x));
   throw new Error(`unknown oracle ${kind}`);
+}
+
+/** A price-feed outage: over each [from, to] the oracle keeps repeating the last price before it. */
+export function freeze(oracle, freezes) {
+  if (!freezes?.length) return oracle;
+  const out = oracle.slice();
+  for (const [from, to] of freezes) for (let d = Math.max(1, from); d <= Math.min(to, out.length - 1); d++) out[d] = out[from - 1];
+  return out;
 }
 
 /** Every loan, in every cell, must satisfy these; a breach aborts the run. */

@@ -148,3 +148,27 @@ What it means:
 - **Unlock calendars help slightly.** On the 27 tokens with a documented schedule, the drift lowers LTV by about 5% relative (18.2% → 17.3% on linear streams). It also lowers forced liquidations and worst-case losses at every setting.
 - **No setting survives an overnight 80–95% gap without loss.** Gaps sit outside every diffusion model. They are what the backstop, insurance and junior tranche are sized for, and the concentration cap is what keeps one token's gap from reaching seniors.
 - **v1 fails the borrower test outright:** it force-liquidates 84% of loans.
+
+## 7. The two tiers, and random bad events (October 2026)
+
+Asked to make sure the maths holds "especially for uncertain moments and random bad events", the
+stress test gained four things before this run:
+- A `chaos` family: 1–5 stacked random bad events, half the time starting on the unlock day. The events are gaps of 20–95%, volatility bursts, liquidity droughts, price-feed freezes of 2–10 days, and pump-and-dumps.
+- A test where every token in the pool is hit by its own chaos at once.
+- Borrowers who act on the breach alert ("rational") as a tenth factor.
+- A search over 11 settings for a single rule per tier.
+
+The calibration is in `src/tiers.js`. It was run on two independent seeds (`data/STRESS.md`,
+`data/STRESS-seed2.md`; 251,040 loans each), with the same verdicts on both.
+
+| Tier | Rule | Avg LTV: linear / cliff / cliff then linear | Forced liquidations, never cure / cure | If every token hits chaos at once, pool loses | Backstop |
+|---|---|---|---|---|---|
+| **Standard** (default) | hold, α 2% / 10% | 18.8% / 5.7% / 7.1% | 18% / 3% at most | 6.8% at most | none |
+| **Opt-in** (borrower chooses, alerts and cure path) | blend, k 150% / 75% | 35.5% / 15.4% / 17.8% | 51% / 12% at most | 8.3% at most, after the backstop | 16% of principal, escrowed by the project |
+
+- **Why these two.**
+  - Hold α 3%/15% also passes and lends about 2 points more. But it sits close to two limits: 23.5% of never-cure borrowers force-liquidated (limit 25%), and a worst real month of 1.8% (limit 3%). The standard tier keeps the margin instead.
+  - Blend k 100%/50% would lend 43% opt-in, but its curing borrowers are forced out 22.5% of the time against the 25% limit.
+- **Random bad events.** Even if every token in the pool suffers its own stacked bad events at the same time, the pool loses at most 8.3% after backstops. Junior (15%) and insurance (2%) stand in front of seniors, so seniors keep at least half their cushion.
+- **What still causes losses.** A single overnight 80–95% gap still causes a loss at any useful LTV, as the timing table shows. That is a sizing problem for the backstop, insurance and concentration caps, not something a lending limit can solve.
+- **Disclosure.** Opt-in borrowers must be shown the never-cure rate (about half are force-liquidated within a year if they ignore alerts) and the cure path before they sign.

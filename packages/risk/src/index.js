@@ -14,3 +14,4 @@ export * from './report.js';
 export * from './ingest.js';
 export { createRng } from './rng.js';
 export { FIXTURE_SPECS, fixtureHistory } from './fixtures.js';
+export { TIERS, POOL_STRUCTURE } from './tiers.js';

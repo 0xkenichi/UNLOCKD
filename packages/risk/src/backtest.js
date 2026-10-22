@@ -28,6 +28,10 @@ export const BACKTEST_DEFAULTS = Object.freeze({
   auctionDays: 3, //          sale settles this many days after it starts
   buyerReturn: 0.30, //       auction buyers require 30%/yr to hold locked tokens
   otcDiscount: 0.5, //        assumed OTC discount, for the borrower comparison
+  borrower: 'adversarial', // 'adversarial': never cures, walks when underwater. 'rational': on the
+  //                          breach alert, repays enough to restore health if the stream is still
+  //                          worth at least cureEquity × the debt
+  cureEquity: 1.25,
   v1Rank: 2,
   minHistoryDays: 90,
   stepDays: 7
@@ -119,6 +123,20 @@ export function playLoan({ prices, volumesUsd, t0, stream, tm, model, oracle = p
     if (model === 'v2') {
       const cv = creditValueOf(remainingTranches(stream, t, escrowSold, v2), t, v2.alphaLiq, { price: oracle[t], sigma, advUsd: adv0, ...supply(t) }, v2).value;
       breached = debt > cv;
+      if (breached && cfg.borrower === 'rational' && breachDays === 0) {
+        const worth = remainingTranches(stream, t, escrowSold, v2).reduce((a, x) => a + x.qty, 0) * price;
+        if (worth >= cfg.cureEquity * debt) {
+          // Cure: the borrower's own cash, interest first, down to the health margin.
+          let pay = Math.max(0, debt - cv / (1 + cfg.healthMargin));
+          out.curedUsd = (out.curedUsd || 0) + pay;
+          out.cures = (out.cures || 0) + 1;
+          const toInterest = Math.min(accrued, pay);
+          accrued -= toInterest;
+          pay -= toInterest;
+          debtPrincipal -= Math.min(debtPrincipal, pay);
+          continue;
+        }
+      }
       if (breached) {
         breachDays++;
         if (breachDays > cfg.cureDays) {
@@ -189,7 +207,8 @@ function finish(out, prices, stream, tm, cfg) {
   const soldOtc = out.principal / (p0 * (1 - cfg.otcDiscount));
   const otcValue = Math.max(0, stream.total - soldOtc) * pT;
   out.otcValue = otcValue;
-  out.borrowerAdvantage = out.borrowerValue - otcValue;
+  // Cash the borrower put in to cure counts against them.
+  out.borrowerAdvantage = out.borrowerValue - (out.curedUsd || 0) - otcValue;
   out.lenderLossPct = out.principal > 0 ? out.lenderLoss / out.principal : 0;
   out.paidDown = out.paidDown || 0;
   return out;

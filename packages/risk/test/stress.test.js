@@ -68,3 +68,36 @@ test('unlock schedules align to price-history days', async () => {
   assert.deepEqual(alignUnlocks(['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-09'], sched), [10, 10, 10, 30, 30]);
   assert.equal(alignUnlocks(['2024-01-01'], []), null);
 });
+
+test('a price-feed freeze repeats the last price before it', async () => {
+  const { freeze } = await import('../src/stress.js');
+  assert.deepEqual(freeze([1, 2, 3, 4, 5, 6], [[2, 3]]), [1, 2, 2, 2, 5, 6]);
+  assert.deepEqual(freeze([1, 2, 3], []), [1, 2, 3]);
+});
+
+test('chaos paths stack events and sometimes freeze the oracle', () => {
+  const o = { preDays: 120, days: 420, sigma: 0.8, advUsd: 1e6, shockDay: 100, unlockDay: 182, size: 0.8, volumeCrash: 0.3 };
+  let frozen = 0;
+  for (let i = 0; i < 200; i++) {
+    const p = scenarioPath('chaos', createRng(1000 + i), o);
+    assert.ok(p.prices.every((x) => x > 0 && Number.isFinite(x)) && p.volumesUsd.every((x) => x > 0));
+    if (p.freezes.length) frozen++;
+  }
+  assert.ok(frozen > 20 && frozen < 180, `freezes in ${frozen} of 200 paths`);
+});
+
+test('a rational borrower cures on the alert and avoids the forced sale an adversarial one suffers', async () => {
+  const { playLoan, STREAM_SHAPES, BACKTEST_DEFAULTS } = await import('../src/backtest.js');
+  // Noisy history (so v2 lends ~26%), then a 55% step down for 40 days that recovers: health
+  // breaks, but the stream stays well above 1.25× the debt, so it is worth saving.
+  const prices = Array.from({ length: 700 }, (_, d) => (1 + 0.06 * Math.sin(d)) * (d >= 160 && d < 200 ? 0.45 : 1));
+  const volumesUsd = prices.map(() => 5e6);
+  const t0 = 100;
+  const { stream, tm } = STREAM_SHAPES['linear-12m'](t0, 1e5);
+  const adv = playLoan({ prices, volumesUsd, t0, stream, tm, model: 'v2' }, { ...BACKTEST_DEFAULTS, borrower: 'adversarial' });
+  const rat = playLoan({ prices, volumesUsd, t0, stream, tm, model: 'v2' }, { ...BACKTEST_DEFAULTS, borrower: 'rational' });
+  assert.ok(rat.cures >= 1 && rat.curedUsd > 0, 'cured');
+  assert.equal(rat.reason, 'repaid');
+  assert.equal(rat.lenderLoss, 0);
+  assert.equal(adv.reason, 'health', 'the adversarial borrower is force-sold');
+});

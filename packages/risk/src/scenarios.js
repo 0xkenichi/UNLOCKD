@@ -89,6 +89,39 @@ export const FAMILIES = Object.freeze({
     const sd = (o.sigma * 2) / Math.sqrt(DAYS);
     let level = 1;
     return overlay(p, o.preDays + o.shockDay, () => (level *= Math.exp(sd * rng.normal() - 1 / DAYS)), () => o.volumeCrash);
+  },
+
+  /**
+   * Stacked bad luck: 1–5 random events at random times — an overnight gap of 20–95%, a burst
+   * of doubled volatility, a liquidity drought (volume −90%), a price-feed freeze (the oracle
+   * repeats an old price for 2–10 days), or a pump and dump. Half the time the first event lands
+   * on the stream's unlock day, when selling pressure is most likely.
+   */
+  chaos: (rng, o) => {
+    const p = base(rng, o);
+    p.freezes = [];
+    const n = 1 + rng.int(5);
+    for (let e = 0; e < n; e++) {
+      const day = o.preDays + (e === 0 && o.unlockDay != null && rng.uniform() < 0.5 ? o.unlockDay : 1 + rng.int(DAYS));
+      const kind = rng.int(5);
+      if (kind === 0) {
+        const size = 0.2 + 0.75 * rng.uniform();
+        overlay(p, day, () => 1 - size, () => o.volumeCrash);
+      } else if (kind === 1) {
+        const len = 10 + rng.int(80);
+        const sd = (o.sigma * Math.sqrt(3)) / Math.sqrt(DAYS); // total σ doubles: √(2² − 1)
+        let level = 1;
+        overlay(p, day, (k) => (k < len ? (level *= Math.exp(sd * rng.normal() - 0.5 * sd * sd)) : level));
+      } else if (kind === 2) {
+        const len = 10 + rng.int(60);
+        overlay(p, day, () => 1, (k) => (k < len ? 0.1 : 1));
+      } else if (kind === 3) {
+        p.freezes.push([day, day + 1 + rng.int(9)]);
+      } else {
+        overlay(p, day, (k) => (k < 20 ? 1 + k / 20 : 0.5), (k) => (k < 20 ? 2 : o.volumeCrash));
+      }
+    }
+    return p;
   }
 });
 
