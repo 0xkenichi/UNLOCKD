@@ -1,0 +1,66 @@
+/* Borrow page: liquidation outlook (components/borrow/LiquidationOutlook.jsx) */
+
+.lo .section-title {
+  margin-top: 10px;
+}
+
+.lo-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  margin: 20px 0 8px;
+  align-items: start;
+}
+
+.lo-note {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 10px 0 0;
+  max-width: 62ch;
+}
+
+.lo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lo-table caption {
+  text-align: left;
+  padding-bottom: 8px;
+}
+
+.lo-table th,
+.lo-table td {
+  text-align: left;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.lo-table thead th {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom-color: var(--rule);
+}
+
+.lo-table td:last-child,
+.lo-table th:last-child {
+  text-align: right;
+}
+
+.lo-table td.mono {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .lo-figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

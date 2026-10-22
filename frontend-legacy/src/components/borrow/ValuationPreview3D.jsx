@@ -21,7 +21,7 @@ function RiskPathsGroup({ paths }) {
         <Line
           key={index}
           points={path.map(p => [p[0] * 4, p[1] * 2, (index - paths.length / 2) * 0.1])} // Space them out in 3D
-          color={index < 5 ? '#ff3333' : '#C0C0C0'}
+          color={index < 5 ? '#b2564b' : '#c4a26c'}
           lineWidth={1.5}
           opacity={index < 5 ? 1 : 0.3}
           transparent
@@ -39,14 +39,14 @@ export default function ValuationPreview3D({ paths = [] }) {
       <div className="section-head mb-4">
         <div>
           <h3 className="section-title holo-glow">Risk Simulation</h3>
-          <div className="section-subtitle">Monte Carlo DPV preview</div>
+          <div className="section-subtitle">Health of a loan at max LTV until unlock, on simulated prices at an assumed 100% annual volatility. A path that falls below 1 is liquidated.</div>
         </div>
         <span className="chip">3D Active</span>
       </div>
 
-      <div className="w-full h-[250px] relative rounded-lg overflow-hidden border border-white/10 bg-black/40">
+      <div className="w-full relative overflow-hidden" style={{ height: 250, border: '1px solid var(--border-secondary)', background: 'var(--surface-soft)' }}>
         {!isReady && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-500 z-10">
+          <div className="flex items-center justify-center muted" style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
             Awaiting collateral assessment...
           </div>
         )}
@@ -57,10 +57,10 @@ export default function ValuationPreview3D({ paths = [] }) {
         </Canvas>
       </div>
 
-      <div className="mt-4 flex justify-between text-xs text-gray-400">
+      <div className="flex justify-between muted" style={{ marginTop: 16, gap: 12, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-[#ff3333]"></div>
-          <span>5th Percentile Risk Paths</span>
+          <div className="rounded-full" style={{ width: 8, height: 8, background: 'var(--danger-500)' }}></div>
+          <span>Worst 5% of paths</span>
         </div>
         <div>
           Paths simulated: {paths.length}

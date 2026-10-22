@@ -85,17 +85,17 @@ export default function Features() {
       <div className="stat-row">
         <div className="stat-card">
           <div className="stat-label">Risk Models</div>
-          <div className="stat-value">Monte Carlo</div>
+          <div className="stat-value stat-value--word">Monte Carlo</div>
           <div className="stat-delta">DPV + LTV curves</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Settlement</div>
-          <div className="stat-value">Auto</div>
+          <div className="stat-value stat-value--word">Auto</div>
           <div className="stat-delta">At unlock</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Custody</div>
-          <div className="stat-value">Non-custodial</div>
+          <div className="stat-value stat-value--word">Non-custodial</div>
           <div className="stat-delta">Escrowed rights</div>
         </div>
       </div>
@@ -131,8 +131,8 @@ export default function Features() {
           <h3 className="holo-title">Risk adjustment logic</h3>
           <ul className="feature-bullet-list muted">
             <li>Base valuation starts with unlock timeline and collateral specifics.</li>
-            <li>Haircuts adapt to token liquidity profile and market volatility.</li>
-            <li>Identity tier and behavior data can improve confidence bands.</li>
+            <li>Haircuts are a time discount set by the stream’s rank and one volatility setting for all tokens; a per-token risk control (Ω) can only reduce new credit.</li>
+            <li>Terms depend only on the collateral: identity and wallet history do not change them.</li>
             <li>Fallback outcomes are predetermined to reduce lender downside drift.</li>
           </ul>
         </div>

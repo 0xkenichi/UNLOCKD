@@ -82,3 +82,38 @@ export function debtForLiquidationProbability(target, args, params = protocolDef
   }
   return lo;
 }
+
+/**
+ * Borrower outlook from what a page already reads on chain: the origination value `pv`
+ * (computeDPV, which includes Ω and the EWMA) and the chosen debt. Because pv is never above
+ * the health-check value, the trigger shown is never later than the real one.
+ */
+export function outlookFromPv({ pv, debt, liqThresholdBps, discountRateBps, borrowRateBps = 1500, years, sigma, checksPerYear = 365 }) {
+  const thr = liqThresholdBps / BPS;
+  const ratio = debt / (thr * pv); // trigger price / spot
+  const driftPerYear = borrowRateBps / BPS - discountRateBps / BPS;
+  const out = { dropToTrigger: Math.max(0, 1 - ratio), triggerRisePerYear: Math.exp(driftPerYear) - 1, probability: null };
+  if (sigma > 0 && years > 0) {
+    if (ratio >= 1) out.probability = 1;
+    else {
+      const b = Math.log(ratio) - (checksPerYear ? BGK_BETA * sigma * Math.sqrt(1 / checksPerYear) : 0);
+      out.probability = firstPassageProbability(b, -0.5 * sigma * sigma - driftPerYear, sigma, years);
+    }
+  }
+  return out;
+}
+
+/**
+ * Liquidation threshold and discount rate to assume when only the LTV is known: the rank whose
+ * base LTV matches, else the rank with the smallest threshold above it (the most cautious reading).
+ */
+export function rankTermsForLtv(ltvBps, params = protocolDefaults()) {
+  const { rankBaseLtvBps, rankDiscountRateBps } = params.valuation;
+  const thr = params.loan.liqThresholdBps;
+  let rank = [1, 2, 3].find((r) => rankBaseLtvBps[r] === ltvBps);
+  if (!rank) {
+    const above = [1, 2, 3].filter((r) => thr[r] > ltvBps).sort((a, b) => thr[a] - thr[b]);
+    rank = above[0] ?? 1;
+  }
+  return { rank, liqThresholdBps: thr[rank], discountRateBps: rankDiscountRateBps[rank], exact: rankBaseLtvBps[rank] === ltvBps };
+}

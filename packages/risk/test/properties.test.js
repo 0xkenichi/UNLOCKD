@@ -124,3 +124,27 @@ test('settlement conserves every dollar', () => {
     if (price >= debt) assert.ok(s.lenderLoss < eps);
   }
 });
+
+test('the page-side outlook (from pv) matches the full closed form, and is never later than the contract', async () => {
+  const { outlookFromPv, liquidationProbability, rankTermsForLtv } = await import('../src/index.js');
+  const rng = createRng('outlook');
+  for (let i = 0; i < 1000; i++) {
+    const c = { ...randomCase(rng), bounds: null, omegaBps: 10_000, maxBorrowUsd: 0, hardLtvCapBps: 0 };
+    c.prices = { spot: c.prices.spot, twap: c.prices.spot, ewma: c.prices.spot };
+    const { maxBorrow: max, pv, ltvBps } = maxBorrow(c);
+    const debt = max * (0.2 + 0.8 * rng.uniform());
+    const sigma = 0.2 + rng.uniform() * 1.5;
+    const t = rankTermsForLtv(ltvBps);
+    assert.equal(t.rank, c.rank);
+    const page = outlookFromPv({ pv, debt, liqThresholdBps: t.liqThresholdBps, discountRateBps: t.discountRateBps, years: c.years, sigma });
+    const full = liquidationProbability({ debt, quantity: c.quantity, spot: c.prices.spot, years: c.years, rank: c.rank, sigma });
+    assert.ok(Math.abs(page.probability - full.probability) < 1e-9);
+    assert.ok(Math.abs(page.dropToTrigger - full.dropToTrigger) < 1e-9);
+    // With Ω < 1 or a lower EWMA, pv falls below the health value: the page's trigger comes earlier.
+    const cautious = outlookFromPv({ pv: pv * 0.8, debt, liqThresholdBps: t.liqThresholdBps, discountRateBps: t.discountRateBps, years: c.years, sigma });
+    assert.ok(cautious.dropToTrigger <= page.dropToTrigger);
+  }
+  // A capped LTV maps to the most cautious threshold above it.
+  assert.equal(rankTermsForLtv(3000).liqThresholdBps, 3500);
+  assert.equal(rankTermsForLtv(3000).exact, false);
+});

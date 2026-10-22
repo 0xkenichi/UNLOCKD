@@ -21,6 +21,7 @@ import PrivacyModeToggle from '../components/privacy/PrivacyModeToggle.jsx';
 import PrivacyUpgradeWizard from '../components/privacy/PrivacyUpgradeWizard.jsx';
 import VestingPortfolio from '../components/borrow/VestingPortfolio.jsx';
 import { generateRiskPaths } from '../utils/riskPaths.js';
+import LiquidationOutlook from '../components/borrow/LiquidationOutlook.jsx';
 import { requestChainSupport, requestMatchQuote, fetchPoolsBrowse } from '../utils/api.js';
 import { trackEvent } from '../utils/analytics.js';
 import usePassportSnapshot from '../utils/usePassportSnapshot.js';
@@ -221,9 +222,12 @@ export default function Borrow() {
     () =>
       generateRiskPaths({
         pv: Number(valuationState.pv),
-        ltvBps: Number(valuationState.ltvBps)
+        ltvBps: Number(valuationState.ltvBps),
+        years: vestingDetails?.unlockTime
+          ? Math.max(1 / 12, (Number(vestingDetails.unlockTime) * 1000 - Date.now()) / (365 * 24 * 3600 * 1000))
+          : 1
       }),
-    [valuationState]
+    [valuationState, vestingDetails?.unlockTime]
   );
 
   const holoFallback = (
@@ -241,16 +245,16 @@ export default function Borrow() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
     >
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
           <h1 className="page-title holo-glow">Borrow</h1>
           <p className="page-subtitle">Escrow vesting, get USDC.</p>
         </div>
-        <div className="stack" style={{ alignItems: 'flex-end', gap: 8 }}>
+        <div className="stack" style={{ alignItems: 'flex-start', gap: 8 }}>
           <button
             className={`button ${showAdvanced ? 'primary' : 'ghost'}`}
             onClick={() => setShowAdvanced(!showAdvanced)}
-            style={{ borderRadius: 'var(--radius-full)', padding: '6px 16px', fontSize: '12px' }}
+            style={{ minHeight: 36, padding: '6px 16px' }}
           >
             {showAdvanced ? 'Hide Advanced Settings' : 'Advanced Parameters'}
           </button>
@@ -312,11 +316,19 @@ export default function Borrow() {
 
         <div className="stack" style={{ gap: 24 }}>
           {isAssessmentTestnet ? (
-            <ValuationForm
-              onUpdate={setValuationState}
-              prefill={vestingDetails}
-              compact={true}
-            />
+            <>
+              <ValuationForm
+                onUpdate={setValuationState}
+                prefill={vestingDetails}
+                compact={true}
+              />
+              <LiquidationOutlook
+                pvUsd={Number(valuationState.pv) / 1e6}
+                ltvBps={Number(valuationState.ltvBps)}
+                debtUsd={desiredBorrowUsd}
+                unlockTime={vestingDetails?.unlockTime}
+              />
+            </>
           ) : (
             <div className="holo-card">
               <div className="section-head">
