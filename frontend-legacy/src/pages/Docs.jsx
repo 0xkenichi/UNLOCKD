@@ -301,7 +301,7 @@ export default function Docs() {
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
-          font-family: "Inter", sans-serif;
+          font-family: var(--font-mono);
           font-size: 0.85rem;
           color: #8a8170;
         }
@@ -327,7 +327,7 @@ export default function Docs() {
           border: 1px solid #333;
           padding: 1rem;
           border-radius: 6px;
-          font-family: monospace;
+          font-family: var(--font-mono);
           font-size: 0.9rem;
           overflow-x: auto;
           text-align: left;

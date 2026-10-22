@@ -138,13 +138,27 @@
   --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-spring: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-smooth: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
 
   /* Typography */
-  --font-brand: 'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-  --font-body: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* Anybody's width axis is the brand's motion signature: compressed and heavy while value is
+     locked, wide and light once it is released. Martian Mono sets every figure and label. */
+  --font-brand: 'Anybody', 'Arial Narrow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Anybody', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --font-family: var(--font-body);
   --font-display: var(--font-brand);
+
+  /* Width / weight states (Anybody: wdth 50–150, wght 100–900) */
+  --wdth-locked: 50;
+  --wght-locked: 860;
+  --wdth-display: 76;
+  --wght-display: 640;
+  --wdth-open: 128;
+  --wght-open: 280;
+  --wdth-body: 96;
+  --wdth-caps: 118;
 
   /* Demo-only experimental fonts (unchanged) */
   --font-demo-body: 'DotGothic16', monospace;

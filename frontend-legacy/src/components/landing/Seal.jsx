@@ -2,7 +2,7 @@
 // Licensed under the Business Source License 1.1 (BSL-1.1).
 import { useId } from 'react';
 
-/** Hallmark seal: circular legend around a serif "V", like a maker's mark. */
+/** Hallmark seal: circular legend around a compressed "V", like a maker's mark. */
 export default function Seal({ size = 112, legend = 'VESTRA PROTOCOL · VESTING CREDIT · MMXXVI ·', className = '' }) {
   const id = useId().replace(/:/g, '');
   return (
@@ -34,7 +34,7 @@ export default function Seal({ size = 112, legend = 'VESTRA PROTOCOL · VESTING 
         y="72"
         textAnchor="middle"
         fill="currentColor"
-        style={{ fontFamily: 'var(--font-display)', fontSize: '36px' }}
+        style={{ fontFamily: 'var(--font-display)', fontSize: '38px', fontWeight: 820, fontStretch: '56%' }}
       >
         V
       </text>

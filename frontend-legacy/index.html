@@ -27,9 +27,15 @@
   <meta name="twitter:image" content="https://vestraprotocol.vercel.app/logo.png" />
 
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="preconnect" href="https://fonts.bunny.net" />
+  <!-- Anybody (wdth 50–150, wght 100–900) for display and UI; Martian Mono (wdth 75–112.5) for figures and labels. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.bunny.net/css?family=instrument-serif:400,400i|inter-tight:400,500,600|ibm-plex-mono:400,500|flow-circular:400|dotgothic16:400|rubik-glitch:400&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Anybody:ital,wdth,wght@0,50..150,100..900;1,50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap"
+    rel="stylesheet" />
+  <!-- Demo page only -->
+  <link
+    href="https://fonts.bunny.net/css?family=flow-circular:400|dotgothic16:400|rubik-glitch:400&display=swap"
     rel="stylesheet" />
   <title>Vestra Protocol — Vesting Credit</title>
   <style>
@@ -63,7 +69,7 @@
       box-sizing: border-box;
       background: var(--boot-bg);
       color: var(--boot-fg);
-      font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-family: "Anybody", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       text-align: center;
     }
 
@@ -106,19 +112,22 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: "Instrument Serif", Georgia, serif;
-      font-size: 30px;
-      font-weight: 400;
+      font-family: "Anybody", system-ui, sans-serif;
+      font-size: 28px;
+      line-height: 1;
       letter-spacing: 0;
       color: var(--boot-accent);
-      animation: boot-pulse 1.6s ease-in-out infinite;
+      font-variation-settings: "wdth" 50, "wght" 850;
+      /* The mark "unlocks": compressed and heavy, opening wide and light. */
+      animation: boot-unlock 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
     }
 
     .boot-shell__title {
       margin: 0;
       font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.3em;
+      font-stretch: 125%;
+      letter-spacing: 0.22em;
       text-transform: uppercase;
     }
 
@@ -163,14 +172,14 @@
       }
     }
 
-    @keyframes boot-pulse {
-
-      0%,
-      100% {
-        opacity: 0.55
+    @keyframes boot-unlock {
+      from {
+        font-variation-settings: "wdth" 50, "wght" 850;
+        opacity: 0.6
       }
 
-      50% {
+      to {
+        font-variation-settings: "wdth" 150, "wght" 250;
         opacity: 1
       }
     }
@@ -207,6 +216,12 @@
   <script>
     // Boot-shell helpers. Classic inline script (no network); CSP allows 'unsafe-inline'.
     (function () {
+      try {
+        // Motion is opt-out: pages render their resting "locked" type state only when motion is allowed.
+        if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.documentElement.classList.add('vx-motion');
+        }
+      } catch (e) { /* no matchMedia: leave motion off */ }
       try {
         var stored = window.localStorage.getItem('unlockd-theme');
         if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored;

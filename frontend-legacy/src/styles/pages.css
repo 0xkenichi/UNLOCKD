@@ -53,8 +53,14 @@
   gap: 8px;
 }
 
+/* These facts are words, not figures: set them in the display face */
 .px-fact .stat-value {
-  font-size: clamp(22px, 2.2vw, 28px);
+  font-family: var(--font-display);
+  font-weight: 640;
+  font-stretch: 78%;
+  font-size: clamp(24px, 2.4vw, 30px);
+  letter-spacing: -0.01em;
+  line-height: 1.02;
 }
 
 .px-fact__note {
@@ -86,9 +92,11 @@
 
 .px-prose p:first-child::first-letter {
   font-family: var(--font-display);
+  font-weight: 860;
+  font-stretch: 50%;
   float: left;
-  font-size: 3.2em;
-  line-height: 0.85;
+  font-size: 3.4em;
+  line-height: 0.82;
   padding: 6px 10px 0 0;
   color: var(--brass-300);
 }
@@ -111,8 +119,9 @@
 
 .px-record h3 {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 22px;
+  font-weight: 660;
+  font-stretch: 84%;
+  font-size: 21px;
   margin: 0 0 6px;
 }
 

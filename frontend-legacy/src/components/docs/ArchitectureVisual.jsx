@@ -174,7 +174,7 @@ export default function ArchitectureVisual() {
     const currentInfo = activeNode ? infoBlocks[activeNode] : infoBlocks.all;
 
     return (
-        <div style={{
+        <div className="arch-visual" style={{
             width: '100%',
             background: 'var(--bg-secondary)',
             borderRadius: 'var(--radius-xl)',

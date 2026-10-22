@@ -6,6 +6,19 @@
  * new primitives (.vx-*) used by the landing page and page headers.
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/* Font axes as typed custom properties, so they interpolate (CSS animations and GSAP). */
+@property --w {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 100;
+}
+
+@property --g {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 400;
+}
+
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 html {
   background: var(--bg-primary);
@@ -14,9 +27,9 @@ html {
 body {
   font-family: var(--font-body);
   font-size: 15px;
-  line-height: 1.6;
-  letter-spacing: 0.005em;
-  font-feature-settings: 'ss01', 'cv11';
+  line-height: 1.62;
+  letter-spacing: 0;
+  font-stretch: calc(var(--wdth-body) * 1%);
   font-variant-numeric: tabular-nums lining-nums;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -39,14 +52,25 @@ body::before {
   color: var(--text-primary);
 }
 
+/* Display: Anybody set narrow and heavy. Condensed faces need tighter leading and slightly
+   negative tracking; the wide italic used for emphasis needs the opposite. */
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
+  font-weight: var(--wght-display);
+  font-stretch: calc(var(--wdth-display) * 1%);
+  letter-spacing: -0.012em;
+  line-height: 1;
   color: var(--text-primary);
+}
+
+h1 em,
+h2 em,
+h3 em {
+  font-weight: var(--wght-open);
+  font-stretch: calc(var(--wdth-open) * 1%);
+  letter-spacing: -0.02em;
 }
 
 h4,
@@ -54,6 +78,7 @@ h5,
 h6 {
   font-family: var(--font-body);
   font-weight: 600;
+  font-stretch: 100%;
   letter-spacing: 0;
 }
 
@@ -85,7 +110,19 @@ kbd,
 .font-mono,
 .mono {
   font-family: var(--font-mono);
-  font-feature-settings: 'zero';
+  font-stretch: 87.5%;
+  font-size: 0.92em;
+  letter-spacing: -0.01em;
+}
+
+/* Martian Mono is wide: long identifiers in prose must be allowed to break */
+:not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
+pre {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* Scrollbars */
@@ -109,22 +146,32 @@ kbd,
 .section-title,
 .holo-title {
   font-family: var(--font-display) !important;
-  font-weight: 400 !important;
-  letter-spacing: -0.01em;
+  font-weight: var(--wght-display) !important;
+  font-stretch: calc(var(--wdth-display) * 1%);
+  letter-spacing: -0.012em;
   color: var(--text-primary);
   background: none !important;
   -webkit-text-fill-color: currentColor !important;
   text-shadow: none !important;
 }
 
+/* Page titles carry their axes as custom properties so the motion layer can tween them. */
 .page-title {
-  font-size: clamp(34px, 4.6vw, 54px);
-  line-height: 1.02;
+  --w: var(--wdth-display);
+  --g: var(--wght-display);
+  font-variation-settings: 'wdth' var(--w), 'wght' var(--g);
+  font-size: clamp(36px, 5.4vw, 66px);
+  line-height: 0.94;
+  letter-spacing: -0.018em;
+}
+
+.page-title em {
+  font-variation-settings: 'wdth' var(--wdth-open), 'wght' var(--wght-open);
 }
 
 .section-title {
-  font-size: clamp(22px, 2.4vw, 28px);
-  line-height: 1.15;
+  font-size: clamp(22px, 2.6vw, 30px);
+  line-height: 1.04;
 }
 
 .holo-title {
@@ -149,21 +196,24 @@ kbd,
 .table-row.header,
 .form-field > label,
 .form-field label:first-child {
-  font-family: var(--font-body);
-  font-size: 10.5px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.16em !important;
+  font-family: var(--font-mono);
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em !important;
+  line-height: 1.5;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
-/* Figures: serif numerals read as engraved values */
+/* Figures: light monospaced numerals, so tweened values never jitter */
 .stat-value {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(26px, 3vw, 34px);
-  letter-spacing: 0;
-  line-height: 1.05;
+  font-family: var(--font-mono);
+  font-weight: 300;
+  font-stretch: 100%;
+  font-size: clamp(22px, 2.5vw, 30px);
+  letter-spacing: -0.035em;
+  line-height: 1.12;
   color: var(--text-primary);
 }
 
@@ -221,9 +271,10 @@ kbd,
   background: var(--brass-400);
   color: #15120c;
   font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-size: 11.5px;
+  font-weight: 620;
+  font-stretch: calc(var(--wdth-caps) * 1%);
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 0 rgba(0, 0, 0, 0.35);
   transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard),
@@ -286,10 +337,11 @@ kbd,
   border: 1px solid var(--border-primary);
   background: transparent;
   color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-stretch: 87.5%;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: none;
 }
@@ -404,7 +456,7 @@ input[type='radio'] {
 .app-header .button.ghost {
   border-color: transparent;
   font-size: 11px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   padding: 8px 10px;
   color: var(--text-secondary);
 }
@@ -423,8 +475,10 @@ input[type='radio'] {
   background: var(--bg-primary) !important;
   border-top: 1px solid var(--rule) !important;
   color: var(--text-muted) !important;
-  font-size: 10.5px !important;
-  letter-spacing: 0.16em !important;
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 9.5px !important;
+  letter-spacing: 0.08em !important;
   text-transform: uppercase;
   backdrop-filter: none !important;
 }
@@ -520,10 +574,10 @@ input[type='radio'] {
 
 .vx-serial {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 10.5px;
+  font-stretch: 87.5%;
+  letter-spacing: 0.04em;
   color: var(--text-muted);
-  font-feature-settings: 'zero';
 }
 
 .vx-rule {
@@ -533,7 +587,9 @@ input[type='radio'] {
 }
 
 .vx-figure {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-weight: 300;
+  letter-spacing: -0.04em;
   font-variant-numeric: lining-nums tabular-nums;
   color: var(--text-primary);
 }
@@ -636,12 +692,16 @@ input[type='radio'] {
   display: none;
 }
 
+/* Wordmark: compressed and heavy at rest, it stretches open on hover. */
 .app-header .brand-title {
   font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
+  font-size: 22px;
+  font-weight: 820;
+  font-stretch: 58%;
+  letter-spacing: 0.01em;
+  line-height: 1;
   text-transform: none;
+  transition: font-stretch 0.6s var(--ease-expo), font-weight 0.6s var(--ease-expo);
   color: var(--text-primary);
   background: none;
   -webkit-text-fill-color: currentColor;
@@ -651,9 +711,16 @@ input[type='radio'] {
   color: var(--brass-300);
 }
 
+.app-header .brand:hover .brand-title {
+  font-stretch: 112%;
+  font-weight: 380;
+}
+
 .app-header .brand-subtitle {
-  font-size: 9.5px;
-  letter-spacing: 0.24em;
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 9px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -671,7 +738,8 @@ input[type='radio'] {
   min-height: 36px;
   padding: 8px 10px;
   font-size: 10.5px;
-  letter-spacing: 0.14em;
+  font-stretch: 112%;
+  letter-spacing: 0.08em;
 }
 
 /* Privacy toggle: keep the chip, drop the explanatory sentence in the header */
@@ -692,7 +760,8 @@ input[type='radio'] {
   color: var(--text-secondary) !important;
   border-radius: var(--radius-sm) !important;
   font-size: 10.5px !important;
-  letter-spacing: 0.14em;
+  font-stretch: 112%;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -706,7 +775,7 @@ input[type='radio'] {
 .app-header [data-testid='rk-connect-button'] {
   border-radius: var(--radius-sm) !important;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   font-size: 11px !important;
 }
 
@@ -726,4 +795,255 @@ input[type='radio'] {
   width: min(var(--page-max), 100%);
   margin-left: auto;
   margin-right: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Motion system (styles only; the GSAP layer in src/motion/ is lazy-loaded).
+ * Everything here animates transform, opacity, background-size, box-shadow or
+ * the font axes, and is switched off under prefers-reduced-motion.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.vx-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Route change: a brass hairline draws across under the header, then fades */
+.vx-route-sweep {
+  position: fixed;
+  top: var(--app-header-offset, 0px);
+  left: 0;
+  right: 0;
+  height: 1px;
+  z-index: 1001;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--brass-300) 18%, var(--brass-200) 50%, var(--brass-300) 82%, transparent);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  animation: vx-sweep 1.1s var(--ease-expo) forwards;
+}
+
+@keyframes vx-sweep {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+
+  60% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+/* Odometer figures (components/landing/Odometer.jsx) */
+.vx-odo {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.vx-odo__digits {
+  display: inline-flex;
+  align-items: flex-start;
+}
+
+.vx-odo__col {
+  display: inline-block;
+  height: 1.1em;
+  overflow: hidden;
+}
+
+.vx-odo__strip {
+  display: block;
+  transform: translateY(var(--y));
+}
+
+.vx-odo__strip > span {
+  display: block;
+  height: 1.1em;
+  text-align: center;
+}
+
+/* Intro roll: starts from zero once the page marks itself live (fonts ready). */
+.vx-motion .vx-odo--intro .vx-odo__strip {
+  transform: translateY(0);
+}
+
+.vx-motion .is-live .vx-odo--intro .vx-odo__strip {
+  animation: vx-odo-roll 2.2s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--odo-delay, 0ms) + var(--i, 0) * -45ms + 300ms) both;
+}
+
+@keyframes vx-odo-roll {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(var(--y));
+  }
+}
+
+/* Buttons: ghost buttons draw a brass baseline; solid ones press. Paint-only. */
+.button {
+  background-repeat: no-repeat;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button.ghost {
+  background-image: linear-gradient(var(--brass-400), var(--brass-400));
+  background-position: 50% 100%;
+  background-size: 0% 1px;
+  transition: background-size 0.5s var(--ease-expo), border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard);
+}
+
+.button.ghost:hover {
+  background-size: 100% 1px;
+}
+
+/* Cards: the inset rule warms to brass and the certificate corners extend */
+.holo-card,
+.glass-card,
+.stat-card,
+.doc-card,
+.vx-certificate {
+  transition: box-shadow 0.45s var(--ease-expo), border-color 0.45s var(--ease-expo) !important;
+}
+
+.holo-card:hover,
+.glass-card:hover,
+.stat-card:hover,
+.doc-card:hover {
+  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 4px rgba(196, 162, 108, 0.32) !important;
+}
+
+.vx-certificate::before,
+.vx-certificate::after {
+  transition: transform 0.6s var(--ease-expo), opacity 0.6s var(--ease-expo);
+}
+
+.vx-certificate::before {
+  transform-origin: 0 0;
+}
+
+.vx-certificate::after {
+  transform-origin: 100% 100%;
+}
+
+.vx-certificate:hover::before,
+.vx-certificate:hover::after {
+  transform: scale(1.8);
+  opacity: 1;
+}
+
+/* Ledger rows: a brass rule slides in on the left */
+.table-row:not(.header) {
+  transition: box-shadow 0.35s var(--ease-expo), background-color 0.35s var(--ease-expo);
+}
+
+.table-row:not(.header):hover {
+  box-shadow: inset 2px 0 0 var(--brass-400);
+}
+
+/* Header nav: underline draws from the centre */
+.app-header .header-actions > .button.ghost {
+  background-image: linear-gradient(var(--brass-400), var(--brass-400));
+  background-position: 50% calc(100% - 4px);
+  background-size: 0% 1px;
+}
+
+.app-header .header-actions > .button.ghost:hover {
+  background-size: calc(100% - 20px) 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vx-route-sweep {
+    display: none;
+  }
+
+  .vx-odo__strip,
+  .vx-motion .vx-odo--intro .vx-odo__strip {
+    transform: translateY(var(--y)) !important;
+    animation: none !important;
+  }
+
+  .app-header .brand-title {
+    transition: none;
+  }
+}
+
+/* Docs architecture explorer: one column on phones (its grid is set inline) */
+@media (max-width: 760px) {
+  .arch-visual {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .arch-visual > div:first-child {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border-secondary);
+    padding: 20px !important;
+  }
+}
+
+/* App header on phones: wordmark on the first row, then one swipeable row of
+   wallet controls and navigation (it scrolls inside itself, never the page). */
+@media (max-width: 720px) {
+  .app-header {
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 10px 16px 6px !important;
+  }
+
+  .app-header .header-nav {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .app-header .header-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+
+  .app-header .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-header .header-actions > * {
+    flex: 0 0 auto;
+  }
+
+  .app-header .header-actions > div:last-child,
+  .app-header .header-actions > button[title*='Phantom'],
+  .app-header .header-actions > button[title*='Solana'] {
+    order: -1;
+  }
+
+  .app-header .inline-actions .chip {
+    white-space: nowrap;
+  }
 }
