@@ -39,6 +39,17 @@ interface ISablierV2Lockup {
 }
 
 /**
+ * @title  ISablierV2LockupTimes
+ * @notice Schedule getters. `getStartTime` exists on every Lockup contract; `getCliffTime` only on
+ *         Lockup Linear (and the merged Lockup of v2.0+ for linear streams). Callers must handle
+ *         a revert, which means "not a linear stream".
+ */
+interface ISablierV2LockupTimes {
+    function getStartTime(uint256 streamId) external view returns (uint40);
+    function getCliffTime(uint256 streamId) external view returns (uint40);
+}
+
+/**
  * @title  IStreamflow
  * @notice Minimal Streamflow EVM wrapper surface.
  */

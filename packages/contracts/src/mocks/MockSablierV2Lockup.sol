@@ -21,6 +21,7 @@ contract MockSablierV2Lockup is ERC721 {
         uint128 withdrawn;
         uint128 refunded;
         uint40  start;
+        uint40  cliff;
         uint40  end;
         bool    cancelable;
         bool    canceled;
@@ -39,6 +40,32 @@ contract MockSablierV2Lockup is ERC721 {
         uint40 end,
         bool cancelable
     ) external returns (uint256 streamId) {
+        return _create(recipient, token, deposited, start, start, end, cancelable);
+    }
+
+    /// @dev Lockup Linear with a cliff: nothing streams before `cliff`, then the amount accrued since `start`.
+    function createStreamWithCliff(
+        address recipient,
+        address token,
+        uint128 deposited,
+        uint40 start,
+        uint40 cliff,
+        uint40 end,
+        bool cancelable
+    ) external returns (uint256 streamId) {
+        require(cliff >= start && cliff <= end, "cliff");
+        return _create(recipient, token, deposited, start, cliff, end, cancelable);
+    }
+
+    function _create(
+        address recipient,
+        address token,
+        uint128 deposited,
+        uint40 start,
+        uint40 cliff,
+        uint40 end,
+        bool cancelable
+    ) internal returns (uint256 streamId) {
         require(recipient != address(0), "recipient=0");
         require(deposited > 0, "deposit=0");
         require(end > start, "end<=start");
@@ -51,6 +78,7 @@ contract MockSablierV2Lockup is ERC721 {
             withdrawn: 0,
             refunded: 0,
             start: start,
+            cliff: cliff,
             end: end,
             cancelable: cancelable,
             canceled: false
@@ -64,6 +92,7 @@ contract MockSablierV2Lockup is ERC721 {
     function getSender(uint256 id) external view returns (address) { return streams[id].sender; }
     function getAsset(uint256 id) external view returns (address) { return streams[id].token; }
     function getStartTime(uint256 id) external view returns (uint40) { return streams[id].start; }
+    function getCliffTime(uint256 id) external view returns (uint40) { return streams[id].cliff; }
     function getEndTime(uint256 id) external view returns (uint40) { return streams[id].end; }
     function getDepositedAmount(uint256 id) external view returns (uint128) { return streams[id].deposited; }
     function getWithdrawnAmount(uint256 id) external view returns (uint128) { return streams[id].withdrawn; }
@@ -74,7 +103,7 @@ contract MockSablierV2Lockup is ERC721 {
     function streamedAmountOf(uint256 id) public view returns (uint128) {
         Stream memory s = streams[id];
         if (s.canceled) return s.deposited - s.refunded;
-        if (block.timestamp <= s.start) return 0;
+        if (block.timestamp <= s.start || block.timestamp < s.cliff) return 0;
         if (block.timestamp >= s.end) return s.deposited;
         return uint128((uint256(s.deposited) * (block.timestamp - s.start)) / (s.end - s.start));
     }

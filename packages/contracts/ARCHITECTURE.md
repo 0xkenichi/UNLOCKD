@@ -95,3 +95,75 @@ maxBorrow = pv · ltv
 
 AI/ZK-driven Ω, T−30 staged tranche auctions, time-released liquidation with stop-losses, consented seizure of
 other wallet assets, veCRDT revenue distribution, community pools, staking.
+
+---
+
+# v2 loan book (`src/v2/`)
+
+v2 is the yellow paper's model, calibrated by the stress test (`packages/risk/bin/stress.js`). It is a
+separate deployment (`script/DeployV2.s.sol`): its own pool, adapter, insurance vault, credit engine, risk
+oracle, backstop vault and loan manager. v1 stays as it is.
+
+| Contract | Role |
+|---|---|
+| `CreditEngineV2` | Stateless. Values a Lockup Linear schedule as a cliff lump plus linear vesting. Uses two 8-point Gauss–Legendre panels, a confidence quantile that widens with σ√τ, an optional sale value (blend mode), and a position-level liquidity cost. Also computes the borrowing limit with the 4-interval drift cap. |
+| `RiskOracle` | Measures prices on-chain (Chainlink spot and a TWAP over its rounds). Stores bounded risk inputs (σ, median volume, unlock drag) posted by `RISK_POSTER_ROLE`, which expire after 2 days. Ω cuts apply at once; raises are capped at +5 points and wait 24 h. |
+| `BackstopVault` | Partner first-loss capital per token. Opt-in loans lock 16% of their principal here. On a shortfall, the loan's lock pays first, then the token's free balance. The partner can withdraw only unlocked funds. |
+| `LoanManagerV2` | Runs both tiers, fixed-rate simple interest and the resolution ladder. Splits each loss across the backstop, insurance and lenders. Holds the per-token exposure cap. |
+| `VestingAdapter` (shared code, new functions) | `schedule()` and `previewSchedule()` read start, cliff and end. `transferVested()` hands vested escrow tokens to a paydown buyer. Streams that are not Lockup Linear are recorded as one cliff at the end, which values them conservatively. |
+
+## Tiers (`CreditEngineV2`, `packages/risk/src/tiers.js`)
+
+| Tier | Valuation | α origination / liquidation | k (sale discount, a year) | Backstop | Avg LTV on real history (linear / cliff) |
+|---|---|---|---|---|---|
+| Standard (default) | hold | 2% / 10% | — | none | 18.8% / 5.7% |
+| Opt-in (borrower chooses) | blend | 0.5% / 5% | 150% / 75% | 16% of principal, locked before the loan opens | 35.5% / 15.4% |
+
+Each tier's curve is a set of constants, so a loan's terms can never change after it opens. Governance can
+raise the opt-in backstop, but never below 16%.
+
+## The borrowing limit
+
+```
+B = Ω · (1 − 0.25%) · min( CV_αo(t0),  CV_αℓ(T)/(1 + r(T − t0)),  min_j CV_αℓ(g_j)/(1 + r(g_{j+1} − t0)) )
+```
+
+`g_0 … g_4` split the term into four intervals. At an unchanged price CV_αℓ never falls as time passes, so each
+interval's term bounds every day inside it. A loan at B is therefore never liquidatable on any day if the price
+does not move. This is theorem T7 in `docs/RISK_PROOFS.md`; it is checked day by day for this exact formula in
+`packages/risk/test/onchainV2.test.js` and fuzzed against the Solidity in `test/VestraV2.t.sol`.
+
+The 0.25% buffer covers the quadrature's small upside error at blend mode's kink. With it, the contract never
+lends more than the proven model (`packages/risk/src/v2.js`) across 3,000 random streams.
+
+## Loan lifecycle
+
+* **Interest** is simple interest on outstanding principal. Its rate is fixed at origination as
+  max(pool rate now, pool rate after the loan) plus the tier premium (opt-in +2%). The borrower sets a maximum
+  rate.
+* **Health** is `debt > CV_αℓ(now)`. σ, volume and drag are frozen at origination. Only the TWAP price is live,
+  so no posted input, Ω cut or pause can make an open loan liquidatable. Without a fresh price, only maturity can
+  liquidate a loan.
+* **Ladder**:
+  1. Anyone calls `flagBreach`.
+  2. A 2-day cure window gives the borrower time to repay. A repayment that restores health clears the breach.
+  3. A 5-day paydown window lets `PAYDOWN_BUYER_ROLE` buyers buy vested escrow tokens. They pay the health price
+     less 3%, at most 2% of the frozen daily volume per day. Proceeds pay interest, then principal.
+  4. `startLiquidation` follows. The partner has a 72 h right of first refusal at max(debt, θ · fair value),
+     where fair value is CV at z = 0.
+  5. Next comes a Dutch auction from max(fair value, debt) down to a floor of CV_αℓ. Unsold rounds restart from
+     the floor with a floor 10% lower.
+* **Settlement**:
+  * A surplus goes to the borrower (`claim`).
+  * A shortfall is drawn from the backstop first, then the insurance fund, then lenders through the share price.
+  * Defaulted streams go to the partner or a bidder as a locked stream, never as tokens on an exchange.
+* **Lender accounting**: `lenderClaim()` is computed in O(1) from Σ P, Σ unpaid interest, Σ P·r and Σ P·r·t.
+  It covers principal plus interest net of the 10% reserve factor, plus the marked value of loans in auction.
+
+## Not yet in v2
+
+* Term and Coupon notes, and the senior and junior classes. The pool is one ERC-4626 class, so losses fall on
+  all lenders equally after the backstop and insurance.
+* The T−30 staged sale, a 7-day-average rate quote and Sablier Lockup Tranched/Dynamic shapes. Tranched and
+  Dynamic streams are valued as one cliff at the end.
+* A quorum (2-of-3 median) for risk posts and Ω, and pre-TGE tokens. Pre-TGE stays on v1's `PreTGEOracle`.

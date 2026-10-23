@@ -56,6 +56,12 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
         uint256  unlockTime;
         uint256  loanId;
         bool     released;
+        // Schedule, read from the stream at escrow (used by the v2 credit engine). Streams whose
+        // shape is not Lockup Linear are recorded as one cliff at the end (start = cliff = end),
+        // which values them as if nothing vests before then: never more than they are worth.
+        uint256  total;
+        uint64   startTime;
+        uint64   cliffTime;
     }
 
     /// protocol → NFT contract → approved
@@ -83,6 +89,7 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
         uint256 unlockTime
     );
     event VestedCollected(uint256 indexed escrowId, uint256 amount);
+    event VestedTransferred(uint256 indexed escrowId, address indexed to, uint256 amount);
     event EscrowReleased(uint256 indexed escrowId, uint256 indexed loanId, address indexed recipient, uint256 vestedTokens);
 
     error NotWhitelisted(address nftContract);
@@ -97,6 +104,7 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
     error StreamCancelable(uint256 streamId);
     error StreamCancelled(uint256 streamId);
     error NothingLocked(uint256 streamId);
+    error ExceedsHeld(uint256 requested, uint256 held);
 
     modifier onlyLoanManager() {
         if (msg.sender != loanManager) revert OnlyLoanManager(msg.sender);
@@ -185,8 +193,12 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
             paidOut:           0,
             unlockTime:        unlockTime,
             loanId:            loanId,
-            released:          false
+            released:          false,
+            total:             total,
+            startTime:         0,
+            cliffTime:         0
         });
+        (_escrows[escrowId].startTime, _escrows[escrowId].cliffTime) = _readTimes(protocol, nftContract, streamId, unlockTime);
         _activeEscrow[nftContract][streamId] = escrowId;
 
         IERC721(nftContract).transferFrom(borrower, address(this), streamId);
@@ -211,6 +223,20 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
         if (vested > 0) IERC20(rec.token).safeTransfer(to, vested);
 
         emit EscrowReleased(escrowId, rec.loanId, to, vested);
+    }
+
+    /**
+     * @notice Send `amount` vested tokens held for `escrowId` to `to` (a v2 paydown buyer).
+     *         The NFT stays in escrow; the tokens no longer travel with it.
+     */
+    function transferVested(uint256 escrowId, address to, uint256 amount) external onlyLoanManager nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        EscrowRecord storage rec = _requireActive(escrowId);
+        uint256 held = _heldTokens(rec);
+        if (amount > held) revert ExceedsHeld(amount, held);
+        rec.paidOut += amount;
+        IERC20(rec.token).safeTransfer(to, amount);
+        emit VestedTransferred(escrowId, to, amount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -243,6 +269,30 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
         EscrowRecord storage rec = _escrows[escrowId];
         if (rec.borrower == address(0)) revert EscrowNotFound(escrowId);
         return (rec.token, rec.quantity, rec.unlockTime);
+    }
+
+    /// @notice The escrowed stream's schedule: start, cliff, end, deposited total and what had
+    ///         already been withdrawn before escrow.
+    function schedule(uint256 escrowId)
+        external
+        view
+        returns (uint64 start, uint64 cliff, uint64 end, uint256 total, uint256 withdrawnAtEscrow)
+    {
+        EscrowRecord storage rec = _escrows[escrowId];
+        if (rec.borrower == address(0)) revert EscrowNotFound(escrowId);
+        return (rec.startTime, rec.cliffTime, uint64(rec.unlockTime), rec.total, rec.withdrawnAtEscrow);
+    }
+
+    /// @notice The same schedule for a stream that is not escrowed yet, for quotes.
+    function previewSchedule(Protocol protocol, address nftContract, uint256 streamId)
+        external
+        view
+        returns (address token, uint64 start, uint64 cliff, uint64 end, uint256 total, uint256 withdrawn)
+    {
+        uint256 unlockTime;
+        (token, total, withdrawn, , unlockTime) = _readStream(protocol, nftContract, streamId);
+        (start, cliff) = _readTimes(protocol, nftContract, streamId, unlockTime);
+        end = uint64(unlockTime);
     }
 
     function getEscrow(uint256 escrowId) external view returns (EscrowRecord memory) {
@@ -294,6 +344,26 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
         uint256 owed = withdrawn - rec.withdrawnAtEscrow - rec.paidOut;
         uint256 bal = IERC20(rec.token).balanceOf(address(this));
         return owed < bal ? owed : bal;
+    }
+
+    /// Start and cliff of a Lockup Linear stream; anything else is one cliff at the end.
+    function _readTimes(Protocol protocol, address nftContract, uint256 streamId, uint256 unlockTime)
+        internal
+        view
+        returns (uint64 start, uint64 cliff)
+    {
+        start = uint64(unlockTime);
+        cliff = uint64(unlockTime);
+        if (protocol != Protocol.SABLIER_V2) return (start, cliff);
+        try ISablierV2LockupTimes(nftContract).getStartTime(streamId) returns (uint40 s) {
+            try ISablierV2LockupTimes(nftContract).getCliffTime(streamId) returns (uint40 c) {
+                if (s < unlockTime) {
+                    start = s;
+                    // Lockup v2.0+ reports cliff 0 when there is none: vesting starts at start.
+                    cliff = c < s ? s : (c > unlockTime ? uint64(unlockTime) : c);
+                }
+            } catch {}
+        } catch {}
     }
 
     function _readStream(Protocol protocol, address nftContract, uint256 streamId)
