@@ -77,6 +77,9 @@ maxBorrow = pv · ltv
   and someone calling `startLiquidation`, the loss is not yet booked; run a keeper.
 * **Ranks** are fixed per loan at origination; registry changes only affect new loans.
 * **Rescue**: the borrower (or anyone) can repay the full debt during the auction, which cancels it.
+* **Verification**: `test/VestraV2.t.sol` (reference vectors, fuzzed theorems, the lifecycle, and regressions
+  from an internal adversarial review) and `test/VestraV2Invariants.t.sol` (stateful fuzzing: random sequences of
+  every action with six invariants re-checked after each). `docs/RISK_REGISTER.md` maps each risk to its test.
 * **Settlement**: proceeds repay the debt, any surplus is credited to the borrower (`claim()`), and any shortfall is
   covered by `InsuranceVault` up to its balance; any remaining gap is a loss for all lenders. If recovery exceeds
   the lenders' net claim, the reserve factor's share of interest goes to `InsuranceVault`.
@@ -138,12 +141,18 @@ lends more than the proven model (`packages/risk/src/v2.js`) across 3,000 random
 
 ## Loan lifecycle
 
-* **Interest** is simple interest on outstanding principal. Its rate is fixed at origination as
-  max(pool rate now, pool rate after the loan) plus the tier premium (opt-in +2%). The borrower sets a maximum
-  rate.
+* **Interest** is simple interest on outstanding principal. Its rate is fixed at origination as the highest of
+  the pool rate at the 7-day time-weighted utilisation, at utilisation now, and at utilisation after the loan,
+  plus the tier premium (opt-in +2%). The borrower sets a maximum rate. The time-weighted utilisation and pool
+  assets are advanced by `accrue()`, which the pool calls before every deposit and withdrawal, so a deposit in
+  the same block can neither lower a fixed rate nor lift the per-token exposure cap (measured against the
+  smaller of time-weighted and current assets).
 * **Health** is `debt > CV_αℓ(now)`. σ, volume and drag are frozen at origination. Only the TWAP price is live,
   so no posted input, Ω cut or pause can make an open loan liquidatable. Without a fresh price, only maturity can
-  liquidate a loan.
+  liquidate a loan; a missing price is never taken as evidence of health, so a breach cannot be cleared on a stale
+  feed, and the partner's right of first refusal needs a price to be priced from.
+* **Collateral already withdrawn** before escrow, and tokens sold in paydowns, are consumed from the
+  earliest-vesting part of the schedule first; only `total − consumed` tokens are ever valued.
 * **Ladder**:
   1. Anyone calls `flagBreach`.
   2. A 2-day cure window gives the borrower time to repay. A repayment that restores health clears the breach.
@@ -153,6 +162,9 @@ lends more than the proven model (`packages/risk/src/v2.js`) across 3,000 random
      where fair value is CV at z = 0.
   5. Next comes a Dutch auction from max(fair value, debt) down to a floor of CV_αℓ. Unsold rounds restart from
      the floor with a floor 10% lower.
+* **Verification**: `test/VestraV2.t.sol` (reference vectors, fuzzed theorems, the lifecycle, and regressions
+  from an internal adversarial review) and `test/VestraV2Invariants.t.sol` (stateful fuzzing: random sequences of
+  every action with six invariants re-checked after each). `docs/RISK_REGISTER.md` maps each risk to its test.
 * **Settlement**:
   * A surplus goes to the borrower (`claim`).
   * A shortfall is drawn from the backstop first, then the insurance fund, then lenders through the share price.
@@ -164,6 +176,6 @@ lends more than the proven model (`packages/risk/src/v2.js`) across 3,000 random
 
 * Term and Coupon notes, and the senior and junior classes. The pool is one ERC-4626 class, so losses fall on
   all lenders equally after the backstop and insurance.
-* The T−30 staged sale, a 7-day-average rate quote and Sablier Lockup Tranched/Dynamic shapes. Tranched and
-  Dynamic streams are valued as one cliff at the end.
+* The T−30 staged sale and Sablier Lockup Tranched/Dynamic shapes. Tranched and Dynamic streams are valued as
+  one cliff at the end.
 * A quorum (2-of-3 median) for risk posts and Ω, and pre-TGE tokens. Pre-TGE stays on v1's `PreTGEOracle`.

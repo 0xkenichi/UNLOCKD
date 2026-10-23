@@ -33,6 +33,7 @@ interface ISablierV2Lockup {
     function getEndTime(uint256 streamId) external view returns (uint40);
     function isCancelable(uint256 streamId) external view returns (bool);
     function wasCanceled(uint256 streamId) external view returns (bool);
+    function withdrawableAmountOf(uint256 streamId) external view returns (uint128);
     /// @dev v2.1+ returns the withdrawn amount; v2.0 returns nothing. Callers must
     ///      not rely on the return value.
     function withdrawMax(uint256 streamId, address to) external;

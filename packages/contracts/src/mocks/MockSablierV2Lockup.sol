@@ -128,9 +128,10 @@ contract MockSablierV2Lockup is ERC721 {
         IERC20(streams[id].token).safeTransfer(to, amount);
     }
 
+    /// @dev As in Sablier v2: a zero withdrawal reverts (SablierV2Lockup_WithdrawAmountZero).
     function withdrawMax(uint256 id, address to) external returns (uint128 amount) {
         amount = withdrawableAmountOf(id);
-        if (amount > 0) withdraw(id, to, amount);
+        withdraw(id, to, amount);
     }
 
     function cancel(uint256 id) external {

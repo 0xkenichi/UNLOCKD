@@ -116,3 +116,19 @@ test('the buffer and grid are the ones the contract uses', () => {
   assert.equal(ONCHAIN_PARAMS.bufferBps, 25);
   assert.equal(ONCHAIN_PARAMS.panels, 2);
 });
+
+test('consumed tokens are never valued: a stream recorded as one cliff at the end with 99% withdrawn is worth 1% (2 000 draws)', () => {
+  for (let i = 0; i < 2000; i++) {
+    const c = draw(i);
+    const curve = { blend: c.T.blend, z: c.T.zLiq, k: c.T.kLiq };
+    const t = Math.round(U(0, c.end - 1)) * D;
+    const consumed = c.oc.total * U(0, 0.99);
+    const withConsumed = creditValueOnchain({ ...c.oc, consumed }, t, c.mk, curve);
+    assert.ok(withConsumed <= (c.oc.total - consumed) * c.mk.price * (1 + 1e-9), `case ${i}: ${withConsumed} above the spot value of what is left`);
+    // One cliff at the end: consumption and a smaller total are the same thing.
+    const atEnd = { start: 0, cliff: c.oc.end, end: c.oc.end, total: c.oc.total, consumed };
+    const smaller = { ...atEnd, total: c.oc.total - consumed, consumed: 0 };
+    const a = creditValueOnchain(atEnd, t, c.mk, curve), b = creditValueOnchain(smaller, t, c.mk, curve);
+    assert.ok(Math.abs(a - b) <= 1e-6 * Math.max(1, b), `case ${i}: ${a} vs ${b}`);
+  }
+});

@@ -15,6 +15,7 @@ import "../src/mocks/MockUSDC.sol";
 import "../src/mocks/MockProjectToken.sol";
 import "../src/mocks/MockPriceFeed.sol";
 import "../src/mocks/MockSablierV2Lockup.sol";
+import "../src/mocks/MockGenericVesting.sol";
 
 /// The credit formula on its own: reference vectors from packages/risk/src/onchainV2.js, and the
 /// theorems of docs/RISK_PROOFS.md as fuzz properties.
@@ -178,19 +179,22 @@ contract LoanManagerV2Test is Test {
         backstop.setLoanManager(address(manager));
         oracle.grantRole(oracle.RISK_POSTER_ROLE(), poster);
         oracle.grantRole(keccak256("GUARDIAN_ROLE"), guardian);
-        oracle.listToken(address(token), address(feed), 18, 3000, 10_000);
+        oracle.listToken(address(token), address(feed), 3000, 10_000);
         manager.grantRole(manager.PAYDOWN_BUYER_ROLE(), buyer);
         vm.stopPrank();
 
         _setPrice(1e8);
-        vm.prank(poster);
-        oracle.postRisk(address(token), 8000, 5_000_000e6, 10_000);
-
         usdc.mint(lender, POOL_SIZE);
         vm.startPrank(lender);
         usdc.approve(address(pool), POOL_SIZE);
         pool.deposit(POOL_SIZE, lender);
         vm.stopPrank();
+        // A week passes so the time-weighted pool figures the rate and cap read from settle.
+        vm.warp(block.timestamp + 7 days);
+        this.refreshPrice();
+        manager.accrue();
+        vm.prank(poster);
+        oracle.postRisk(address(token), 8000, 5_000_000e6, 10_000);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -609,5 +613,125 @@ contract LoanManagerV2Test is Test {
         vm.prank(governor);
         vm.expectRevert("backstop");
         manager.setOptInBackstopBps(1500); // never below the calibrated 16%
+    }
+
+    // ── Regressions from the security review ─────────────────────────────────
+
+    /// A stream the adapter records as one cliff at the end, with most of it already withdrawn
+    /// before escrow, is worth only what is left.
+    function test_Review_WithdrawnBeforeEscrowIsNeverCollateral() public {
+        MockGenericVesting generic = new MockGenericVesting();
+        vm.prank(governor);
+        adapter.setWhitelisted(VestingAdapter.Protocol.GENERIC_ERC721, address(generic), true);
+        token.approve(address(generic), 1_000_000e18);
+        uint256 id = generic.create(borrower, address(token), 1_000_000e18, 990_000e18, uint40(block.timestamp + 1), uint40(block.timestamp + 30 days));
+        vm.warp(block.timestamp + 2);
+        this.refreshPrice();
+        vm.prank(borrower);
+        generic.withdraw(id, 990_000e18); // the first tranche is gone before escrow
+
+        uint256 maturity = block.timestamp + 29 days;
+        (uint256 maxB, ) = manager.quoteMaxBorrow(VestingAdapter.Protocol.GENERIC_ERC721, address(generic), id, 1_000e6, maturity, STD);
+        assertLt(maxB, 10_000e6, "only the 10,000 tokens left can back the loan");
+        assertGt(maxB, 5_000e6, "and they do back something");
+
+        vm.startPrank(borrower);
+        generic.approve(address(adapter), id);
+        vm.expectRevert("exceeds max borrow");
+        manager.borrow(LoanManagerV2.BorrowRequest(address(generic), id, VestingAdapter.Protocol.GENERIC_ERC721, 50_000e6, maturity, STD, 10_000));
+        vm.stopPrank();
+    }
+
+    /// A stale price is not evidence of health: the breach stays until a fresh price clears it.
+    function test_Review_StalePriceCannotClearABreach() public {
+        uint256 id = _stream(0, 365);
+        uint256 maturity = block.timestamp + 300 days;
+        uint256 loanId = _borrow(id, _maxFor(id, maturity, STD), maturity, STD);
+        _setPrice(0.5e8);
+        manager.flagBreach(loanId);
+        feed.setStalePrice(0.5e8, block.timestamp - 2 days);
+        vm.expectRevert("stale price");
+        manager.clearBreach(loanId);
+        _pay(borrower, loanId, 1e6); // a repayment still goes through
+        assertGt(manager.getLoan(loanId).breachAt, 0, "breach not cleared on a stale price");
+        assertFalse(manager.isLiquidatable(loanId), "nor liquidatable on one");
+    }
+
+    /// Without a price the partner gets no right of first refusal at the debt.
+    function test_Review_NoPartnerBuybackWithoutAPrice() public {
+        _fundBackstop(100_000e6);
+        uint256 id = _stream(0, 365);
+        uint256 maturity = block.timestamp + 100 days;
+        uint256 loanId = _borrow(id, 10_000e6, maturity, STD);
+        vm.warp(maturity + 3 days + 1);
+        feed.setStalePrice(1e8, block.timestamp - 2 days);
+        manager.startLiquidation(loanId);
+        (, uint64 rofrEnd, uint256 debt, , , , uint256 startPrice, ) = manager.auctions(loanId);
+        assertEq(rofrEnd, uint64(block.timestamp), "no right of first refusal");
+        assertEq(startPrice, debt * 4, "auction starts high");
+        usdc.mint(partner, debt);
+        vm.startPrank(partner);
+        usdc.approve(address(manager), debt);
+        vm.expectRevert("price above max");
+        manager.bid(loanId, debt); // the partner pays the auction price like anyone else
+        vm.stopPrank();
+    }
+
+    /// A deposit in the same transaction lowers neither a fixed rate nor the exposure cap.
+    function test_Review_FlashDepositMovesNeitherRateNorCap() public {
+        // Shrink the pool to $1M and lend $200k of it (20% utilisation; cap = 25% of $1M = $250k).
+        vm.startPrank(lender);
+        pool.withdraw(9_000_000e6, lender, lender);
+        vm.stopPrank();
+        vm.prank(governor);
+        manager.setLimits(2500, 3 * 365 days, 10e6);
+        token.approve(address(sablier), 1_200_000e18);
+        uint256 big = sablier.createStreamWithCliff(borrower, address(token), uint128(1_200_000e18), uint40(block.timestamp), uint40(block.timestamp), uint40(block.timestamp + 365 days), false);
+        _borrow(big, 200_000e6, block.timestamp + 300 days, STD);
+        _warp(7 days); // let the time-weighted figures settle on the new state
+        manager.accrue();
+        vm.prank(poster);
+        oracle.postRisk(address(token), 8000, 5_000_000e6, 10_000); // fresh inputs after the week
+        uint256 rateQuiet = manager.quoteRate(100_000e6, STD);
+        assertGt(rateQuiet, pool.rateAt(0), "utilisation is pricing the loan");
+
+        token.approve(address(sablier), 1_000_000e18);
+        uint256 id = sablier.createStreamWithCliff(borrower, address(token), uint128(1_000_000e18), uint40(block.timestamp), uint40(block.timestamp), uint40(block.timestamp + 365 days), false);
+        uint256 maturity = block.timestamp + 300 days;
+        assertGt(_maxFor(id, maturity, STD), 100_000e6, "the stream could back the loan");
+        address whale = makeAddr("whale");
+        usdc.mint(whale, 90_000_000e6);
+        vm.startPrank(whale);
+        usdc.approve(address(pool), 90_000_000e6);
+        pool.deposit(90_000_000e6, whale); // utilisation now 0.2%, assets now $91M
+        vm.stopPrank();
+        assertEq(manager.quoteRate(100_000e6, STD), rateQuiet, "the quote ignores a same-block deposit");
+
+        vm.startPrank(borrower);
+        sablier.approve(address(adapter), id);
+        vm.expectRevert("token exposure cap"); // $200k + $100k > 25% of the $1M that has been here a week
+        manager.borrow(LoanManagerV2.BorrowRequest(address(sablier), id, VestingAdapter.Protocol.SABLIER_V2, 100_000e6, maturity, STD, 10_000));
+        vm.stopPrank();
+    }
+
+    /// Paydown still works when nothing new has vested since the last collection.
+    function test_Review_PaydownWhenNothingNewVested() public {
+        uint256 id = _stream(0, 365);
+        uint256 maturity = block.timestamp + 360 days;
+        uint256 loanId = _borrow(id, _maxFor(id, maturity, STD), maturity, STD);
+        _warp(120 days);
+        _setPrice(0.3e8);
+        manager.flagBreach(loanId);
+        vm.prank(governor);
+        manager.setLadder(3 days, 2 days, 5 days, 10, 300, 500);
+        vm.warp(block.timestamp + 2 days);
+        feed.setPrice(0.3e8);
+        adapter.collectVested(manager.getLoan(loanId).escrowId); // everything vested is already collected
+        usdc.mint(buyer, 1_000_000e6);
+        vm.startPrank(buyer);
+        usdc.approve(address(manager), type(uint256).max);
+        manager.paydown(loanId, 5_000e18, type(uint256).max);
+        vm.stopPrank();
+        assertEq(token.balanceOf(buyer), 5_000e18);
     }
 }

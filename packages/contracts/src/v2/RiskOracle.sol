@@ -3,6 +3,7 @@
 pragma solidity ^0.8.20;
 
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "../governance/VestraAccessControl.sol";
 import "./CreditEngineV2.sol";
 
@@ -70,8 +71,10 @@ contract RiskOracle is VestraAccessControl {
 
     /// @notice List a token with the Ω its partner agreement sets. Afterwards the guardian can cut
     ///         Ω at once but raise it only slowly.
-    function listToken(address token, address feed, uint8 decimals, uint32 sigmaFloorBps, uint16 initialOmegaBps) external onlyGovernor {
+    function listToken(address token, address feed, uint32 sigmaFloorBps, uint16 initialOmegaBps) external onlyGovernor {
         require(token != address(0) && feed != address(0), "zero address");
+        uint8 decimals = IERC20Metadata(token).decimals();
+        require(decimals <= 24, "decimals");
         require(sigmaFloorBps >= MIN_SIGMA_BPS && sigmaFloorBps <= MAX_SIGMA_BPS, "sigma floor");
         require(initialOmegaBps <= BPS, "omega");
         TokenRisk storage r = risk[token];
@@ -82,6 +85,15 @@ contract RiskOracle is VestraAccessControl {
         r.sigmaFloorBps = sigmaFloorBps;
         r.listed = true;
         emit TokenListed(token, feed, decimals, sigmaFloorBps);
+    }
+
+    /// @notice Replace a token's price feed (a Chainlink migration). Open loans keep their frozen
+    ///         inputs and read only the health price, so this changes no loan's terms.
+    function setTokenFeed(address token, address feed) external onlyGovernor {
+        require(risk[token].listed && feed != address(0), "feed");
+        require(AggregatorV3Interface(feed).decimals() <= 24, "feed decimals");
+        risk[token].feed = feed;
+        emit TokenListed(token, feed, risk[token].decimals, risk[token].sigmaFloorBps);
     }
 
     function setPriceParams(uint256 _maxPriceAge, uint256 _twapInterval, uint256 _lookback) external onlyGovernor {

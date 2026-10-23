@@ -251,6 +251,8 @@ contract VestingAdapter is AccessControl, ReentrancyGuard, IERC721Receiver {
     function collectVested(uint256 escrowId) external nonReentrant {
         EscrowRecord storage rec = _requireActive(escrowId);
         if (rec.protocol != Protocol.SABLIER_V2) return;
+        // Sablier reverts on a zero withdrawal; nothing to collect is not an error.
+        if (ISablierV2Lockup(rec.nftContract).withdrawableAmountOf(rec.streamId) == 0) return;
         uint256 before = _heldTokens(rec);
         ISablierV2Lockup(rec.nftContract).withdrawMax(rec.streamId, address(this));
         emit VestedCollected(escrowId, _heldTokens(rec) - before);

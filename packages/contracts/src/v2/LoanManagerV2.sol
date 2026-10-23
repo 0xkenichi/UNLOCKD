@@ -102,8 +102,8 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         uint256 principal;
         uint256 accrued;          // unpaid interest up to lastAccrual
         uint256 sold;             // vested tokens sold in paydowns
-        uint64 paydownDay;
-        uint256 paydownUsedUsd;   // sold on paydownDay
+        uint64 paydownWindowStart; // rolling 24 h window for the daily cap
+        uint256 paydownUsedUsd;    // sold in that window
     }
 
     struct Auction {
@@ -133,6 +133,15 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     uint256 public sumPrT;
     uint256 public totalAuctionMarks;
     uint256 public totalLosses;
+
+    // Exponential moving averages of pool utilisation (bps) and pool assets with a 7-day time
+    // constant, advanced by `accrue()`, which the pool calls before every deposit and withdrawal
+    // (and this contract before every borrow). A deposit in the same block moves the spot figures
+    // but not these, so a flash deposit can neither lower a fixed rate nor lift the exposure cap.
+    uint256 public constant EMA_TAU = 7 days;
+    uint256 public utilEmaBps;
+    uint256 public assetsEma;
+    uint64 public emaUpdatedAt;
 
     event LoanOpened(uint256 indexed loanId, address indexed borrower, address indexed token, CreditEngineV2.Tier tier, uint256 principal, uint256 rateBps, uint256 maturity, uint256 maxBorrow);
     event LoanRepaid(uint256 indexed loanId, address indexed payer, uint256 interestPaid, uint256 principalPaid, bool closed);
@@ -187,8 +196,26 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     // Pool interface
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Rates are fixed per loan, so there is nothing to accrue globally. Kept for the pool.
-    function accrue() external {}
+    /// @notice Rates are fixed per loan, so there is no interest index to accrue; this advances the
+    ///         time-weighted utilisation and assets the rate quote and exposure cap are read from.
+    ///         The pool calls it before every deposit and withdrawal, so the figures it records are
+    ///         the ones that prevailed before the change.
+    function accrue() public {
+        uint256 idle = pool.idleAssets();
+        uint256 claimNow = lenderClaim();
+        uint256 util = pool.utilizationFor(claimNow, idle);
+        uint256 assets = idle + claimNow;
+        if (emaUpdatedAt == 0) {
+            utilEmaBps = util;
+            assetsEma = assets;
+        } else {
+            uint256 dt = block.timestamp - emaUpdatedAt;
+            if (dt > EMA_TAU) dt = EMA_TAU;
+            utilEmaBps = (utilEmaBps * (EMA_TAU - dt) + util * dt) / EMA_TAU;
+            assetsEma = (assetsEma * (EMA_TAU - dt) + assets * dt) / EMA_TAU;
+        }
+        emaUpdatedAt = uint64(block.timestamp);
+    }
 
     /// @notice Lenders' claim on the loan book: principal + accrued interest net of the reserve
     ///         factor + the marked value of loans in liquidation. Read by the pool's totalAssets.
@@ -205,6 +232,7 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         require(req.amount >= minBorrow, "below minimum");
         require(req.maturity > block.timestamp && req.maturity - block.timestamp <= maxTerm, "bad maturity");
 
+        accrue();
         loanId = nextLoanId++;
         uint256 escrowId = adapter.escrowFor(msg.sender, req.nftContract, req.streamId, req.protocol, loanId);
         (address token, , uint256 end) = adapter.collateral(escrowId);
@@ -219,10 +247,9 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         require(rateBps <= req.maxRateBps, "rate above limit");
         uint256 maxB = engine.maxBorrow(sch, block.timestamp, req.maturity, rateBps, m, req.tier, omegaBps);
         require(req.amount <= maxB, "exceeds max borrow");
-        require(
-            exposure[token] + req.amount <= Math.mulDiv(pool.totalAssets(), tokenExposureCapBps, BPS),
-            "token exposure cap"
-        );
+        uint256 assetsNow = pool.totalAssets();
+        uint256 capBase = assetsEma < assetsNow ? assetsEma : assetsNow;
+        require(exposure[token] + req.amount <= Math.mulDiv(capBase, tokenExposureCapBps, BPS), "token exposure cap");
         if (req.tier == CreditEngineV2.Tier.OptIn) {
             backstop.lock(token, loanId, Math.mulDiv(req.amount, optInBackstopBps, BPS, Math.Rounding.Ceil));
         }
@@ -241,7 +268,7 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
             principal: req.amount,
             accrued: 0,
             sold: 0,
-            paydownDay: 0,
+            paydownWindowStart: 0,
             paydownUsedUsd: 0
         });
         _schedules[loanId] = sch;
@@ -288,9 +315,13 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         if (closed) {
             loan.status = Status.Repaid;
             _close(loanId, loan);
-        } else if (loan.breachAt != 0 && _isHealthy(loanId, 0)) {
-            loan.breachAt = 0;
-            emit BreachCleared(loanId);
+        } else if (loan.breachAt != 0) {
+            // Clear the breach only on a fresh price that shows health; never block a repayment.
+            (bool ok, uint256 debt, uint256 cv) = _tryHealth(loanId);
+            if (ok && debt <= cv) {
+                loan.breachAt = 0;
+                emit BreachCleared(loanId);
+            }
         }
         emit LoanRepaid(loanId, msg.sender, interestPaid, principalPaid, closed);
     }
@@ -310,11 +341,13 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         emit BreachFlagged(loanId, debt, cv);
     }
 
-    /// @notice Clear a breach once the loan is healthy again (the price recovered).
+    /// @notice Clear a breach once the loan is healthy again (the price recovered). Needs a
+    ///         fresh price: a stale feed is not evidence of health.
     function clearBreach(uint256 loanId) external {
         Loan storage loan = loans[loanId];
         require(loan.status == Status.Active && loan.breachAt != 0, "no breach");
-        require(_isHealthy(loanId, 0), "still in breach");
+        (uint256 debt, uint256 cv) = health(loanId);
+        require(debt <= cv, "still in breach");
         loan.breachAt = 0;
         emit BreachCleared(loanId);
     }
@@ -323,13 +356,16 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
      * @notice A vetted buyer buys `tokens` vested escrow tokens at the health price less the
      *         paydown discount; the proceeds pay the loan down. Only after the cure window,
      *         within the paydown window, while the loan is in breach, and within the daily cap.
+     *         Every paydown must narrow the gap between debt and credit value: the sale price
+     *         must beat the model's own haircut on the tokens sold, or the sale is refused.
      */
     function paydown(uint256 loanId, uint256 tokens, uint256 maxUsd) external nonReentrant onlyRole(PAYDOWN_BUYER_ROLE) {
         Loan storage loan = loans[loanId];
         require(loan.status == Status.Active && loan.breachAt != 0, "no breach");
         uint256 opens = uint256(loan.breachAt) + cureWindow;
         require(block.timestamp >= opens && block.timestamp < opens + paydownWindow, "outside paydown window");
-        require(!_isHealthy(loanId, 0), "healthy");
+        (uint256 debtBefore, uint256 cvBefore) = health(loanId);
+        require(debtBefore > cvBefore, "healthy");
 
         CreditEngineV2.Market memory m = _markets[loanId];
         uint256 price = Math.mulDiv(oracle.healthPrice(loan.token), BPS - paydownDiscountBps, BPS);
@@ -337,9 +373,8 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         require(usd > 0 && usd <= maxUsd, "price");
         require(usd <= _debt(loan), "more than the debt");
 
-        uint64 day = uint64(block.timestamp / 1 days);
-        if (loan.paydownDay != day) {
-            loan.paydownDay = day;
+        if (block.timestamp >= uint256(loan.paydownWindowStart) + 1 days) {
+            loan.paydownWindowStart = uint64(block.timestamp);
             loan.paydownUsedUsd = 0;
         }
         loan.paydownUsedUsd += usd;
@@ -355,9 +390,13 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         if (closed) {
             loan.status = Status.Repaid;
             _close(loanId, loan);
-        } else if (_isHealthy(loanId, healthMarginBps)) {
-            loan.breachAt = 0;
-            emit BreachCleared(loanId);
+        } else {
+            (uint256 debtAfter, uint256 cvAfter) = health(loanId);
+            require(debtAfter + cvBefore < debtBefore + cvAfter, "paydown does not help");
+            if (Math.mulDiv(debtAfter, BPS + healthMarginBps, BPS) <= cvAfter) {
+                loan.breachAt = 0;
+                emit BreachCleared(loanId);
+            }
         }
         emit PaidDown(loanId, msg.sender, tokens, usd);
     }
@@ -395,7 +434,9 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         if (floorPrice == 0) floorPrice = startPrice / 10;
         uint256 partnerPrice = Math.mulDiv(fair, partnerShareBps, BPS);
         if (partnerPrice < debt) partnerPrice = debt;
-        uint64 rofrEnd = backstop.partnerOf(loan.token) == address(0) ? uint64(block.timestamp) : uint64(block.timestamp + rofrWindow);
+        // The partner's right of first refusal needs a price to be priced from; without one the
+        // auction starts at once from a generous start price, which protects the borrower's equity.
+        uint64 rofrEnd = (fair == 0 || backstop.partnerOf(loan.token) == address(0)) ? uint64(block.timestamp) : uint64(block.timestamp + rofrWindow);
 
         loan.status = Status.Auction;
         auctions[loanId] = Auction({
@@ -452,13 +493,22 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     // Views
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Fixed rate a new loan of `amount` would get now (bps a year).
+    /// @notice Fixed rate a new loan of `amount` would get now (bps a year): the highest of the
+    ///         pool rate at the 7-day time-weighted utilisation, at utilisation now, and at
+    ///         utilisation after this loan measured against both current and time-weighted
+    ///         assets, plus the tier's premium. A same-block deposit can lower none of these.
     function quoteRate(uint256 amount, CreditEngineV2.Tier tier) public view returns (uint256) {
         uint256 idle = pool.idleAssets();
         uint256 claimNow = lenderClaim();
+        uint256 r = pool.rateAt(utilEmaBps);
         uint256 now_ = pool.rateAt(pool.utilizationFor(claimNow, idle));
         uint256 after_ = pool.rateAt(pool.utilizationFor(claimNow + amount, idle > amount ? idle - amount : 0));
-        return (now_ > after_ ? now_ : after_) + tierPremiumBps[uint256(tier)];
+        uint256 borrowedAfter = claimNow + amount;
+        uint256 afterTwa = pool.rateAt(pool.utilizationFor(borrowedAfter, assetsEma > borrowedAfter ? assetsEma - borrowedAfter : 0));
+        if (now_ > r) r = now_;
+        if (after_ > r) r = after_;
+        if (afterTwa > r) r = afterTwa;
+        return r + tierPremiumBps[uint256(tier)];
     }
 
     /// @notice The most a stream can borrow now, before escrowing it.
@@ -495,7 +545,9 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         if (loan.status != Status.Active) return false;
         if (block.timestamp > uint256(loan.maturity) + gracePeriod) return true;
         if (loan.breachAt == 0 || block.timestamp < uint256(loan.breachAt) + cureWindow) return false;
-        if (_isHealthy(loanId, 0)) return false;
+        // Without a fresh price only maturity can liquidate.
+        (bool ok, uint256 debt, uint256 cv) = _tryHealth(loanId);
+        if (!ok || debt <= cv) return false;
         bool paydownOver = block.timestamp >= uint256(loan.breachAt) + cureWindow + paydownWindow;
         return paydownOver || _heldVested(loanId, loan) == 0;
     }
@@ -622,14 +674,17 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         return v > sch.consumed ? v - sch.consumed : 0;
     }
 
-    /// Healthy if debt · (1 + margin) ≤ CV_αℓ. Without a fresh price a loan counts as healthy:
-    /// only maturity can liquidate it then.
-    function _isHealthy(uint256 loanId, uint256 marginBps) internal view returns (bool) {
-        try this.health(loanId) returns (uint256 debt, uint256 cv) {
-            return Math.mulDiv(debt, BPS + marginBps, BPS) <= cv;
-        } catch {
-            return true;
-        }
+    /// Health, or ok = false when no fresh price exists. Callers decide what a missing price
+    /// means: `isLiquidatable` treats it as "not liquidatable"; nothing treats it as "healthy".
+    function _tryHealth(uint256 loanId) internal view returns (bool ok, uint256 debt, uint256 cv) {
+        Loan storage loan = loans[loanId];
+        try oracle.healthPrice(loan.token) returns (uint256 p) {
+            CreditEngineV2.Market memory m = _markets[loanId];
+            m.price = p;
+            debt = debtOf(loanId);
+            cv = engine.creditValue(_schedule(loanId, loan), block.timestamp, m, engine.liquidationCurve(loan.tier));
+            ok = true;
+        } catch {}
     }
 
     function _debt(Loan storage loan) internal view returns (uint256) {

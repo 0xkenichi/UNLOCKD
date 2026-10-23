@@ -115,15 +115,39 @@ contract CreditEngineV2 {
             x.sellBase = x.zs.mul(lY.sqrt()).sub(x.halfVar.mul(lY));
         }
 
-        // Token-weighted multiplier sum, in token base units.
+        // Token-weighted multiplier sum, in token base units. Consumed tokens (withdrawn before
+        // escrow, or sold in paydowns) are the earliest-vesting ones, so consumption is taken
+        // first from what has vested, then from the cliff lump, then from the start of the
+        // linear remainder. Only total − consumed tokens are ever valued.
         uint256 weighted;
         uint256 vNow = vestedAt(sch, t);
-        if (vNow > sch.consumed) weighted += _mult(x, 0).mulu(vNow - sch.consumed);
-        if (t < sch.cliff) weighted += _mult(x, sch.cliff - t).mulu(vestedAt(sch, sch.cliff));
+        uint256 left = sch.consumed;            // consumption still to allocate
+        if (vNow > left) {
+            weighted += _mult(x, 0).mulu(vNow - left);
+            left = 0;
+        } else {
+            left -= vNow;
+        }
+        if (t < sch.cliff) {
+            uint256 lump = vestedAt(sch, sch.cliff);
+            if (lump > left) {
+                weighted += _mult(x, sch.cliff - t).mulu(lump - left);
+                left = 0;
+            } else {
+                left -= lump;
+            }
+        }
         uint256 a = t > sch.cliff ? t : sch.cliff;
         if (a < sch.end) {
-            int128 avg = _linearAverage(x, a, sch.end, t);
-            weighted += avg.mulu(Math.mulDiv(sch.total, sch.end - a, sch.end - sch.start));
+            // The first `left` tokens of the linear remainder are gone: start the integral later.
+            uint256 remaining = Math.mulDiv(sch.total, sch.end - a, sch.end - sch.start);
+            if (remaining > left) {
+                if (left > 0) a += Math.mulDiv(left, sch.end - sch.start, sch.total);
+                if (a < sch.end) {
+                    int128 avg = _linearAverage(x, a, sch.end, t);
+                    weighted += avg.mulu(remaining - left);
+                }
+            }
         }
 
         uint256 scale = 10 ** uint256(m.decimals);

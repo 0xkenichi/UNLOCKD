@@ -61,21 +61,34 @@ export function creditValueOnchain(sched, t, market, curve, params = ONCHAIN_PAR
   const { price, sigma, adv, drag = 1 } = market;
   const L = params.latency;
   const m = (w) => mult(w, sigma, curve.z, curve.k, curve.blend, L);
+  // Consumed tokens are the earliest-vesting ones: taken first from what has vested, then from
+  // the cliff lump, then from the start of the linear remainder (found by the security review:
+  // an earlier version valued the whole total for streams recorded as one cliff at the end).
   const vNow = vestedAt(t, sched);
-  const held = Math.max(0, vNow - consumed);
-  let w = held * m(0);
-  if (t < cliff) w += vestedAt(cliff, sched) * m(cliff - t);
-  const a = Math.max(t, cliff);
+  let left = consumed;
+  let w = 0;
+  if (vNow > left) { w += (vNow - left) * m(0); left = 0; } else left -= vNow;
+  if (t < cliff) {
+    const lump = vestedAt(cliff, sched);
+    if (lump > left) { w += (lump - left) * m(cliff - t); left = 0; } else left -= lump;
+  }
+  let a = Math.max(t, cliff);
   if (a < end) {
-    // `panels` equal panels of 8 nodes each; the average multiplier over [a, end].
-    const P = params.panels;
-    const width = (end - a) / P;
-    let avg = 0;
-    for (let j = 0; j < P; j++) {
-      const lo = a + width * j;
-      for (let i = 0; i < 8; i++) avg += (GL_W[i] / 2 / P) * m(lo + (width / 2) * (GL_X[i] + 1) - t);
+    const remaining = (total * (end - a)) / (end - start);
+    if (remaining > left) {
+      if (left > 0) a += (left * (end - start)) / total;
+      if (a < end) {
+        // `panels` equal panels of 8 nodes each; the average multiplier over [a, end].
+        const P = params.panels;
+        const width = (end - a) / P;
+        let avg = 0;
+        for (let j = 0; j < P; j++) {
+          const lo = a + width * j;
+          for (let i = 0; i < 8; i++) avg += (GL_W[i] / 2 / P) * m(lo + (width / 2) * (GL_X[i] + 1) - t);
+        }
+        w += (remaining - left) * avg;
+      }
     }
-    w += ((total * (end - a)) / (end - start)) * avg;
   }
   const q = Math.max(0, total - consumed);
   const positionUsd = q * price;
