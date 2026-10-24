@@ -5,14 +5,18 @@
 /*
  * Deploy and wire the Vestra v2 loan book without Foundry: compile with solc, deploy with ethers.
  *
- *   node scripts/deploy-v2.mjs            # deploy to RPC_URL with PRIVATE_KEY
- *   node scripts/deploy-v2.mjs --dry-run  # the same steps on a local in-process chain (EDR)
+ *   node scripts/deploy-v2.mjs --new-wallet  # create a fresh deployer wallet; prints only its address
+ *   node scripts/deploy-v2.mjs               # deploy to Sepolia (or RPC_URL) with that wallet
+ *   node scripts/deploy-v2.mjs --dry-run     # the same steps on a local in-process chain (EDR)
+ *
+ * The deployer key is read from PRIVATE_KEY, else from PRIVATE_KEY_FILE, else from
+ * ~/.vestra/sepolia-deployer.key (written by --new-wallet, readable only by you). It is never
+ * printed or written anywhere else.
  *
  * Environment (same names as script/DeployV2.s.sol):
- *   RPC_URL         JSON-RPC endpoint (Sepolia)                     required unless --dry-run
- *   PRIVATE_KEY     deployer key; keeps every role unless GOVERNOR  required unless --dry-run
- *   SOLC            path to a solc 0.8.20 binary                    required
- *   USDC_ADDRESS    USDC or MockUSDC; deployed fresh if unset and DEPLOY_MOCKS=1
+ *   RPC_URL         JSON-RPC endpoint (default: a public Sepolia endpoint)
+ *   SOLC            path to a solc 0.8.20 binary (default: Hardhat's cached copy, if present)
+ *   USDC_ADDRESS    USDC or MockUSDC; on Sepolia, a MockUSDC and the demo setup are deployed if unset
  *   FEE_RECIPIENT   treasury (default: deployer)
  *   GUARDIAN        pause and Ω (default: deployer)
  *   RISK_POSTER     posts σ, volume, drag (default: deployer)
@@ -27,7 +31,8 @@
  * Private keys are read from the environment only and never written anywhere.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, chmodSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +42,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const require = createRequire(import.meta.url);
 const dryRun = process.argv.includes('--dry-run');
+const SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
+const KEY_FILE = process.env.PRIVATE_KEY_FILE || join(homedir(), '.vestra', 'sepolia-deployer.key');
+const MIN_BALANCE = 50_000_000_000_000_000n; // 0.05 ETH: the full deployment uses roughly 0.02–0.06 at Sepolia gas prices
 
 // ethers 6: from this package if installed, else from the apps in this repo.
 function loadEthers() {
@@ -58,7 +66,8 @@ function walk(dir, out = []) {
 }
 
 function compile() {
-  const solc = process.env.SOLC;
+  const cached = join(homedir(), 'Library', 'Caches', 'hardhat-nodejs', 'compilers-v2', 'macosx-amd64', 'solc-macosx-amd64-v0.8.20+commit.a1b79de6');
+  const solc = process.env.SOLC || (existsSync(cached) ? cached : null);
   if (!solc) throw new Error('set SOLC to a solc 0.8.20 binary');
   const files = walk(join(root, 'src')).filter((f) => !f.includes('/anchor/'));
   const sources = Object.fromEntries(files.map((f) => [f.slice(root.length + 1), { urls: [f.slice(root.length + 1)] }]));
@@ -137,23 +146,54 @@ async function localProvider() {
   return { provider: jsonRpc, signer: new ethers.NonceManager(new ethers.Wallet(key, jsonRpc)) };
 }
 
+// ── Wallet ───────────────────────────────────────────────────────────────────
+function newWallet() {
+  if (existsSync(KEY_FILE)) {
+    const w = new ethers.Wallet(readFileSync(KEY_FILE, 'utf8').trim());
+    console.log(`A deployer wallet already exists: ${w.address}`);
+    return;
+  }
+  mkdirSync(dirname(KEY_FILE), { recursive: true, mode: 0o700 });
+  const w = ethers.Wallet.createRandom();
+  writeFileSync(KEY_FILE, w.privateKey + '\n', { mode: 0o600 });
+  chmodSync(KEY_FILE, 0o600);
+  console.log(`New deployer wallet: ${w.address}`);
+  console.log(`Its key is in ${KEY_FILE} (readable only by you). Back it up if you want to keep the admin roles.`);
+  console.log('Fund it with about 0.1 Sepolia ETH from a faucet, then run this script without --new-wallet.');
+}
+
+function deployerKey() {
+  if (process.env.PRIVATE_KEY) return process.env.PRIVATE_KEY;
+  if (existsSync(KEY_FILE)) return readFileSync(KEY_FILE, 'utf8').trim();
+  throw new Error('no deployer key: run with --new-wallet first (or set PRIVATE_KEY)');
+}
+
 // ── Deploy ───────────────────────────────────────────────────────────────────
 async function main() {
-  const C = compile();
+  if (process.argv.includes('--new-wallet')) return newWallet();
   let provider, signer;
-  if (dryRun) ({ provider, signer } = await localProvider());
-  else {
-    if (!process.env.RPC_URL || !process.env.PRIVATE_KEY) throw new Error('set RPC_URL and PRIVATE_KEY (or use --dry-run)');
-    provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-    signer = new ethers.NonceManager(new ethers.Wallet(process.env.PRIVATE_KEY, provider));
+  if (!dryRun) {
+    // Check the wallet can pay before spending five minutes compiling.
+    provider = new ethers.JsonRpcProvider(process.env.RPC_URL || SEPOLIA_RPC);
+    const wallet = new ethers.Wallet(deployerKey(), provider);
+    const balance = await provider.getBalance(wallet.address);
+    if (balance < MIN_BALANCE) {
+      console.log(`Deployer ${wallet.address} has ${ethers.formatEther(balance)} ETH; it needs at least ${ethers.formatEther(MIN_BALANCE)}.`);
+      console.log('Fund it from a Sepolia faucet (for example https://cloud.google.com/application/web3/faucet/ethereum/sepolia or https://www.alchemy.com/faucets/ethereum-sepolia), then run this again.');
+      process.exitCode = 1;
+      return;
+    }
+    signer = new ethers.NonceManager(wallet);
   }
+  const C = compile();
+  if (dryRun) ({ provider, signer } = await localProvider());
   const deployer = await signer.getAddress();
   const { chainId } = await provider.getNetwork();
   const feeRecipient = process.env.FEE_RECIPIENT || deployer;
   const guardian = process.env.GUARDIAN || deployer;
   const poster = process.env.RISK_POSTER || deployer;
   const finalGovernor = process.env.GOVERNOR || null;
-  const mocks = dryRun || process.env.DEPLOY_MOCKS === '1';
+  const mocks = dryRun || process.env.DEPLOY_MOCKS === '1' || (!process.env.USDC_ADDRESS && chainId === 11155111n);
   console.log(`deployer ${deployer} on chain ${chainId}${dryRun ? ' (dry run)' : ''}`);
 
   const deployed = {};
