@@ -58,7 +58,14 @@ mean: `FINDINGS.md` §5, `data/FRONTIER.md`, `data/BACKTEST*.md`. Raw history is
 node --test test/proofs.test.js       # the theorems, on thousands of random draws (PROOF_SEED=n for fresh ones)
 node bin/fetch-unlocks.js             # documented unlock calendars, DefiLlama emissions dataset (no key)
 node bin/stress.js [--paths 160]      # the whole stress grid on every core; writes data/STRESS.md
+node bin/post-risk.js ARB [--send --token 0x…]   # the RiskOracle inputs (σ, volume, unlock drag) for a token
 ```
+
+`bin/post-risk.js` is the measurement layer the yellow paper describes: σ = max(30-day, 90-day,
+EWMA) from the Binance history, the median 30-day volume, and the unlock drag from the worst
+30-day unlock window anywhere inside the maximum loan term, so a loan opened today is priced for
+the heaviest unlock it can live through. With `--send` it calls `RiskOracle.postRisk` (needs
+`RPC_URL`, `PRIVATE_KEY`, `RISK_ORACLE`); run it daily from a keeper.
 
 `docs/RISK_PROOFS.md` (repo root) states each theorem the papers rely on and how it is proved.
 The theorems cover interest, time, vesting, accounting and settlement when the price does not

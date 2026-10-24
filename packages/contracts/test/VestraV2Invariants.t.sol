@@ -11,6 +11,7 @@ import "../src/v2/CreditEngineV2.sol";
 import "../src/v2/RiskOracle.sol";
 import "../src/v2/BackstopVault.sol";
 import "../src/v2/LoanManagerV2.sol";
+import "../src/v2/LoanLensV2.sol";
 import "../src/mocks/MockUSDC.sol";
 import "../src/mocks/MockProjectToken.sol";
 import "../src/mocks/MockPriceFeed.sol";
@@ -35,6 +36,7 @@ contract V2Handler is Test {
     RiskOracle public oracle;
     BackstopVault public backstop;
     LoanManagerV2 public manager;
+    LoanLensV2 public lens;
 
     address public governor;
     address public guardian;
@@ -60,6 +62,7 @@ contract V2Handler is Test {
     ) {
         usdc = _usdc; token = _token; feed = _feed; sablier = _sablier; adapter = _adapter; pool = _pool;
         insurance = _insurance; engine = _engine; oracle = _oracle; backstop = _backstop; manager = _manager;
+        lens = new LoanLensV2(_manager);
         governor = _governor; guardian = _guardian; poster = _poster; partner = _partner; buyer = _buyer;
         for (uint256 i = 0; i < 4; i++) borrowers.push(makeAddr(string(abi.encodePacked("borrower", i))));
     }
@@ -109,7 +112,7 @@ contract V2Handler is Test {
         );
         CreditEngineV2.Tier tier = optIn ? CreditEngineV2.Tier.OptIn : CreditEngineV2.Tier.Standard;
         uint256 maxB;
-        try manager.quoteMaxBorrow(VestingAdapter.Protocol.SABLIER_V2, address(sablier), id, 1_000e6, maturity, tier) returns (uint256 m, uint256) {
+        try lens.quoteMaxBorrow(VestingAdapter.Protocol.SABLIER_V2, address(sablier), id, 1_000e6, maturity, tier) returns (uint256 m, uint256) {
             maxB = m;
         } catch { reverts++; return; }
         uint256 amount = (maxB * bound(shareBps, 2000, 10_000)) / 10_000;

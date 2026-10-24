@@ -9,15 +9,18 @@ import "../governance/VestraAccessControl.sol";
 
 /**
  * @title  BackstopVault
- * @notice Partner first-loss capital, per token. The issuing project deposits USDC here; it
- *         repays lenders before the insurance fund or the lenders themselves take any loss.
+ * @notice Partner first-loss capital, per token. The issuing project deposits USDC here to enable
+ *         opt-in loans against its token; each opt-in loan locks 16% of its principal, and that
+ *         lock repays lenders before the insurance fund or the lenders themselves take any loss.
  *
- *         free     the partner's uncommitted balance for a token; the partner may withdraw it
- *         locked   committed to one open opt-in loan (16% of its principal); only that loan's
- *                  settlement can draw it, and it returns to `free` when the loan closes
+ *         free     the partner's uncommitted balance for a token: capacity for future opt-in
+ *                  loans, withdrawable by the partner at any time
+ *         locked   committed to one open opt-in loan; only that loan's settlement can draw it,
+ *                  and it returns to `free` when the loan closes
  *
- *         On a shortfall the loan's own lock pays first, then the token's free balance.
- *         Only the (set-once) loan manager can lock, unlock or draw.
+ *         A partner's exposure is therefore exactly the sum of its locks: a shortfall draws the
+ *         loan's own lock and nothing else. Standard loans are calibrated as unbacked and never
+ *         touch this vault. Only the (set-once) loan manager can lock, unlock or draw.
  */
 contract BackstopVault is VestraAccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -104,20 +107,17 @@ contract BackstopVault is VestraAccessControl, ReentrancyGuard {
         _unlock(loanId);
     }
 
-    /// @notice Pay up to `amount` toward a loan's shortfall: its lock first, then the token's free
-    ///         balance. Whatever is left of the lock returns to `free`.
+    /// @notice Pay up to `amount` toward a loan's shortfall from that loan's lock only. Whatever is
+    ///         left of the lock returns to the partner's free balance.
     function draw(uint256 loanId, address token, uint256 amount) external onlyLoanManager nonReentrant returns (uint256 paid) {
-        uint256 fromLock = lockedFor[loanId];
-        if (fromLock > amount) fromLock = amount;
-        if (fromLock > 0) {
-            lockedFor[loanId] -= fromLock;
-            lockedTotal[token] -= fromLock;
+        require(lockToken[loanId] == token || lockedFor[loanId] == 0, "token");
+        paid = lockedFor[loanId];
+        if (paid > amount) paid = amount;
+        if (paid > 0) {
+            lockedFor[loanId] -= paid;
+            lockedTotal[token] -= paid;
         }
-        uint256 fromFree = amount - fromLock;
-        if (fromFree > free[token]) fromFree = free[token];
-        free[token] -= fromFree;
         _unlock(loanId);
-        paid = fromLock + fromFree;
         if (paid > 0) usdc.safeTransfer(msg.sender, paid);
         emit Drawn(loanId, token, amount, paid);
     }

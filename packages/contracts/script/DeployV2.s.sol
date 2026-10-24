@@ -11,6 +11,7 @@ import "../src/v2/CreditEngineV2.sol";
 import "../src/v2/RiskOracle.sol";
 import "../src/v2/BackstopVault.sol";
 import "../src/v2/LoanManagerV2.sol";
+import "../src/v2/LoanLensV2.sol";
 
 /**
  * @notice Deploys and wires the Vestra v2 loan book: its own pool, adapter, insurance vault,
@@ -53,6 +54,8 @@ contract DeployV2 is Script {
             IInsuranceVaultV2(address(insurance)), feeRecipient, deployer
         );
 
+        LoanLensV2 lens = new LoanLensV2(manager);
+
         // One-time wiring — cannot be changed afterwards.
         adapter.setLoanManager(address(manager));
         pool.setLoanManager(address(manager));
@@ -83,6 +86,7 @@ contract DeployV2 is Script {
         console2.log("RiskOracle      ", address(oracle));
         console2.log("BackstopVault   ", address(backstop));
         console2.log("LoanManagerV2   ", address(manager));
+        console2.log("LoanLensV2      ", address(lens));
     }
 
     function _handOver(address target, address governor, address deployer) internal {

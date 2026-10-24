@@ -104,15 +104,19 @@ other wallet assets, veCRDT revenue distribution, community pools, staking.
 # v2 loan book (`src/v2/`)
 
 v2 is the yellow paper's model, calibrated by the stress test (`packages/risk/bin/stress.js`). It is a
-separate deployment (`script/DeployV2.s.sol`): its own pool, adapter, insurance vault, credit engine, risk
-oracle, backstop vault and loan manager. v1 stays as it is.
+separate deployment: its own pool, adapter, insurance vault, credit engine, risk oracle, backstop vault and
+loan manager. v1 stays as it is. Deploy with `script/DeployV2.s.sol` (Foundry) or, without Foundry,
+`node scripts/deploy-v2.mjs` (solc + ethers; `--dry-run` replays the whole deployment on a local in-process
+chain first, `DEPLOY_MOCKS=1` also sets up a demo token, feed and stream). The daily risk inputs come from
+`packages/risk/bin/post-risk.js`.
 
 | Contract | Role |
 |---|---|
 | `CreditEngineV2` | Stateless. Values a Lockup Linear schedule as a cliff lump plus linear vesting. Uses two 8-point Gauss–Legendre panels, a confidence quantile that widens with σ√τ, an optional sale value (blend mode), and a position-level liquidity cost. Also computes the borrowing limit with the 4-interval drift cap. |
 | `RiskOracle` | Measures prices on-chain (Chainlink spot and a TWAP over its rounds). Stores bounded risk inputs (σ, median volume, unlock drag) posted by `RISK_POSTER_ROLE`, which expire after 2 days. Ω cuts apply at once; raises are capped at +5 points and wait 24 h. |
-| `BackstopVault` | Partner first-loss capital per token. Opt-in loans lock 16% of their principal here. On a shortfall, the loan's lock pays first, then the token's free balance. The partner can withdraw only unlocked funds. |
+| `BackstopVault` | Partner first-loss capital per token. Opt-in loans lock 16% of their principal here, and a shortfall draws only that loan's lock; standard loans are unbacked and never touch it. The partner can withdraw unlocked funds at any time, so its exposure is exactly the sum of its locks. |
 | `LoanManagerV2` | Runs both tiers, fixed-rate simple interest and the resolution ladder. Splits each loss across the backstop, insurance and lenders. Holds the per-token exposure cap. |
+| `LoanLensV2` | Read-only helpers for apps and keepers: `quoteMaxBorrow` for a stream not yet escrowed, and `status` (debt, credit value, liquidatable). Kept out of the loan manager, which sits at 24.3 KB against the 24,576-byte limit; `scripts/deploy-v2.mjs` refuses to deploy anything over it. |
 | `VestingAdapter` (shared code, new functions) | `schedule()` and `previewSchedule()` read start, cliff and end. `transferVested()` hands vested escrow tokens to a paydown buyer. Streams that are not Lockup Linear are recorded as one cliff at the end, which values them conservatively. |
 
 ## Tiers (`CreditEngineV2`, `packages/risk/src/tiers.js`)
@@ -167,7 +171,8 @@ lends more than the proven model (`packages/risk/src/v2.js`) across 3,000 random
   every action with six invariants re-checked after each). `docs/RISK_REGISTER.md` maps each risk to its test.
 * **Settlement**:
   * A surplus goes to the borrower (`claim`).
-  * A shortfall is drawn from the backstop first, then the insurance fund, then lenders through the share price.
+  * A shortfall is drawn from the loan's backstop lock first (opt-in loans only), then the insurance fund, then
+    lenders through the share price.
   * Defaulted streams go to the partner or a bidder as a locked stream, never as tokens on an exchange.
 * **Lender accounting**: `lenderClaim()` is computed in O(1) from Σ P, Σ unpaid interest, Σ P·r and Σ P·r·t.
   It covers principal plus interest net of the 10% reserve factor, plus the marked value of loans in auction.

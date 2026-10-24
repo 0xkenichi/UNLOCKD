@@ -11,6 +11,7 @@ import "../src/v2/CreditEngineV2.sol";
 import "../src/v2/RiskOracle.sol";
 import "../src/v2/BackstopVault.sol";
 import "../src/v2/LoanManagerV2.sol";
+import "../src/v2/LoanLensV2.sol";
 import "../src/mocks/MockUSDC.sol";
 import "../src/mocks/MockProjectToken.sol";
 import "../src/mocks/MockPriceFeed.sol";
@@ -137,6 +138,7 @@ contract LoanManagerV2Test is Test {
     RiskOracle oracle;
     BackstopVault backstop;
     LoanManagerV2 manager;
+    LoanLensV2 lens;
 
     address governor = makeAddr("governor");
     address guardian = makeAddr("guardian");
@@ -170,6 +172,7 @@ contract LoanManagerV2Test is Test {
             IERC20(address(usdc)), ILendingPoolV2(address(pool)), adapter, engine, oracle, backstop,
             IInsuranceVaultV2(address(insurance)), treasury, governor
         );
+        lens = new LoanLensV2(manager);
 
         vm.startPrank(governor);
         adapter.setWhitelisted(VestingAdapter.Protocol.SABLIER_V2, address(sablier), true);
@@ -228,7 +231,7 @@ contract LoanManagerV2Test is Test {
     }
 
     function _maxFor(uint256 id, uint256 maturity, CreditEngineV2.Tier tier) internal view returns (uint256 maxB) {
-        (maxB, ) = manager.quoteMaxBorrow(VestingAdapter.Protocol.SABLIER_V2, address(sablier), id, 1_000e6, maturity, tier);
+        (maxB, ) = lens.quoteMaxBorrow(VestingAdapter.Protocol.SABLIER_V2, address(sablier), id, 1_000e6, maturity, tier);
     }
 
     function _borrow(uint256 id, uint256 amount, uint256 maturity, CreditEngineV2.Tier tier) internal returns (uint256 loanId) {
@@ -533,13 +536,12 @@ contract LoanManagerV2Test is Test {
         vm.stopPrank();
 
         assertEq(backstop.lockedFor(loanId), 0);
-        assertEq(backstop.free(address(token)), 0, "the loan's lock and the free backstop both paid");
+        assertEq(backstop.free(address(token)), 10_000e6 - locked, "only the loan's lock paid; the rest stays the partner's");
         assertEq(usdc.balanceOf(address(insurance)), 0, "then insurance");
-        // Lenders lose only what the sale, the whole backstop ($10k) and insurance ($1k) did not cover.
-        assertEq(manager.totalLosses(), claimValue - price - 11_000e6, "lenders take only what is left");
+        // Lenders lose only what the sale, the lock (16% of principal) and insurance ($1k) did not cover.
+        assertEq(manager.totalLosses(), claimValue - price - locked - 1_000e6, "lenders take only what is left");
         assertGt(manager.totalLosses(), 0);
-        assertGt(locked, 0);
-        assertGt(principal, 11_000e6);
+        assertEq(locked, (principal * 1600 + 9999) / 10_000);
         assertEq(manager.claimable(borrower), 0);
     }
 
@@ -631,7 +633,7 @@ contract LoanManagerV2Test is Test {
         generic.withdraw(id, 990_000e18); // the first tranche is gone before escrow
 
         uint256 maturity = block.timestamp + 29 days;
-        (uint256 maxB, ) = manager.quoteMaxBorrow(VestingAdapter.Protocol.GENERIC_ERC721, address(generic), id, 1_000e6, maturity, STD);
+        (uint256 maxB, ) = lens.quoteMaxBorrow(VestingAdapter.Protocol.GENERIC_ERC721, address(generic), id, 1_000e6, maturity, STD);
         assertLt(maxB, 10_000e6, "only the 10,000 tokens left can back the loan");
         assertGt(maxB, 5_000e6, "and they do back something");
 
@@ -733,5 +735,27 @@ contract LoanManagerV2Test is Test {
         manager.paydown(loanId, 5_000e18, type(uint256).max);
         vm.stopPrank();
         assertEq(token.balanceOf(buyer), 5_000e18);
+    }
+
+    /// A standard loan is unbacked: its shortfall never touches the partner's capital.
+    function test_Review_StandardLoanNeverDrawsTheBackstop() public {
+        _fundBackstop(100_000e6);
+        uint256 id = _stream(365, 365);
+        uint256 maturity = block.timestamp + 360 days;
+        uint256 loanId = _borrow(id, _maxFor(id, maturity, STD), maturity, STD);
+        _setPrice(0.02e8);
+        manager.flagBreach(loanId);
+        vm.warp(block.timestamp + 2 days + 1);
+        feed.setPrice(0.02e8);
+        manager.startLiquidation(loanId);
+        vm.warp(block.timestamp + 72 hours + 3 days + 1);
+        uint256 price = manager.currentPrice(loanId);
+        usdc.mint(buyer, price);
+        vm.startPrank(buyer);
+        usdc.approve(address(manager), price);
+        manager.bid(loanId, price);
+        vm.stopPrank();
+        assertEq(backstop.free(address(token)), 100_000e6, "partner capital untouched");
+        assertGt(manager.totalLosses(), 0, "the loss fell on insurance and lenders");
     }
 }

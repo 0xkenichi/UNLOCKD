@@ -43,7 +43,7 @@ interface IInsuranceVaultV2 {
  *                 buy vested escrow tokens below the health price, within a daily volume cap)
  *                 → startLiquidation → partner right of first refusal → Dutch auction from the
  *                 fair value down to a floor at CV_αℓ, restarting with a lower floor.
- *   Losses        backstop (loan's lock, then the token's free backstop) → insurance → lenders.
+ *   Losses        opt-in: the loan's backstop lock → insurance → lenders; standard: insurance → lenders.
  *
  *   Repay, breach handling, paydown, liquidation and bidding are never pausable.
  */
@@ -118,7 +118,7 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     }
 
     uint256 public nextLoanId = 1;
-    mapping(uint256 => Loan) public loans;
+    mapping(uint256 => Loan) internal loans;
     mapping(uint256 => CreditEngineV2.Schedule) internal _schedules;   // consumed = withdrawn at escrow
     mapping(uint256 => CreditEngineV2.Market) internal _markets;       // frozen at origination (price unused)
     mapping(uint256 => Auction) public auctions;
@@ -511,18 +511,7 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         return r + tierPremiumBps[uint256(tier)];
     }
 
-    /// @notice The most a stream can borrow now, before escrowing it.
-    function quoteMaxBorrow(VestingAdapter.Protocol protocol, address nftContract, uint256 streamId, uint256 amount, uint256 maturity, CreditEngineV2.Tier tier)
-        external
-        view
-        returns (uint256 maxB, uint256 rateBps)
-    {
-        (address token, uint64 start, uint64 cliff, uint64 end, uint256 total, uint256 withdrawn) =
-            adapter.previewSchedule(protocol, nftContract, streamId);
-        CreditEngineV2.Schedule memory sch = CreditEngineV2.Schedule(start, cliff, end, total, withdrawn);
-        rateBps = quoteRate(amount, tier);
-        maxB = engine.maxBorrow(sch, block.timestamp, maturity, rateBps, oracle.originationMarket(token), tier, oracle.omega(token));
-    }
+    // Quotes for streams not yet escrowed live in LoanLensV2.quoteMaxBorrow.
 
     function debtOf(uint256 loanId) public view returns (uint256) {
         Loan storage loan = loans[loanId];
@@ -533,11 +522,7 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
 
     /// @notice Debt and liquidation credit value now. Reverts if there is no fresh health price.
     function health(uint256 loanId) public view returns (uint256 debt, uint256 cv) {
-        Loan storage loan = loans[loanId];
-        debt = debtOf(loanId);
-        CreditEngineV2.Market memory m = _markets[loanId];
-        m.price = oracle.healthPrice(loan.token);
-        cv = engine.creditValue(_schedule(loanId, loan), block.timestamp, m, engine.liquidationCurve(loan.tier));
+        return _healthAt(loanId, oracle.healthPrice(loans[loanId].token));
     }
 
     function isLiquidatable(uint256 loanId) public view returns (bool) {
@@ -566,10 +551,6 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         return loans[loanId];
     }
 
-    function scheduleOf(uint256 loanId) external view returns (CreditEngineV2.Schedule memory) {
-        return _schedule(loanId, loans[loanId]);
-    }
-
     function loansOf(address borrower) external view returns (uint256[] memory) {
         return _loansByBorrower[borrower];
     }
@@ -578,15 +559,11 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     // Governance (bounded)
     // ─────────────────────────────────────────────────────────────────────────
 
-    function setFeeRecipient(address r) external onlyGovernor {
-        require(r != address(0), "zero");
-        feeRecipient = r;
-    }
-
-    function setFees(uint256 originationBps, uint256 reserveBps) external onlyGovernor {
-        require(originationBps <= 300 && reserveBps <= 5000, "fees");
+    function setFees(uint256 originationBps, uint256 reserveBps, address recipient) external onlyGovernor {
+        require(originationBps <= 300 && reserveBps <= 5000 && recipient != address(0), "fees");
         originationFeeBps = originationBps;
         reserveFactorBps = reserveBps;
+        feeRecipient = recipient;
         emit ParamUpdated("fees", originationBps);
     }
 
@@ -677,14 +654,18 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
     /// Health, or ok = false when no fresh price exists. Callers decide what a missing price
     /// means: `isLiquidatable` treats it as "not liquidatable"; nothing treats it as "healthy".
     function _tryHealth(uint256 loanId) internal view returns (bool ok, uint256 debt, uint256 cv) {
-        Loan storage loan = loans[loanId];
-        try oracle.healthPrice(loan.token) returns (uint256 p) {
-            CreditEngineV2.Market memory m = _markets[loanId];
-            m.price = p;
-            debt = debtOf(loanId);
-            cv = engine.creditValue(_schedule(loanId, loan), block.timestamp, m, engine.liquidationCurve(loan.tier));
+        try oracle.healthPrice(loans[loanId].token) returns (uint256 p) {
+            (debt, cv) = _healthAt(loanId, p);
             ok = true;
         } catch {}
+    }
+
+    function _healthAt(uint256 loanId, uint256 price) internal view returns (uint256 debt, uint256 cv) {
+        Loan storage loan = loans[loanId];
+        CreditEngineV2.Market memory m = _markets[loanId];
+        m.price = price;
+        debt = debtOf(loanId);
+        cv = engine.creditValue(_schedule(loanId, loan), block.timestamp, m, engine.liquidationCurve(loan.tier));
     }
 
     function _debt(Loan storage loan) internal view returns (uint256) {
@@ -766,7 +747,8 @@ contract LoanManagerV2 is VestraAccessControl, ReentrancyGuard, Pausable {
         uint256 fromInsurance;
         if (toDebt < a.debt) {
             uint256 shortfall = a.debt - toDebt;
-            fromBackstop = backstop.draw(loanId, loan.token, shortfall);
+            // Only an opt-in loan has a backstop: its own lock, and nothing else of the partner's.
+            if (loan.tier == CreditEngineV2.Tier.OptIn) fromBackstop = backstop.draw(loanId, loan.token, shortfall);
             if (fromBackstop < shortfall) fromInsurance = insurance.cover(shortfall - fromBackstop);
         } else if (loan.tier == CreditEngineV2.Tier.OptIn) {
             backstop.unlock(loanId);
